@@ -12,6 +12,8 @@ await Promise.all([
   mkdir(looseMediaRoot, { recursive: true }),
   mkdir(path.join(mediaRoot, "Anime"), { recursive: true }),
   mkdir(path.join(mediaRoot, "Comic"), { recursive: true }),
+  mkdir(path.join(mediaRoot, "Comic", "Junji Ito", "Tomie"), { recursive: true }),
+  mkdir(path.join(mediaRoot, "Comic", "Junji Ito", "Uzumaki"), { recursive: true }),
   mkdir(path.join(mediaRoot, "Novel"), { recursive: true }),
   mkdir(path.join(mediaRoot, "Misc"), { recursive: true }),
   mkdir(path.join(mediaRoot, "Game"), { recursive: true }),
@@ -26,6 +28,9 @@ await Promise.all([
   writeFile(path.join(mediaRoot, "Anime", "episode 10.mkv"), "Genzo end-to-end scan fixture.\n"),
   writeFile(path.join(mediaRoot, "Anime", "pending anime.mkv"), "Genzo unassigned media fixture.\n"),
   writeFile(path.join(mediaRoot, "Comic", "volume 2.cbz"), "Genzo end-to-end scan fixture.\n"),
+  writeFile(path.join(mediaRoot, "Comic", "Junji Ito", "Tomie", "001.jpg"), "Genzo nested comic fixture.\n"),
+  writeFile(path.join(mediaRoot, "Comic", "Junji Ito", "Tomie", "002.jpg"), "Genzo nested comic fixture.\n"),
+  writeFile(path.join(mediaRoot, "Comic", "Junji Ito", "Uzumaki", "001.jpg"), "Genzo nested comic fixture.\n"),
   writeFile(path.join(mediaRoot, "Novel", "story.epub"), "Genzo end-to-end scan fixture.\n"),
   writeFile(path.join(mediaRoot, "Misc", "reference.nfo"), "Genzo end-to-end scan fixture.\n"),
 ]);
@@ -63,8 +68,8 @@ if (!root) {
 }
 
 const firstScan = await invoke("scan_library_root", { id: root.id });
-if (firstScan.discoveredCount !== 7) {
-  throw new Error(`Expected 7 fixture files, found ${firstScan.discoveredCount}.`);
+if (firstScan.discoveredCount !== 10) {
+  throw new Error(`Expected 10 fixture files, found ${firstScan.discoveredCount}.`);
 }
 const secondScan = await invoke("scan_library_root", { id: root.id });
 if (secondScan.addedCount !== 0 || secondScan.updatedCount !== 0) {
@@ -108,6 +113,12 @@ const looseMediaGroups = (await invoke("list_unassigned_media_groups")).filter(
 );
 if (looseMediaGroups.length !== 3 || looseMediaGroups.some((group) => group.fileCount !== 1)) {
   throw new Error(`Unrelated loose media files were grouped together: ${JSON.stringify(looseMediaGroups)}`);
+}
+const nestedComicGroups = (await invoke("list_unassigned_media_groups")).filter(
+  (group) => group.folderPath?.toLocaleLowerCase().includes(path.join("Comic", "Junji Ito").toLocaleLowerCase()),
+);
+if (nestedComicGroups.length !== 2 || nestedComicGroups.map((group) => group.fileCount).sort().join(",") !== "1,2") {
+  throw new Error(`Nested comic folders were not split into leaf groups: ${JSON.stringify(nestedComicGroups)}`);
 }
 
 const workDefinitions = [
@@ -280,6 +291,8 @@ async function assertNoHorizontalOverflow(label) {
 
 await mkdir(screenshots, { recursive: true });
 await page.setViewportSize({ width: 1366, height: 768 });
+await setRoute("#/settings");
+await page.getByRole("radio", { name: "深色" }).click();
 await setRoute("#/");
 await page.waitForSelector(".seanime-home");
 await page.waitForSelector(".window-titlebar");
@@ -319,12 +332,24 @@ await invoke("plugin:window|unminimize", { label: "main" });
 await page.waitForTimeout(250);
 await assertNoHorizontalOverflow("home 1366x768");
 await page.screenshot({ path: path.join(screenshots, "genzo-home-1366x768.png") });
+const homeCardWidth1366 = (await page.locator(".seanime-episode-card").first().boundingBox())?.width ?? 0;
 
 await page.setViewportSize({ width: 1920, height: 1080 });
+await setRoute("#/");
+await assertNoHorizontalOverflow("home 1920x1080");
+const homeCardWidth1920 = (await page.locator(".seanime-episode-card").first().boundingBox())?.width ?? 0;
+if (homeCardWidth1366 > 365 || homeCardWidth1920 > 365 || Math.abs(homeCardWidth1920 - homeCardWidth1366) > 2) {
+  throw new Error(`Home cards scaled with the window: 1366=${homeCardWidth1366}, 1920=${homeCardWidth1920}.`);
+}
+await page.screenshot({ path: path.join(screenshots, "genzo-home-1920x1080.png") });
+
 await setRoute("#/library");
 await page.getByLabel("海报网格").click();
 await page.mouse.move(1200, 760);
 await page.waitForSelector(".work-card");
+if ((await page.getByLabel("待整理内容排序").inputValue()) !== "status") {
+  throw new Error("Unassigned content did not default to recognition-status sorting.");
+}
 const pendingRow = page.locator(".unassigned-row").filter({
   has: page.locator("strong").getByText("Anime", { exact: true }),
 });
@@ -397,6 +422,7 @@ console.log(JSON.stringify({
     groups: looseMediaGroups.length,
     filesPerGroup: looseMediaGroups.map((group) => group.fileCount),
   },
+  nestedComicGroups: nestedComicGroups.map((group) => ({ title: group.title, files: group.fileCount })),
   works: works.length,
   files: works.reduce((sum, item) => sum + item.mediaCount, 0),
   screenshots,

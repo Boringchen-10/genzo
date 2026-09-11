@@ -51,6 +51,7 @@ const screenshots = path.resolve("artifacts", "screenshots");
 await mkdir(screenshots, { recursive: true });
 const cases = [
   ["home", "#/", 1366, 768, ".seanime-home"],
+  ["home-wide", "#/", 1920, 1080, ".seanime-home"],
   ["library", "#/library", 1920, 1080, ".work-card"],
   ["library-compact", "#/library", 1024, 640, ".unassigned-row"],
   ["detail", "#/library/1", 1024, 640, ".file-row"],
@@ -62,7 +63,7 @@ const cases = [
 const reports = [];
 for (const [name, route, width, height, selector] of cases) {
   await page.setViewportSize({ width, height });
-  await page.goto(`http://127.0.0.1:4175/${route}`, { waitUntil: "networkidle" });
+  await page.goto(`http://127.0.0.1:4175/?preview=theme${route}`, { waitUntil: "networkidle" });
   await page.waitForSelector(selector);
   if (name === "library-compact") {
     await page.locator(".unassigned-actions button").first().click();

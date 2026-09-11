@@ -25,6 +25,12 @@ fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
         if let Ok(relative) = media_path.strip_prefix(root) {
             let components: Vec<_> = relative.components().collect();
             if components.len() >= 2 {
+                if media.media_type == "comic" {
+                    return comic_identity(media);
+                }
+                if matches!(media.media_type.as_str(), "novel" | "other") {
+                    return file_identity(media);
+                }
                 let folder = root.join(components[0].as_os_str());
                 return GroupIdentity {
                     key: format!("folder:{}", normalized_key(&folder)),
@@ -52,7 +58,32 @@ fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
     file_identity(media)
 }
 
+fn comic_identity(media: &MediaFile) -> GroupIdentity {
+    if !matches!(
+        media.extension.to_ascii_lowercase().as_str(),
+        "jpg" | "jpeg" | "png" | "webp" | "avif"
+    ) {
+        return file_identity(media);
+    }
+
+    let media_path = Path::new(&media.path);
+    let Some(parent) = media_path.parent() else {
+        return file_identity(media);
+    };
+    GroupIdentity {
+        key: format!("comic-folder:{}", normalized_key(parent)),
+        folder_path: Some(parent.to_string_lossy().to_string()),
+        title: parent
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| media.file_name.clone()),
+    }
+}
+
 fn direct_file_identity(media: &MediaFile, root: &Path) -> GroupIdentity {
+    if media.media_type == "comic" {
+        return comic_identity(media);
+    }
     if media.media_type != "video" {
         return file_identity(media);
     }
@@ -345,5 +376,70 @@ mod tests {
 
         assert_eq!(groups.len(), 2);
         assert!(groups.iter().all(|group| group.file_count == 1));
+    }
+
+    #[tokio::test]
+    async fn splits_nested_comic_collection_by_leaf_folder() {
+        let pool = db::test_pool().await.expect("create database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('root', 'C:\\Library', 'mixed', 1, ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert root");
+        for (id, path, name) in [
+            ("1", "C:\\Library\\Junji Ito\\Tomie\\001.jpg", "001.jpg"),
+            ("2", "C:\\Library\\Junji Ito\\Tomie\\002.jpg", "002.jpg"),
+            ("3", "C:\\Library\\Junji Ito\\Uzumaki\\001.jpg", "001.jpg"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, 'jpg', 'comic', ?, ?)")
+                .bind(id).bind(path).bind(name).bind(&now).bind(&now).execute(&pool).await.expect("insert media");
+        }
+
+        let groups = list_unassigned_groups(&pool).await.expect("list groups");
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].title, "Tomie");
+        assert_eq!(groups[0].file_count, 2);
+        assert_eq!(groups[1].title, "Uzumaki");
+        assert_eq!(groups[1].file_count, 1);
+    }
+
+    #[tokio::test]
+    async fn keeps_nested_comic_archives_as_individual_items() {
+        let pool = db::test_pool().await.expect("create database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('root', 'C:\\Library', 'comic', 1, ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert root");
+        for (id, path, name) in [
+            ("1", "C:\\Library\\Collection\\Tomie.cbz", "Tomie.cbz"),
+            ("2", "C:\\Library\\Collection\\Uzumaki.cbz", "Uzumaki.cbz"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, 'cbz', 'comic', ?, ?)")
+                .bind(id).bind(path).bind(name).bind(&now).bind(&now).execute(&pool).await.expect("insert media");
+        }
+
+        let groups = list_unassigned_groups(&pool).await.expect("list groups");
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.file_count == 1));
+    }
+
+    #[tokio::test]
+    async fn groups_images_when_the_comic_folder_is_the_scan_root() {
+        let pool = db::test_pool().await.expect("create database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('root', 'C:\\Comics\\Tomie', 'comic', 1, ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert root");
+        for (id, path, name) in [
+            ("1", "C:\\Comics\\Tomie\\001.jpg", "001.jpg"),
+            ("2", "C:\\Comics\\Tomie\\002.jpg", "002.jpg"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, 'jpg', 'comic', ?, ?)")
+                .bind(id).bind(path).bind(name).bind(&now).bind(&now).execute(&pool).await.expect("insert media");
+        }
+
+        let groups = list_unassigned_groups(&pool).await.expect("list groups");
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].title, "Tomie");
+        assert_eq!(groups[0].file_count, 2);
     }
 }

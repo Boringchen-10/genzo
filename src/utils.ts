@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { MediaType, RootKind, WorkStatus } from "./types";
+import type { MediaType, RecognitionStatus, RootKind, WorkStatus } from "./types";
 
 export const mediaLabels: Record<MediaType, string> = {
   video: "动漫",
@@ -25,6 +25,13 @@ export const rootKindLabels: Record<RootKind, string> = {
   game: "游戏",
   mixed: "混合目录",
 };
+
+export function unassignedStatusRank(status: RecognitionStatus, missingCount: number, fileCount: number): number {
+  if (missingCount >= fileCount) return 3;
+  if (status === "candidate_pending") return 0;
+  if (status === "error") return 1;
+  return 2;
+}
 
 export function formatDate(value: string | null): string {
   if (!value) return "从未";

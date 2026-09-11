@@ -9,10 +9,11 @@ import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { usePreferences, useToasts } from "../store";
 import type { MediaType, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
-import { formatDate, formatSize, getErrorMessage, mediaLabels } from "../utils";
+import { formatDate, formatSize, getErrorMessage, mediaLabels, unassignedStatusRank } from "../utils";
 
 type Scope = "all" | "recent" | "favorites" | "missing";
 type SortKey = "title" | "createdAt" | "updatedAt";
+type UnassignedSortKey = "status" | "title" | "fileCount";
 
 export function LibraryPage() {
   const navigate = useNavigate();
@@ -28,6 +29,7 @@ export function LibraryPage() {
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [tag, setTag] = useState("all");
   const [sort, setSort] = useState<SortKey>("updatedAt");
+  const [unassignedSort, setUnassignedSort] = useState<UnassignedSortKey>("status");
   const [showCreate, setShowCreate] = useState(false);
   const [organizingGroup, setOrganizingGroup] = useState<UnassignedMediaGroup | null>(null);
   const [saving, setSaving] = useState(false);
@@ -77,8 +79,13 @@ export function LibraryPage() {
       .filter((group) => !normalizedSearch || group.title.toLocaleLowerCase("zh-CN").includes(normalizedSearch) || (group.folderPath ?? group.representative.path).toLocaleLowerCase("zh-CN").includes(normalizedSearch))
       .filter((group) => mediaType === "all" || group.mediaType === mediaType)
       .filter(() => !favoriteOnly && tag === "all")
-      .filter((group) => scope === "all" || (scope === "missing" && group.missingCount > 0) || (scope === "recent" && new Date(group.representative.createdAt).getTime() >= recentThreshold));
-  }, [unassignedGroups, search, mediaType, favoriteOnly, tag, scope]);
+      .filter((group) => scope === "all" || (scope === "missing" && group.missingCount > 0) || (scope === "recent" && new Date(group.representative.createdAt).getTime() >= recentThreshold))
+      .sort((left, right) => {
+        if (unassignedSort === "fileCount") return right.fileCount - left.fileCount || left.title.localeCompare(right.title, "zh-CN", { numeric: true });
+        if (unassignedSort === "title") return left.title.localeCompare(right.title, "zh-CN", { numeric: true });
+        return unassignedStatusRank(left.recognitionStatus, left.missingCount, left.fileCount) - unassignedStatusRank(right.recognitionStatus, right.missingCount, right.fileCount) || left.title.localeCompare(right.title, "zh-CN", { numeric: true });
+      });
+  }, [unassignedGroups, search, mediaType, favoriteOnly, tag, scope, unassignedSort]);
   const visibleUnassigned = filteredUnassigned.slice(0, unassignedLimit);
   const unassignedFileCount = filteredUnassigned.reduce((total, group) => total + group.fileCount, 0);
 
@@ -178,6 +185,11 @@ export function LibraryPage() {
         <section className="unassigned-section">
           <div className="section-heading">
             <div><h2>待整理内容</h2><span>{filteredUnassigned.length} 个目录或散文件，共 {unassignedFileCount} 个媒体文件；目录内文件会一起整理。</span></div>
+            <select className="unassigned-sort" value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as UnassignedSortKey)} aria-label="待整理内容排序">
+              <option value="status">按识别状态</option>
+              <option value="title">按标题</option>
+              <option value="fileCount">按文件数量</option>
+            </select>
           </div>
           <div className="unassigned-table">
             <div className="unassigned-head"><span>目录或文件</span><span>类型</span><span>内容</span><span>识别状态</span><span>操作</span></div>
