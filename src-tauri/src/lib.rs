@@ -1,0 +1,69 @@
+mod anime_parser;
+mod bangumi;
+mod commands;
+mod db;
+mod error;
+mod grouping;
+mod launcher;
+mod metadata;
+mod models;
+mod scanner;
+mod window_style;
+
+use tauri::Manager;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let state = tauri::async_runtime::block_on(db::initialize(app.handle()))
+                .map_err(|error| format!("Genzo 无法初始化本地数据库。{error}"))?;
+            app.manage(state);
+            if let Some(window) = app.get_webview_window("main") {
+                window_style::apply(&window);
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::list_works,
+            commands::get_work,
+            commands::create_work,
+            commands::create_work_from_media,
+            commands::update_work,
+            commands::delete_work,
+            commands::list_unassigned_media,
+            commands::list_unassigned_media_groups,
+            commands::attach_media_file,
+            commands::detach_media_file,
+            commands::import_cover,
+            commands::list_library_roots,
+            commands::add_library_root,
+            commands::update_library_root,
+            commands::delete_library_root,
+            commands::scan_library_root,
+            commands::list_scan_jobs,
+            commands::list_external_tools,
+            commands::create_external_tool,
+            commands::update_external_tool,
+            commands::delete_external_tool,
+            commands::detect_external_tools,
+            commands::test_external_tool,
+            commands::launch_media,
+            commands::open_media_directory,
+            commands::get_dashboard,
+            commands::get_app_info,
+            commands::open_data_directory,
+            commands::get_setting,
+            commands::set_setting,
+            commands::recognize_media_file,
+            commands::recognize_unmatched_media,
+            commands::list_match_candidates,
+            commands::confirm_match_candidate,
+            commands::cancel_match_candidates,
+            commands::set_work_field_lock,
+            window_style::window_material_supported,
+        ])
+        .run(tauri::generate_context!())
+        .expect("failed to run Genzo");
+}

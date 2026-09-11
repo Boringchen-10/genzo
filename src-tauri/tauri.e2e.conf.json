@@ -1,0 +1,17 @@
+{
+  "identifier": "com.genzo.desktop.e2e",
+  "app": {
+    "windows": [
+      {
+        "title": "Genzo E2E",
+        "width": 1366,
+        "height": 768,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "additionalBrowserArgs": "--remote-debugging-port=9223",
+        "resizable": true,
+        "center": true
+      }
+    ]
+  }
+}

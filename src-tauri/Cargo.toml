@@ -1,0 +1,37 @@
+[package]
+name = "genzo"
+version = "0.2.0"
+description = "Genzo - 你的私人次元媒体库"
+authors = ["Genzo contributors"]
+edition = "2021"
+license = "GPL-3.0-only"
+
+[lib]
+name = "genzo_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "chrono"] }
+tokio = { version = "1", features = ["fs", "macros", "sync", "rt-multi-thread"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+walkdir = "2"
+natord = "1"
+dunce = "1"
+thiserror = "2"
+regex = "1"
+strsim = "0.11"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile = "3"

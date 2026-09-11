@@ -1,0 +1,570 @@
+use crate::anime_parser::{parse_file_name, score_candidate, ParsedAnime};
+use crate::bangumi::BangumiProvider;
+use crate::db::AppState;
+use crate::error::{AppError, AppResult};
+use crate::grouping;
+use crate::models::{
+    MatchCandidate, MatchCandidateRow, MediaFile, RecognitionResult, RecognitionSummary, Work,
+    WorkMetadata,
+};
+use chrono::{Duration, Utc};
+use sqlx::{Sqlite, SqlitePool, Transaction};
+use std::collections::HashSet;
+use uuid::Uuid;
+
+const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error";
+const WORK_COLUMNS: &str = "id, title, original_title, type, description, cover_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at";
+
+pub async fn candidates_for_media(
+    pool: &SqlitePool,
+    media_file_id: &str,
+) -> AppResult<Vec<MatchCandidate>> {
+    let rows = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE media_file_id = ? ORDER BY confidence DESC")
+        .bind(media_file_id).fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|row| row.try_into().map_err(AppError::from))
+        .collect()
+}
+
+pub async fn candidates_for_work(
+    pool: &SqlitePool,
+    work_id: &str,
+) -> AppResult<Vec<MatchCandidate>> {
+    let rows = sqlx::query_as::<_, MatchCandidateRow>("SELECT c.id, c.media_file_id, c.provider, c.external_id, c.title, c.original_title, c.aliases_json, c.subject_type, c.year, c.season, c.cover_url, c.confidence, c.match_reasons_json, c.metadata_json, c.created_at FROM match_candidates c JOIN media_files m ON m.id = c.media_file_id WHERE m.work_id = ? ORDER BY c.confidence DESC")
+        .bind(work_id).fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|row| row.try_into().map_err(AppError::from))
+        .collect()
+}
+
+async fn cached_search(pool: &SqlitePool, key: &str) -> AppResult<Option<Vec<WorkMetadata>>> {
+    let now = Utc::now().to_rfc3339();
+    let json: Option<String> = sqlx::query_scalar("SELECT response_json FROM metadata_cache WHERE provider = 'bangumi' AND cache_key = ? AND expires_at > ?")
+        .bind(key).bind(now).fetch_optional(pool).await?;
+    json.map(|value| serde_json::from_str(&value).map_err(AppError::from))
+        .transpose()
+}
+
+async fn save_cache(
+    pool: &SqlitePool,
+    key: &str,
+    data: &[WorkMetadata],
+    days: i64,
+) -> AppResult<()> {
+    let now = Utc::now();
+    sqlx::query("INSERT INTO metadata_cache (provider, cache_key, response_json, fetched_at, expires_at) VALUES ('bangumi', ?, ?, ?, ?) ON CONFLICT(provider, cache_key) DO UPDATE SET response_json = excluded.response_json, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at")
+        .bind(key).bind(serde_json::to_string(data)?).bind(now.to_rfc3339()).bind((now + Duration::days(days)).to_rfc3339()).execute(pool).await?;
+    Ok(())
+}
+
+async fn search_provider(
+    pool: &SqlitePool,
+    query: &str,
+    provider: &BangumiProvider,
+) -> AppResult<Vec<WorkMetadata>> {
+    let key = format!("search:{}", crate::anime_parser::normalize_title(query));
+    if let Some(cached) = cached_search(pool, &key).await? {
+        return Ok(cached);
+    }
+    let results = provider.search(query).await?;
+    save_cache(pool, &key, &results, 7).await?;
+    Ok(results)
+}
+
+async fn store_parse(
+    pool: &SqlitePool,
+    media_id: &str,
+    parsed: &ParsedAnime,
+    status: &str,
+    error: Option<&str>,
+) -> AppResult<()> {
+    sqlx::query("UPDATE media_files SET recognition_status = ?, parsed_title = ?, parsed_original_title = ?, parsed_season = ?, parsed_episode = ?, parsed_year = ?, parsed_release_group = ?, parsed_special_type = ?, parsed_media_info = ?, last_recognized_at = ?, recognition_error = ?, updated_at = ? WHERE id = ?")
+        .bind(status).bind(&parsed.title).bind(&parsed.original_title).bind(parsed.season).bind(&parsed.episode).bind(parsed.year)
+        .bind(&parsed.release_group).bind(&parsed.special_type).bind(serde_json::to_string(&parsed.media_info)?)
+        .bind(Utc::now().to_rfc3339()).bind(error).bind(Utc::now().to_rfc3339()).bind(media_id).execute(pool).await?;
+    sqlx::query("UPDATE works SET metadata_status = ?, last_recognized_at = ?, updated_at = ? WHERE id = (SELECT work_id FROM media_files WHERE id = ?) AND metadata_status != 'matched'")
+        .bind(status).bind(Utc::now().to_rfc3339()).bind(Utc::now().to_rfc3339()).bind(media_id).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn recognize_media(
+    state: &AppState,
+    media_file_id: &str,
+    manual_query: Option<String>,
+) -> AppResult<RecognitionResult> {
+    let media = sqlx::query_as::<_, MediaFile>(&format!(
+        "SELECT {MEDIA_COLUMNS} FROM media_files WHERE id = ?"
+    ))
+    .bind(media_file_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("媒体文件不存在".to_string()))?;
+    if media.media_type != "video" {
+        return Err(AppError::Validation(
+            "v0.2 当前只支持动漫文件识别".to_string(),
+        ));
+    }
+    if media.missing {
+        return Err(AppError::Validation("文件已缺失，无法识别".to_string()));
+    }
+    let parsed = parse_file_name(&media.file_name);
+    let query = manual_query
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| parsed.title.clone());
+    let Some(query) = query else {
+        store_parse(
+            &state.pool,
+            media_file_id,
+            &parsed,
+            "unmatched",
+            Some("无法从文件名提取标题，请手动搜索"),
+        )
+        .await?;
+        return Ok(RecognitionResult {
+            media_file_id: media_file_id.to_string(),
+            status: "unmatched".to_string(),
+            parsed_title: None,
+            candidates: Vec::new(),
+            error: Some("无法从文件名提取标题，请手动搜索".to_string()),
+        });
+    };
+    store_parse(&state.pool, media_file_id, &parsed, "unmatched", None).await?;
+    let provider = BangumiProvider::new()?;
+    let results = match search_provider(&state.pool, &query, &provider).await {
+        Ok(results) => results,
+        Err(error) => {
+            let message = error.to_string();
+            store_parse(&state.pool, media_file_id, &parsed, "error", Some(&message)).await?;
+            return Ok(RecognitionResult {
+                media_file_id: media_file_id.to_string(),
+                status: "error".to_string(),
+                parsed_title: parsed.title,
+                candidates: Vec::new(),
+                error: Some(message),
+            });
+        }
+    };
+    sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
+        .bind(media_file_id)
+        .execute(&state.pool)
+        .await?;
+    let now = Utc::now().to_rfc3339();
+    let mut scored = Vec::new();
+    for metadata in results {
+        let mut names = metadata.aliases.clone();
+        if let Some(original) = &metadata.original_title {
+            names.push(original.clone());
+        }
+        let (confidence, reasons) = score_candidate(
+            &parsed,
+            &metadata.title,
+            &names,
+            metadata.year,
+            metadata.season,
+        );
+        if confidence < 0.45 {
+            continue;
+        }
+        let id = Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO match_candidates (id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(&id).bind(media_file_id).bind(&metadata.provider).bind(&metadata.external_id).bind(&metadata.title).bind(&metadata.original_title)
+            .bind(serde_json::to_string(&metadata.aliases)?).bind(&metadata.subject_type).bind(metadata.year).bind(metadata.season).bind(&metadata.cover_url)
+            .bind(confidence).bind(serde_json::to_string(&reasons)?).bind(serde_json::to_string(&metadata)?).bind(&now).execute(&state.pool).await?;
+        scored.push(MatchCandidate {
+            id,
+            media_file_id: media_file_id.to_string(),
+            provider: metadata.provider.clone(),
+            external_id: metadata.external_id.clone(),
+            title: metadata.title.clone(),
+            original_title: metadata.original_title.clone(),
+            aliases: metadata.aliases.clone(),
+            subject_type: metadata.subject_type.clone(),
+            year: metadata.year,
+            season: metadata.season,
+            cover_url: metadata.cover_url.clone(),
+            confidence,
+            match_reasons: reasons,
+            created_at: now.clone(),
+        });
+    }
+    scored.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
+    let explicit_search = manual_query.is_some();
+    let ambiguous = parsed.season.is_some_and(|season| season > 1)
+        || scored.get(1).is_some_and(|second| {
+            scored
+                .first()
+                .is_some_and(|first| first.confidence - second.confidence < 0.08)
+        });
+    if !explicit_search
+        && !ambiguous
+        && scored
+            .first()
+            .is_some_and(|candidate| candidate.confidence >= 0.90)
+    {
+        let candidate_id = scored[0].id.clone();
+        confirm_candidate(state, media_file_id, &candidate_id).await?;
+        return Ok(RecognitionResult {
+            media_file_id: media_file_id.to_string(),
+            status: "matched".to_string(),
+            parsed_title: parsed.title,
+            candidates: Vec::new(),
+            error: None,
+        });
+    }
+    let status = if scored
+        .first()
+        .is_some_and(|candidate| candidate.confidence >= 0.65)
+    {
+        "candidate_pending"
+    } else {
+        "unmatched"
+    };
+    store_parse(&state.pool, media_file_id, &parsed, status, None).await?;
+    Ok(RecognitionResult {
+        media_file_id: media_file_id.to_string(),
+        status: status.to_string(),
+        parsed_title: parsed.title,
+        candidates: scored,
+        error: None,
+    })
+}
+
+pub async fn recognize_batch(state: &AppState) -> AppResult<RecognitionSummary> {
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM media_files WHERE media_type = 'video' AND missing = 0 AND work_id IS NULL AND recognition_status != 'matched' ORDER BY created_at")
+        .fetch_all(&state.pool).await?;
+    let mut summary = RecognitionSummary {
+        scanned: 0,
+        matched: 0,
+        pending: 0,
+        unmatched: 0,
+        errors: 0,
+    };
+    for id in ids {
+        summary.scanned += 1;
+        match recognize_media(state, &id, None).await {
+            Ok(result) => match result.status.as_str() {
+                "matched" => summary.matched += 1,
+                "candidate_pending" => summary.pending += 1,
+                "error" => summary.errors += 1,
+                _ => summary.unmatched += 1,
+            },
+            Err(_) => summary.errors += 1,
+        }
+    }
+    Ok(summary)
+}
+
+async fn field_locks(
+    transaction: &mut Transaction<'_, Sqlite>,
+    work_id: &str,
+) -> AppResult<HashSet<String>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT field_name FROM work_field_locks WHERE work_id = ? AND locked = 1",
+    )
+    .bind(work_id)
+    .fetch_all(&mut **transaction)
+    .await?
+    .into_iter()
+    .collect())
+}
+
+async fn record_source(
+    transaction: &mut Transaction<'_, Sqlite>,
+    work_id: &str,
+    field: &str,
+    now: &str,
+) -> AppResult<()> {
+    sqlx::query("INSERT INTO work_field_sources (work_id, field_name, provider, updated_at) VALUES (?, ?, 'bangumi', ?) ON CONFLICT(work_id, field_name) DO UPDATE SET provider = excluded.provider, updated_at = excluded.updated_at")
+        .bind(work_id).bind(field).bind(now).execute(&mut **transaction).await?;
+    Ok(())
+}
+
+async fn apply_metadata(
+    transaction: &mut Transaction<'_, Sqlite>,
+    work_id: &str,
+    metadata: &WorkMetadata,
+    cover_path: Option<String>,
+    now: &str,
+) -> AppResult<()> {
+    let current =
+        sqlx::query_as::<_, Work>(&format!("SELECT {WORK_COLUMNS} FROM works WHERE id = ?"))
+            .bind(work_id)
+            .fetch_one(&mut **transaction)
+            .await?;
+    let locks = field_locks(transaction, work_id).await?;
+    let title = if locks.contains("title") {
+        current.title
+    } else {
+        metadata.title.clone()
+    };
+    let original = if locks.contains("originalTitle") {
+        current.original_title
+    } else {
+        metadata.original_title.clone()
+    };
+    let description = if locks.contains("description") {
+        current.description
+    } else {
+        metadata.description.clone()
+    };
+    let year = if locks.contains("metadataYear") {
+        current.metadata_year
+    } else {
+        metadata.year
+    };
+    let cover = if locks.contains("coverPath") {
+        current.cover_path
+    } else {
+        cover_path.or(current.cover_path)
+    };
+    sqlx::query("UPDATE works SET title = ?, original_title = ?, description = ?, cover_path = ?, metadata_year = ?, metadata_status = 'matched', last_recognized_at = ?, updated_at = ? WHERE id = ?")
+        .bind(title).bind(original).bind(description).bind(cover).bind(year).bind(now).bind(now).bind(work_id).execute(&mut **transaction).await?;
+    for field in [
+        "title",
+        "originalTitle",
+        "description",
+        "coverPath",
+        "metadataYear",
+    ] {
+        if !locks.contains(field) {
+            record_source(transaction, work_id, field, now).await?;
+        }
+    }
+    if !locks.contains("tags") {
+        for genre in &metadata.genres {
+            let tag_id: Option<String> =
+                sqlx::query_scalar("SELECT id FROM tags WHERE name = ? COLLATE NOCASE")
+                    .bind(genre)
+                    .fetch_optional(&mut **transaction)
+                    .await?;
+            let tag_id = tag_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+            sqlx::query("INSERT OR IGNORE INTO tags (id, name, created_at) VALUES (?, ?, ?)")
+                .bind(&tag_id)
+                .bind(genre)
+                .bind(now)
+                .execute(&mut **transaction)
+                .await?;
+            sqlx::query("INSERT OR IGNORE INTO work_tags (work_id, tag_id) VALUES (?, ?)")
+                .bind(work_id)
+                .bind(tag_id)
+                .execute(&mut **transaction)
+                .await?;
+        }
+        record_source(transaction, work_id, "tags", now).await?;
+    }
+    Ok(())
+}
+
+pub async fn confirm_candidate(
+    state: &AppState,
+    media_file_id: &str,
+    candidate_id: &str,
+) -> AppResult<String> {
+    let group_member_ids =
+        grouping::unassigned_group_member_ids(&state.pool, media_file_id).await?;
+    let row = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE id = ? AND media_file_id = ?")
+        .bind(candidate_id).bind(media_file_id).fetch_optional(&state.pool).await?.ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".to_string()))?;
+    let mut metadata: WorkMetadata = serde_json::from_str(&row.metadata_json)?;
+    let provider = BangumiProvider::new()?;
+    let detail_key = format!("detail:{}", metadata.external_id);
+    if let Some(mut cached) = cached_search(&state.pool, &detail_key).await? {
+        if let Some(item) = cached.pop() {
+            metadata = item;
+        }
+    } else if let Ok(details) = provider.get_details(&metadata.external_id).await {
+        metadata = details;
+        save_cache(&state.pool, &detail_key, &[metadata.clone()], 30).await?;
+    }
+    let cover_path = if let Some(url) = &metadata.cover_url {
+        let destination = state
+            .cover_cache_path
+            .join(format!("bangumi-{}.jpg", metadata.external_id));
+        if destination.is_file() || provider.download_cover(url, &destination).await.is_ok() {
+            Some(destination.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let now = Utc::now().to_rfc3339();
+    let mut transaction = state.pool.begin().await?;
+    let media_work: Option<String> =
+        sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
+            .bind(media_file_id)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .flatten();
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT work_id FROM work_external_ids WHERE provider = ? AND external_id = ?",
+    )
+    .bind(&metadata.provider)
+    .bind(&metadata.external_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let work_id = existing
+        .or(media_work)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM works WHERE id = ?)")
+        .bind(&work_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+    if !exists {
+        sqlx::query("INSERT INTO works (id, title, original_title, type, description, cover_path, status, favorite, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at) VALUES (?, ?, ?, 'video', ?, ?, 'planned', 0, '', ?, ?, 'matched', ?, ?)")
+            .bind(&work_id).bind(&metadata.title).bind(&metadata.original_title).bind(&metadata.description).bind(&cover_path).bind(&now).bind(&now).bind(metadata.year).bind(&now).execute(&mut *transaction).await?;
+    }
+    apply_metadata(&mut transaction, &work_id, &metadata, cover_path, &now).await?;
+    sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(work_id, provider) DO UPDATE SET external_id = excluded.external_id, updated_at = excluded.updated_at")
+        .bind(&work_id).bind(&metadata.provider).bind(&metadata.external_id).bind(&now).bind(&now).execute(&mut *transaction).await?;
+    sqlx::query("UPDATE media_files SET work_id = ?, recognition_status = 'matched', recognition_error = NULL, last_recognized_at = ?, updated_at = ? WHERE id = ?")
+        .bind(&work_id).bind(&now).bind(&now).bind(media_file_id).execute(&mut *transaction).await?;
+    for member_id in group_member_ids {
+        sqlx::query("UPDATE media_files SET work_id = ?, recognition_status = 'matched', recognition_error = NULL, last_recognized_at = ?, updated_at = ? WHERE id = ? AND work_id IS NULL")
+            .bind(&work_id).bind(&now).bind(&now).bind(&member_id).execute(&mut *transaction).await?;
+        sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
+            .bind(member_id)
+            .execute(&mut *transaction)
+            .await?;
+    }
+    sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
+        .bind(media_file_id)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(work_id)
+}
+
+pub async fn cancel_candidates(pool: &SqlitePool, media_file_id: &str) -> AppResult<()> {
+    let mut transaction = pool.begin().await?;
+    let work_id: Option<String> =
+        sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
+            .bind(media_file_id)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .flatten();
+    sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
+        .bind(media_file_id)
+        .execute(&mut *transaction)
+        .await?;
+    let result = sqlx::query("UPDATE media_files SET recognition_status = 'unmatched', recognition_error = NULL, updated_at = ? WHERE id = ?").bind(Utc::now().to_rfc3339()).bind(media_file_id).execute(&mut *transaction).await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("媒体文件不存在".to_string()));
+    }
+    if let Some(work_id) = work_id {
+        sqlx::query("UPDATE works SET metadata_status = 'unmatched', updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM work_external_ids WHERE work_id = ?)")
+            .bind(Utc::now().to_rfc3339()).bind(&work_id).bind(&work_id).execute(&mut *transaction).await?;
+    }
+    transaction.commit().await?;
+    Ok(())
+}
+
+pub async fn set_field_lock(
+    pool: &SqlitePool,
+    work_id: &str,
+    field: &str,
+    locked: bool,
+) -> AppResult<()> {
+    const FIELDS: &[&str] = &[
+        "title",
+        "originalTitle",
+        "description",
+        "coverPath",
+        "metadataYear",
+        "type",
+        "tags",
+    ];
+    if !FIELDS.contains(&field) {
+        return Err(AppError::Validation("不支持锁定该字段".to_string()));
+    }
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM works WHERE id = ?)")
+        .bind(work_id)
+        .fetch_one(pool)
+        .await?;
+    if !exists {
+        return Err(AppError::NotFound("作品不存在".to_string()));
+    }
+    sqlx::query("INSERT INTO work_field_locks (work_id, field_name, locked, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(work_id, field_name) DO UPDATE SET locked = excluded.locked, updated_at = excluded.updated_at")
+        .bind(work_id).bind(field).bind(locked).bind(Utc::now().to_rfc3339()).execute(pool).await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    #[tokio::test]
+    async fn field_lock_round_trip() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('w', '测试', 'video', ?, ?)").bind(&now).bind(&now).execute(&pool).await.unwrap();
+        set_field_lock(&pool, "w", "title", true).await.unwrap();
+        let locked: bool = sqlx::query_scalar(
+            "SELECT locked FROM work_field_locks WHERE work_id = 'w' AND field_name = 'title'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(locked);
+    }
+
+    #[tokio::test]
+    async fn metadata_refresh_preserves_locked_title() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, description, created_at, updated_at) VALUES ('w', '我的标题', 'video', '旧简介', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.unwrap();
+        set_field_lock(&pool, "w", "title", true).await.unwrap();
+        let metadata = WorkMetadata {
+            provider: "bangumi".to_string(),
+            external_id: "1".to_string(),
+            title: "联网标题".to_string(),
+            original_title: Some("Original".to_string()),
+            aliases: Vec::new(),
+            description: "新简介".to_string(),
+            cover_url: None,
+            banner_url: None,
+            year: Some(2024),
+            season: None,
+            subject_type: "tv".to_string(),
+            genres: vec!["奇幻".to_string()],
+            fetched_at: now.clone(),
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        apply_metadata(&mut transaction, "w", &metadata, None, &now)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        let row: (String, String, Option<i64>) =
+            sqlx::query_as("SELECT title, description, metadata_year FROM works WHERE id = 'w'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "我的标题");
+        assert_eq!(row.1, "新简介");
+        assert_eq!(row.2, Some(2024));
+    }
+
+    #[tokio::test]
+    async fn cancelling_candidate_keeps_media_and_resets_work_status() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, metadata_status, created_at, updated_at) VALUES ('w', '测试', 'video', 'candidate_pending', ?, ?)").bind(&now).bind(&now).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, recognition_status, created_at, updated_at) VALUES ('m', 'w', 'C:\\Anime\\test.mkv', 'test.mkv', 'mkv', 'video', 'candidate_pending', ?, ?)").bind(&now).bind(&now).execute(&pool).await.unwrap();
+        cancel_candidates(&pool, "m").await.unwrap();
+        let media: (Option<String>, String) =
+            sqlx::query_as("SELECT work_id, recognition_status FROM media_files WHERE id = 'm'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let status: String = sqlx::query_scalar("SELECT metadata_status FROM works WHERE id = 'w'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(media.0.as_deref(), Some("w"));
+        assert_eq!(media.1, "unmatched");
+        assert_eq!(status, "unmatched");
+    }
+}

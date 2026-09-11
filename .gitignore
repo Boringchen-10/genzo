@@ -1,0 +1,16 @@
+node_modules/
+.pnpm-store/
+.tooling/
+.e2e-*/
+.research/
+artifacts/
+dist/
+target/
+src-tauri/target/
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.db
+*.db-shm
+*.db-wal
