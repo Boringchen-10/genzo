@@ -23,7 +23,11 @@ const unassigned = [{
   extension: "mkv", mediaType: "video", size: 734003200, modifiedAt: now, missing: false, createdAt: now, updatedAt: now,
   recognitionStatus: "candidate_pending", parsedTitle: "葬送的芙莉莲", parsedOriginalTitle: null, parsedSeason: 1, parsedEpisode: "01", parsedYear: 2023, parsedReleaseGroup: "字幕组", parsedSpecialType: null, parsedMediaInfo: '["1080p"]', lastRecognizedAt: now, recognitionError: null,
 }];
-const unassignedGroups = [{ key: "folder:pending", title: "葬送的芙莉莲", folderPath: `${mediaRoot}\\Anime\\葬送的芙莉莲`, mediaType: "video", fileCount: 24, missingCount: 0, totalSize: 17616076800, recognitionStatus: "candidate_pending", representative: unassigned[0] }];
+const unassignedGroups = [
+  { key: "folder:pending", title: "葬送的芙莉莲", folderPath: `${mediaRoot}\\Anime\\葬送的芙莉莲`, mediaType: "video", fileCount: 24, missingCount: 0, totalSize: 17616076800, recognitionStatus: "candidate_pending", representative: unassigned[0] },
+  { key: "comic:junji:tomie", title: "富江", folderPath: `${mediaRoot}\\Comic\\伊藤润二全集\\富江`, mediaType: "comic", fileCount: 14, missingCount: 0, totalSize: 734003200, recognitionStatus: "unmatched", representative: { ...unassigned[0], id: "comic-1", mediaType: "comic", path: `${mediaRoot}\\Comic\\伊藤润二全集\\富江\\001.jpg`, fileName: "001.jpg", extension: "jpg" } },
+  { key: "comic:junji:uzumaki", title: "漩涡", folderPath: `${mediaRoot}\\Comic\\伊藤润二全集\\漩涡`, mediaType: "comic", fileCount: 18, missingCount: 0, totalSize: 943718400, recognitionStatus: "unmatched", representative: { ...unassigned[0], id: "comic-2", mediaType: "comic", path: `${mediaRoot}\\Comic\\伊藤润二全集\\漩涡\\001.jpg`, fileName: "001.jpg", extension: "jpg" } },
+];
 const dashboard = {
   totalWorks: works.length, videoCount: 1, comicCount: 2, novelCount: 2, gameCount: 1, otherCount: 1,
   favoriteCount: 3, missingFileCount: 1, recentWorks: works, favoriteWorks: works.filter((work) => work.favorite), lastScan: null,

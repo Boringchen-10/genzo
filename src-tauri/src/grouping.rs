@@ -1,4 +1,4 @@
-use crate::anime_parser::normalize_title;
+use crate::anime_parser::{normalize_title, parse_file_name};
 use crate::error::AppResult;
 use crate::models::{LibraryRoot, MediaFile, UnassignedMediaGroup};
 use sqlx::SqlitePool;
@@ -25,6 +25,14 @@ fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
         if let Ok(relative) = media_path.strip_prefix(root) {
             let components: Vec<_> = relative.components().collect();
             if components.len() >= 2 {
+                if is_subtitle_file(media) {
+                    let folder = root.join(components[0].as_os_str());
+                    return GroupIdentity {
+                        key: format!("folder:{}", normalized_key(&folder)),
+                        folder_path: Some(folder.to_string_lossy().to_string()),
+                        title: components[0].as_os_str().to_string_lossy().to_string(),
+                    };
+                }
                 if media.media_type == "comic" {
                     return comic_identity(media);
                 }
@@ -39,6 +47,9 @@ fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
                 };
             }
             if components.len() == 1 {
+                if is_subtitle_file(media) {
+                    return subtitle_identity(media, root);
+                }
                 return direct_file_identity(media, root);
             }
         }
@@ -53,6 +64,32 @@ fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
                 .file_name()
                 .map(|name| name.to_string_lossy().to_string())
                 .unwrap_or_else(|| media.file_name.clone()),
+        };
+    }
+    file_identity(media)
+}
+
+fn is_subtitle_file(media: &MediaFile) -> bool {
+    matches!(
+        media.extension.to_ascii_lowercase().as_str(),
+        "ass" | "ssa" | "srt" | "vtt" | "sub"
+    )
+}
+
+fn subtitle_identity(media: &MediaFile, root: &Path) -> GroupIdentity {
+    let parsed = parse_file_name(&media.file_name);
+    if let Some(title) = parsed.title.filter(|value| !value.trim().is_empty()) {
+        let normalized = normalize_title(&title);
+        return GroupIdentity {
+            key: format!(
+                "direct-anime:{}:title:{}:season:{:?}:special:{}",
+                normalized_key(root),
+                normalized,
+                parsed.season,
+                parsed.special_type.as_deref().unwrap_or_default()
+            ),
+            folder_path: Some(root.to_string_lossy().to_string()),
+            title,
         };
     }
     file_identity(media)
@@ -441,5 +478,41 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].title, "Tomie");
         assert_eq!(groups[0].file_count, 2);
+    }
+
+    #[tokio::test]
+    async fn associates_nested_subtitles_with_the_video_folder() {
+        let pool = db::test_pool().await.expect("create database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('root', 'G:\\影音', 'auto', 1, ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert root");
+        for (id, path, name, extension, media_type) in [
+            (
+                "1",
+                "G:\\影音\\Q 亲吻姐姐 12集全\\视频\\[ReinForce] Kiss x Sis - 01.mkv",
+                "[ReinForce] Kiss x Sis - 01.mkv",
+                "mkv",
+                "video",
+            ),
+            (
+                "2",
+                "G:\\影音\\Q 亲吻姐姐 12集全\\字幕\\[ReinForce] Kiss x Sis - 01.ass",
+                "[ReinForce] Kiss x Sis - 01.ass",
+                "ass",
+                "other",
+            ),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, parsed_title, created_at, updated_at) VALUES (?, 'root', ?, ?, ?, ?, ?, ?, ?)")
+                .bind(id).bind(path).bind(name).bind(extension).bind(media_type)
+                .bind(if id == "1" { Some("Kiss x Sis") } else { None::<&str> })
+                .bind(&now).bind(&now).execute(&pool).await.expect("insert media");
+        }
+
+        let groups = list_unassigned_groups(&pool).await.expect("list groups");
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].title, "Q 亲吻姐姐 12集全");
+        assert_eq!(groups[0].file_count, 2);
+        assert_eq!(groups[0].media_type, "video");
     }
 }

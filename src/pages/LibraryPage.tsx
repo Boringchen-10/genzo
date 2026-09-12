@@ -30,6 +30,7 @@ export function LibraryPage() {
   const [tag, setTag] = useState("all");
   const [sort, setSort] = useState<SortKey>("updatedAt");
   const [unassignedSort, setUnassignedSort] = useState<UnassignedSortKey>("status");
+  const [comicBrowsePath, setComicBrowsePath] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [organizingGroup, setOrganizingGroup] = useState<UnassignedMediaGroup | null>(null);
   const [saving, setSaving] = useState(false);
@@ -88,6 +89,38 @@ export function LibraryPage() {
   }, [unassignedGroups, search, mediaType, favoriteOnly, tag, scope, unassignedSort]);
   const visibleUnassigned = filteredUnassigned.slice(0, unassignedLimit);
   const unassignedFileCount = filteredUnassigned.reduce((total, group) => total + group.fileCount, 0);
+  const comicContainers = useMemo(() => {
+    const grouped = new Map<string, UnassignedMediaGroup[]>();
+    for (const group of filteredUnassigned) {
+      if (group.mediaType !== "comic" || !group.folderPath) continue;
+      const separator = Math.max(group.folderPath.lastIndexOf("\\"), group.folderPath.lastIndexOf("/"));
+      if (separator < 0) continue;
+      const parent = group.folderPath.slice(0, separator);
+      const children = grouped.get(parent) ?? [];
+      children.push(group);
+      grouped.set(parent, children);
+    }
+    return Array.from(grouped.entries())
+      .filter(([, children]) => children.length > 1)
+      .map(([path, children]) => ({
+        path,
+        title: path.slice(Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/")) + 1),
+        groups: children,
+        fileCount: children.reduce((total, child) => total + child.fileCount, 0),
+      }))
+      .sort((left, right) => left.title.localeCompare(right.title, "zh-CN", { numeric: true }));
+  }, [filteredUnassigned]);
+  const visibleUnassignedGroups = useMemo(() => {
+    if (comicBrowsePath) {
+      return filteredUnassigned.filter((group) => group.mediaType !== "comic" || group.folderPath?.startsWith(`${comicBrowsePath}\\`) || group.folderPath?.startsWith(`${comicBrowsePath}/`));
+    }
+    const collapsedParents = new Set(comicContainers.map((container) => container.path));
+    return filteredUnassigned.filter((group) => {
+      if (group.mediaType !== "comic" || !group.folderPath) return true;
+      const separator = Math.max(group.folderPath.lastIndexOf("\\"), group.folderPath.lastIndexOf("/"));
+      return !collapsedParents.has(group.folderPath.slice(0, separator));
+    });
+  }, [comicBrowsePath, comicContainers, filteredUnassigned]);
 
   const create = async (input: WorkInput) => {
     setSaving(true);
@@ -191,9 +224,21 @@ export function LibraryPage() {
               <option value="fileCount">按文件数量</option>
             </select>
           </div>
+          {comicContainers.length > 0 && !comicBrowsePath ? (
+            <div className="comic-folder-nav" aria-label="漫画大类目录">
+              {comicContainers.map((container) => (
+                <button type="button" className="comic-folder-card" key={container.path} onClick={() => setComicBrowsePath(container.path)}>
+                  <FolderTree size={18} />
+                  <span><strong>{container.title}</strong><small>{container.groups.length} 个子目录 · {container.fileCount} 个文件</small></span>
+                  <ChevronDown size={16} className="comic-folder-chevron" />
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {comicBrowsePath ? <button type="button" className="folder-back-button" onClick={() => setComicBrowsePath(null)}><ChevronDown size={15} />返回漫画大类</button> : null}
           <div className="unassigned-table">
             <div className="unassigned-head"><span>目录或文件</span><span>类型</span><span>内容</span><span>识别状态</span><span>操作</span></div>
-            {visibleUnassigned.map((group) => {
+            {visibleUnassignedGroups.slice(0, unassignedLimit).map((group) => {
               const unavailable = group.missingCount >= group.fileCount;
               return <div className="unassigned-row" key={group.key}>
                 <div className="unassigned-name">{group.folderPath ? <FolderTree size={18} /> : <FileQuestion size={18} />}<div><strong>{group.title}</strong><small>{group.folderPath ?? group.representative.path}</small></div></div>
