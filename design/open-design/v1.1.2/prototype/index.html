@@ -1094,6 +1094,15 @@
       '星际牛仔':'赏金猎人一行在星际间流浪，用爵士乐与旧伤拼凑各自回不去的过去。'
     });
     const workYear = { '葬送的芙莉莲':'2023', '蓝色时期':'2021', '来自深渊':'2017', '迷宫饭':'2024', '海边的卡夫卡':'2002', '星际牛仔':'1998' };
+    const workTint = {};
+    featuredWorks.forEach(work => { workTint[work.title] = work.tint; });
+    // 每部作品的背景取色：精选作品用其 tint，其余作品按标题派生一个稳定、克制的色相。
+    function tintFor(title) {
+      if (workTint[title]) return workTint[title];
+      let hash = 0;
+      for (let i = 0; i < title.length; i += 1) hash = (hash * 31 + title.charCodeAt(i)) >>> 0;
+      return `hsl(${hash % 360} 26% 46%)`;
+    }
     const heroNavList = document.getElementById('heroNavList');
     let featuredIndex = 0;
     function renderFeaturedRail() {
@@ -1138,6 +1147,14 @@
       document.getElementById('metadataOriginalTitle').textContent = title;
       document.getElementById('detailFactType').textContent = workType;
       document.getElementById('detailFactSource').textContent = card?.dataset.source || '本地媒体库';
+      // 详情页背景跟随当前作品（不再固定为同一张参考图）。
+      const detailBackdrop = detailPage.querySelector('.detail-backdrop');
+      if (detailBackdrop) {
+        const detailTint = tintFor(title);
+        detailBackdrop.style.backgroundImage = `linear-gradient(${detailTint}, ${detailTint}), url("assets/reference-secondary.png")`;
+        detailBackdrop.style.backgroundBlendMode = 'color';
+        detailBackdrop.style.backgroundPosition = 'center, 50% 35%';
+      }
       document.getElementById('detailPrimary').textContent = workType === '漫画' || workType === '小说' ? '继续阅读' : workType === '游戏' ? '继续游玩' : '继续观看';
       const isAnime = workType.includes('动画');
       document.getElementById('detailSeasonWrap').hidden = !isAnime;

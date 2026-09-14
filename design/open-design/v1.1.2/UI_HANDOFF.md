@@ -18,6 +18,7 @@
 | F-14 | 首页精选大图固定为同一张 `reference-primary.png`；切换「切换到其他作品」只改变裁切位置，观感上背景不随作品更换（截图标注“首页的背景在程序里并没有根据作品更换”） | `featuredWorks` 每部作品新增 `tint`；`selectFeatured()` 把 `.hero-art` 背景改为 `linear-gradient(tint,tint), url("assets/reference-primary.png")` + `background-blend-mode: color`，同一张自制抽象位图按作品取色；`hero-nav-thumb` 同步取色；初始化调用 `selectFeatured(0)`，首屏与切换一致 |
 | F-15 | 浅色主题过白：首页精选大图被两层近不透明的白色渐变覆盖，背景图基本看不清 | 浅色主题只留一层文字遮罩并提前淡出——`.hero-art::after` `rgba(243,246,245,.78→0)`（78% 处透明）、`.hero::after` `rgba(243,246,245,.3→0)`（68% 处透明），`.hero-art` 透明度 1；右侧背景图清晰可见，左侧文字对比度仍达标 |
 | F-16 | 正式前端首页横幅把 2:3 竖版封面 `cover` 铺满 552px 宽横幅，海报被极度放大、比例失真；浅色遮罩 `rgb(243 246 245 / .91→.77)` 又把它洗白 | 正式 React 前端：封面改为右侧**保持自身比例的清晰海报**（`height:82%; width:auto; object-fit:contain`，≤1040px 隐藏），背后为同一封面的**模糊放大副本**（`blur(40px)`、`opacity:.85`）；浅色遮罩减弱为 `.8→0`（56% 处透明） |
+| F-17 | 作品详情页顶部背景固定为 `reference-secondary.png`，对每部作品都一样，点开详情看着仍像「首页那张背景图」 | `openDetail()` 调 `tintFor(title)` 取得当前作品的取色，把 `.detail-backdrop` 背景改为 `linear-gradient(tint,tint), url("assets/reference-secondary.png")` + `background-blend-mode: color`，详情背景随作品变化；正式前端详情页用作品真实封面（`--detail-artwork`） |
 
 ## v1.1.1 修复内容
 

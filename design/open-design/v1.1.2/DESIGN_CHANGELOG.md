@@ -35,6 +35,7 @@
 | HOME-005 | 首页精选大图固定为 `assets/reference-primary.png`；切换「切换到其他作品」只改 `background-position`（同一张图的不同裁切），观感上背景不随作品更换 | `featuredWorks` 每部作品新增 `tint`；`selectFeatured()` 把 `.hero-art` 背景改为 `linear-gradient(tint,tint), url("assets/reference-primary.png")` 并设 `background-blend-mode: color`，使同一张自制抽象位图按作品取色；缩略图 `hero-nav-thumb` 同步取色；初始化即调用 `selectFeatured(0)`，首屏与切换后一致 | 首页背景需随作品更换 | 首页 · 精选大图 · 切换到其他作品 | 无（纯原型；正式前端 `HomePage` 已按作品真实封面切换背景） | 否 |
 | HOME-006 | 浅色主题下首页精选大图被**两层近乎不透明的白色遮罩**覆盖（`.hero-art::after` 的 `rgba(--shade, .98→.12)` 加上 `.hero::after` 的 `rgba(243,246,245,.86→0)`），背景图基本看不见 | 浅色主题只保留**一层**文字遮罩并提前淡出：`.hero-art::after` 改为 `rgba(243,246,245,.78→0)`（78% 处完全透明），`.hero::after` 降为 `rgba(243,246,245,.3→0)`（68% 处透明），`.hero-art` 透明度 `1` | 浅色过白导致背景图看不清 | 首页 · 精选大图 · 浅色主题 | 无 | 否 |
 | HOME-007 | 正式前端首页横幅把作品封面（真实为 **2:3 竖版海报**，约 0.71）整屏 `cover` 铺满 552px 高的宽横幅，导致海报被极度放大裁切，比例失真 | 正式 React 前端（`HomePage.tsx` + `v1-1-1.css`）：封面改为右侧**保持自身比例的清晰海报**（`height:82%` + `width:auto` + `object-fit:contain`，≤1040px 隐藏），背后用同一封面的**模糊放大副本**作氛围填充；浅色遮罩同步减弱（`.8→0` @56%） | 背景图比例不对、浅色过白 | 首页 · 横幅 · 浅色主题（正式前端） | 无 | 否 |
+| HOME-008 | 作品详情页顶部背景是**固定的** `assets/reference-secondary.png`——对每部作品都是同一张，点开详情时看着仍像「首页那张背景图」 | `openDetail()` 按当前作品取色：新增 `tintFor(title)`（精选作品用其 `tint`，其余按标题派生稳定、克制的色相），把 `.detail-backdrop` 背景改为 `linear-gradient(tint,tint), url("assets/reference-secondary.png")` + `background-blend-mode: color` | 详情页应显示当前作品的背景 | 作品详情 · 顶部背景 | 无（原型示例作品无真实封面，故以按作品取色的自制抽象位图代替；正式前端详情页已用 `--detail-artwork` 取作品真实封面） | 否 |
 
 ## 相对 v1.1 的修改（v1.1.1 已生效，仍然有效）
 
