@@ -58,6 +58,13 @@ export function AppShell() {
     mainRef.current?.scrollTo({ top: 0, left: 0 });
   }, [location.pathname, location.search]);
 
+  /* The settings drawer keeps the sidebar clickable, so switching pages from it
+     closes the drawer first (the 设置 nav item opens it without navigating). */
+  useEffect(() => {
+    const ui = useUi.getState();
+    if (ui.settingsOpen) ui.closeSettings();
+  }, [location.pathname, location.search]);
+
   return (
     <div className={`app-frame ${location.pathname === "/" ? "is-home-route" : "is-workspace-route"}`}>
       <WindowTitleBar />

@@ -72,19 +72,19 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   z-index: 300;
   height: var(--win-titlebar);
   color: var(--text);
-  background: rgba(var(--shade), .72);
+  /* kept transparent so the bar merges with the page / home backdrop behind it;
+     no fill, no blur, no divider (matches Genzo UI Design v1.1.2) */
+  background: transparent;
   border: 0;
   box-shadow: none;
-  backdrop-filter: blur(var(--ui-blur)) saturate(1.05);
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(1.05);
 }
-:root.dark .window-titlebar { background: rgba(var(--shade), .58); }
+:root.dark .window-titlebar { background: transparent; }
 .is-home-route .window-titlebar {
   color: var(--text);
-  background: rgba(var(--shade), .72);
+  background: transparent;
   background-image: none;
 }
-:root:not(.dark) .is-home-route .window-titlebar { color: var(--text); background: rgba(var(--shade), .72); }
+:root:not(.dark) .is-home-route .window-titlebar { color: var(--text); background: transparent; }
 .window-identity { min-width: 90px; padding-left: 14px; gap: 7px; font-size: 12px; font-weight: 650; }
 .window-identity img { display: none; }
 .window-control { width: 46px; height: 39px; color: var(--muted); background: transparent; border: 0; border-radius: 0; }

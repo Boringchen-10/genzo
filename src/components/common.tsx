@@ -5,15 +5,21 @@ import { AlertCircle, Inbox, LoaderCircle, X } from "lucide-react";
 const overlayStack: symbol[] = [];
 const focusableSelector = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
-function useOverlayFocus(ref: RefObject<HTMLElement | null>, onClose: () => void) {
+function useOverlayFocus(ref: RefObject<HTMLElement | null>, onClose: () => void, keepNavLive = false) {
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
     const token = Symbol("overlay");
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const appRoot = document.getElementById("root");
+    /* The settings drawer is a page-level surface: it leaves the left navigation
+       clickable, so only the page content and the window bar go inert. Every
+       other overlay inerts the whole app root. */
+    const targets = (keepNavLive
+      ? [document.querySelector<HTMLElement>(".main-content"), document.querySelector<HTMLElement>(".window-titlebar")]
+      : [document.getElementById("root")]
+    ).filter((element): element is HTMLElement => element !== null);
     overlayStack.push(token);
-    if (appRoot) appRoot.inert = true;
+    targets.forEach((element) => { element.inert = true; });
     const frame = window.requestAnimationFrame(() => {
       const first = ref.current?.querySelector<HTMLElement>(focusableSelector);
       (first ?? ref.current)?.focus();
@@ -34,10 +40,16 @@ function useOverlayFocus(ref: RefObject<HTMLElement | null>, onClose: () => void
       document.removeEventListener("keydown", onKeyDown);
       const index = overlayStack.indexOf(token);
       if (index >= 0) overlayStack.splice(index, 1);
-      if (appRoot && overlayStack.length === 0) appRoot.inert = false;
+      if (overlayStack.length === 0) {
+        [
+          document.getElementById("root"),
+          document.querySelector<HTMLElement>(".main-content"),
+          document.querySelector<HTMLElement>(".window-titlebar"),
+        ].forEach((element) => { if (element) element.inert = false; });
+      }
       window.requestAnimationFrame(() => previous?.focus());
     };
-  }, [ref]);
+  }, [ref, keepNavLive]);
 }
 
 export function PageHeader({
@@ -149,7 +161,7 @@ export function Modal({
 export function Drawer({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const portal = document.getElementById("portal-root");
   const drawerRef = useRef<HTMLElement>(null);
-  useOverlayFocus(drawerRef, onClose);
+  useOverlayFocus(drawerRef, onClose, true);
   if (!portal) return null;
   return createPortal(
     <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
