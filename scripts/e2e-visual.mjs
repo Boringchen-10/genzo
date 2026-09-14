@@ -471,10 +471,13 @@ if ((await page.locator(".work-list-row").count()) !== 1) throw new Error("Libra
 await page.locator(".work-list-row").first().click();
 await page.waitForSelector(".file-row");
 if ((await page.locator(".file-row").count()) !== 2) throw new Error("Work detail did not show associated files.");
-await page.getByLabel("点评 / 备注").fill("端到端测试点评");
+const notesWorkId = works.find((item) => item.title === "星海列车：第一季").id;
+const existingNotes = (await invoke("get_work", { id: notesWorkId })).notes;
+const notesTestValue = existingNotes === "端到端测试点评" ? "端到端测试点评（复测）" : "端到端测试点评";
+await page.getByLabel("点评 / 备注").fill(notesTestValue);
 await page.getByRole("button", { name: "保存点评" }).click();
 await page.waitForTimeout(200);
-if ((await invoke("get_work", { id: works.find((item) => item.title === "星海列车：第一季").id })).notes !== "端到端测试点评") {
+if ((await invoke("get_work", { id: notesWorkId })).notes !== notesTestValue) {
   throw new Error("Work detail notes were not persisted.");
 }
 await assertNoHorizontalOverflow("work detail 1024x640");
@@ -484,7 +487,7 @@ await setRoute(`#/library/${subtitleWork.id}`);
 await page.waitForSelector(".file-row");
 const localFilesSection = page.locator(".detail-section").filter({ has: page.getByRole("heading", { name: "章节与文件" }) });
 await localFilesSection.scrollIntoViewIfNeeded();
-if ((await localFilesSection.getByText("1 个字幕", { exact: true }).count()) !== 2) {
+if ((await localFilesSection.locator(".episode-card-meta", { hasText: "1 个字幕" }).count()) !== 2) {
   throw new Error("Work detail did not show the two persisted episode subtitle links.");
 }
 await assertNoHorizontalOverflow("subtitle detail 1024x640");
@@ -506,7 +509,7 @@ await settingsTrigger.click();
 await page.waitForSelector(".settings-drawer");
 await page.getByRole("radio", { name: "深色" }).click();
 if (!(await page.locator("html.dark").count())) throw new Error("Dark theme did not activate.");
-if (!(await page.getByRole("button", { name: /下载与备份/ }).isDisabled())) throw new Error("Future download settings were unexpectedly interactive.");
+if (!(await page.getByRole("tab", { name: /下载与备份/ }).isDisabled())) throw new Error("Future download settings were unexpectedly interactive.");
 const drawerWidth = await page.locator(".settings-drawer").evaluate((element) => element.getBoundingClientRect().width);
 if (drawerWidth > 410) throw new Error(`Settings drawer is wider than the v1.1.1 specification: ${drawerWidth}px.`);
 for (const label of ["主题色", "玻璃模糊", "圆角大小"]) {
