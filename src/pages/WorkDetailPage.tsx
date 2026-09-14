@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  ChevronRight,
   ExternalLink,
   FilePlus2,
   FolderOpen,
@@ -69,6 +70,9 @@ export function WorkDetailPage() {
   const [busyFile, setBusyFile] = useState<string | null>(null);
   const [attachSearch, setAttachSearch] = useState("");
   const [recognizingMedia, setRecognizingMedia] = useState<MediaFile | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [aboutClipped, setAboutClipped] = useState(false);
+  const aboutRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,6 +89,23 @@ export function WorkDetailPage() {
     }
   }, [id]);
   useEffect(() => void load(), [load]);
+
+  useEffect(() => {
+    const node = aboutRef.current;
+    if (!node) return;
+    const measure = () => {
+      const description = node.querySelector<HTMLElement>(".detail-description");
+      const tags = node.querySelector<HTMLElement>(".detail-tags");
+      const descriptionClipped = description ? description.scrollHeight > description.clientHeight + 1 : false;
+      const tagsClipped = tags ? tags.scrollWidth > tags.clientWidth + 1 : false;
+      setAboutClipped(descriptionClipped || tagsClipped);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    window.addEventListener("resize", measure);
+    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, [work?.description, work?.tags]);
 
   const availableFiles = useMemo(() => {
     const search = attachSearch.trim().toLocaleLowerCase("zh-CN");
@@ -276,12 +297,13 @@ export function WorkDetailPage() {
                   </div>
                 </div>
 
-                <div className="detail-about">
+                <div className="detail-about" ref={aboutRef}>
                   <p className="detail-description">{work.description || "暂无简介。可通过编辑作品补充本地简介。"}</p>
                   <div className="detail-tags">
                     {work.tags.map((tag) => <span className="detail-tag" key={tag}>{tag}</span>)}
                     {!work.tags.length ? <span className="detail-tag muted-tag">暂无标签</span> : null}
                   </div>
+                  {aboutClipped ? <button type="button" className="detail-about-more" onClick={() => setAboutOpen(true)}>查看详情<ChevronRight size={13} /></button> : null}
                 </div>
               </div>
 
@@ -372,6 +394,17 @@ export function WorkDetailPage() {
         </div>
       </div>
 
+      {aboutOpen ? (
+        <Modal title="作品简介与标签" onClose={() => setAboutOpen(false)}>
+          <div className="about-detail">
+            <p className="detail-description">{work.description || "暂无简介。可通过编辑作品补充本地简介。"}</p>
+            <div className="detail-tags">
+              {work.tags.map((tag) => <span className="detail-tag" key={tag}>{tag}</span>)}
+              {!work.tags.length ? <span className="detail-tag muted-tag">暂无标签</span> : null}
+            </div>
+          </div>
+        </Modal>
+      ) : null}
       {editOpen ? <Modal title="编辑作品" width="large" onClose={() => setEditOpen(false)}><WorkForm work={work} busy={saving} onCancel={() => setEditOpen(false)} onSubmit={update} /></Modal> : null}
       {attachOpen ? (
         <Modal title="关联本地文件" width="large" onClose={() => setAttachOpen(false)}>

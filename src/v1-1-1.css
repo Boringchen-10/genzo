@@ -288,6 +288,14 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .detail-description { max-width: none; margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .detail-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .detail-tag { padding: 6px 10px; color: var(--muted); background: rgba(var(--tint), .045); border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }
+.detail-about .detail-description { display: -webkit-box; max-height: none; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.detail-about .detail-tags { flex-wrap: nowrap; overflow: hidden; }
+.detail-about .detail-tag { flex: none; }
+.detail-about-more { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; padding: 0; color: var(--accent); background: none; border: 0; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1.6; cursor: pointer; }
+.detail-about-more:hover, .detail-about-more:focus-visible { color: var(--accent-hover); }
+.about-detail { display: grid; gap: 14px; }
+.about-detail .detail-description { max-height: none; overflow: visible; }
+.about-detail .detail-tags { flex-wrap: wrap; }
 .muted-tag { color: var(--quiet); }
 .notes-panel { display: grid; gap: 10px; min-width: 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: rgba(var(--tint), .035); }
 .notes-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
