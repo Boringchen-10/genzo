@@ -302,7 +302,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .notes-head h2 { margin: 0; font-size: 15px; }
 .notes-badge { flex: none; color: var(--quiet); font-size: 11px; }
 .notes-label { font-size: 13px; font-weight: 600; }
-.notes-panel textarea { width: 100%; min-height: 96px; resize: vertical; padding: 12px; color: var(--text); background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: 6px; line-height: 1.6; }
+.notes-panel textarea { width: 100%; height: auto; min-height: 96px; max-height: 320px; resize: none; overflow-y: auto; padding: 12px; color: var(--text); background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: 6px; line-height: 1.6; }
 .notes-panel textarea::placeholder { color: var(--quiet); }
 .notes-foot { display: flex; align-items: center; gap: 10px; }
 .notes-hint { color: var(--quiet); font-size: 11.5px; }

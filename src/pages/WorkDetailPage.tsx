@@ -73,6 +73,7 @@ export function WorkDetailPage() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [aboutClipped, setAboutClipped] = useState(false);
   const aboutRef = useRef<HTMLDivElement>(null);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,6 +90,13 @@ export function WorkDetailPage() {
     }
   }, [id]);
   useEffect(() => void load(), [load]);
+
+  useEffect(() => {
+    const node = notesRef.current;
+    if (!node) return;
+    node.style.height = "auto";
+    node.style.height = `${node.scrollHeight}px`;
+  }, [notesDraft, work?.id]);
 
   useEffect(() => {
     const node = aboutRef.current;
@@ -310,7 +318,7 @@ export function WorkDetailPage() {
               <section className="notes-panel" aria-labelledby="notesTitle">
                 <div className="notes-head"><h2 id="notesTitle">我的点评</h2><span className="notes-badge">{notesDirty ? "未保存" : "已保存"}</span></div>
                 <label className="notes-label" htmlFor="notesInput">点评 / 备注</label>
-                <textarea id="notesInput" rows={3} value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder="写下你对这部作品的点评、观后感或备注…" />
+                <textarea id="notesInput" ref={notesRef} rows={3} value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder="写下你对这部作品的点评、观后感或备注…" />
                 <div className="notes-foot"><small className="notes-hint">仅保存在本机。</small><button type="button" className="button primary" disabled={!notesDirty || notesSaving} onClick={() => void saveNotes()}>{notesSaving ? "保存中…" : "保存点评"}</button></div>
               </section>
             </div>
