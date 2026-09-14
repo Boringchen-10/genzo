@@ -56,6 +56,17 @@ function artwork(work: WorkListItem, index: number, previewMode = false) {
   return coverUrl(work.coverPath) ?? (previewMode ? demoLandscape[index % demoLandscape.length] : null);
 }
 
+/**
+ * 首页背景 / 书架占位：优先作品自己的封面；没有封面时轮换内置抽象占位图。
+ * 这样切换精选作品时背景会随作品变化，而不是永远停在同一张图上。
+ */
+const homeBackdrops = ["/design/reference-primary.png", "/design/reference-secondary.png"];
+
+function workBackdrop(work: WorkListItem | undefined, index: number): string | null {
+  if (!work) return null;
+  return coverUrl(work.coverPath) ?? homeBackdrops[index % homeBackdrops.length] ?? null;
+}
+
 function ShelfArtwork({ work, index, previewMode }: { work: WorkListItem; index: number; previewMode: boolean }) {
   const source = artwork(work, index, previewMode);
   return source ? <img src={source} alt="" /> : <MediaVisual type={work.type} coverPath={null} alt="" />;
@@ -85,7 +96,7 @@ export function HomePage() {
 
   const carouselWorks = useMemo(() => data?.recentWorks.slice(0, 5) ?? [], [data]);
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
-  const featuredArtwork = "/design/reference-primary.png";
+  const featuredArtwork = workBackdrop(featured, featuredIndex);
 
   useEffect(() => {
     document.documentElement.classList.toggle("has-window-backdrop", Boolean(featuredArtwork));
@@ -103,7 +114,7 @@ export function HomePage() {
 
   return (
     <div className="seanime-home gnz-home">
-      <div className="seanime-banner has-artwork" style={{ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties}>
+      <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
         <div className="seanime-home-toolbar">
           <span className="seanime-library-count">{data.totalWorks} 部作品 · 最近同步于今天</span>
@@ -133,7 +144,7 @@ export function HomePage() {
         <div className="section-heading"><div><h2>我的书架</h2><span>{data.totalWorks} 部作品</span></div><Link to="/library">查看全部</Link></div>
         <div className="gnz-shelf-filters"><span className="active">全部</span><span>动漫</span><span>漫画</span><span>小说</span><span>游戏</span></div>
         <div className="gnz-shelf-grid">{data.recentWorks.slice(0, 6).map((work, index) => {
-          const shelfArtwork = artwork(work, index, previewMode) ?? (index % 2 ? "/design/reference-secondary.png" : "/design/reference-primary.png");
+          const shelfArtwork = artwork(work, index, previewMode) ?? workBackdrop(work, index);
           return <Link className="gnz-shelf-card" to={`/library/${work.id}`} key={work.id} style={{ "--shelf-image": `url("${shelfArtwork}")` } as CSSProperties}><span>{mediaLabels[work.type]}</span>{work.favorite ? <Heart size={15} fill="currentColor"/> : null}<strong>{work.title}</strong><small>{work.mediaCount} 个文件 · 本地</small></Link>;
         })}</div>
       </section> : null}
