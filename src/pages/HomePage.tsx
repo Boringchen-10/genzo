@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { dataProvider as api } from "../data";
 import { EmptyState, ErrorState, IconButton, LoadingState } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
+import { useUi } from "../store";
 import type { Dashboard, WorkListItem } from "../types";
 import { coverUrl, getErrorMessage, mediaLabels } from "../utils";
 
@@ -66,6 +67,7 @@ export function HomePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [featuredIndex, setFeaturedIndex] = useState(0);
+  const openSettings = useUi((state) => state.openSettings);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,7 +109,7 @@ export function HomePage() {
           <span className="seanime-library-count">{data.totalWorks} 部作品 · 最近同步于今天</span>
           <Link className="icon-button" aria-label="打开媒体库" data-tooltip="打开媒体库" to="/library"><Library size={19} /></Link>
           <IconButton tooltip="刷新概览" onClick={() => void load()}><RefreshCw size={19} /></IconButton>
-          <Link className="icon-button" aria-label="打开设置" data-tooltip="打开设置" to="/settings"><Settings size={19} /></Link>
+          <IconButton tooltip="打开设置" onClick={openSettings}><Settings size={19} /></IconButton>
         </div>
         <div className="gnz-home-copy-mask" />
         <div className="seanime-banner-title">

@@ -59,3 +59,15 @@ export const useToasts = create<ToastState>((set, get) => ({
   },
   dismiss: (id) => set({ messages: get().messages.filter((message) => message.id !== id) }),
 }));
+
+interface UiState {
+  settingsOpen: boolean;
+  openSettings: () => void;
+  closeSettings: () => void;
+}
+
+export const useUi = create<UiState>((set) => ({
+  settingsOpen: false,
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
+}));

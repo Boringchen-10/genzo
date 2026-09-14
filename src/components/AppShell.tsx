@@ -9,7 +9,9 @@ import {
   X,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { usePreferences, useToasts } from "../store";
+import { usePreferences, useToasts, useUi } from "../store";
+import { Drawer } from "./common";
+import { SettingsPanel } from "./SettingsPanel";
 import { WindowTitleBar } from "./WindowTitleBar";
 
 const navigation = [
@@ -30,6 +32,9 @@ export function AppShell() {
   const cornerRadius = usePreferences((state) => state.cornerRadius);
   const messages = useToasts((state) => state.messages);
   const dismiss = useToasts((state) => state.dismiss);
+  const settingsOpen = useUi((state) => state.settingsOpen);
+  const openSettings = useUi((state) => state.openSettings);
+  const closeSettings = useUi((state) => state.closeSettings);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -65,12 +70,24 @@ export function AppShell() {
           </div>
         </div>
         <nav className="nav-list" aria-label="主导航">
-          {navigation.map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end} aria-label={label} data-nav-label={label} className={({ isActive }) => (isActive ? "active" : "")}>
-              <Icon size={20} strokeWidth={1.8} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
+          {navigation.map(({ to, label, icon: Icon, end }) => {
+            const opensSettings = to === "/settings";
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                end={end}
+                aria-label={label}
+                aria-haspopup={opensSettings ? "dialog" : undefined}
+                data-nav-label={label}
+                className={({ isActive }) => (isActive ? "active" : "")}
+                onClick={opensSettings ? (event) => { event.preventDefault(); openSettings(); } : undefined}
+              >
+                <Icon size={20} strokeWidth={1.8} />
+                <span>{label}</span>
+              </NavLink>
+            );
+          })}
         </nav>
         <div className="sidebar-foot">
           <span className="status-dot" />
@@ -81,6 +98,11 @@ export function AppShell() {
       <main ref={mainRef} className="main-content">
         <Outlet />
       </main>
+      {settingsOpen ? (
+        <Drawer title="设置" onClose={closeSettings}>
+          <SettingsPanel />
+        </Drawer>
+      ) : null}
       <div className="toast-stack" aria-live="polite">
         {messages.map((message) => (
           <div key={message.id} className={`toast toast-${message.tone}`}>

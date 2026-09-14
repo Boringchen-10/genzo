@@ -356,9 +356,12 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .tool-icon { border-radius: 7px; }
 
 /* Settings drawer and overlays */
-.settings-stage { min-height: 100%; background: url('/design/reference-primary.png') center/cover; opacity: .7; }
-.drawer-backdrop { position: fixed; z-index: 390; inset: var(--win-titlebar) 0 0 75px; display: flex; justify-content: flex-end; background: rgb(3 6 8 / .38); backdrop-filter: blur(2px); }
-.settings-drawer { display: flex; flex-direction: column; width: min(390px, calc(100vw - 75px)); height: 100%; color: var(--text); background: rgba(var(--shade), .94); border-left: 1px solid var(--line-strong); box-shadow: var(--shadow); outline: 0; backdrop-filter: blur(var(--ui-blur)); }
+/* The drawer overlays whatever page is open, so the page stays visible behind it.
+   The backdrop only dims — it carries no backdrop-filter of its own, because a
+   filter on the parent creates a backdrop root and would stop the drawer's own
+   blur from sampling the page behind it (which made the glass look flat). */
+.drawer-backdrop { position: fixed; z-index: 390; inset: var(--win-titlebar) 0 0 75px; display: flex; justify-content: flex-end; background: rgb(3 6 8 / .28); }
+.settings-drawer { display: flex; flex-direction: column; width: min(390px, calc(100vw - 75px)); height: 100%; color: var(--text); background: rgba(var(--shade), .9); border-left: 1px solid var(--line-strong); box-shadow: var(--shadow); outline: 0; backdrop-filter: blur(var(--ui-blur)) saturate(1.05); -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(1.05); }
 .drawer-header.drawer-head { display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 0 24px; border: 0; }
 .drawer-header.drawer-head h1 { margin: 0; font-size: 24px; line-height: 1.2; }
 .drawer-header.drawer-head .close { width: 40px; height: 40px; margin-left: auto; }

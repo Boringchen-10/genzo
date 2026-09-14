@@ -5,7 +5,6 @@ import { ExplorePage } from "./pages/ExplorePage";
 import { FavoritesPage } from "./pages/FavoritesPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { ScanPage } from "./pages/ScanPage";
-import { SettingsPage } from "./pages/SettingsPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { WorkDetailPage } from "./pages/WorkDetailPage";
 
@@ -21,7 +20,6 @@ const router = createHashRouter([
       { path: "favorites", element: <FavoritesPage /> },
       { path: "scan", element: <ScanPage /> },
       { path: "tools", element: <ToolsPage /> },
-      { path: "settings", element: <SettingsPage /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
