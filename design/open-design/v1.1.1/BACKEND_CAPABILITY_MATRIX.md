@@ -76,3 +76,14 @@ WebDAV、SMB/NAS、网盘、远程播放、下载到本地、工具一键下载�
 - 「重新扫描」为整目录重扫，不得称为「只重试失败项」。
 - 逐集映射为 NEW_REQUIRED，不得标为当前可直接接入。
 - HTML 按钮、Toast、模拟数据与设计文档描述均**不是**后端已实现的证据。
+
+## 前端 Provider 接入登记（前后端职责分离后新增）
+
+| 功能 ID | 页面 | 用户操作 | 能力状态 | 代码证据 / 说明 | 持久化 | 建议版本 |
+|---|---|---|---|---|---|---|
+| FE-PROVIDER-001 | 全局 | 前端通过 Provider 契约取数 | NEW_REQUIRED（契约已定义，实现待 Codex） | `src/data/provider.ts`（接口，前端拥有）；`src/data/tauriProvider.ts` 为占位实现，抛 `ProviderNotImplementedError` | 否 | v0.1 P0 |
+| FE-MOCK-001 | 全局 | 设计期示例数据 | MOCK_ONLY | `src/data/mockProvider.ts`，导出 `MOCK_NOTICE`，UI 必须显示“示例数据” | 否（内存） | 仅设计 |
+| FE-STORE-001 | 全局 | 主题/视图偏好、Toast | 前端专用（非后端能力） | `src/store.ts` = zustand `persist`，键 `genzo-preferences`，仅外观偏好与 Toast | localStorage | v0.1 P1 |
+| FE-GAP-001 | 多页 | UI 已具备、等待后端 Provider | NEW_REQUIRED | 继续观看进度、探索数据、制作人员/角色、阅读器、下载与备份：UI 可完成，数据由 `tauriProvider.ts` 提供 | 待定 | v0.2–v0.3 |
+
+> 说明：`src/data/` 为前端新增层，只读引用 `src/types.ts` 与 `src/api.ts`；不改动任何 Tauri Command、Rust、SQLite、迁移或 `contracts/`。`src/store.ts` 经只读核对为纯前端偏好与 Toast（zustand + localStorage），归前端所有。
