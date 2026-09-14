@@ -11,6 +11,9 @@
 import type {
   AppInfo,
   Dashboard,
+  ExploreOverview,
+  ExploreSaveInput,
+  ExploreSubject,
   ExternalTool,
   ExternalToolInput,
   LibraryRoot,
@@ -244,6 +247,140 @@ const settings = new Map<string, string>([
   ["glassBlur", "24"],
   ["cornerRadius", "8"],
 ]);
+
+interface MockExploreSeed {
+  externalId: string;
+  title: string;
+  originalTitle: string | null;
+  aliases: string[];
+  description: string;
+  coverUrl: string | null;
+  year: number | null;
+  month: number | null;
+  airDate: string | null;
+  broadcast: string | null;
+  subjectType: ExploreSubject["subjectType"];
+  genres: string[];
+  score: number | null;
+  rank: number | null;
+  ratingCount: number;
+  collectionCount: number;
+}
+
+/* 示例条目：标题显式带「示例」，让预览不会被误当成真实 Bangumi 条目。
+   封面复用仓库内自制占位图（`public/design/`），不发起任何网络请求。 */
+const EXPLORE_SEEDS: MockExploreSeed[] = [
+  {
+    externalId: "900001",
+    title: "示例 · 星海邮差",
+    originalTitle: "Sample Stardust Courier",
+    aliases: ["星海邮差（示例）"],
+    description: "示例简介：设计期 Mock 不请求 Bangumi 接口，正式运行时会显示真实条目简介。",
+    coverUrl: "/design/reference-primary.png",
+    year: 2026,
+    month: 9,
+    airDate: "2026-09-06",
+    broadcast: "每周日 22:00",
+    subjectType: "tv",
+    genres: ["科幻", "冒险"],
+    score: 7.8,
+    rank: 1284,
+    ratingCount: 2310,
+    collectionCount: 8120,
+  },
+  {
+    externalId: "900002",
+    title: "示例 · 雨声与机械城",
+    originalTitle: null,
+    aliases: [],
+    description: "示例简介：用于演示无原文标题、无别名时的界面表现。",
+    coverUrl: "/design/reference-secondary.png",
+    year: 2026,
+    month: 9,
+    airDate: "2026-09-12",
+    broadcast: "每周五 21:30",
+    subjectType: "web",
+    genres: ["日常", "治愈"],
+    score: null,
+    rank: null,
+    ratingCount: 0,
+    collectionCount: 0,
+  },
+  {
+    externalId: "900003",
+    title: "示例 · 第七码头的夏天",
+    originalTitle: "Sample Summer at Pier Seven",
+    aliases: ["第七码头（示例）"],
+    description: "示例简介：用于演示无封面时回退到 Genzo 自制占位封面。",
+    coverUrl: null,
+    year: 2026,
+    month: 10,
+    airDate: "2026-10-03",
+    broadcast: null,
+    subjectType: "tv",
+    genres: ["悬疑", "奇幻"],
+    score: 8.1,
+    rank: 402,
+    ratingCount: 5870,
+    collectionCount: 15240,
+  },
+  {
+    externalId: "900004",
+    title: "示例 · 群青观测站",
+    originalTitle: "Sample Ultramarine Observatory",
+    aliases: [],
+    description: "示例简介：用于演示剧场版类型与暂无评分的空状态。",
+    coverUrl: null,
+    year: 2026,
+    month: 10,
+    airDate: null,
+    broadcast: null,
+    subjectType: "movie",
+    genres: ["科幻"],
+    score: null,
+    rank: null,
+    ratingCount: 0,
+    collectionCount: 940,
+  },
+];
+
+/* 设计期内存状态：演示加入媒体库后的本地标记，刷新即丢失。 */
+const exploreLocal = new Map<string, { workId: string; status: WorkListItem["status"]; favorite: boolean }>();
+
+const toExploreSubject = (seed: MockExploreSeed): ExploreSubject => {
+  const local = exploreLocal.get(seed.externalId);
+  return {
+    provider: "bangumi",
+    externalId: seed.externalId,
+    title: seed.title,
+    originalTitle: seed.originalTitle,
+    aliases: [...seed.aliases],
+    description: seed.description,
+    coverUrl: seed.coverUrl,
+    year: seed.year,
+    month: seed.month,
+    airDate: seed.airDate,
+    broadcast: seed.broadcast,
+    subjectType: seed.subjectType,
+    genres: [...seed.genres],
+    score: seed.score,
+    rank: seed.rank,
+    ratingCount: seed.ratingCount,
+    collectionCount: seed.collectionCount,
+    inLibrary: local !== undefined,
+    favorite: local?.favorite ?? false,
+    localWorkId: local?.workId ?? null,
+    localStatus: local?.status ?? null,
+    fetchedAt: now,
+    stale: false,
+  };
+};
+
+const requireExploreSeed = (externalId: string): MockExploreSeed => {
+  const seed = EXPLORE_SEEDS.find((item) => item.externalId === externalId);
+  if (!seed) throw new Error(`示例数据中不存在探索条目：${externalId}`);
+  return seed;
+};
 
 const toDetail = (item: WorkListItem): WorkDetail => ({
   ...item,
@@ -514,6 +651,100 @@ export function createMockProvider(): GenzoDataProvider {
     },
     async setFieldLock() {
       /* 设计期：内存演示 */
+    },
+
+    async exploreOverview(year, month) {
+      const today = new Date(now);
+      const resolvedYear = year ?? today.getUTCFullYear();
+      const resolvedMonth = month ?? today.getUTCMonth() + 1;
+      if (resolvedYear < 1900 || resolvedYear > 2200) {
+        throw new Error("探索年份必须在 1900 到 2200 之间");
+      }
+      if (resolvedMonth < 1 || resolvedMonth > 12) {
+        throw new Error("探索月份必须在 1 到 12 之间");
+      }
+      const seasonal = EXPLORE_SEEDS
+        .filter((seed) => seed.month === resolvedMonth)
+        .map(toExploreSubject);
+      const trending = [...EXPLORE_SEEDS]
+        .sort((left, right) => right.ratingCount - left.ratingCount)
+        .slice(0, 12)
+        .map(toExploreSubject);
+      const availableTags = Array.from(
+        new Set([...seasonal, ...trending].flatMap((item) => item.genres)),
+      ).sort((left, right) => left.localeCompare(right, "zh-CN"));
+      const overview: ExploreOverview = {
+        year: resolvedYear,
+        month: resolvedMonth,
+        seasonal,
+        trending,
+        availableTags,
+        sources: [
+          {
+            key: "bangumi-data",
+            label: "bangumi-data 番组索引（示例）",
+            available: true,
+            stale: false,
+            fetchedAt: now,
+            warning: null,
+          },
+          {
+            key: "bangumi",
+            label: "Bangumi 官方 API（示例）",
+            available: true,
+            stale: false,
+            fetchedAt: now,
+            warning: null,
+          },
+        ],
+        fetchedAt: now,
+        stale: false,
+      };
+      return overview;
+    },
+    async searchExplore(query) {
+      const trimmed = query.trim();
+      if (!trimmed) throw new Error("探索搜索词不能为空");
+      if (trimmed.length > 200) throw new Error("探索搜索词不能超过 200 个字符");
+      const normalized = trimmed.toLocaleLowerCase("zh-CN");
+      return EXPLORE_SEEDS
+        .filter((seed) => [seed.title, seed.originalTitle ?? "", ...seed.aliases]
+          .some((value) => value.toLocaleLowerCase("zh-CN").includes(normalized)))
+        .map(toExploreSubject);
+    },
+    async getExploreSubject(externalId) {
+      return toExploreSubject(requireExploreSeed(externalId));
+    },
+    async saveExploreSubject(input) {
+      const seed = requireExploreSeed(input.externalId);
+      const existing = exploreLocal.get(input.externalId);
+      const workId = existing?.workId ?? `mock-explore-work-${exploreLocal.size + 1}`;
+      exploreLocal.set(input.externalId, { workId, status: input.status, favorite: input.favorite });
+      const current = works.get(workId);
+      const linked: WorkListItem = current
+        ? { ...current, status: input.status, favorite: input.favorite, updatedAt: now }
+        : {
+            id: workId,
+            title: seed.title,
+            originalTitle: seed.originalTitle,
+            type: "video",
+            description: seed.description,
+            coverPath: null,
+            status: input.status,
+            favorite: input.favorite,
+            rating: null,
+            notes: "示例：由探索页加入（未写入后端）",
+            createdAt: now,
+            updatedAt: now,
+            metadataStatus: "matched",
+            metadataYear: seed.year,
+            lastRecognizedAt: now,
+            tags: [...seed.genres],
+            mediaCount: 0,
+            missingCount: 0,
+          };
+      works.set(workId, linked);
+      return workId;
     },
   };
 }

@@ -14,6 +14,9 @@
 import type {
   AppInfo,
   Dashboard,
+  ExploreOverview,
+  ExploreSaveInput,
+  ExploreSubject,
   ExternalTool,
   ExternalToolInput,
   LibraryRoot,
@@ -80,6 +83,33 @@ export interface GenzoDataProvider {
   confirmMatch(mediaFileId: string, candidateId: string): Promise<string>;
   cancelMatch(mediaFileId: string): Promise<void>;
   setFieldLock(workId: string, field: string, locked: boolean): Promise<void>;
+
+  /**
+   * 探索（Bangumi 网络数据）。
+   *
+   * - `year` / `month` 省略或传 `null` 时由后端使用当前年月；后端只接受 1900–2200 年、1–12 月。
+   * - 返回的 `score` / `rank` 是 **Bangumi 网络评分与排名**，不是用户个人评分；`null` 表示暂无数据。
+   * - `stale` 为真表示网络更新失败、当前使用的是本地过期缓存；`sources[].available` 为假表示该数据源不可用。
+   * - 探索失败**不得**影响本地媒体库；页面按错误态呈现。
+   *
+   * **可选成员**：`src/data/tauriProvider.ts` 由 Codex 维护，本轮不修改。在 Codex 补齐这四个
+   * 委托（`exploreOverview: api.exploreOverview` … `saveExploreSubject: api.saveExploreSubject`，
+   * 见 `CONTRACT_CHANGELOG.md` 005）之前，桌面壳内这些方法不存在；页面会显示明确的
+   * 「尚未接入」错误态，而不是伪造数据。Mock Provider 已完整实现，浏览器预览可用。
+   */
+  exploreOverview?(year?: number | null, month?: number | null): Promise<ExploreOverview>;
+  searchExplore?(query: string): Promise<ExploreSubject[]>;
+  getExploreSubject?(externalId: string): Promise<ExploreSubject>;
+  /** 幂等加入/更新本地媒体库，返回本地作品 ID；不写入个人评分字段。 */
+  saveExploreSubject?(input: ExploreSaveInput): Promise<string>;
+}
+
+/** 探索能力子集：Provider 补齐探索方法后可用（见 `getExploreProvider()`）。 */
+export interface GenzoExploreProvider {
+  exploreOverview(year?: number | null, month?: number | null): Promise<ExploreOverview>;
+  searchExplore(query: string): Promise<ExploreSubject[]>;
+  getExploreSubject(externalId: string): Promise<ExploreSubject>;
+  saveExploreSubject(input: ExploreSaveInput): Promise<string>;
 }
 
 /** 后端尚未实现、且 Mock 也不应伪装成功的系统级操作。 */

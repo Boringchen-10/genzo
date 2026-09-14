@@ -10,9 +10,9 @@
  */
 import { createMockProvider } from "./mockProvider";
 import { createTauriProvider } from "./tauriProvider";
-import type { GenzoDataProvider } from "./provider";
+import type { GenzoDataProvider, GenzoExploreProvider } from "./provider";
 
-export type { GenzoDataProvider, ProviderMeta } from "./provider";
+export type { GenzoDataProvider, GenzoExploreProvider, ProviderMeta } from "./provider";
 export { MOCK_NOTICE } from "./mockProvider";
 export { ProviderNotImplementedError } from "./provider";
 
@@ -41,6 +41,25 @@ export function getDataProvider(): GenzoDataProvider {
  * 用 `dataProvider as api` 引入可保持既有调用点不变（`api.listWorks()` 等）。
  */
 export const dataProvider: GenzoDataProvider = getDataProvider();
+
+/**
+ * 探索能力访问器。
+ *
+ * 探索方法在 Provider 契约上标记为**可选**（`src/data/tauriProvider.ts` 由 Codex 维护，
+ * 尚未补齐这四个委托）。当运行期 Provider 已实现全部四个方法时返回可直接调用的子集，
+ * 否则返回 `null`，由页面显示明确的「尚未接入」错误态，**绝不伪造数据**。
+ */
+export function getExploreProvider(): GenzoExploreProvider | null {
+  const current = getDataProvider();
+  const { exploreOverview, searchExplore, getExploreSubject, saveExploreSubject } = current;
+  if (!exploreOverview || !searchExplore || !getExploreSubject || !saveExploreSubject) return null;
+  return {
+    exploreOverview: exploreOverview.bind(current),
+    searchExplore: searchExplore.bind(current),
+    getExploreSubject: getExploreSubject.bind(current),
+    saveExploreSubject: saveExploreSubject.bind(current),
+  };
+}
 
 /** 供 Codex 接线与测试使用。 */
 export { createMockProvider, createTauriProvider };
