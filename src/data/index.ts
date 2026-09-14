@@ -1,14 +1,12 @@
 /**
  * Genzo 数据 Provider 选择入口（前端层）
  *
- * 当前阶段固定返回 **Mock Provider**（明确标记为示例数据）。
- * `tauriProvider.ts` 由 Codex 完成后，把下面的开关切换为：
+ * UI 只依赖 `GenzoDataProvider` 契约，不关心数据来自哪里：
+ * - 桌面壳（Tauri）运行时 → `tauriProvider.ts`（由 Codex 接入真实后端）
+ * - 浏览器 / 设计预览 → `mockProvider.ts`（示例数据，界面会显示“示例数据”标记）
  *
- * ```ts
- * const provider = isTauriRuntime() ? createTauriProvider() : createMockProvider();
- * ```
- *
- * 这样 UI 只依赖 `GenzoDataProvider` 契约，不需要知道数据来自哪里。
+ * 归属：`mockProvider.ts` 由 Open Design 维护；`tauriProvider.ts` 由 Codex 维护，
+ * 前端不得写入后端调用实现。两者必须实现同一份 `provider.ts` 接口。
  */
 import { createMockProvider } from "./mockProvider";
 import { createTauriProvider } from "./tauriProvider";
@@ -23,10 +21,26 @@ export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-/** 设计期固定使用 Mock；Codex 完成 Tauri Provider 后按 `isTauriRuntime()` 切换。 */
+let provider: GenzoDataProvider | null = null;
+
+/**
+ * 运行期按环境选择 Provider。
+ *
+ * 注意：在 `tauriProvider.ts` 由 Codex 实现完成前，桌面壳内的数据操作会抛出
+ * `ProviderNotImplementedError`（明确报错，不伪造成功）。浏览器预览始终走 Mock。
+ */
 export function getDataProvider(): GenzoDataProvider {
-  return createMockProvider();
+  if (!provider) {
+    provider = isTauriRuntime() ? createTauriProvider() : createMockProvider();
+  }
+  return provider;
 }
 
-/** 供 Codex 接线使用，保留导出避免未使用告警。 */
-export { createTauriProvider };
+/**
+ * 页面使用的 Provider 单例。
+ * 用 `dataProvider as api` 引入可保持既有调用点不变（`api.listWorks()` 等）。
+ */
+export const dataProvider: GenzoDataProvider = getDataProvider();
+
+/** 供 Codex 接线与测试使用。 */
+export { createMockProvider, createTauriProvider };

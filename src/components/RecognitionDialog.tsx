@@ -1,6 +1,6 @@
 import { AlertTriangle, Check, RefreshCw, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { dataProvider as api } from "../data";
 import type { MatchCandidate, MediaFile } from "../types";
 import { getErrorMessage } from "../utils";
 import { EmptyState, Modal } from "./common";

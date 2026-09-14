@@ -85,5 +85,8 @@ WebDAV、SMB/NAS、网盘、远程播放、下载到本地、工具一键下载�
 | FE-MOCK-001 | 全局 | 设计期示例数据 | MOCK_ONLY | `src/data/mockProvider.ts`，导出 `MOCK_NOTICE`，UI 必须显示“示例数据” | 否（内存） | 仅设计 |
 | FE-STORE-001 | 全局 | 主题/视图偏好、Toast | 前端专用（非后端能力） | `src/store.ts` = zustand `persist`，键 `genzo-preferences`，仅外观偏好与 Toast | localStorage | v0.1 P1 |
 | FE-GAP-001 | 多页 | UI 已具备、等待后端 Provider | NEW_REQUIRED | 继续观看进度、探索数据、制作人员/角色、阅读器、下载与备份：UI 可完成，数据由 `tauriProvider.ts` 提供 | 待定 | v0.2–v0.3 |
+| FE-PROVIDER-002 | 全局 | 运行期按环境选择数据源 | NEW_REQUIRED | `src/data/index.ts`：`isTauriRuntime()` → `createTauriProvider()`，否则 Mock；`dataProvider` 单例供 UI 使用。桌面壳在 `tauriProvider.ts` 完成前会抛 `ProviderNotImplementedError` | 否 | v0.1 P0 |
+| FE-MOCK-002 | 全局 | 标注示例数据来源 | MOCK_ONLY | `WindowTitleBar` 在 `provider.meta.mock` 为真时显示「示例数据」，tooltip = `MOCK_NOTICE`（`mockProvider.ts`） | 否 | 仅设计 |
+| FE-EXPLORE-001 | 探索 | 探索页数据（日历/排行/网络评分） | NEW_REQUIRED | `ExplorePage.tsx` 目前使用本地 `samples` 常量（设计占位），未接入任何后端；需 Bangumi 数据源与缓存，建议加入 Provider 契约 | 待定（需缓存） | v0.2 |
 
 > 说明：`src/data/` 为前端新增层，只读引用 `src/types.ts` 与 `src/api.ts`；不改动任何 Tauri Command、Rust、SQLite、迁移或 `contracts/`。`src/store.ts` 经只读核对为纯前端偏好与 Toast（zustand + localStorage），归前端所有。

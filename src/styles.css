@@ -40,7 +40,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .window-identity { display: flex; align-items: center; flex: 0 0 auto; width: 142px; min-width: 0; height: 40px; gap: 8px; padding-left: 14px; user-select: none; }
 .window-identity img { width: 16px; height: 16px; flex: 0 0 16px; border-radius: 3px; box-shadow: 0 1px 4px rgb(0 0 0 / .28); }
 .window-identity span { overflow: hidden; font-size: 12px; font-weight: 650; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
-.window-drag-space { flex: 1 1 auto; align-self: stretch; min-width: 0; user-select: none; }
+.window-drag-space { display: flex; align-items: center; flex: 1 1 auto; align-self: stretch; min-width: 0; overflow: hidden; user-select: none; }
+.provider-flag { display: inline-flex; align-items: center; flex: 0 0 auto; height: 20px; margin-left: 10px; padding: 0 8px; color: #e8c07a; background: rgb(232 192 122 / .14); border-radius: 5px; font-size: 11px; font-weight: 600; letter-spacing: .2px; white-space: nowrap; }
+.is-home-route .provider-flag { color: #f0c98a; background: rgb(10 12 13 / .5); }
 .window-controls { display: flex; flex: 0 0 auto; align-self: stretch; height: 40px; }
 .window-control { position: relative; display: grid; place-items: center; width: 46px; height: 40px; padding: 0; color: color-mix(in srgb, var(--text) 72%, transparent); background: transparent; border: 0; border-radius: 0; cursor: pointer; }
 .window-control:hover, .window-control:focus-visible { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }

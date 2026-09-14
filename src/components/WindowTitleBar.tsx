@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Copy, Minus, Square, X } from "lucide-react";
+import { getDataProvider, MOCK_NOTICE } from "../data";
 import { useToasts } from "../store";
 
 type WindowAction = "minimize" | "maximize" | "close";
@@ -13,6 +14,7 @@ const actionErrors: Record<WindowAction, string> = {
 };
 
 export function WindowTitleBar() {
+  const provider = getDataProvider();
   const toast = useToasts((state) => state.push);
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
@@ -94,7 +96,13 @@ export function WindowTitleBar() {
         <img src="/genzo-icon.svg" alt="" data-tauri-drag-region />
         <span data-tauri-drag-region>Genzo</span>
       </div>
-      <div className="window-drag-space" data-tauri-drag-region />
+      <div className="window-drag-space" data-tauri-drag-region>
+        {provider.meta.mock ? (
+          <span className="provider-flag" data-tooltip={MOCK_NOTICE}>
+            示例数据
+          </span>
+        ) : null}
+      </div>
       <div className="window-controls" aria-label="窗口控制">
         <button
           type="button"

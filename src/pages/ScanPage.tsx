@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, FolderOpen, Plus, RefreshCw, ScanSearch, Trash2 } from "lucide-react";
-import { api } from "../api";
+import { dataProvider as api } from "../data";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, PageHeader } from "../components/common";
 import { useToasts } from "../store";
 import type { LibraryRoot, RootKind, ScanResult } from "../types";

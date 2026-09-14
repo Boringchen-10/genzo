@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, FolderOpen, Pencil, Play, Plus, Search, Trash2, Wrench } from "lucide-react";
-import { api } from "../api";
+import { dataProvider as api } from "../data";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, PageHeader } from "../components/common";
 import { useToasts } from "../store";
 import type { ExternalTool, ExternalToolInput, MediaType } from "../types";

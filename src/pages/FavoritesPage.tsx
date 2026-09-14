@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Heart, Search } from "lucide-react";
-import { api } from "../api";
+import { dataProvider as api } from "../data";
 import { EmptyState, ErrorState, LoadingState, PageHeader } from "../components/common";
 import { WorkCard } from "../components/WorkCard";
 import type { WorkListItem } from "../types";

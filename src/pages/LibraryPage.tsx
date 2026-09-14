@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api } from "../api";
+import { dataProvider as api } from "../data";
 import { EmptyState, ErrorState, LoadingState, Modal, PageHeader } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { WorkCard } from "../components/WorkCard";

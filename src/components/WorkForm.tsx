@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen } from "lucide-react";
-import { api } from "../api";
+import { dataProvider as api } from "../data";
 import type { MediaType, WorkDetail, WorkInput, WorkStatus } from "../types";
 import { mediaLabels, statusLabels } from "../utils";
 

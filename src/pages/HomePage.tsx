@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Bookmark, ChevronLeft, ChevronRight, Heart, Library, Play, RefreshCw, Settings } from "lucide-react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { dataProvider as api } from "../data";
 import { EmptyState, ErrorState, IconButton, LoadingState } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import type { Dashboard, WorkListItem } from "../types";
