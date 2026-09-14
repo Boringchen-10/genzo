@@ -35,3 +35,20 @@
 1. 实现 `src/data/tauriProvider.ts`：逐方法委托 `src/api.ts` 现有封装，替换占位实现，桌面壳即可恢复正常读写。
 2. 确认 `ProviderMeta.label` / `mock` 的取值是否需与设置页展示统一。
 3. 若 Provider 接口迁入 `contracts/`，按契约变更流程同步本文件。
+
+---
+
+## 003 · 2026-09-14 · Codex 完成 Tauri Provider 实现（前端一行未改）
+
+- **变更**：Codex 提交 `adcc117 feat(data): implement tauri data provider`，将 `src/data/tauriProvider.ts` 从占位实现替换为逐方法委托 `src/api.ts`（`listWorks: api.listWorks` … `setFieldLock: api.setFieldLock`，并以 `satisfies GenzoDataProvider` 约束表面）。
+- **原因**：落实前后端职责分离——后端接入由 Codex 完成，前端 UI 不因接入真实数据而改动。
+- **字段**：无新增或变更字段；接口表面与 002 号条目登记的完全一致（35 个方法）。
+- **兼容性**：**向后兼容**。`src/data/provider.ts`、`src/data/index.ts`、`src/data/mockProvider.ts` 与全部页面/组件**零改动**；`src/api.ts`、`src/types.ts`、`src-tauri/`、迁移与契约均未改动。
+- **受影响功能 ID**：FE-PROVIDER-001、FE-PROVIDER-002 —— 待办项「桌面壳数据操作抛 `ProviderNotImplementedError`」已解除；桌面壳现可正常读写真实数据，浏览器/设计预览仍走 Mock 并显示「示例数据」。
+- **变更方**：Codex（后端接入）；Open Design 仅做只读核对，未修改该文件。
+
+### 核对结论（Open Design，只读）
+
+- `src/data/tauriProvider.ts` 导入 `api` 并逐方法委托，未新增或改义任何 Tauri Command。
+- 除 `ExplorePage.tsx`（本地 `samples` 常量，登记为 FE-EXPLORE-001）外，全部页面/组件的取数入口均为 `../data`，无页面再直接引用 `src/api.ts`。
+- 集成未要求任何 UI 变更：无冲突需上报。

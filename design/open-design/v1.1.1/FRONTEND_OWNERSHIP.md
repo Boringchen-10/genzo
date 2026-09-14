@@ -33,11 +33,12 @@
 - UI 接入：9 个页面/组件的取数入口从 `src/api.ts` 切换为 `dataProvider`（`import { dataProvider as api } from "../data"`），调用点未改动。
 - Mock 标记：`WindowTitleBar` 在 `provider.meta.mock` 为真时显示「示例数据」标记，tooltip 为 `MOCK_NOTICE`。
 
-## 运行期状态与过渡说明
+## 运行期状态（过渡期已结束）
 
-- 桌面壳运行时选择 **Tauri Provider**；在 Codex 完成 `tauriProvider.ts` 之前，数据操作会抛出 `ProviderNotImplementedError`（明确报错，不伪造成功）。
+- 桌面壳运行时选择 **Tauri Provider**；Codex 已在提交 `adcc117` 中实现 `src/data/tauriProvider.ts`（逐方法委托 `src/api.ts`），桌面壳可正常读写真实数据。
 - 浏览器 / 设计预览选择 **Mock Provider**，界面显示「示例数据」标记。
-- 过渡期结束条件：Codex 实现 `tauriProvider.ts`（逐方法委托 `src/api.ts`）后，桌面壳即可恢复正常数据读写，UI 无需改动。
+- 集成过程中 **UI 一行未改** —— 契约成立，Codex 未提出冲突；前端 Provider 层（`provider.ts` / `index.ts` / `mockProvider.ts`）与全部页面/组件均无需调整。
+- 唯一仍走本地示例数据的页面：`ExplorePage.tsx`（本地 `samples` 常量，登记为 `FE-EXPLORE-001`，NEW_REQUIRED，等待 Bangumi 数据源）。
 
 ## Git 约定
 
