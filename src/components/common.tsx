@@ -154,7 +154,7 @@ export function Drawer({ title, children, onClose }: { title: string; children: 
   return createPortal(
     <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section ref={drawerRef} tabIndex={-1} className="settings-drawer" role="dialog" aria-modal="true" aria-label={title}>
-        <header className="drawer-header"><h1>{title}</h1><IconButton tooltip="关闭设置" onClick={onClose}><X size={19}/></IconButton></header>
+        <header className="drawer-header drawer-head"><h1>{title}</h1><IconButton tooltip="关闭设置" className="close" onClick={onClose}><X size={19}/></IconButton></header>
         <div className="drawer-body">{children}</div>
       </section>
     </div>,

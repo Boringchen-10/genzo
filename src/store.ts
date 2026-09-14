@@ -5,8 +5,15 @@ import type { LibraryView, ThemeMode } from "./types";
 interface PreferencesState {
   theme: ThemeMode;
   libraryView: LibraryView;
+  accentHue: number;
+  glassBlur: number;
+  cornerRadius: number;
   setTheme: (theme: ThemeMode) => void;
   setLibraryView: (view: LibraryView) => void;
+  setAccentHue: (accentHue: number) => void;
+  setGlassBlur: (glassBlur: number) => void;
+  setCornerRadius: (cornerRadius: number) => void;
+  resetAppearance: () => void;
 }
 
 export const usePreferences = create<PreferencesState>()(
@@ -14,8 +21,15 @@ export const usePreferences = create<PreferencesState>()(
     (set) => ({
       theme: "system",
       libraryView: "grid",
+      accentHue: 158,
+      glassBlur: 24,
+      cornerRadius: 8,
       setTheme: (theme) => set({ theme }),
       setLibraryView: (libraryView) => set({ libraryView }),
+      setAccentHue: (accentHue) => set({ accentHue }),
+      setGlassBlur: (glassBlur) => set({ glassBlur }),
+      setCornerRadius: (cornerRadius) => set({ cornerRadius }),
+      resetAppearance: () => set({ theme: "system", accentHue: 158, glassBlur: 24, cornerRadius: 8 }),
     }),
     { name: "genzo-preferences" },
   ),

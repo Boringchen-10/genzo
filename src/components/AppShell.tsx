@@ -25,6 +25,9 @@ export function AppShell() {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
   const theme = usePreferences((state) => state.theme);
+  const accentHue = usePreferences((state) => state.accentHue);
+  const glassBlur = usePreferences((state) => state.glassBlur);
+  const cornerRadius = usePreferences((state) => state.cornerRadius);
   const messages = useToasts((state) => state.messages);
   const dismiss = useToasts((state) => state.dismiss);
 
@@ -32,13 +35,19 @@ export function AppShell() {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && media.matches);
-      document.documentElement.classList.toggle("dark", dark);
-      document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      const root = document.documentElement;
+      root.classList.toggle("dark", dark);
+      root.style.colorScheme = dark ? "dark" : "light";
+      root.style.setProperty("--accent", `hsl(${accentHue} ${dark ? 48 : 66}% ${dark ? 62 : 30}%)`);
+      root.style.setProperty("--accent-hover", `hsl(${accentHue} ${dark ? 54 : 68}% ${dark ? 70 : 25}%)`);
+      root.style.setProperty("--accent-soft", `hsl(${accentHue} ${dark ? 48 : 66}% ${dark ? 62 : 30}% / .12)`);
+      root.style.setProperty("--ui-blur", `${glassBlur}px`);
+      root.style.setProperty("--ui-radius", `${cornerRadius}px`);
     };
     apply();
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
-  }, [theme]);
+  }, [theme, accentHue, glassBlur, cornerRadius]);
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, left: 0 });

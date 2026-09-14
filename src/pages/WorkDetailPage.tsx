@@ -6,26 +6,50 @@ import {
   FilePlus2,
   FolderOpen,
   Heart,
+  Lock,
   MoreHorizontal,
   Pencil,
   Play,
+  Sparkles,
   Star,
   Trash2,
   Unlink,
-  Lock,
   Unlock,
-  Sparkles,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api } from "../api";
+import { dataProvider as api } from "../data";
+import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { WorkForm } from "../components/WorkForm";
 import { useToasts } from "../store";
 import type { ExternalTool, MediaFile, WorkDetail, WorkInput } from "../types";
-import { RecognitionDialog } from "../components/RecognitionDialog";
 import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, statusLabels } from "../utils";
 import "../work-detail.css";
+
+const metadataStatusLabels = {
+  unmatched: "未识别",
+  candidate_pending: "待确认",
+  matched: "已匹配",
+  manually_created: "手动创建",
+  error: "识别失败",
+} as const;
+
+function workInput(work: WorkDetail, overrides: Partial<WorkInput> = {}): WorkInput {
+  return {
+    title: work.title,
+    originalTitle: work.originalTitle,
+    type: work.type,
+    description: work.description,
+    coverPath: work.coverPath,
+    status: work.status,
+    favorite: work.favorite,
+    rating: work.rating,
+    tags: work.tags,
+    notes: work.notes,
+    ...overrides,
+  };
+}
 
 export function WorkDetailPage() {
   const { id = "" } = useParams();
@@ -40,6 +64,8 @@ export function WorkDetailPage() {
   const [attachOpen, setAttachOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
   const [busyFile, setBusyFile] = useState<string | null>(null);
   const [attachSearch, setAttachSearch] = useState("");
   const [recognizingMedia, setRecognizingMedia] = useState<MediaFile | null>(null);
@@ -50,6 +76,7 @@ export function WorkDetailPage() {
     try {
       const [workData, toolData] = await Promise.all([api.getWork(id), api.listTools()]);
       setWork(workData);
+      setNotesDraft(workData.notes);
       setTools(toolData);
     } catch (loadError: unknown) {
       setError(getErrorMessage(loadError));
@@ -76,13 +103,43 @@ export function WorkDetailPage() {
   const update = async (input: WorkInput) => {
     setSaving(true);
     try {
-      setWork(await api.updateWork(id, input));
+      const updated = await api.updateWork(id, input);
+      setWork(updated);
+      setNotesDraft(updated.notes);
       setEditOpen(false);
       toast("作品信息已保存", "success");
     } catch (updateError: unknown) {
       toast(getErrorMessage(updateError), "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const updateInline = async (input: WorkInput, successMessage: string) => {
+    setSaving(true);
+    try {
+      const updated = await api.updateWork(id, input);
+      setWork(updated);
+      toast(successMessage, "success");
+    } catch (updateError: unknown) {
+      toast(getErrorMessage(updateError), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveNotes = async () => {
+    if (!work) return;
+    setNotesSaving(true);
+    try {
+      const updated = await api.updateWork(id, workInput(work, { notes: notesDraft }));
+      setWork(updated);
+      setNotesDraft(updated.notes);
+      toast("点评已保存在本机", "success");
+    } catch (updateError: unknown) {
+      toast(getErrorMessage(updateError), "error");
+    } finally {
+      setNotesSaving(false);
     }
   };
 
@@ -147,100 +204,178 @@ export function WorkDetailPage() {
 
   if (loading) return <div className="page"><LoadingState label="正在读取作品详情" /></div>;
   if (error || !work) return <div className="page"><ErrorState message={error || "作品不存在"} retry={() => void load()} /></div>;
-  const firstAvailable = work.mediaFiles.find((file) => !file.missing);
+
+  const sortedFiles = [...work.mediaFiles].sort((left, right) => left.fileName.localeCompare(right.fileName, "zh-CN", { numeric: true }));
+  const firstAvailable = sortedFiles.find((file) => !file.missing);
+  const recognitionFile = sortedFiles.find((file) => file.mediaType === "video" && !file.missing);
+  const notesDirty = notesDraft !== work.notes;
+
   const toggleLock = async (field: string) => {
     const locked = !work.fieldLocks.includes(field);
-    try { await api.setFieldLock(work.id, field, locked); setWork({ ...work, fieldLocks: locked ? [...work.fieldLocks, field] : work.fieldLocks.filter((item) => item !== field) }); toast(locked ? "字段已锁定，刷新元数据时不会覆盖" : "字段已解锁", "success"); }
-    catch (lockError: unknown) { toast(getErrorMessage(lockError), "error"); }
+    try {
+      await api.setFieldLock(work.id, field, locked);
+      setWork({ ...work, fieldLocks: locked ? [...work.fieldLocks, field] : work.fieldLocks.filter((item) => item !== field) });
+      toast(locked ? "字段已锁定，刷新元数据时不会覆盖" : "字段已解锁", "success");
+    } catch (lockError: unknown) {
+      toast(getErrorMessage(lockError), "error");
+    }
   };
 
   return (
-    <div className={`page detail-page ${work.coverPath ? "has-detail-artwork" : ""}`} style={work.coverPath ? { "--detail-artwork": `url("${coverUrl(work.coverPath)}")` } as CSSProperties : undefined}>
-      <div className="detail-topbar">
-        <Link className="back-link" to="/library"><ArrowLeft size={17} />媒体库</Link>
-        <div className="page-actions">
-          <button type="button" className="button secondary icon-text" onClick={() => setEditOpen(true)}><Pencil size={16} />编辑</button>
-          <IconButton tooltip="删除作品记录" className="danger-ghost" onClick={() => setDeleteOpen(true)}><Trash2 size={17} /></IconButton>
+    <div className={`detail-page ${work.coverPath ? "has-detail-artwork" : ""}`} style={work.coverPath ? { "--detail-artwork": `url("${coverUrl(work.coverPath)}")` } as CSSProperties : undefined}>
+      <div className="detail-backdrop" aria-hidden="true" />
+      <div className="detail-inner">
+        <div className="detail-topbar">
+          <Link className="icon-button detail-back" to="/library" aria-label="返回媒体库" data-tooltip="返回媒体库"><ArrowLeft size={17} /></Link>
+          <strong>作品详情</strong>
+          <span className="detail-topbar-fill" />
+          <IconButton tooltip={work.favorite ? "取消收藏" : "加入收藏"} aria-pressed={work.favorite} onClick={() => void updateInline(workInput(work, { favorite: !work.favorite }), work.favorite ? "已取消收藏" : "已加入收藏")} disabled={saving}>
+            <Heart size={17} fill={work.favorite ? "currentColor" : "none"} />
+          </IconButton>
+          <IconButton tooltip="编辑作品" onClick={() => setEditOpen(true)}><Pencil size={16} /></IconButton>
+          <IconButton tooltip="删除作品记录" className="danger-ghost" onClick={() => setDeleteOpen(true)}><Trash2 size={16} /></IconButton>
         </div>
-      </div>
 
-      <section className="detail-hero">
-        <div className="detail-cover"><MediaVisual type={work.type} coverPath={work.coverPath} alt={`${work.title} 封面`} /></div>
-        <div className="detail-copy">
-          <div className="detail-kicker"><span>{mediaLabels[work.type]}</span><span>{statusLabels[work.status]}</span>{work.favorite ? <span className="favorite-label"><Heart size={13} fill="currentColor" />已收藏</span> : null}<span className={`metadata-status metadata-${work.metadataStatus}`}>{work.metadataStatus === "matched" ? "已识别" : work.metadataStatus === "candidate_pending" ? "待确认" : work.metadataStatus === "error" ? "识别失败" : "未识别"}</span></div>
-          <h1>{work.title}</h1>
-          {work.originalTitle ? <p className="original-title">{work.originalTitle}</p> : null}
-          <div className="detail-facts">
-            {work.rating !== null ? <span><Star size={15} fill="currentColor" />{work.rating.toFixed(1)} / 10</span> : <span>尚未评分</span>}
-            <span>{work.mediaFiles.length} 个本地文件</span>
-            <span>更新于 {formatDate(work.updatedAt)}</span>
+        <section className="detail-hero">
+          <div className="detail-cover"><MediaVisual type={work.type} coverPath={work.coverPath} alt={`${work.title} 封面`} /></div>
+          <div className="detail-copy">
+            <span className="detail-eyebrow">{mediaLabels[work.type]}{work.metadataYear ? ` · ${work.metadataYear}` : ""}</span>
+            <h1>{work.title}</h1>
+            {work.originalTitle ? <p className="original-title">{work.originalTitle}</p> : null}
+            <div className="detail-actions">
+              <button type="button" className="button primary icon-text" disabled={!firstAvailable || busyFile !== null} onClick={() => firstAvailable && void launch(firstAvailable)}>
+                <Play size={17} fill="currentColor" />{work.type === "game" ? "启动游戏" : "打开"}
+              </button>
+              <button type="button" className="button secondary" onClick={() => setEditOpen(true)}>{statusLabels[work.status]}</button>
+              <button type="button" className="button secondary icon-text" onClick={() => void openAttach()}><FilePlus2 size={16} />关联文件</button>
+            </div>
           </div>
-          {work.tags.length ? <div className="tag-row">{work.tags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
-          <p className="detail-description">{work.description || "暂无简介。"}</p>
-          <div className="detail-actions">
-            <button type="button" className="button primary icon-text" disabled={!firstAvailable || busyFile !== null} onClick={() => firstAvailable && void launch(firstAvailable)}>
-              <Play size={17} fill="currentColor" />{work.type === "game" ? "启动" : "打开"}
-            </button>
-            <button type="button" className="button secondary icon-text" onClick={() => void openAttach()}><FilePlus2 size={17} />关联文件</button>
-            {firstAvailable?.mediaType === "video" ? <button type="button" className="button secondary icon-text" onClick={() => setRecognizingMedia(firstAvailable)}><Sparkles size={16} />识别作品</button> : null}
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="detail-section metadata-section">
-        <div className="section-heading"><div><h2>元数据匹配</h2><span>来自 Bangumi 官方 API；用户锁定的字段不会被刷新覆盖</span></div></div>
-        <div className="metadata-panel">
-          <div className="metadata-source">{work.metadata ? <><strong>Bangumi</strong><span>#{work.metadata.externalId}</span><span>{work.metadata.year || "年份未知"}</span><small>更新于 {formatDate(work.metadata.fetchedAt)}</small></> : <><strong>尚未关联公共元数据</strong><span>可从本地动漫文件开始识别</span></>}</div>
-          <div className="lock-grid">
-            {([['title', '标题'], ['originalTitle', '原始标题'], ['description', '简介'], ['coverPath', '封面'], ['metadataYear', '年份'], ['tags', '标签']] as const).map(([field, label]) => { const locked = work.fieldLocks.includes(field); return <button type="button" className={`lock-chip ${locked ? "locked" : ""}`} key={field} onClick={() => void toggleLock(field)} title={locked ? `解锁${label}` : `锁定${label}`}><span>{locked ? <Lock size={13} /> : <Unlock size={13} />}{label}</span></button>; })}
-          </div>
-        </div>
-      </section>
-
-      <section className="detail-section">
-        <div className="section-heading"><div><h2>本地文件</h2><span>按剧集自然排序；字幕只建立关联，不会被应用修改</span></div></div>
-        {work.mediaFiles.length === 0 ? (
-          <EmptyState title="尚未关联文件" description="从扫描结果中选择文件，将它们归入这部作品。" action={<button type="button" className="button primary" onClick={() => void openAttach()}>关联文件</button>} />
-        ) : (
-          <div className="file-table">
-            <div className="file-table-head"><span>文件名</span><span>类型</span><span>大小</span><span>状态</span><span>操作</span></div>
-            {[...work.mediaFiles].sort((left, right) => left.fileName.localeCompare(right.fileName, "zh-CN", { numeric: true })).map((file) => {
-              const compatibleTools = tools.filter((tool) => tool.supportedMediaTypes.includes(file.mediaType));
-              const subtitleCount = work.subtitleLinks.filter((link) => link.videoMediaFileId === file.id).length;
-              return (
-                <div className="file-row" key={file.id}>
-                  <div className="file-name"><strong title={file.fileName}>{file.fileName}</strong><small title={file.path}>{file.path}</small></div>
-                  <span className="file-kind">{mediaLabels[file.mediaType]}{file.parsedEpisode ? <small>第 {file.parsedEpisode} 集</small> : null}{subtitleCount ? <small>{subtitleCount} 个字幕</small> : null}</span>
-                  <span>{formatSize(file.size)}</span>
-                  <span className={file.missing ? "warning-text" : "available-text"}>{file.missing ? <><AlertTriangle size={14} />缺失</> : "可用"}</span>
-                  <div className="file-actions">
-                    <button type="button" className="button compact primary" disabled={file.missing || busyFile === file.id} onClick={() => void launch(file)}>{work.type === "game" ? "启动" : "打开"}</button>
-                    <details className="action-menu">
-                      <summary aria-label="更多打开方式" data-tooltip="更多打开方式"><MoreHorizontal size={18} /></summary>
-                      <div className="menu-popover">
-                        {compatibleTools.map((tool) => <button type="button" key={tool.id} onClick={() => void launch(file, tool.id)}><ExternalLink size={15} />使用 {tool.name}</button>)}
-                        <button type="button" onClick={() => void launch(file, null, true)}><ExternalLink size={15} />系统默认程序</button>
-                        <button type="button" onClick={() => void reveal(file)}><FolderOpen size={15} />打开所在目录</button>
-                        <button type="button" onClick={() => void detach(file.id)}><Unlink size={15} />解除关联</button>
+        <div className="detail-body">
+          <main className="detail-main">
+            <div className="detail-toprow">
+              <div className="detail-toprow-left">
+                <div className="ratings detail-rating">
+                  <div className="rating-card unavailable">
+                    <span className="rating-label">网络评分</span>
+                    <div className="rating-value"><strong className="rating-score">暂无</strong><span className="rating-source">Future</span></div>
+                  </div>
+                  <div className="rating-card">
+                    <span className="rating-label">我的评分</span>
+                    <div className="rating-value">
+                      <div className="reader-stars" role="radiogroup" aria-label="我的评分">
+                        {[2, 4, 6, 8, 10].map((score) => (
+                          <button key={score} type="button" className={`reader-star ${work.rating !== null && work.rating >= score ? "active" : ""}`} role="radio" aria-checked={work.rating === score} aria-label={`${score} 分`} disabled={saving} onClick={() => void updateInline(workInput(work, { rating: work.rating === score ? null : score }), work.rating === score ? "已清除评分" : `我的评分：${score} 分`)}>
+                            <Star size={15} fill="currentColor" />
+                          </button>
+                        ))}
                       </div>
-                    </details>
+                    </div>
+                    <small className="rating-hint">{work.rating === null ? "点击星星进行评分" : `${work.rating.toFixed(1)} / 10`}</small>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
 
-      <section className="detail-section notes-section">
-        <div className="section-heading"><div><h2>个人备注</h2><span>仅保存在本机</span></div></div>
-        <p>{work.notes || "暂无个人备注。"}</p>
-      </section>
+                <div className="detail-about">
+                  <p className="detail-description">{work.description || "暂无简介。可通过编辑作品补充本地简介。"}</p>
+                  <div className="detail-tags">
+                    {work.tags.map((tag) => <span className="detail-tag" key={tag}>{tag}</span>)}
+                    {!work.tags.length ? <span className="detail-tag muted-tag">暂无标签</span> : null}
+                  </div>
+                </div>
+              </div>
+
+              <section className="notes-panel" aria-labelledby="notesTitle">
+                <div className="notes-head"><h2 id="notesTitle">我的点评</h2><span className="notes-badge">{notesDirty ? "未保存" : "已保存"}</span></div>
+                <label className="notes-label" htmlFor="notesInput">点评 / 备注</label>
+                <textarea id="notesInput" rows={3} value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder="写下你对这部作品的点评、观后感或备注…" />
+                <div className="notes-foot"><small className="notes-hint">仅保存在本机。</small><button type="button" className="button primary" disabled={!notesDirty || notesSaving} onClick={() => void saveNotes()}>{notesSaving ? "保存中…" : "保存点评"}</button></div>
+              </section>
+            </div>
+
+            <section className="detail-section files-section">
+              <div className="detail-section-head"><h2>章节与文件</h2><span className="episode-summary"><strong>{work.mediaFiles.length}</strong> 个本地文件</span></div>
+              {sortedFiles.length === 0 ? (
+                <EmptyState title="尚未关联文件" description="从扫描结果中选择文件，将它们归入这部作品。" action={<button type="button" className="button primary" onClick={() => void openAttach()}>关联文件</button>} />
+              ) : (
+                <div className="episode-grid file-table">
+                  {sortedFiles.map((file) => {
+                    const compatibleTools = tools.filter((tool) => tool.supportedMediaTypes.includes(file.mediaType));
+                    const subtitleCount = work.subtitleLinks.filter((link) => link.videoMediaFileId === file.id).length;
+                    return (
+                      <article className="file-row detail-file-card" key={file.id}>
+                        <div className="detail-file-visual"><MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" /></div>
+                        <div className="file-name"><strong title={file.fileName}>{file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.fileName}</strong><small title={file.path}>{file.fileName}</small></div>
+                        <div className="episode-card-meta">{mediaLabels[file.mediaType]} · {formatSize(file.size)}{subtitleCount ? ` · ${subtitleCount} 个字幕` : ""}</div>
+                        <div className={file.missing ? "warning-text file-availability" : "available-text file-availability"}>{file.missing ? <><AlertTriangle size={13} />文件缺失</> : "本地可用"}</div>
+                        <div className="file-actions">
+                          <button type="button" className="button compact primary" disabled={file.missing || busyFile === file.id} onClick={() => void launch(file)}>{work.type === "game" ? "启动" : "打开"}</button>
+                          <details className="action-menu">
+                            <summary aria-label="更多打开方式" data-tooltip="更多打开方式"><MoreHorizontal size={17} /></summary>
+                            <div className="menu-popover">
+                              {compatibleTools.map((tool) => <button type="button" key={tool.id} onClick={() => void launch(file, tool.id)}><ExternalLink size={15} />使用 {tool.name}</button>)}
+                              <button type="button" onClick={() => void launch(file, null, true)}><ExternalLink size={15} />系统默认程序</button>
+                              <button type="button" onClick={() => void reveal(file)}><FolderOpen size={15} />打开所在目录</button>
+                              <button type="button" onClick={() => void detach(file.id)}><Unlink size={15} />解除关联</button>
+                            </div>
+                          </details>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="credits-panel" aria-labelledby="creditsTitle">
+              <div className="credits-head"><h2 id="creditsTitle">制作人员与角色</h2><span className="future-badge">Future</span></div>
+              <div className="future-empty">当前元数据模型尚未包含制作人员与角色信息，因此这里不展示虚构数据。</div>
+            </section>
+          </main>
+
+          <aside className="detail-side">
+            <section className={`match-panel ${work.metadataStatus === "candidate_pending" ? "busy" : ""}`} aria-labelledby="matchTitle">
+              <div className="match-head"><h2 id="matchTitle">元数据识别</h2><span className="match-badge">{metadataStatusLabels[work.metadataStatus]}</span></div>
+              <p className="match-desc">{work.metadata ? <>当前匹配：<strong>{work.metadata.title}</strong> · 来源 {work.metadata.provider}</> : "尚未关联公共元数据。"}</p>
+              <p className="match-result">{recognitionFile ? "识别结果有误时，可重新搜索并选择正确作品。" : "当前作品没有可用于动画识别的视频文件。"}</p>
+              <div className="match-panel-actions">
+                <button type="button" className="button secondary icon-text" disabled={!recognitionFile} onClick={() => recognitionFile && setRecognizingMedia(recognitionFile)}><Sparkles size={15} />{work.metadata ? "重新识别" : "识别作品"}</button>
+              </div>
+            </section>
+
+            <section className="metadata-panel detail-metadata-panel" aria-labelledby="metadataTitle">
+              <div className="metadata-head"><h2 id="metadataTitle">作品信息</h2><span className="metadata-source">{work.metadata ? work.metadata.provider : "本地记录"}</span></div>
+              <dl className="metadata-grid">
+                <div><dt>原作名</dt><dd>{work.originalTitle || "暂无"}</dd></div>
+                <div><dt>年份</dt><dd>{work.metadataYear || work.metadata?.year || "暂无"}</dd></div>
+                <div><dt>媒体类型</dt><dd>{mediaLabels[work.type]}</dd></div>
+                <div><dt>库内状态</dt><dd>{statusLabels[work.status]}</dd></div>
+                <div><dt>最近更新</dt><dd>{formatDate(work.updatedAt)}</dd></div>
+                <div><dt>文件数量</dt><dd>{work.mediaFiles.length} 个</dd></div>
+              </dl>
+              <div className="lock-grid">
+                {([["title", "标题"], ["originalTitle", "原作名"], ["description", "简介"], ["coverPath", "封面"], ["metadataYear", "年份"], ["tags", "标签"]] as const).map(([field, label]) => {
+                  const locked = work.fieldLocks.includes(field);
+                  return <button type="button" className={`lock-chip ${locked ? "locked" : ""}`} key={field} onClick={() => void toggleLock(field)} title={locked ? `解锁${label}` : `锁定${label}`}><span>{locked ? <Lock size={12} /> : <Unlock size={12} />}{label}</span></button>;
+                })}
+              </div>
+              <p className="metadata-note">{work.metadata ? `Bangumi #${work.metadata.externalId} · 更新于 ${formatDate(work.metadata.fetchedAt)}` : "可从本地动画文件开始识别；锁定字段不会被后续刷新覆盖。"}</p>
+            </section>
+
+            <aside className="detail-aside">
+              <div className="fact"><span>来源</span><strong>本地媒体库</strong></div>
+              <div className="fact"><span>识别状态</span><strong>{metadataStatusLabels[work.metadataStatus]}</strong></div>
+              <div className="fact"><span>创建时间</span><strong>{formatDate(work.createdAt)}</strong></div>
+              <div className="fact"><span>文件状态</span><strong>{work.mediaFiles.some((file) => file.missing) ? "存在缺失文件" : "本地文件已同步"}</strong></div>
+            </aside>
+          </aside>
+        </div>
+      </div>
 
       {editOpen ? <Modal title="编辑作品" width="large" onClose={() => setEditOpen(false)}><WorkForm work={work} busy={saving} onCancel={() => setEditOpen(false)} onSubmit={update} /></Modal> : null}
       {attachOpen ? (
         <Modal title="关联本地文件" width="large" onClose={() => setAttachOpen(false)}>
-          <div className="search-box modal-search"><input value={attachSearch} onChange={(e) => setAttachSearch(e.target.value)} placeholder="搜索未归档文件" /></div>
+          <div className="search-box modal-search"><input value={attachSearch} onChange={(event) => setAttachSearch(event.target.value)} placeholder="搜索未归档文件" /></div>
           <div className="attach-list">
             {availableFiles.length ? availableFiles.map((file) => (
               <div key={file.id} className="attach-row">
