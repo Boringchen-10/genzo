@@ -8,7 +8,9 @@
 
 | 功能 ID | 修改前 | 修改后 | 原因 | 页面 / 组件 | 后端影响 | 需确认 |
 |---|---|---|---|---|---|---|
-| A11Y-003 | 打开作品详情时，Overlay Manager 把 `.sidebar` 一并设为 `inert`，左侧导航点不动，必须先“返回”才能切页 | 详情页按**整页**（而非模态弹窗）处理：当 `#detailPage` 位于最上层时**不对 `.sidebar` 施加 `inert`**，左侧导航保持可见可点（点击导航沿用既有逻辑：先关闭详情再切页）；模态弹窗与设置抽屉仍会令整个背景（含侧栏）`inert` | 详情页内可直接切换页面，去掉别扭的“先返回”步骤 | 全局框架 · 作品详情 · 左侧导航 | 无 | 否 |
+| A11Y-003 | 打开作品详情时，Overlay Manager 把 `.sidebar` 一并设为 `inert`，左侧导航点不动，必须先“返回”才能切页 | 详情页按**整页**（而非模态弹窗）处理：当 `#detailPage` 位于最上层时**不对 `.sidebar` 施加 `inert`**，左侧导航保持可见可点（点击导航沿用既有逻辑：先关闭详情再切页）；其它模态弹窗仍会令整个背景（含侧栏）`inert` | 详情页内可直接切换页面，去掉别扭的“先返回”步骤 | 全局框架 · 作品详情 · 左侧导航 | 无 | 否 |
+| A11Y-004 | 打开设置抽屉时，`.sidebar` 同样被设为 `inert`，左侧导航点不动 | 与 A11Y-003 同样处理：`#themeDrawer` 位于最上层时**不对 `.sidebar` 施加 `inert`**；点击导航会先关闭抽屉（`closeDrawer()`）再切页 | 设置打开时也能直接用左侧栏切页 | 全局框架 · 设置抽屉 · 左侧导航 | 无 | 否 |
+| SHELL-004 | 标题栏在上一轮被改成 `rgba(var(--shade),.58)` + `backdrop-filter: blur(18px)`（浅色同值），在首页大图上读作一条半透明色带 | 标题栏恢复**完全透明**：`background: transparent`，去掉 `backdrop-filter` 与底部分隔线，标题栏与首页大图 / 页面背景直接融合 | 上一轮擅自改动了顶部的透明度，按要求还原 | 全局 · 标题栏 | 无 | 否 |
 
 ## 相对 v1.1 的修改（v1.1.1 已生效，仍然有效）
 
@@ -48,7 +50,7 @@
 
 ## 机器可判定结果（已完成）
 
-- `prototype/index.html` 与 `design-export/index.html` 的 **SHA-256 完全一致**：`F75D1FDA6FE3E8CF3AC4E5446C236F3927189FBB1A6C38A9ADB06AA09B931B34`
+- `prototype/index.html` 与 `design-export/index.html` 的 **SHA-256 完全一致**：`FF0E03CE57B5AF672CDBF15ED2980B3AFDEBCF04A05105EF4E4B2936B490265F`
 - 两套 `assets/` 的 8 个文件**内容一致**（逐文件 SHA-256 比对通过）。
 - 全部本地素材引用（`assets/reference-*.png`、`assets/characters/character-1..6.png`）在两种目录结构中均可解析。
 - 只读基线未变：v1 `index.html` = `8C4E26522149…`，v1.1 原型 = `1C2D3EDC37D3…`。

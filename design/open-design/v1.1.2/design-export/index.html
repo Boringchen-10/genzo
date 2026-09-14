@@ -1484,6 +1484,9 @@
       document.querySelectorAll('.nav-button').forEach(item => { item.classList.remove('active'); item.removeAttribute('aria-current'); });
       button.classList.add('active'); button.setAttribute('aria-current','page');
       const page = button.dataset.page;
+      /* switching pages from the settings drawer closes it first, the same way
+         the nav closes the work detail */
+      if (page !== '设置' && drawer.classList.contains('open')) closeDrawer();
       document.getElementById('pageTitle').textContent = page;
       if (page === '首页') { hideWorkspacePages(); exploreView.classList.remove('open'); exploreView.setAttribute('aria-hidden','true'); homeView.style.display = ''; return; }
       if (page === '探索') { hideWorkspacePages(); homeView.style.display = 'none'; exploreView.classList.add('open'); exploreView.setAttribute('aria-hidden','false'); return; }
@@ -2391,11 +2394,10 @@
     /* ===== Genzo UI Design v1.1 revision layer (additive, does not rewrite v1) ===== */
     :root { --win-titlebar: 40px; }
 
-    /* Windows custom title bar */
-    .gnz-titlebar { position:fixed; inset:0 0 auto 0; z-index:90; height:var(--win-titlebar); display:flex; align-items:center; gap:10px; padding:0 6px 0 14px; background:rgba(var(--shade),.58); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); border-bottom:0; color:var(--text); -webkit-app-region:drag; }
-    /* light theme reuses the same surface: the bar colour equals the page background,
-       so it never reads as a strip or draws a boundary line against the page */
-    [data-theme="light"] .gnz-titlebar { background:rgba(var(--shade),.58); }
+    /* Windows custom title bar — kept transparent so it merges with the page /
+       home backdrop behind it; no fill, no blur, no divider. */
+    .gnz-titlebar { position:fixed; inset:0 0 auto 0; z-index:90; height:var(--win-titlebar); display:flex; align-items:center; gap:10px; padding:0 6px 0 14px; background:transparent; border-bottom:0; color:var(--text); -webkit-app-region:drag; }
+    [data-theme="light"] .gnz-titlebar { background:transparent; }
     .gnz-titlebar .gnz-brand { display:flex; align-items:center; gap:8px; font-size:12.5px; letter-spacing:.02em; color:var(--muted); }
     .gnz-titlebar .gnz-brand b { color:var(--text); font-weight:600; }
     .gnz-titlebar .gnz-drag { flex:1 1 auto; height:100%; }
@@ -2838,13 +2840,12 @@
         });
       }
       function applyInert() {
-        /* The work-detail page is a full page, not a modal dialog, so the left
-           navigation stays clickable while it is open — the user can switch
-           pages straight from the detail view (the nav handler closes the
-           detail first). Modal dialogs and the settings drawer still inert the
-           whole background, including the sidebar. */
+        /* The work-detail page and the settings drawer both leave the left
+           navigation clickable, so pages can be switched straight from them
+           (the nav handler closes the open detail / drawer first). Every other
+           modal dialog still inerts the whole background, sidebar included. */
         var top = stack.length ? stack[stack.length - 1].el : null;
-        var navStaysLive = !!top && top.id === 'detailPage';
+        var navStaysLive = !!top && (top.id === 'detailPage' || top.id === 'themeDrawer');
         BG.forEach(function (sel) {
           var el = document.querySelector(sel); if (!el) return;
           var covered = stack.some(function (o) { return o.el === el || el.contains(o.el); });

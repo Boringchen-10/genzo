@@ -12,7 +12,9 @@
 
 | 编号 | 问题 | 修复 |
 |---|---|---|
-| F-11 | 打开作品详情后，左侧导航被 Overlay Manager 设为 `inert`，无法点击切页，必须先点“返回” | 详情页按**整页**处理：`#detailPage` 位于最上层时**不再对 `.sidebar` 施加 `inert`**，左侧导航保持可见、可点（点击导航沿用既有逻辑：先关闭详情再切页）；模态弹窗与设置抽屉仍保持整个背景 `inert` —— 由 `applyInert()` 按当前最上层弹层判定 |
+| F-11 | 打开作品详情后，左侧导航被 Overlay Manager 设为 `inert`，无法点击切页，必须先点“返回” | 详情页按**整页**处理：`#detailPage` 位于最上层时**不再对 `.sidebar` 施加 `inert`**，左侧导航保持可见、可点（点击导航沿用既有逻辑：先关闭详情再切页）；其它模态弹窗仍保持整个背景 `inert` —— 由 `applyInert()` 按当前最上层弹层判定 |
+| F-12 | 打开设置抽屉后，左侧导航被设为 `inert`，无法点击切页 | 与 F-11 同样处理：`#themeDrawer` 位于最上层时**不再对 `.sidebar` 施加 `inert`**；点击导航会先关闭抽屉（`closeDrawer()`）再切页，其它模态弹窗仍保持整个背景 `inert` |
+| F-13 | 标题栏在上一轮被改成半透明色带（`rgba(var(--shade),.58)` + `backdrop-filter: blur(18px)`，浅色同值） | 标题栏恢复**完全透明**：`background: transparent`，去掉 `backdrop-filter` 与底部分隔线，与首页大图 / 页面背景直接融合 |
 
 ## v1.1.1 修复内容
 
