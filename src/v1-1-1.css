@@ -97,6 +97,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .window-control { width: 46px; height: 39px; color: var(--muted); background: transparent; border: 0; border-radius: 0; }
 .window-control:hover, .window-control:focus-visible { color: var(--text); background: rgba(var(--tint), .07); }
 .window-control-close:hover, .window-control-close:focus-visible { color: #fff; background: #c42b1c; }
+.detail-actions .button.secondary.is-completed { color: var(--accent); }
 
 .sidebar {
   z-index: 120;

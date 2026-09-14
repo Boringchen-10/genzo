@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   AlertTriangle,
   ArrowLeft,
+  Check,
   ChevronRight,
   ExternalLink,
   FilePlus2,
@@ -236,6 +237,7 @@ export function WorkDetailPage() {
 
   const sortedFiles = [...work.mediaFiles].sort((left, right) => left.fileName.localeCompare(right.fileName, "zh-CN", { numeric: true }));
   const firstAvailable = sortedFiles.find((file) => !file.missing);
+  const isCompleted = work.status === "completed";
   const recognitionFile = sortedFiles.find((file) => file.mediaType === "video" && !file.missing);
   const notesDirty = notesDraft !== work.notes;
 
@@ -275,7 +277,16 @@ export function WorkDetailPage() {
               <button type="button" className="button primary icon-text" disabled={!firstAvailable || busyFile !== null} onClick={() => firstAvailable && void launch(firstAvailable)}>
                 <Play size={17} fill="currentColor" />{work.type === "game" ? "启动游戏" : "打开"}
               </button>
-              <button type="button" className="button secondary" onClick={() => setEditOpen(true)}>{statusLabels[work.status]}</button>
+              <button
+                type="button"
+                className={`button secondary icon-text ${isCompleted ? "is-completed" : ""}`}
+                disabled={saving}
+                data-tooltip={isCompleted ? "点击取消已完成" : "点击标记为已完成"}
+                onClick={() => void updateInline(workInput(work, { status: isCompleted ? "in_progress" : "completed" }), isCompleted ? "已取消完成" : "已标记为已完成")}
+              >
+                {isCompleted ? <Check size={16} /> : null}
+                {isCompleted ? "已完成" : "标记为已完成"}
+              </button>
               <button type="button" className="button secondary icon-text" onClick={() => void openAttach()}><FilePlus2 size={16} />关联文件</button>
             </div>
           </div>
