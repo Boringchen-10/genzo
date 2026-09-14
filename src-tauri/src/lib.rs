@@ -20,6 +20,7 @@ pub fn run() {
         .setup(|app| {
             let state = tauri::async_runtime::block_on(db::initialize(app.handle()))
                 .map_err(|error| format!("Genzo 无法初始化本地数据库。{error}"))?;
+            db::allow_cached_covers(app.handle(), &state.cover_cache_path)?;
             app.manage(state);
             if let Some(window) = app.get_webview_window("main") {
                 window_style::apply(&window);

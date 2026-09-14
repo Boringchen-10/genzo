@@ -1,4 +1,4 @@
-use crate::db::AppState;
+use crate::db::{self, AppState};
 use crate::error::{AppError, AppResult};
 use crate::grouping;
 use crate::launcher::{self, TemplateContext};
@@ -10,7 +10,7 @@ use chrono::Utc;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 const WORK_TYPES: &[&str] = &["video", "comic", "novel", "game", "other"];
@@ -373,7 +373,11 @@ pub async fn detach_media_file(media_file_id: String, state: State<'_, AppState>
 }
 
 #[tauri::command]
-pub async fn import_cover(source_path: String, state: State<'_, AppState>) -> AppResult<String> {
+pub async fn import_cover(
+    source_path: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> AppResult<String> {
     let source = PathBuf::from(source_path.trim());
     if !source.is_file() {
         return Err(AppError::PathNotFound(source));
@@ -396,6 +400,7 @@ pub async fn import_cover(source_path: String, state: State<'_, AppState>) -> Ap
         .cover_cache_path
         .join(format!("{}.{}", Uuid::new_v4(), extension));
     tokio::fs::copy(&source, &destination).await?;
+    db::allow_cover_file(&app, &destination)?;
     Ok(destination.to_string_lossy().to_string())
 }
 
@@ -906,8 +911,19 @@ pub async fn confirm_match_candidate(
     media_file_id: String,
     candidate_id: String,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> AppResult<String> {
-    metadata::confirm_candidate(&state, &media_file_id, &candidate_id).await
+    let work_id = metadata::confirm_candidate(&state, &media_file_id, &candidate_id).await?;
+    let cover_path: Option<String> =
+        sqlx::query_scalar("SELECT cover_path FROM works WHERE id = ?")
+            .bind(&work_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .flatten();
+    if let Some(cover_path) = cover_path {
+        db::allow_cover_file(&app, Path::new(&cover_path))?;
+    }
+    Ok(work_id)
 }
 
 #[tauri::command]
