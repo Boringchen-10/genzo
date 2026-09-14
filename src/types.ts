@@ -205,3 +205,57 @@ export interface AppInfo {
   coverCachePath: string;
   dataDirectory: string;
 }
+
+export type ExploreSubjectType = "tv" | "web" | "movie" | "ova";
+
+export interface ExploreSubject {
+  provider: "bangumi";
+  externalId: string;
+  title: string;
+  originalTitle: string | null;
+  aliases: string[];
+  description: string;
+  coverUrl: string | null;
+  year: number | null;
+  month: number | null;
+  airDate: string | null;
+  broadcast: string | null;
+  subjectType: ExploreSubjectType;
+  genres: string[];
+  score: number | null;
+  rank: number | null;
+  ratingCount: number;
+  collectionCount: number;
+  inLibrary: boolean;
+  favorite: boolean;
+  localWorkId: string | null;
+  localStatus: WorkStatus | null;
+  fetchedAt: string;
+  stale: boolean;
+}
+
+export interface ExploreSourceStatus {
+  key: "bangumi-data" | "bangumi";
+  label: string;
+  available: boolean;
+  stale: boolean;
+  fetchedAt: string | null;
+  warning: string | null;
+}
+
+export interface ExploreOverview {
+  year: number;
+  month: number;
+  seasonal: ExploreSubject[];
+  trending: ExploreSubject[];
+  availableTags: string[];
+  sources: ExploreSourceStatus[];
+  fetchedAt: string;
+  stale: boolean;
+}
+
+export interface ExploreSaveInput {
+  externalId: string;
+  status: WorkStatus;
+  favorite: boolean;
+}

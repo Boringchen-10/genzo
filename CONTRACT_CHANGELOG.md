@@ -52,3 +52,19 @@
 - `src/data/tauriProvider.ts` 导入 `api` 并逐方法委托，未新增或改义任何 Tauri Command。
 - 除 `ExplorePage.tsx`（本地 `samples` 常量，登记为 FE-EXPLORE-001）外，全部页面/组件的取数入口均为 `../data`，无页面再直接引用 `src/api.ts`。
 - 集成未要求任何 UI 变更：无冲突需上报。
+
+---
+
+## 004 · 2026-09-14 · 探索后端与共享数据契约
+
+- **变更**：新增 `ExploreSubject`、`ExploreSourceStatus`、`ExploreOverview`、`ExploreSaveInput` 共享类型，以及 `get_explore_overview`、`search_explore_subjects`、`get_explore_subject`、`save_explore_subject` 四个 Tauri Command。`src/api.ts` 对应新增 `exploreOverview`、`searchExplore`、`getExploreSubject`、`saveExploreSubject`。
+- **原因**：交付 v0.2 Bangumi 探索 MVP，并切实使用用户指定的 `bangumi-data` 番组索引；保持 Open Design 正式 React 界面与 Codex 后端职责分离。
+- **数据源**：`bangumi-data@0.3` 用于季度标题、中文/外文别名、放送日期、周期和 Bangumi ID；Bangumi 官方 API 用于当前番组日历、搜索、详情、封面、网络评分、排名、评分人数和收藏人数。二者均使用现有 SQLite `metadata_cache`，远端失败时只有在已有缓存的情况下才返回，并通过 `stale` / `sources.warning` 明示状态。
+- **本地状态**：`ExploreSubject.inLibrary`、`favorite`、`localWorkId`、`localStatus` 来自现有 `works` 与 `work_external_ids`。`save_explore_subject` 幂等创建或更新本地作品，`status` 使用既有 `WorkStatus`，网络评分不会写入用户个人评分字段。
+- **兼容性**：**向后兼容**。未新增迁移；复用 `metadata_cache`、`work_external_ids`、`works`、标签和字段锁定。`WorkMetadata` 新字段带 Serde 默认值，可读取旧缓存。未修改页面、组件、样式、路由、Mock 或 Open Design Provider 接口。
+- **受影响功能 ID**：EXPLORE-001、EXPLORE-002、EXPLORE-003、EXPLORE-004（仅本地状态）、EXPLORE-005、FE-EXPLORE-001。
+- **变更方**：Codex（Rust、SQLite 访问、Tauri Command、共享类型和最薄 API 适配）。
+
+### Open Design 待接入契约
+
+Open Design 需要在其负责的 `GenzoDataProvider` / Mock Provider 中声明同名四个方法，并让 `ExplorePage.tsx` 使用 Provider。Mock 必须继续明确标记为示例数据；Tauri Provider 只需逐方法委托上述 `src/api.ts` 方法。此条目不授权 Codex 修改这些前端文件。

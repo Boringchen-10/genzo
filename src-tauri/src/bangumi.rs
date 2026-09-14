@@ -77,6 +77,38 @@ impl BangumiProvider {
             .ok_or_else(|| AppError::Network("Bangumi 详情缺少必要字段".to_string()))
     }
 
+    pub async fn calendar(&self) -> AppResult<Vec<WorkMetadata>> {
+        let response = self
+            .client
+            .get("https://api.bgm.tv/calendar")
+            .send()
+            .await
+            .map_err(network_error)?;
+        if response.status().as_u16() == 429 {
+            return Err(AppError::Network(
+                "Bangumi 请求过于频繁，请稍后再试".to_string(),
+            ));
+        }
+        if !response.status().is_success() {
+            return Err(AppError::Network(format!(
+                "Bangumi 番组日历读取失败（HTTP {}）",
+                response.status().as_u16()
+            )));
+        }
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|error| AppError::Network(format!("Bangumi 返回了无法解析的数据：{error}")))?;
+        Ok(body
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|day| day.get("items").and_then(Value::as_array))
+            .flatten()
+            .filter_map(subject_to_metadata)
+            .collect())
+    }
+
     pub async fn download_cover(&self, url: &str, destination: &Path) -> AppResult<()> {
         let parsed = reqwest::Url::parse(url)
             .map_err(|_| AppError::Network("Bangumi 封面地址无效".to_string()))?;
@@ -124,7 +156,7 @@ fn network_error(error: reqwest::Error) -> AppError {
     }
 }
 
-fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
+pub(crate) fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
     let external_id = value.get("id")?.as_i64()?.to_string();
     let original = nonempty(value.get("name").and_then(Value::as_str));
     let chinese = nonempty(value.get("name_cn").and_then(Value::as_str));
@@ -152,6 +184,17 @@ fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
         .take(12)
         .map(str::to_string)
         .collect();
+    let rating = value.get("rating");
+    let collection_count = value
+        .get("collection")
+        .and_then(Value::as_object)
+        .map(|collection| collection.values().filter_map(Value::as_i64).sum::<i64>())
+        .unwrap_or_default();
+    let air_date = value
+        .get("date")
+        .or_else(|| value.get("air_date"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Some(WorkMetadata {
         provider: "bangumi".to_string(),
         external_id,
@@ -173,6 +216,21 @@ fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
         season: extract_season(value),
         subject_type,
         genres,
+        score: rating
+            .and_then(|value| value.get("score"))
+            .and_then(Value::as_f64),
+        rank: value.get("rank").and_then(Value::as_i64).or_else(|| {
+            rating
+                .and_then(|value| value.get("rank"))
+                .and_then(Value::as_i64)
+        }),
+        rating_count: rating
+            .and_then(|value| value.get("total"))
+            .and_then(Value::as_i64)
+            .unwrap_or_default(),
+        collection_count,
+        air_date,
+        broadcast: None,
         fetched_at: Utc::now().to_rfc3339(),
     })
 }
@@ -230,15 +288,34 @@ mod tests {
     use super::*;
     #[test]
     fn maps_subject_json() {
-        let value = json!({"id": 123, "name": "Sousou no Frieren", "name_cn": "葬送的芙莉莲", "summary": "简介", "date": "2023-09-29", "platform": "TV", "images": {"large": "https://lain.bgm.tv/pic/cover/l/test.jpg"}, "tags": [{"name": "奇幻"}]});
+        let value = json!({"id": 123, "name": "Sousou no Frieren", "name_cn": "葬送的芙莉莲", "summary": "简介", "date": "2023-09-29", "platform": "TV", "images": {"large": "https://lain.bgm.tv/pic/cover/l/test.jpg"}, "tags": [{"name": "奇幻"}], "rating": {"rank": 42, "total": 36198, "score": 8.5}, "collection": {"wish": 10, "collect": 20, "doing": 5}});
         let metadata = subject_to_metadata(&value).expect("metadata");
         assert_eq!(metadata.external_id, "123");
         assert_eq!(metadata.title, "葬送的芙莉莲");
         assert_eq!(metadata.year, Some(2023));
+        assert_eq!(metadata.score, Some(8.5));
+        assert_eq!(metadata.rank, Some(42));
+        assert_eq!(metadata.rating_count, 36_198);
+        assert_eq!(metadata.collection_count, 35);
     }
     #[test]
     fn fetched_at_is_recorded() {
         let m = subject_to_metadata(&json!({"id": 1, "name": "A"})).unwrap();
         assert!(!m.fetched_at.is_empty());
+    }
+
+    #[test]
+    fn maps_legacy_calendar_rating_shape() {
+        let metadata = subject_to_metadata(&json!({
+            "id": 456080,
+            "name": "Calendar anime",
+            "rating": {"total": 599, "score": 5.0},
+            "rank": 9798,
+            "collection": {"doing": 2151}
+        }))
+        .expect("calendar metadata");
+        assert_eq!(metadata.rating_count, 599);
+        assert_eq!(metadata.rank, Some(9798));
+        assert_eq!(metadata.collection_count, 2151);
     }
 }

@@ -4,6 +4,9 @@ import type {
   Dashboard,
   ExternalTool,
   ExternalToolInput,
+  ExploreOverview,
+  ExploreSaveInput,
+  ExploreSubject,
   LibraryRoot,
   MediaFile,
   UnassignedMediaGroup,
@@ -80,4 +83,12 @@ export const api = {
     call<void>("cancel_match_candidates", { mediaFileId }),
   setFieldLock: (workId: string, field: string, locked: boolean) =>
     call<void>("set_work_field_lock", { workId, field, locked }),
+  exploreOverview: (year: number | null = null, month: number | null = null) =>
+    call<ExploreOverview>("get_explore_overview", { year, month }),
+  searchExplore: (query: string) =>
+    call<ExploreSubject[]>("search_explore_subjects", { query }),
+  getExploreSubject: (externalId: string) =>
+    call<ExploreSubject>("get_explore_subject", { externalId }),
+  saveExploreSubject: (input: ExploreSaveInput) =>
+    call<string>("save_explore_subject", { input }),
 };

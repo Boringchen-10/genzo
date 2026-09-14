@@ -199,7 +199,79 @@ pub struct WorkMetadata {
     pub season: Option<i64>,
     pub subject_type: String,
     pub genres: Vec<String>,
+    #[serde(default)]
+    pub score: Option<f64>,
+    #[serde(default)]
+    pub rank: Option<i64>,
+    #[serde(default)]
+    pub rating_count: i64,
+    #[serde(default)]
+    pub collection_count: i64,
+    #[serde(default)]
+    pub air_date: Option<String>,
+    #[serde(default)]
+    pub broadcast: Option<String>,
     pub fetched_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreSubject {
+    pub provider: String,
+    pub external_id: String,
+    pub title: String,
+    pub original_title: Option<String>,
+    pub aliases: Vec<String>,
+    pub description: String,
+    pub cover_url: Option<String>,
+    pub year: Option<i64>,
+    pub month: Option<u32>,
+    pub air_date: Option<String>,
+    pub broadcast: Option<String>,
+    pub subject_type: String,
+    pub genres: Vec<String>,
+    pub score: Option<f64>,
+    pub rank: Option<i64>,
+    pub rating_count: i64,
+    pub collection_count: i64,
+    pub in_library: bool,
+    pub favorite: bool,
+    pub local_work_id: Option<String>,
+    pub local_status: Option<String>,
+    pub fetched_at: String,
+    pub stale: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreSourceStatus {
+    pub key: String,
+    pub label: String,
+    pub available: bool,
+    pub stale: bool,
+    pub fetched_at: Option<String>,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreOverview {
+    pub year: i32,
+    pub month: u32,
+    pub seasonal: Vec<ExploreSubject>,
+    pub trending: Vec<ExploreSubject>,
+    pub available_tags: Vec<String>,
+    pub sources: Vec<ExploreSourceStatus>,
+    pub fetched_at: String,
+    pub stale: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreSaveInput {
+    pub external_id: String,
+    pub status: String,
+    pub favorite: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

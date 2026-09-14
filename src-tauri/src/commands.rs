@@ -1,5 +1,6 @@
 use crate::db::{self, AppState};
 use crate::error::{AppError, AppResult};
+use crate::explore;
 use crate::grouping;
 use crate::launcher::{self, TemplateContext};
 use crate::media_mapping;
@@ -959,6 +960,40 @@ pub async fn set_setting(key: String, value: String, state: State<'_, AppState>)
     .execute(&state.pool)
     .await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_explore_overview(
+    year: Option<i32>,
+    month: Option<u32>,
+    state: State<'_, AppState>,
+) -> AppResult<ExploreOverview> {
+    explore::overview(&state.pool, year, month).await
+}
+
+#[tauri::command]
+pub async fn search_explore_subjects(
+    query: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ExploreSubject>> {
+    explore::search(&state.pool, &query).await
+}
+
+#[tauri::command]
+pub async fn get_explore_subject(
+    external_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<ExploreSubject> {
+    explore::subject(&state.pool, &external_id).await
+}
+
+#[tauri::command]
+pub async fn save_explore_subject(
+    input: ExploreSaveInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    explore::save_subject(&app, &state, input).await
 }
 
 #[cfg(test)]

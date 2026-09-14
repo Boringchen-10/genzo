@@ -384,7 +384,7 @@ async fn record_source(
     Ok(())
 }
 
-async fn apply_metadata(
+pub(crate) async fn apply_metadata(
     transaction: &mut Transaction<'_, Sqlite>,
     work_id: &str,
     metadata: &WorkMetadata,
@@ -694,6 +694,12 @@ mod tests {
             season: None,
             subject_type: "tv".to_string(),
             genres: vec!["奇幻".to_string()],
+            score: None,
+            rank: None,
+            rating_count: 0,
+            collection_count: 0,
+            air_date: None,
+            broadcast: None,
             fetched_at: now.clone(),
         };
         let mut transaction = pool.begin().await.unwrap();

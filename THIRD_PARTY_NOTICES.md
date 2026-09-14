@@ -51,3 +51,5 @@ Genzo 的侧栏、首页媒体布局和主题实现基于 Seanime 的 GPLv3 界�
 ## Bangumi
 
 Genzo 通过 Bangumi 官方 API（<https://github.com/bangumi/api>）搜索动画条目并读取作品元数据，不抓取网页。作品数据及封面版权归各自权利人所有，Genzo 仅按用户操作在本地缓存。实现未复制 Animeko 代码，也未移植 Anitomy 或 Seanime 的识别代码；文件名解析和评分为本项目独立 Rust 实现。
+
+Genzo 的探索功能还使用 `bangumi-data`（<https://github.com/bangumi-data/bangumi-data>）提供的番组标题、译名、放送时间与 Bangumi 条目 ID 索引。该数据集采用 [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/)（CC BY 4.0）许可；Genzo 通过项目文档公开的 `unpkg` 地址读取数据并保留来源标识，解析后仅缓存 Bangumi ID，不缓存或使用其中列出的在线播放站点标识。

@@ -3,6 +3,7 @@ mod bangumi;
 mod commands;
 mod db;
 mod error;
+mod explore;
 mod grouping;
 mod launcher;
 mod media_mapping;
@@ -64,6 +65,10 @@ pub fn run() {
             commands::confirm_match_candidate,
             commands::cancel_match_candidates,
             commands::set_work_field_lock,
+            commands::get_explore_overview,
+            commands::search_explore_subjects,
+            commands::get_explore_subject,
+            commands::save_explore_subject,
             window_style::window_material_supported,
         ])
         .run(tauri::generate_context!())
