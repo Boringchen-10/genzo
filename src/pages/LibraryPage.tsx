@@ -36,7 +36,6 @@ export function LibraryPage() {
   const [saving, setSaving] = useState(false);
   const [recognizingGroup, setRecognizingGroup] = useState<UnassignedMediaGroup | null>(null);
   const [batchRecognizing, setBatchRecognizing] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [unassignedLimit, setUnassignedLimit] = useState(100);
   const view = usePreferences((state) => state.libraryView);
   const setView = usePreferences((state) => state.setLibraryView);
@@ -156,23 +155,15 @@ export function LibraryPage() {
 
   const recognizeAll = async () => {
     setBatchRecognizing(true);
-    const targets = unassignedGroups.filter((group) => group.mediaType === "video" && group.missingCount < group.fileCount && group.recognitionStatus !== "matched");
-    const result: RecognitionSummary = { scanned: 0, matched: 0, pending: 0, unmatched: 0, errors: 0 };
-    setBatchProgress({ current: 0, total: targets.length });
-    for (const [index, group] of targets.entries()) {
-      try {
-        const item = await api.recognizeMedia(group.representative.id);
-        result.scanned += 1;
-        if (item.status === "matched") result.matched += 1;
-        else if (item.status === "candidate_pending") result.pending += 1;
-        else if (item.status === "error") result.errors += 1;
-        else result.unmatched += 1;
-      } catch { result.scanned += 1; result.errors += 1; }
-      setBatchProgress({ current: index + 1, total: targets.length });
+    try {
+      const result: RecognitionSummary = await api.recognizeUnmatched();
+      toast(`识别 ${result.scanned} 个作品组：匹配 ${result.matched}，待确认 ${result.pending}，未匹配 ${result.unmatched}，失败 ${result.errors}`, result.errors ? "info" : "success");
+      await load();
+    } catch (recognizeError: unknown) {
+      toast(getErrorMessage(recognizeError), "error");
+    } finally {
+      setBatchRecognizing(false);
     }
-    toast(`识别 ${result.scanned} 个文件：匹配 ${result.matched}，待确认 ${result.pending}，未匹配 ${result.unmatched}，失败 ${result.errors}`, result.errors ? "info" : "success");
-    await load();
-    setBatchProgress(null); setBatchRecognizing(false);
   };
 
   return (
@@ -180,7 +171,7 @@ export function LibraryPage() {
       <PageHeader
         title="媒体库"
         description={`${filtered.length} / ${works.length} 部作品 · ${filteredUnassigned.length} 个待整理目录或文件`}
-        actions={<><button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchProgress ? `识别 ${batchProgress.current}/${batchProgress.total}` : "批量识别动漫"}</button><button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button></>}
+        actions={<><button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button><button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button></>}
       />
       <div className="library-toolbar">
         <div className="search-box">

@@ -25,6 +25,7 @@ import { useToasts } from "../store";
 import type { ExternalTool, MediaFile, WorkDetail, WorkInput } from "../types";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, statusLabels } from "../utils";
+import "../work-detail.css";
 
 export function WorkDetailPage() {
   const { id = "" } = useParams();
@@ -197,18 +198,19 @@ export function WorkDetailPage() {
       </section>
 
       <section className="detail-section">
-        <div className="section-heading"><div><h2>本地文件</h2><span>文件只会被打开或关联，不会被应用修改</span></div></div>
+        <div className="section-heading"><div><h2>本地文件</h2><span>按剧集自然排序；字幕只建立关联，不会被应用修改</span></div></div>
         {work.mediaFiles.length === 0 ? (
           <EmptyState title="尚未关联文件" description="从扫描结果中选择文件，将它们归入这部作品。" action={<button type="button" className="button primary" onClick={() => void openAttach()}>关联文件</button>} />
         ) : (
           <div className="file-table">
             <div className="file-table-head"><span>文件名</span><span>类型</span><span>大小</span><span>状态</span><span>操作</span></div>
-            {work.mediaFiles.map((file) => {
+            {[...work.mediaFiles].sort((left, right) => left.fileName.localeCompare(right.fileName, "zh-CN", { numeric: true })).map((file) => {
               const compatibleTools = tools.filter((tool) => tool.supportedMediaTypes.includes(file.mediaType));
+              const subtitleCount = work.subtitleLinks.filter((link) => link.videoMediaFileId === file.id).length;
               return (
                 <div className="file-row" key={file.id}>
                   <div className="file-name"><strong title={file.fileName}>{file.fileName}</strong><small title={file.path}>{file.path}</small></div>
-                  <span>{mediaLabels[file.mediaType]}</span>
+                  <span className="file-kind">{mediaLabels[file.mediaType]}{file.parsedEpisode ? <small>第 {file.parsedEpisode} 集</small> : null}{subtitleCount ? <small>{subtitleCount} 个字幕</small> : null}</span>
                   <span>{formatSize(file.size)}</span>
                   <span className={file.missing ? "warning-text" : "available-text"}>{file.missing ? <><AlertTriangle size={14} />缺失</> : "可用"}</span>
                   <div className="file-actions">

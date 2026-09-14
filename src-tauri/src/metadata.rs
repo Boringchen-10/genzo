@@ -1,8 +1,9 @@
-use crate::anime_parser::{parse_file_name, score_candidate, ParsedAnime};
+use crate::anime_parser::{parse_file_name, parse_folder_name, score_candidate, ParsedAnime};
 use crate::bangumi::BangumiProvider;
 use crate::db::AppState;
 use crate::error::{AppError, AppResult};
 use crate::grouping;
+use crate::media_mapping;
 use crate::models::{
     MatchCandidate, MatchCandidateRow, MediaFile, RecognitionResult, RecognitionSummary, Work,
     WorkMetadata,
@@ -10,6 +11,7 @@ use crate::models::{
 use chrono::{Duration, Utc};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
+use std::path::Path;
 use uuid::Uuid;
 
 const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error";
@@ -87,6 +89,95 @@ async fn store_parse(
     Ok(())
 }
 
+fn has_descriptive_title(value: Option<&str>) -> bool {
+    value.is_some_and(|title| {
+        let normalized = crate::anime_parser::normalize_title(title);
+        normalized
+            .chars()
+            .any(|ch| ch.is_alphabetic() || (!ch.is_ascii() && !ch.is_whitespace()))
+            && !matches!(
+                normalized.as_str(),
+                "video" | "videos" | "subtitle" | "subtitles" | "视频" | "字幕"
+            )
+    })
+}
+
+fn parse_with_path_context(media: &MediaFile) -> ParsedAnime {
+    let mut parsed = parse_file_name(&media.file_name);
+    for component in Path::new(&media.path)
+        .ancestors()
+        .skip(1)
+        .filter_map(Path::file_name)
+    {
+        let folder = parse_folder_name(&component.to_string_lossy());
+        if parsed.season.is_none() {
+            parsed.season = folder.season;
+        }
+        if parsed.year.is_none() {
+            parsed.year = folder.year;
+        }
+    }
+    parsed
+}
+
+fn group_query_parse(
+    group_title: Option<&str>,
+    members: &[MediaFile],
+    requested: &MediaFile,
+) -> ParsedAnime {
+    let requested_parse = parse_with_path_context(requested);
+    let folder_parse = group_title.map(parse_folder_name).unwrap_or_default();
+    let mut query = if has_descriptive_title(requested_parse.title.as_deref()) {
+        requested_parse.clone()
+    } else if has_descriptive_title(folder_parse.title.as_deref()) {
+        folder_parse.clone()
+    } else {
+        members
+            .iter()
+            .map(parse_with_path_context)
+            .find(|parsed| has_descriptive_title(parsed.title.as_deref()))
+            .unwrap_or(requested_parse.clone())
+    };
+    if query.season.is_none() {
+        query.season = requested_parse.season.or(folder_parse.season).or_else(|| {
+            members
+                .iter()
+                .find_map(|media| parse_with_path_context(media).season)
+        });
+    }
+    if query.year.is_none() {
+        query.year = requested_parse.year.or(folder_parse.year).or_else(|| {
+            members
+                .iter()
+                .find_map(|media| parse_with_path_context(media).year)
+        });
+    }
+    query
+}
+
+async fn store_group_parse(
+    pool: &SqlitePool,
+    members: &[MediaFile],
+    fallback: &ParsedAnime,
+    status: &str,
+    error: Option<&str>,
+) -> AppResult<()> {
+    for media in members {
+        let mut parsed = parse_with_path_context(media);
+        if !has_descriptive_title(parsed.title.as_deref()) {
+            parsed.title = fallback.title.clone();
+        }
+        if parsed.season.is_none() {
+            parsed.season = fallback.season;
+        }
+        if parsed.year.is_none() {
+            parsed.year = fallback.year;
+        }
+        store_parse(pool, &media.id, &parsed, status, error).await?;
+    }
+    Ok(())
+}
+
 pub async fn recognize_media(
     state: &AppState,
     media_file_id: &str,
@@ -107,7 +198,13 @@ pub async fn recognize_media(
     if media.missing {
         return Err(AppError::Validation("文件已缺失，无法识别".to_string()));
     }
-    let parsed = parse_file_name(&media.file_name);
+    let group = grouping::unassigned_group_context(&state.pool, media_file_id).await?;
+    let group_title = group.as_ref().map(|context| context.title.as_str());
+    let members = group
+        .as_ref()
+        .map(|context| context.members.clone())
+        .unwrap_or_else(|| vec![media.clone()]);
+    let parsed = group_query_parse(group_title, &members, &media);
     let query = manual_query
         .as_deref()
         .map(str::trim)
@@ -115,12 +212,12 @@ pub async fn recognize_media(
         .map(str::to_string)
         .or_else(|| parsed.title.clone());
     let Some(query) = query else {
-        store_parse(
+        store_group_parse(
             &state.pool,
-            media_file_id,
+            &members,
             &parsed,
             "unmatched",
-            Some("无法从文件名提取标题，请手动搜索"),
+            Some("无法从作品目录或文件名提取标题，请手动搜索"),
         )
         .await?;
         return Ok(RecognitionResult {
@@ -128,16 +225,16 @@ pub async fn recognize_media(
             status: "unmatched".to_string(),
             parsed_title: None,
             candidates: Vec::new(),
-            error: Some("无法从文件名提取标题，请手动搜索".to_string()),
+            error: Some("无法从作品目录或文件名提取标题，请手动搜索".to_string()),
         });
     };
-    store_parse(&state.pool, media_file_id, &parsed, "unmatched", None).await?;
+    store_group_parse(&state.pool, &members, &parsed, "unmatched", None).await?;
     let provider = BangumiProvider::new()?;
     let results = match search_provider(&state.pool, &query, &provider).await {
         Ok(results) => results,
         Err(error) => {
             let message = error.to_string();
-            store_parse(&state.pool, media_file_id, &parsed, "error", Some(&message)).await?;
+            store_group_parse(&state.pool, &members, &parsed, "error", Some(&message)).await?;
             return Ok(RecognitionResult {
                 media_file_id: media_file_id.to_string(),
                 status: "error".to_string(),
@@ -147,10 +244,12 @@ pub async fn recognize_media(
             });
         }
     };
-    sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
-        .bind(media_file_id)
-        .execute(&state.pool)
-        .await?;
+    for member in &members {
+        sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
+            .bind(&member.id)
+            .execute(&state.pool)
+            .await?;
+    }
     let now = Utc::now().to_rfc3339();
     let mut scored = Vec::new();
     for metadata in results {
@@ -222,7 +321,7 @@ pub async fn recognize_media(
     } else {
         "unmatched"
     };
-    store_parse(&state.pool, media_file_id, &parsed, status, None).await?;
+    store_group_parse(&state.pool, &members, &parsed, status, None).await?;
     Ok(RecognitionResult {
         media_file_id: media_file_id.to_string(),
         status: status.to_string(),
@@ -233,8 +332,7 @@ pub async fn recognize_media(
 }
 
 pub async fn recognize_batch(state: &AppState) -> AppResult<RecognitionSummary> {
-    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM media_files WHERE media_type = 'video' AND missing = 0 AND work_id IS NULL AND recognition_status != 'matched' ORDER BY created_at")
-        .fetch_all(&state.pool).await?;
+    let groups = grouping::list_unassigned_groups(&state.pool).await?;
     let mut summary = RecognitionSummary {
         scanned: 0,
         matched: 0,
@@ -242,9 +340,13 @@ pub async fn recognize_batch(state: &AppState) -> AppResult<RecognitionSummary> 
         unmatched: 0,
         errors: 0,
     };
-    for id in ids {
+    for group in groups.into_iter().filter(|group| {
+        group.media_type == "video"
+            && group.missing_count < group.file_count
+            && group.recognition_status != "matched"
+    }) {
         summary.scanned += 1;
-        match recognize_media(state, &id, None).await {
+        match recognize_media(state, &group.representative.id, None).await {
             Ok(result) => match result.status.as_str() {
                 "matched" => summary.matched += 1,
                 "candidate_pending" => summary.pending += 1,
@@ -429,6 +531,7 @@ pub async fn confirm_candidate(
             .execute(&mut *transaction)
             .await?;
     }
+    media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
     sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
         .bind(media_file_id)
         .execute(&mut *transaction)
@@ -438,6 +541,7 @@ pub async fn confirm_candidate(
 }
 
 pub async fn cancel_candidates(pool: &SqlitePool, media_file_id: &str) -> AppResult<()> {
+    let member_ids = grouping::unassigned_group_member_ids(pool, media_file_id).await?;
     let mut transaction = pool.begin().await?;
     let work_id: Option<String> =
         sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
@@ -445,12 +549,17 @@ pub async fn cancel_candidates(pool: &SqlitePool, media_file_id: &str) -> AppRes
             .fetch_optional(&mut *transaction)
             .await?
             .flatten();
-    sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
-        .bind(media_file_id)
-        .execute(&mut *transaction)
-        .await?;
-    let result = sqlx::query("UPDATE media_files SET recognition_status = 'unmatched', recognition_error = NULL, updated_at = ? WHERE id = ?").bind(Utc::now().to_rfc3339()).bind(media_file_id).execute(&mut *transaction).await?;
-    if result.rows_affected() == 0 {
+    let now = Utc::now().to_rfc3339();
+    let mut updated = 0;
+    for member_id in member_ids {
+        sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
+            .bind(&member_id)
+            .execute(&mut *transaction)
+            .await?;
+        updated += sqlx::query("UPDATE media_files SET recognition_status = 'unmatched', recognition_error = NULL, updated_at = ? WHERE id = ?")
+            .bind(&now).bind(&member_id).execute(&mut *transaction).await?.rows_affected();
+    }
+    if updated == 0 {
         return Err(AppError::NotFound("媒体文件不存在".to_string()));
     }
     if let Some(work_id) = work_id {
@@ -495,6 +604,61 @@ pub async fn set_field_lock(
 mod tests {
     use super::*;
     use crate::db;
+
+    fn media_for_query(path: &str, file_name: &str) -> MediaFile {
+        MediaFile {
+            id: "media".to_string(),
+            work_id: None,
+            library_root_id: None,
+            path: path.to_string(),
+            file_name: file_name.to_string(),
+            extension: "mkv".to_string(),
+            media_type: "video".to_string(),
+            size: 0,
+            modified_at: None,
+            missing: false,
+            created_at: String::new(),
+            updated_at: String::new(),
+            recognition_status: "unmatched".to_string(),
+            parsed_title: None,
+            parsed_original_title: None,
+            parsed_season: None,
+            parsed_episode: None,
+            parsed_year: None,
+            parsed_release_group: None,
+            parsed_special_type: None,
+            parsed_media_info: "[]".to_string(),
+            last_recognized_at: None,
+            recognition_error: None,
+        }
+    }
+
+    #[test]
+    fn uses_work_folder_when_episode_file_has_no_title() {
+        let media = media_for_query("G:\\影音\\葬送的芙莉莲 S2\\01.mkv", "01.mkv");
+        let parsed = group_query_parse(
+            Some("葬送的芙莉莲 S2"),
+            std::slice::from_ref(&media),
+            &media,
+        );
+        assert_eq!(parsed.title.as_deref(), Some("葬送的芙莉莲"));
+        assert_eq!(parsed.season, Some(2));
+    }
+
+    #[test]
+    fn prefers_descriptive_release_title_over_collection_label() {
+        let media = media_for_query(
+            "G:\\影音\\【 4K 】Q 亲吻姐姐 12集全\\视频\\[ReinForce] Kiss x Sis - 01.mkv",
+            "[ReinForce] Kiss x Sis - 01.mkv",
+        );
+        let parsed = group_query_parse(
+            Some("【 4K 】Q 亲吻姐姐 12集全"),
+            std::slice::from_ref(&media),
+            &media,
+        );
+        assert_eq!(parsed.title.as_deref(), Some("Kiss x Sis"));
+        assert_eq!(parsed.episode.as_deref(), Some("01"));
+    }
     #[tokio::test]
     async fn field_lock_round_trip() {
         let pool = db::test_pool().await.unwrap();

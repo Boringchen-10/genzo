@@ -5,6 +5,7 @@ mod db;
 mod error;
 mod grouping;
 mod launcher;
+mod media_mapping;
 mod metadata;
 mod models;
 mod scanner;

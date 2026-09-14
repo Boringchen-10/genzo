@@ -1,0 +1,12 @@
+.file-kind {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.file-kind small {
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}

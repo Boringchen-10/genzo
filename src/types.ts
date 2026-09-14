@@ -75,6 +75,14 @@ export interface WorkDetail extends Work {
   metadata: MetadataSummary | null;
   fieldLocks: string[];
   candidates: MatchCandidate[];
+  subtitleLinks: SubtitleLink[];
+}
+
+export interface SubtitleLink {
+  subtitleMediaFileId: string;
+  videoMediaFileId: string;
+  episode: string | null;
+  matchMethod: "episode" | "file_name" | "single_file";
 }
 
 export interface MetadataSummary {

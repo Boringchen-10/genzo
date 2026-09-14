@@ -99,6 +99,16 @@ pub struct WorkDetail {
     pub metadata: Option<MetadataSummary>,
     pub field_locks: Vec<String>,
     pub candidates: Vec<MatchCandidate>,
+    pub subtitle_links: Vec<SubtitleLink>,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleLink {
+    pub subtitle_media_file_id: String,
+    pub video_media_file_id: String,
+    pub episode: Option<String>,
+    pub match_method: String,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]

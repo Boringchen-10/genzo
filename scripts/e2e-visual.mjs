@@ -6,10 +6,13 @@ const endpoint = "http://127.0.0.1:9223";
 const mediaRoot = path.resolve(".e2e-media");
 const directAnimeRoot = path.resolve(".e2e-direct-anime");
 const looseMediaRoot = path.resolve(".e2e-loose-media");
+const subtitleMediaRoot = path.resolve(".e2e-subtitle-media");
 const screenshots = path.resolve("artifacts", "screenshots");
 await Promise.all([
   mkdir(directAnimeRoot, { recursive: true }),
   mkdir(looseMediaRoot, { recursive: true }),
+  mkdir(path.join(subtitleMediaRoot, "Kiss x Sis", "video"), { recursive: true }),
+  mkdir(path.join(subtitleMediaRoot, "Kiss x Sis", "subtitle"), { recursive: true }),
   mkdir(path.join(mediaRoot, "Anime"), { recursive: true }),
   mkdir(path.join(mediaRoot, "Comic"), { recursive: true }),
   mkdir(path.join(mediaRoot, "Comic", "Junji Ito", "Tomie"), { recursive: true }),
@@ -24,6 +27,10 @@ await Promise.all([
   writeFile(path.join(looseMediaRoot, "[Ygm] Kimi no Koto ga Dai Dai Daisuki [01][2160p].mkv"), "Genzo loose media fixture.\n"),
   writeFile(path.join(looseMediaRoot, "S01E186.2020.2160p.WEB-DL.H264.AAC.mp4"), "Genzo loose media fixture.\n"),
   writeFile(path.join(looseMediaRoot, "Balloon.pdf"), "Genzo loose media fixture.\n"),
+  writeFile(path.join(subtitleMediaRoot, "Kiss x Sis", "video", "Kiss x Sis - 01.mkv"), "Genzo subtitle mapping fixture.\n"),
+  writeFile(path.join(subtitleMediaRoot, "Kiss x Sis", "video", "Kiss x Sis - 02.mkv"), "Genzo subtitle mapping fixture.\n"),
+  writeFile(path.join(subtitleMediaRoot, "Kiss x Sis", "subtitle", "Kiss x Sis - 01.ass"), "Genzo subtitle mapping fixture.\n"),
+  writeFile(path.join(subtitleMediaRoot, "Kiss x Sis", "subtitle", "Kiss x Sis - 02.ass"), "Genzo subtitle mapping fixture.\n"),
   writeFile(path.join(mediaRoot, "Anime", "episode 1.mkv"), "Genzo end-to-end scan fixture.\n"),
   writeFile(path.join(mediaRoot, "Anime", "episode 10.mkv"), "Genzo end-to-end scan fixture.\n"),
   writeFile(path.join(mediaRoot, "Anime", "pending anime.mkv"), "Genzo unassigned media fixture.\n"),
@@ -39,8 +46,14 @@ await copyFile(
   path.join(mediaRoot, "Game", "GenzoTestGame.exe"),
 );
 const browser = await chromium.connectOverCDP(endpoint);
-const pages = browser.contexts().flatMap((context) => context.pages());
-const page = pages.find((candidate) => candidate.url().startsWith("http://127.0.0.1:1420"));
+let page;
+for (let attempt = 0; attempt < 80 && !page; attempt += 1) {
+  page = browser
+    .contexts()
+    .flatMap((context) => context.pages())
+    .find((candidate) => candidate.url().startsWith("http://127.0.0.1:1420"));
+  if (!page) await new Promise((resolve) => setTimeout(resolve, 250));
+}
 
 if (!page) throw new Error("No Genzo WebView page was exposed on the debug endpoint.");
 
@@ -119,6 +132,47 @@ const nestedComicGroups = (await invoke("list_unassigned_media_groups")).filter(
 );
 if (nestedComicGroups.length !== 2 || nestedComicGroups.map((group) => group.fileCount).sort().join(",") !== "1,2") {
   throw new Error(`Nested comic folders were not split into leaf groups: ${JSON.stringify(nestedComicGroups)}`);
+}
+
+let subtitleLibraryRoot = roots.find(
+  (item) => item.path.toLocaleLowerCase() === subtitleMediaRoot.toLocaleLowerCase(),
+);
+if (!subtitleLibraryRoot) {
+  subtitleLibraryRoot = await invoke("add_library_root", {
+    input: { path: subtitleMediaRoot, kind: "auto", enabled: true },
+  });
+}
+const subtitleScan = await invoke("scan_library_root", { id: subtitleLibraryRoot.id });
+if (subtitleScan.discoveredCount !== 4) {
+  throw new Error(`Expected 4 video/subtitle fixture files, found ${subtitleScan.discoveredCount}.`);
+}
+let subtitleWork = (await invoke("list_works")).find((item) => item.title === "Kiss x Sis");
+if (!subtitleWork) {
+  const subtitleGroup = (await invoke("list_unassigned_media_groups")).find(
+    (group) => group.folderPath?.toLocaleLowerCase() === path.join(subtitleMediaRoot, "Kiss x Sis").toLocaleLowerCase(),
+  );
+  if (!subtitleGroup || subtitleGroup.fileCount !== 4) {
+    throw new Error(`Video and subtitle folders were not grouped as one work: ${JSON.stringify(subtitleGroup)}`);
+  }
+  subtitleWork = await invoke("create_work_from_media", {
+    mediaFileId: subtitleGroup.representative.id,
+    input: {
+      title: "Kiss x Sis",
+      originalTitle: null,
+      type: "video",
+      description: "视频与外挂字幕关联测试。",
+      coverPath: null,
+      status: "planned",
+      favorite: false,
+      rating: null,
+      tags: [],
+      notes: "",
+    },
+  });
+}
+const subtitleDetail = await invoke("get_work", { id: subtitleWork.id });
+if (subtitleDetail.mediaFiles.length !== 4 || subtitleDetail.subtitleLinks.length !== 2) {
+  throw new Error(`Subtitle links were not persisted: ${JSON.stringify(subtitleDetail.subtitleLinks)}`);
 }
 
 const workDefinitions = [
@@ -214,7 +268,7 @@ for (const definition of workDefinitions) {
 }
 
 works = await invoke("list_works");
-if (works.length !== 5 || works.reduce((sum, item) => sum + item.mediaCount, 0) !== 6) {
+if (works.length !== 6 || works.reduce((sum, item) => sum + item.mediaCount, 0) !== 10) {
   throw new Error("Work creation or file association did not produce the expected data.");
 }
 
@@ -276,6 +330,7 @@ async function assertNoHorizontalOverflow(label) {
     scrollWidth: document.documentElement.scrollWidth,
     overflowing: [...document.querySelectorAll("body *")]
       .filter((element) => {
+        if (element.classList.contains("seanime-banner-image")) return false;
         const style = getComputedStyle(element);
         if (style.display === "none" || style.visibility === "hidden") return false;
         const rect = element.getBoundingClientRect();
@@ -330,6 +385,8 @@ if (!(await invoke("plugin:window|is_minimized", { label: "main" }))) {
 }
 await invoke("plugin:window|unminimize", { label: "main" });
 await page.waitForTimeout(250);
+await page.mouse.move(700, 500);
+await page.waitForTimeout(300);
 await assertNoHorizontalOverflow("home 1366x768");
 await page.screenshot({ path: path.join(screenshots, "genzo-home-1366x768.png") });
 const homeCardWidth1366 = (await page.locator(".seanime-episode-card").first().boundingBox())?.width ?? 0;
@@ -394,8 +451,18 @@ if ((await page.locator(".file-row").count()) !== 2) throw new Error("Work detai
 await assertNoHorizontalOverflow("work detail 1024x640");
 await page.screenshot({ path: path.join(screenshots, "genzo-detail-1024x640.png") });
 
+await setRoute(`#/library/${subtitleWork.id}`);
+await page.waitForSelector(".file-row");
+const localFilesSection = page.locator(".detail-section").filter({ has: page.getByRole("heading", { name: "本地文件" }) });
+await localFilesSection.scrollIntoViewIfNeeded();
+if ((await localFilesSection.getByText("1 个字幕", { exact: true }).count()) !== 2) {
+  throw new Error("Work detail did not show the two persisted episode subtitle links.");
+}
+await assertNoHorizontalOverflow("subtitle detail 1024x640");
+await page.screenshot({ path: path.join(screenshots, "genzo-subtitle-detail-1024x640.png") });
+
 await setRoute("#/scan");
-if ((await page.locator(".root-row").count()) !== 3) throw new Error("Scan directory UI did not show all configured roots.");
+if ((await page.locator(".root-row").count()) !== 4) throw new Error("Scan directory UI did not show all configured roots.");
 await setRoute("#/tools");
 if ((await page.locator(".tool-row").count()) !== 1) throw new Error("Tool management UI did not show the configured tool.");
 await setRoute("#/settings");
@@ -423,6 +490,7 @@ console.log(JSON.stringify({
     filesPerGroup: looseMediaGroups.map((group) => group.fileCount),
   },
   nestedComicGroups: nestedComicGroups.map((group) => ({ title: group.title, files: group.fileCount })),
+  subtitleLinks: subtitleDetail.subtitleLinks.length,
   works: works.length,
   files: works.reduce((sum, item) => sum + item.mediaCount, 0),
   screenshots,

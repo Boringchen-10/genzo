@@ -96,7 +96,10 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
         raw_file_name: file_name.to_string(),
         ..Default::default()
     };
-    let mut text = raw.replace(['_', '.'], " ");
+    let mut text = raw
+        .replace(['_', '.'], " ")
+        .replace('【', "[")
+        .replace('】', "]");
     while let Some(start) = text.find('[') {
         let Some(end_rel) = text[start + 1..].find(']') else {
             break;
@@ -132,16 +135,20 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
             .and_then(|m| m.as_str().parse().ok());
         text = season_re.replace_all(&text, " ").to_string();
     }
+    let collection_count_re = regex::Regex::new(
+        r"(?i)(?:全\s*\d{1,4}\s*[集话]|\d{1,4}\s*[集话]\s*(?:全|完)|complete\s*series)",
+    )
+    .expect("static regex");
+    text = collection_count_re.replace_all(&text, " ").to_string();
     let episode_re = regex::Regex::new(
         r"(?i)(?:^|\s|[-])(?:EP?|#)?\s*(\d{1,4})(?:\s*[-~]\s*(\d{1,4}))?(?:\s|$)",
     )
     .expect("static regex");
     if let Some(caps) = episode_re.captures_iter(&text).last() {
-        parsed.episode = Some(
-            caps.get(0)
-                .map(|m| m.as_str().trim().to_string())
-                .unwrap_or_default(),
-        );
+        parsed.episode = caps.get(1).map(|start| match caps.get(2) {
+            Some(end) => format!("{}-{}", start.as_str(), end.as_str()),
+            None => start.as_str().to_string(),
+        });
         if let Some(range) = caps.get(0) {
             text.replace_range(range.start()..range.end(), " ");
         }
@@ -156,6 +163,10 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
         parsed.title = Some(title);
     }
     parsed
+}
+
+pub fn parse_folder_name(folder_name: &str) -> ParsedAnime {
+    parse_file_name(folder_name)
 }
 
 fn is_media_token(token: &str) -> bool {
@@ -203,7 +214,7 @@ mod tests {
         let p = parse_file_name("[字幕组] 进击的巨人 S2 - 01 [1080p].mkv");
         assert_eq!(p.title.as_deref(), Some("进击的巨人"));
         assert_eq!(p.season, Some(2));
-        assert!(p.episode.is_some());
+        assert_eq!(p.episode.as_deref(), Some("01"));
         assert_eq!(p.release_group.as_deref(), Some("字幕组"));
     }
     #[test]
@@ -236,5 +247,18 @@ mod tests {
     #[test]
     fn leaves_unparseable_empty() {
         assert!(parse_file_name("[1080p].mkv").title.is_none());
+    }
+
+    #[test]
+    fn removes_complete_collection_count_from_folder_title() {
+        let p = parse_folder_name("【 4K 】Q 亲吻姐姐 12集全");
+        assert_eq!(p.title.as_deref(), Some("Q 亲吻姐姐"));
+        assert!(p.episode.is_none());
+    }
+
+    #[test]
+    fn stores_episode_ranges_without_separator_noise() {
+        let p = parse_file_name("Show - 01-12 [1080p].mkv");
+        assert_eq!(p.episode.as_deref(), Some("01-12"));
     }
 }

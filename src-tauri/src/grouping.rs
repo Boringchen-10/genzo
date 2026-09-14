@@ -14,6 +14,12 @@ struct GroupIdentity {
     title: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct MediaGroupContext {
+    pub title: String,
+    pub members: Vec<MediaFile>,
+}
+
 fn normalized_key(path: &Path) -> String {
     path.to_string_lossy().replace('/', "\\").to_lowercase()
 }
@@ -126,9 +132,11 @@ fn direct_file_identity(media: &MediaFile, root: &Path) -> GroupIdentity {
     }
 
     let root_key = normalized_key(root);
+    let parsed_from_name = parse_file_name(&media.file_name);
     if let Some(parsed_title) = media
         .parsed_title
         .as_deref()
+        .or(parsed_from_name.title.as_deref())
         .map(str::trim)
         .filter(|title| !title.is_empty())
     {
@@ -136,8 +144,12 @@ fn direct_file_identity(media: &MediaFile, root: &Path) -> GroupIdentity {
         return GroupIdentity {
             key: format!(
                 "direct-anime:{root_key}:title:{normalized_title}:season:{:?}:special:{}",
-                media.parsed_season,
-                media.parsed_special_type.as_deref().unwrap_or_default()
+                media.parsed_season.or(parsed_from_name.season),
+                media
+                    .parsed_special_type
+                    .as_deref()
+                    .or(parsed_from_name.special_type.as_deref())
+                    .unwrap_or_default()
             ),
             folder_path: Some(root.to_string_lossy().to_string()),
             title: parsed_title.to_string(),
@@ -195,6 +207,15 @@ fn dominant_media_type(files: &[MediaFile]) -> String {
         })
         .map(|(media_type, _)| media_type.to_string())
         .unwrap_or_else(|| "other".to_string())
+}
+
+fn group_recognition_status(files: &[MediaFile], representative: &MediaFile) -> String {
+    for status in ["candidate_pending", "error", "unmatched"] {
+        if files.iter().any(|file| file.recognition_status == status) {
+            return status.to_string();
+        }
+    }
+    representative.recognition_status.clone()
 }
 
 fn media_priority(media_type: &str) -> u8 {
@@ -255,7 +276,7 @@ pub async fn list_unassigned_groups(pool: &SqlitePool) -> AppResult<Vec<Unassign
                 total_size: files
                     .iter()
                     .fold(0_i64, |total, file| total.saturating_add(file.size)),
-                recognition_status: representative.recognition_status.clone(),
+                recognition_status: group_recognition_status(&files, &representative),
                 representative,
             }
         })
@@ -264,23 +285,23 @@ pub async fn list_unassigned_groups(pool: &SqlitePool) -> AppResult<Vec<Unassign
     Ok(result)
 }
 
-pub async fn unassigned_group_member_ids(
+pub async fn unassigned_group_context(
     pool: &SqlitePool,
-    representative_id: &str,
-) -> AppResult<Vec<String>> {
+    media_file_id: &str,
+) -> AppResult<Option<MediaGroupContext>> {
     let roots = roots_by_id(pool).await?;
     let files = unassigned_media(pool).await?;
-    let Some(representative) = files.iter().find(|file| file.id == representative_id) else {
-        return Ok(vec![representative_id.to_string()]);
+    let Some(requested) = files.iter().find(|file| file.id == media_file_id) else {
+        return Ok(None);
     };
-    let root_path = representative
+    let root_path = requested
         .library_root_id
         .as_ref()
         .and_then(|id| roots.get(id))
         .map(String::as_str);
-    let identity = group_identity(representative, root_path);
-    Ok(files
-        .iter()
+    let identity = group_identity(requested, root_path);
+    let members: Vec<_> = files
+        .into_iter()
         .filter(|file| {
             let file_root = file
                 .library_root_id
@@ -289,8 +310,23 @@ pub async fn unassigned_group_member_ids(
                 .map(String::as_str);
             group_identity(file, file_root) == identity
         })
-        .map(|file| file.id.clone())
-        .collect())
+        .collect();
+    Ok(Some(MediaGroupContext {
+        title: identity.title,
+        members,
+    }))
+}
+
+pub async fn unassigned_group_member_ids(
+    pool: &SqlitePool,
+    representative_id: &str,
+) -> AppResult<Vec<String>> {
+    Ok(
+        match unassigned_group_context(pool, representative_id).await? {
+            Some(context) => context.members.into_iter().map(|file| file.id).collect(),
+            None => vec![representative_id.to_string()],
+        },
+    )
 }
 
 #[cfg(test)]
@@ -372,6 +408,39 @@ mod tests {
             .await
             .expect("list group members");
         assert_eq!(member_ids, vec!["1"]);
+    }
+
+    #[tokio::test]
+    async fn separates_direct_anime_files_before_recognition_has_run() {
+        let pool = db::test_pool().await.expect("create database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('root', 'C:\\Videos', 'video', 1, ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert root");
+        for (id, path, name) in [
+            ("1", "C:\\Videos\\Show A - 01.mkv", "Show A - 01.mkv"),
+            ("2", "C:\\Videos\\Show A - 02.mkv", "Show A - 02.mkv"),
+            ("3", "C:\\Videos\\Movie B.mkv", "Movie B.mkv"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, 'mkv', 'video', ?, ?)")
+                .bind(id).bind(path).bind(name).bind(&now).bind(&now).execute(&pool).await.expect("insert media");
+        }
+
+        let groups = list_unassigned_groups(&pool).await.expect("list groups");
+        assert_eq!(groups.len(), 2);
+        assert_eq!(
+            groups
+                .iter()
+                .find(|group| group.title == "Show A")
+                .map(|group| group.file_count),
+            Some(2)
+        );
+        assert_eq!(
+            groups
+                .iter()
+                .find(|group| group.title == "Movie B")
+                .map(|group| group.file_count),
+            Some(1)
+        );
     }
 
     #[tokio::test]

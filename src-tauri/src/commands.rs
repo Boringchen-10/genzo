@@ -2,6 +2,7 @@ use crate::db::AppState;
 use crate::error::{AppError, AppResult};
 use crate::grouping;
 use crate::launcher::{self, TemplateContext};
+use crate::media_mapping;
 use crate::metadata;
 use crate::models::*;
 use crate::scanner;
@@ -148,6 +149,8 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
     let field_locks = sqlx::query_scalar::<_, String>("SELECT field_name FROM work_field_locks WHERE work_id = ? AND locked = 1 ORDER BY field_name")
         .bind(&id).fetch_all(&state.pool).await?;
     let candidates = metadata::candidates_for_work(&state.pool, &id).await?;
+    let subtitle_links = sqlx::query_as::<_, SubtitleLink>("SELECT subtitle_media_file_id, video_media_file_id, episode, match_method FROM subtitle_links WHERE work_id = ? ORDER BY episode, subtitle_media_file_id")
+        .bind(&id).fetch_all(&state.pool).await?;
     Ok(WorkDetail {
         work,
         tags,
@@ -155,6 +158,7 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
         metadata,
         field_locks,
         candidates,
+        subtitle_links,
     })
 }
 
@@ -238,6 +242,7 @@ async fn create_work_from_media_in_pool(
         .execute(&mut *transaction)
         .await?;
     }
+    media_mapping::rebuild_subtitle_links(&mut transaction, &id).await?;
     transaction.commit().await?;
     Ok(id)
 }
@@ -321,35 +326,49 @@ pub async fn attach_media_file(
     media_file_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
+    let mut transaction = state.pool.begin().await?;
     let work_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM works WHERE id = ?)")
         .bind(&work_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *transaction)
         .await?;
     if !work_exists {
         return Err(AppError::NotFound("作品不存在".to_string()));
     }
     let result = sqlx::query("UPDATE media_files SET work_id = ?, updated_at = ? WHERE id = ?")
-        .bind(work_id)
+        .bind(&work_id)
         .bind(Utc::now().to_rfc3339())
         .bind(media_file_id)
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("媒体文件不存在".to_string()));
     }
+    media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
+    transaction.commit().await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn detach_media_file(media_file_id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let mut transaction = state.pool.begin().await?;
+    let work_id: Option<String> =
+        sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
+            .bind(&media_file_id)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .flatten();
     let result = sqlx::query("UPDATE media_files SET work_id = NULL, updated_at = ? WHERE id = ?")
         .bind(Utc::now().to_rfc3339())
         .bind(media_file_id)
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("媒体文件不存在".to_string()));
     }
+    if let Some(work_id) = work_id {
+        media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
+    }
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -941,6 +960,13 @@ mod tests {
         .await
         .expect("query tables");
         assert_eq!(table_count, 8);
+        let subtitle_links_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'subtitle_links')",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query subtitle links table");
+        assert!(subtitle_links_exists);
 
         let now = Utc::now().to_rfc3339();
         sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('1', '测试', 'video', ?, ?)")
