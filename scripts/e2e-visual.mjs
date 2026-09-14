@@ -471,12 +471,18 @@ if ((await page.locator(".work-list-row").count()) !== 1) throw new Error("Libra
 await page.locator(".work-list-row").first().click();
 await page.waitForSelector(".file-row");
 if ((await page.locator(".file-row").count()) !== 2) throw new Error("Work detail did not show associated files.");
+await page.getByLabel("点评 / 备注").fill("端到端测试点评");
+await page.getByRole("button", { name: "保存点评" }).click();
+await page.waitForTimeout(200);
+if ((await invoke("get_work", { id: works.find((item) => item.title === "星海列车：第一季").id })).notes !== "端到端测试点评") {
+  throw new Error("Work detail notes were not persisted.");
+}
 await assertNoHorizontalOverflow("work detail 1024x640");
 await page.screenshot({ path: path.join(screenshots, "genzo-detail-1024x640.png") });
 
 await setRoute(`#/library/${subtitleWork.id}`);
 await page.waitForSelector(".file-row");
-const localFilesSection = page.locator(".detail-section").filter({ has: page.getByRole("heading", { name: "本地文件" }) });
+const localFilesSection = page.locator(".detail-section").filter({ has: page.getByRole("heading", { name: "章节与文件" }) });
 await localFilesSection.scrollIntoViewIfNeeded();
 if ((await localFilesSection.getByText("1 个字幕", { exact: true }).count()) !== 2) {
   throw new Error("Work detail did not show the two persisted episode subtitle links.");
@@ -500,7 +506,12 @@ await settingsTrigger.click();
 await page.waitForSelector(".settings-drawer");
 await page.getByRole("radio", { name: "深色" }).click();
 if (!(await page.locator("html.dark").count())) throw new Error("Dark theme did not activate.");
-if (!(await page.getByRole("button", { name: "下载与备份 · Future" }).isDisabled())) throw new Error("Future download settings were unexpectedly interactive.");
+if (!(await page.getByRole("button", { name: /下载与备份/ }).isDisabled())) throw new Error("Future download settings were unexpectedly interactive.");
+const drawerWidth = await page.locator(".settings-drawer").evaluate((element) => element.getBoundingClientRect().width);
+if (drawerWidth > 410) throw new Error(`Settings drawer is wider than the v1.1.1 specification: ${drawerWidth}px.`);
+for (const label of ["主题色", "玻璃模糊", "圆角大小"]) {
+  if (!(await page.getByLabel(label, { exact: false }).count())) throw new Error(`Missing appearance control: ${label}.`);
+}
 await assertNoHorizontalOverflow("settings drawer 1024x640");
 await page.screenshot({ path: path.join(screenshots, "genzo-settings-1024x640.png") });
 await page.keyboard.press("Escape");
@@ -517,6 +528,7 @@ const visualRoutes = [
   { route: "#/library", name: "library", selector: ".page-library" },
   { route: "#/explore", name: "explore", selector: ".gnz-explore-page" },
   { route: `#/library/${works.find((item) => item.title === "星海列车：第一季").id}`, name: "detail", selector: ".detail-page" },
+  { route: "#/settings", name: "settings", selector: ".settings-drawer" },
 ];
 await setRoute("#/settings");
 await page.getByRole("radio", { name: "深色" }).click();
@@ -531,16 +543,18 @@ for (const size of [{ width: 1024, height: 640 }, { width: 1366, height: 768 }, 
   }
 }
 
-await page.setViewportSize({ width: 1366, height: 768 });
 await setRoute("#/settings");
 await page.getByRole("radio", { name: "浅色" }).click();
 await page.keyboard.press("Escape");
-await setRoute("#/");
-await assertNoHorizontalOverflow("light home 1366x768");
-await page.screenshot({ path: path.join(screenshots, "genzo-v1-1-1-light-home-1366x768.png") });
-await setRoute("#/library");
-await assertNoHorizontalOverflow("light library 1366x768");
-await page.screenshot({ path: path.join(screenshots, "genzo-v1-1-1-light-library-1366x768.png") });
+for (const size of [{ width: 1024, height: 640 }, { width: 1366, height: 768 }, { width: 1920, height: 1080 }]) {
+  await page.setViewportSize(size);
+  for (const item of visualRoutes.filter((route) => route.name === "detail" || route.name === "settings")) {
+    await setRoute(item.route);
+    await page.waitForSelector(item.selector);
+    await assertNoHorizontalOverflow(`light ${item.name} ${size.width}x${size.height}`);
+    await page.screenshot({ path: path.join(screenshots, `genzo-v1-1-1-light-${item.name}-${size.width}x${size.height}.png`) });
+  }
+}
 await setRoute("#/settings");
 await page.getByRole("radio", { name: "跟随系统" }).click();
 await page.keyboard.press("Escape");
