@@ -4,6 +4,22 @@ Genzo 的重要变更记录在此文件中。格式参考 Keep a Changelog，版
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-14
+
+### Changed
+
+- 动漫批量识别改为按作品目录组执行，同一作品只生成一次 Bangumi 查询。
+- 识别查询综合代表文件、作品目录、季度和年份；纯集数文件不再因缺少标题而直接失败。
+
+### Added
+
+- 持久化视频集数与外挂字幕关联，并在作品详情中显示集数和字幕数量。
+
+### Fixed
+
+- 首次扫描根目录中的散装视频会即时按解析标题拆组，不再等待识别后才分开。
+- 首页“继续观看”卡片保持稳定宽度，宽屏通过增加列数利用空间。
+
 ## [0.2.3] - 2026-09-12
 
 ### Changed
@@ -48,7 +64,9 @@ Genzo 的重要变更记录在此文件中。格式参考 Keep a Changelog，版
 - 产品正式名称统一为 Genzo。
 - 项目许可证统一为 GNU GPL v3.0 only。
 
-[Unreleased]: https://github.com/Boringchen-10/genzo/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/Boringchen-10/genzo/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/Boringchen-10/genzo/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/Boringchen-10/genzo/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Boringchen-10/genzo/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Boringchen-10/genzo/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Boringchen-10/genzo/releases/tag/v0.2.0
