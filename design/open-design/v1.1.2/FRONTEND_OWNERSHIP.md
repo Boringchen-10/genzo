@@ -26,11 +26,13 @@
 
 ## 已落地文件
 
-- `src/data/provider.ts`：`GenzoDataProvider` 接口、`ProviderMeta`（`kind: "mock" | "tauri"`、`mock` 标记、`label`）、`ProviderNotImplementedError`。
-- `src/data/mockProvider.ts`：`createMockProvider()` + `MOCK_NOTICE`；系统级操作（导入封面、检测/测试工具、启动播放、打开目录）抛 `ProviderNotImplementedError`，**不伪造成功**。
+- `src/data/provider.ts`：`GenzoDataProvider` 接口、`ProviderMeta`（`kind: "mock" | "tauri"`、`mock` 标记、`label`）、`ProviderNotImplementedError`；探索方法（`exploreOverview` / `searchExplore` / `getExploreSubject` / `saveExploreSubject`）为**可选成员**，另有 `GenzoExploreProvider` 子集类型。
+- `src/data/mockProvider.ts`：`createMockProvider()` + `MOCK_NOTICE`；系统级操作（导入封面、检测/测试工具、启动播放、打开目录）抛 `ProviderNotImplementedError`，**不伪造成功**；探索四方法以带「示例」字样的内存数据实现，不请求网络。
 - `src/data/tauriProvider.ts`：Codex 的占位实现，每个方法显式失败（`satisfies GenzoDataProvider` 保证表面一致）。
-- `src/data/index.ts`：`getDataProvider()` 单例，按 `isTauriRuntime()` 选择；导出 `dataProvider` 供页面使用。
-- UI 接入：9 个页面/组件的取数入口从 `src/api.ts` 切换为 `dataProvider`（`import { dataProvider as api } from "../data"`），调用点未改动。
+- `src/data/index.ts`：`getDataProvider()` 单例，按 `isTauriRuntime()` 选择；导出 `dataProvider` 供页面使用；`getExploreProvider()` 返回探索能力子集（Provider 未实现时返回 `null`，页面按错误态处理）。
+- `src/explore.ts` / `src/explore.test.ts`：探索页纯展示辅助（网络评分/排名空值、放送信息、数据源状态、标签筛选）与单元测试。
+- `src/explore.css`：探索页正式数据版本的样式增量（竖版海报网格、卡片、详情、数据源提示）。
+- UI 接入：9 个页面/组件的取数入口从 `src/api.ts` 切换为 `dataProvider`（`import { dataProvider as api } from "../data"`），调用点未改动；探索页使用 `getExploreProvider()`。
 - Mock 标记：`WindowTitleBar` 在 `provider.meta.mock` 为真时显示「示例数据」标记，tooltip 为 `MOCK_NOTICE`。
 
 ## 运行期状态（过渡期已结束）
@@ -38,11 +40,11 @@
 - 桌面壳运行时选择 **Tauri Provider**；Codex 已在提交 `adcc117` 中实现 `src/data/tauriProvider.ts`（逐方法委托 `src/api.ts`），桌面壳可正常读写真实数据。
 - 浏览器 / 设计预览选择 **Mock Provider**，界面显示「示例数据」标记。
 - 集成过程中 **UI 一行未改** —— 契约成立，Codex 未提出冲突；前端 Provider 层（`provider.ts` / `index.ts` / `mockProvider.ts`）与全部页面/组件均无需调整。
-- 唯一仍走本地示例数据的页面：`ExplorePage.tsx`（本地 `samples` 常量，登记为 `FE-EXPLORE-001`，NEW_REQUIRED，等待 Bangumi 数据源）。
+- 探索页已接入 Provider（`getExploreProvider()`），不再使用本地 `samples`；桌面壳内需 Codex 补齐 `tauriProvider.ts` 的四个探索委托后才会返回可用数据，否则显示「尚未接入」错误态（不伪造数据）。
 
 ## Git 约定
 
-- 工作分支：`design/open-design-frontend`，使用 Conventional Commits 原子提交。
+- 工作分支：`design/open-design-frontend`；探索页接入轮次在分支 `design/explore-frontend`（基于后端提交 `bcc5f21`），使用 Conventional Commits 原子提交。
 - 仓库 `.git` 归属异常，`git` 命令仅在单次调用中使用 `git -c safe.directory="H:/二次元阅读器" …`；**不得**修改全局配置，**不得**执行 `reset`、覆盖式 `checkout`、`clean` 等可能丢失用户现有修改的操作。
 - 工作区中用户已有的未提交修改一律保留，不回退、不覆盖。
 

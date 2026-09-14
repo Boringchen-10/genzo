@@ -68,3 +68,29 @@
 ### Open Design 待接入契约
 
 Open Design 需要在其负责的 `GenzoDataProvider` / Mock Provider 中声明同名四个方法，并让 `ExplorePage.tsx` 使用 Provider。Mock 必须继续明确标记为示例数据；Tauri Provider 只需逐方法委托上述 `src/api.ts` 方法。此条目不授权 Codex 修改这些前端文件。
+
+---
+
+## 005 · 2026-09-14 · 前端接入探索契约（Open Design）
+
+- **变更**：`src/data/provider.ts` 新增探索方法（`exploreOverview` / `searchExplore` / `getExploreSubject` / `saveExploreSubject`）与 `GenzoExploreProvider` 子集；`src/data/index.ts` 新增 `getExploreProvider()` 能力访问器；`src/data/mockProvider.ts` 完整实现四个方法（示例数据，不请求网络）；`src/pages/ExplorePage.tsx` 由本地 `samples` 占位改为按 Provider 真实取数，并新增 `src/explore.ts`（纯展示辅助 + 单元测试）、`src/explore.css`。
+- **原因**：接入 004 号条目交付的 Bangumi 探索后端，让正式 React 探索界面真正可用；遵守 004 的「不授权 Codex 修改前端文件」与「Open Design 负责 Provider 接口 / Mock」的分工。
+- **字段**：与 `src/api.ts` 的 `get_explore_overview` / `search_explore_subjects` / `get_explore_subject` / `save_explore_subject` 一一对应，参数与返回类型直接引用 `src/types.ts` 的 `ExploreOverview` / `ExploreSubject` / `ExploreSaveInput`。**未新增或改义任何 Tauri Command，未修改 `src/api.ts` / `src/types.ts` / `src-tauri/`。**
+- **兼容性**：**向后兼容**。四个探索方法在 `GenzoDataProvider` 上声明为**可选成员**，`src/data/tauriProvider.ts`（Codex 维护，本轮未改动）继续满足接口，其余命令调用方不受影响。运行期由 `getExploreProvider()` 判定：方法齐备则返回可调用子集，否则返回 `null`，页面显示明确的「尚未接入」错误态，**不伪造数据**。
+- **受影响功能 ID**：EXPLORE-001、EXPLORE-002、EXPLORE-003、EXPLORE-004、EXPLORE-005、FE-EXPLORE-001、FE-PROVIDER-002。
+- **变更方**：Open Design（前端）。
+
+### 待 Codex 处理
+
+1. 在 `src/data/tauriProvider.ts` 补齐四个委托（其余文件零改动）：
+
+   ```ts
+   exploreOverview: api.exploreOverview,
+   searchExplore: api.searchExplore,
+   getExploreSubject: api.getExploreSubject,
+   saveExploreSubject: api.saveExploreSubject,
+   ```
+
+2. 补齐后可将 `GenzoDataProvider` 上的四个方法改为**必选**（届时 `satisfies GenzoDataProvider` 会强制约束表面），本条目的「尚未接入」错误态随之消失，前端无需再改。
+3. 新的契约需求（尚未提供，界面保持禁用 + `Future`，见 `design/open-design/v1.1.2/BACKEND_CAPABILITY_MATRIX.md`）：按星期分组的放送时间表、全年 / 全量动画浏览查询、漫画探索数据源。
+4. 是否将 `GenzoExploreProvider` 迁入 `contracts/` 作为正式共享契约。

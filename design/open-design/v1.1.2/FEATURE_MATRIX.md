@@ -42,10 +42,19 @@
 | TOOLS-002 | 一键下载 / 安装 | v1.1.1 禁用 + Future | FUTURE | A + B |
 | SETTINGS-001 | 设置（外观 / 通用） | 保留 v1.1 | EXISTING_PARTIAL | A + B |
 | SETTINGS-002 | 下载与备份 | v1.1.1 标记 Future + 控件禁用 | FUTURE | A + B |
-| EXPLORE-001 | 探索 MVP（页面结构） | v1.1.1 标注「下一阶段后端」 | NEW_REQUIRED（搜索/详情基础 EXISTING_PARTIAL） | A + B |
+| EXPLORE-001 | 探索 · 页面结构与本季 / 热度列表 | 正式数据版本（网格 + 空值 / 缓存 / 数据源错误态） | EXISTING_VERIFIED（`get_explore_overview`） | A + B |
+| EXPLORE-002 | 探索 · 番组日历（按年月选择本季） | 年月筛选可用；按星期的放送时间表仍禁用 + `Future` | EXISTING_PARTIAL（月度番组 EXISTING_VERIFIED；周表 NEW_REQUIRED） | A + B |
+| EXPLORE-003 | 探索 · 网络评分 / 排名 / 人数 | 卡片与详情展示，明确标注「不是个人评分」 | EXISTING_VERIFIED（`ExploreSubject.score/rank/ratingCount/collectionCount`） | A + B |
+| EXPLORE-004 | 探索 · 追番状态 | 详情弹窗内选择状态（`WorkStatus`） | EXISTING_VERIFIED（`save_explore_subject`） | A + B |
+| EXPLORE-005 | 探索 · 别名与番组索引 | 详情显示原文标题与别名；列表来自 bangumi-data 索引 | EXISTING_VERIFIED（`aliases` + bangumi-data） | A + B |
+| EXPLORE-006 | 探索 · Bangumi 条目搜索 | 顶部搜索框（Enter 提交、可清除） | EXISTING_VERIFIED（`search_explore_subjects`） | A + B |
+| EXPLORE-007 | 探索 · 漫画探索 | 禁用 + `Future` 徽标 + tooltip | NEW_REQUIRED（无漫画数据源） | A + B |
+| EXPLORE-008 | 探索 · 按类型全量浏览（动画） | 禁用 + `Future` 徽标 + tooltip | NEW_REQUIRED（无全年 / 全量浏览查询） | A + B |
 | A11Y-001 | 统一 Overlay Manager | v1.1.1 新增 | 纯前端 | A + B |
 | A11Y-002 | 图标按钮 aria-label / tooltip | v1.1.1 补齐 | 纯前端 | A |
 | THEME-002 | 浅色主题对比与背景可见性 | v1.1.1 修复 | 纯前端 | A + B |
 | FUTURE-001 | WebDAV / 网盘 / 远程 / 阅读器 / 同步 / 分享 | 静态占位 | FUTURE | A + B |
 
 > 提醒：以上除 EXISTING_VERIFIED / EXISTING_PARTIAL 外，均不代表后端已实现。等级 B、C 的项目**尚未**由本流程实际运行或截图验证。
+>
+> 探索页（EXPLORE-001 ~ 006）已由 Open Design 按 004 号契约接入 `GenzoDataProvider`；桌面壳仍需 Codex 在 `src/data/tauriProvider.ts` 补齐四个探索委托，否则界面显示「尚未接入」错误态（不伪造数据）。详见 `CONTRACT_CHANGELOG.md` 005。

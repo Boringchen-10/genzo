@@ -12,6 +12,22 @@
 | A11Y-004 | 打开设置抽屉时，`.sidebar` 同样被设为 `inert`，左侧导航点不动 | 与 A11Y-003 同样处理：`#themeDrawer` 位于最上层时**不对 `.sidebar` 施加 `inert`**；点击导航会先关闭抽屉（`closeDrawer()`）再切页 | 设置打开时也能直接用左侧栏切页 | 全局框架 · 设置抽屉 · 左侧导航 | 无 | 否 |
 | SHELL-004 | 标题栏在上一轮被改成 `rgba(var(--shade),.58)` + `backdrop-filter: blur(18px)`（浅色同值），在首页大图上读作一条半透明色带 | 标题栏恢复**完全透明**：`background: transparent`，去掉 `backdrop-filter` 与底部分隔线，标题栏与首页大图 / 页面背景直接融合 | 上一轮擅自改动了顶部的透明度，按要求还原 | 全局 · 标题栏 | 无 | 否 |
 
+## v1.1.2 实现阶段修订：探索页正式接入 Bangumi 数据（2026-09-14）
+
+后端已交付 Bangumi 探索契约（`CONTRACT_CHANGELOG.md` 004）。Open Design 在正式仓库 `H:\二次元阅读器` 的 `src/pages/ExplorePage.tsx` 上把探索页从设计占位改为真实取数；本表记录的是**实现期的界面修订**，不新增页面。
+
+| 功能 ID | 修改前 | 修改后 | 原因 | 页面 / 组件 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| EXPLORE-001 | 探索页为「Prototype · Future」占位，使用本地 `samples` 假数据 | 改用 `getExploreOverview`：本季番组 + 最高热度（竖版海报网格），含加载 / 空 / 错误 / 缓存 / 数据源错误态 | 移除假数据，接入已交付后端 | 探索 | 无（只读 `ExploreOverview` / `ExploreSubject`） | 否 |
+| EXPLORE-002 | 分类 Tab 中除「推荐」外全部禁用，原因不明 | 「推荐」「本季」可用（真实数据 + 年月筛选）；「动画」「漫画」保持禁用 + `Future` + tooltip 说明缺少的契约 | 不伪造未接入的能力 | 探索 | NEW_REQUIRED（全量浏览、漫画数据源） | 否 |
+| EXPLORE-003 | 无网络评分展示 | 卡片与详情展示网络评分、排名、评分人数、收藏人数；缺失时显示「暂无网络评分」「暂无排名」；明确标注不是个人评分 | 网络评分不得与个人评分混淆 | 探索 · 条目详情 | 无 | 否 |
+| EXPLORE-004 | 无加入媒体库能力 | 详情弹窗内选择追番状态 + 收藏开关 → `saveExploreSubject`；成功后刷新本地标记并可「打开作品」 | 让已接入能力真正可用 | 探索 · 条目详情 | 写入 `works` / `work_external_ids`（后端负责） | 否 |
+| EXPLORE-006 | 搜索框禁用（`Future`） | 真实搜索（`searchExplore`，Enter 提交、可清除、无结果空状态、错误 Toast） | 后端已提供搜索命令 | 探索 | 无 | 否 |
+| EXPLORE-009 | 无封面 / 破图时无占位 | 网络封面加载失败或缺失时回退 `MediaVisual` 自制占位封面 | 封面缺失属常态 | 探索 | 无 | 否 |
+| EXPLORE-010 | 数据源异常无提示 | `stale=true` 显示低干扰缓存提示；`sources.available=false` 显示数据源错误并说明本地媒体库不受影响 | 明示真实状态，不假装成功 | 探索 | 无 | 否 |
+| EXPLORE-011 | 探索页样式复用占位版（含假数据背景图渐变） | 新增 `src/explore.css`；沿用冻结令牌，无阴影 / 光晕 / 装饰渐变 | 真实封面为竖版海报 | 探索 | 无 | 否 |
+| EXPLORE-012 | 「新番时间表」禁用但未说明原因 | 保持禁用，tooltip 说明需要新增后端「按星期分组的放送时间表」 | 契约未提供 | 探索 | NEW_REQUIRED | 否 |
+
 ## 相对 v1.1 的修改（v1.1.1 已生效，仍然有效）
 
 | 功能 ID | 修改前 | 修改后 | 原因 | 页面 / 组件 | 后端影响 | 需确认 |
@@ -37,7 +53,7 @@
 
 ## 保留（未删除、未缩减）
 
-首页、探索、媒体库、收藏、工具、设置；作品详情；作品组形式的待整理；动画作品组 → 季度 → 剧集 → 视频 / 字幕下钻；漫画「作品 → 卷/话 → 图片」；批量确认 / 批量重新识别的 **Future 入口**；Bangumi 探索 MVP 页面结构；深浅主题；左侧窄导航；播放器 / 阅读器选择；元数据编辑；候选对比。
+首页、探索、媒体库、收藏、工具、设置；作品详情；作品组形式的待整理；动画作品组 → 季度 → 剧集 → 视频 / 字幕下钻；漫画「作品 → 卷/话 → 图片」；批量确认 / 批量重新识别的 **Future 入口**；Bangumi 探索 MVP 页面结构（已实现阶段升级为正式数据版本，结构保留）；深浅主题；左侧窄导航；播放器 / 阅读器选择；元数据编辑；候选对比。
 
 ## 未执行项（受不可绕过的边界限制）
 
@@ -46,6 +62,7 @@
 | 运行独立原型并生成 1024×640 / 1366×768 / 1920×1080 截图 | 执行边界禁止对生成物做渲染 / 预览 / 截图 | `SCREENSHOT_CHECKLIST.md` 人工验收清单（A/B/C 分级） |
 | 运行时验证 Dialog / Drawer 的 Tab 循环、Esc、焦点返回 | 同上 | 源码级实现 + 转录为 B 级待验 |
 | 200% 缩放模拟 | 同上 | B 级待验 |
+| 运行正式 React 探索页并生成三尺寸截图 / 走查交互 | 执行边界禁止对生成物做渲染 / 预览 / 截图 | 源码级实现 + `SCREENSHOT_CHECKLIST.md` 人工验收清单（A/B 分级） |
 | 真实 Tauri 标题栏行为 | 需桌面壳运行 | C 级待验，已在 `UI_HANDOFF.md` 列出所需 API |
 
 ## 机器可判定结果（已完成）
@@ -54,7 +71,8 @@
 - 两套 `assets/` 的 8 个文件**内容一致**（逐文件 SHA-256 比对通过）。
 - 全部本地素材引用（`assets/reference-*.png`、`assets/characters/character-1..6.png`）在两种目录结构中均可解析。
 - 只读基线未变：v1 `index.html` = `8C4E26522149…`，v1.1 原型 = `1C2D3EDC37D3…`。
+- 正式仓库实现（Open Design 分支 `design/explore-frontend`，基于 `bcc5f21`）：`pnpm run check`（`tsc -b`）通过、`pnpm run test` 16 项通过、`pnpm run build` 生产构建通过。
 
 ## 正式仓库
 
-**未修改正式 Genzo 仓库**：未改动 `src`、`src-tauri`、`package.json`、`Cargo.toml`、`tauri.conf.json`、SQLite 数据库与迁移、现有 API 契约与用户媒体文件，未提交正式仓库 Git。
+在协作模型（见 `FRONTEND_OWNERSHIP.md`）下，Open Design 的 v1.1.2 探索页修订**直接写入正式仓库** `H:\二次元阅读器` 的 `src/`，分支 `design/explore-frontend`（基于后端提交 `bcc5f21`）。未改动 `src-tauri/`、Rust、SQLite 与迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`，未提交正式仓库默认分支。

@@ -55,16 +55,19 @@
 | TOOLS-002 | 工具 | 一键下载 / 自动安装 | FUTURE | 无下载后端（界面已禁用并标 Future） |
 | SETTINGS-001 | 设置 | 通用设置 / 外观 | EXISTING_PARTIAL | `get_setting` / `set_setting`；`app_settings`；主题键结构未定义 |
 | SETTINGS-002 | 设置 | 下载与备份 | FUTURE | 无命令与表（界面已禁用并标 Future） |
-| EXPLORE-001 | 探索 | Bangumi 条目搜索与详情 | EXISTING_PARTIAL | `bangumi.rs` `BangumiProvider::search` / `get_details`；`metadata_cache`、`work_external_ids` |
-| EXPLORE-002 | 探索 | 番组日历 | NEW_REQUIRED | 无日历接口 |
-| EXPLORE-003 | 探索 | 排行 / 评分人数 / 网络评分缓存 | NEW_REQUIRED | 无评分人数 / 排行 / 网络评分字段 |
-| EXPLORE-004 | 探索 | 追番状态 | NEW_REQUIRED | 无追番状态字段 |
-| EXPLORE-005 | 探索 | 别名与番组索引 | NEW_REQUIRED | 无 Bangumi / bangumi-data 别名索引 |
+| EXPLORE-001 | 探索 | Bangumi 条目搜索与详情 | EXISTING_VERIFIED | `search_explore_subjects`、`get_explore_subject`；`explore.rs`、`bangumi.rs`、`metadata_cache`、`work_external_ids` |
+| EXPLORE-002 | 探索 | 番组日历（按年月选择本季） | EXISTING_PARTIAL | `get_explore_overview(year, month)` 返回该月本季番组（bangumi-data 索引 + 当前月份叠加实时番组日历）；**按星期分组的放送时间表仍为 NEW_REQUIRED** |
+| EXPLORE-003 | 探索 | 排行 / 评分人数 / 网络评分缓存 | EXISTING_VERIFIED | `ExploreSubject.score/rank/ratingCount/collectionCount`；`metadata_cache`；`explore.rs::overview` 按评分人数 / 收藏人数排序热度榜 |
+| EXPLORE-004 | 探索 | 追番状态 | EXISTING_VERIFIED | `save_explore_subject`；`works.status` / `works.favorite` / `work_external_ids`（幂等创建或更新，不写个人评分） |
+| EXPLORE-005 | 探索 | 别名与番组索引 | EXISTING_VERIFIED | `bangumi-data` 索引（`explore.rs::load_bangumi_data`）、`ExploreSubject.aliases`、`titleTranslate` |
+| EXPLORE-006 | 探索 | 漫画探索数据源 | NEW_REQUIRED | 当前只接入 Bangumi 动画条目，无漫画探索数据源（界面禁用 + `Future`） |
+| EXPLORE-007 | 探索 | 全年 / 全量动画浏览 | NEW_REQUIRED | `get_explore_overview` 只按年月返回本季番组，无全量浏览查询（界面禁用 + `Future`） |
+| EXPLORE-008 | 探索 | 按星期分组的放送时间表 | NEW_REQUIRED | 契约只提供 `airDate` / `broadcast` 单条字段，无按星期聚合（界面禁用 + `Future`） |
 | COMPLIANCE-001 | 全局 | 在线片源搜索 / 聚合 / 下载 | REJECTED | 产品与合规边界禁止 |
 
 ## 尚需新增（汇总）
 
-按作品文件夹整组识别；更可靠的动画文件名解析；Bangumi / bangumi-data 别名与番组索引；视频 / 集数 / 字幕持久化映射；网络评分 / 人数 / 排名字段及缓存；番组日历与探索数据缓存；用户追番状态；逐集手动映射保存；扫描实时进度事件；单个失败项重试；目录组数量统计；内置阅读器；阅读页码与进度。
+按作品文件夹整组识别；更可靠的动画文件名解析；视频 / 集数 / 字幕持久化映射；逐集手动映射保存；扫描实时进度事件；单个失败项重试；目录组数量统计；内置阅读器；阅读页码与进度；探索的**按星期分组放送时间表**、**全年 / 全量动画浏览查询**与**漫画探索数据源**。
 
 ## Future（不在当前范围）
 
@@ -81,12 +84,13 @@ WebDAV、SMB/NAS、网盘、远程播放、下载到本地、工具一键下载�
 
 | 功能 ID | 页面 | 用户操作 | 能力状态 | 代码证据 / 说明 | 持久化 | 建议版本 |
 |---|---|---|---|---|---|---|
-| FE-PROVIDER-001 | 全局 | 前端通过 Provider 契约取数 | NEW_REQUIRED（契约已定义，实现待 Codex） | `src/data/provider.ts`（接口，前端拥有）；`src/data/tauriProvider.ts` 为占位实现，抛 `ProviderNotImplementedError` | 否 | v0.1 P0 |
+| FE-PROVIDER-001 | 全局 | 前端通过 Provider 契约取数 | EXISTING_VERIFIED（契约已定义，Codex 已实现） | `src/data/provider.ts`（接口，前端拥有）；`src/data/tauriProvider.ts` 已由 Codex 逐方法委托 `src/api.ts`（见 003 与 FE-PROVIDER-003 的探索缺口） | 否 | v0.1 P0 |
 | FE-MOCK-001 | 全局 | 设计期示例数据 | MOCK_ONLY | `src/data/mockProvider.ts`，导出 `MOCK_NOTICE`，UI 必须显示“示例数据” | 否（内存） | 仅设计 |
 | FE-STORE-001 | 全局 | 主题/视图偏好、Toast | 前端专用（非后端能力） | `src/store.ts` = zustand `persist`，键 `genzo-preferences`，仅外观偏好与 Toast | localStorage | v0.1 P1 |
-| FE-GAP-001 | 多页 | UI 已具备、等待后端 Provider | NEW_REQUIRED | 继续观看进度、探索数据、制作人员/角色、阅读器、下载与备份：UI 可完成，数据由 `tauriProvider.ts` 提供 | 待定 | v0.2–v0.3 |
-| FE-PROVIDER-002 | 全局 | 运行期按环境选择数据源 | NEW_REQUIRED | `src/data/index.ts`：`isTauriRuntime()` → `createTauriProvider()`，否则 Mock；`dataProvider` 单例供 UI 使用。桌面壳在 `tauriProvider.ts` 完成前会抛 `ProviderNotImplementedError` | 否 | v0.1 P0 |
-| FE-MOCK-002 | 全局 | 标注示例数据来源 | MOCK_ONLY | `WindowTitleBar` 在 `provider.meta.mock` 为真时显示「示例数据」，tooltip = `MOCK_NOTICE`（`mockProvider.ts`） | 否 | 仅设计 |
-| FE-EXPLORE-001 | 探索 | 探索页数据（日历/排行/网络评分） | NEW_REQUIRED | `ExplorePage.tsx` 目前使用本地 `samples` 常量（设计占位），未接入任何后端；需 Bangumi 数据源与缓存，建议加入 Provider 契约 | 待定（需缓存） | v0.2 |
+| FE-MOCK-002 | 全局 | 标注示例数据来源 | MOCK_ONLY | `WindowTitleBar` 在 `provider.meta.mock` 为真时显示「示例数据」，tooltip = `MOCK_NOTICE`（`mockProvider.ts`）；探索页写入提示同样带「示例数据」后缀 | 否 | 仅设计 |
+| FE-GAP-001 | 多页 | UI 已具备、等待后端 Provider | NEW_REQUIRED | 继续观看进度、制作人员/角色、阅读器、下载与备份：UI 可完成，数据由 `tauriProvider.ts` 提供（探索数据已由 004/005 接入，不再在此列） | 待定 | v0.2–v0.3 |
+| FE-PROVIDER-002 | 全局 | 运行期按环境选择数据源 | EXISTING_VERIFIED | `src/data/index.ts`：`isTauriRuntime()` → `createTauriProvider()`，否则 Mock；`dataProvider` 单例供 UI 使用（Codex 已实现 `tauriProvider.ts`，见 003） | 否 | v0.1 P0 |
+| FE-PROVIDER-003 | 全局 | Tauri Provider 补齐探索委托 | NEW_REQUIRED | `src/data/tauriProvider.ts`（Codex 维护）尚未包含 `exploreOverview` / `searchExplore` / `getExploreSubject` / `saveExploreSubject`；补齐前 `getExploreProvider()` 在桌面壳返回 `null`，探索页显示「尚未接入」错误态 | 否 | v0.2 P0 |
+| FE-EXPLORE-001 | 探索 | 探索页数据（本季番组 / 热度 / 搜索 / 详情 / 加入媒体库） | EXISTING_VERIFIED（后端 + 前端已接入） | `ExplorePage.tsx` 已改用 `getExploreProvider()`，不再使用本地 `samples`；新增 `src/explore.ts`（纯展示辅助 + 单测）与 `src/explore.css`；Mock Provider 保留「示例数据」标记 | 缓存由后端负责 | v0.2 |
 
 > 说明：`src/data/` 为前端新增层，只读引用 `src/types.ts` 与 `src/api.ts`；不改动任何 Tauri Command、Rust、SQLite、迁移或 `contracts/`。`src/store.ts` 经只读核对为纯前端偏好与 Toast（zustand + localStorage），归前端所有。
