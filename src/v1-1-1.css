@@ -138,10 +138,13 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* Home */
 .gnz-home { height: 100%; min-height: 600px; overflow: auto; background: var(--bg); }
 .gnz-home .seanime-banner { height: 552px; min-height: 552px; overflow: hidden; background: var(--bg); border-bottom: 1px solid var(--line); }
-.gnz-home .seanime-banner-image { inset: 0; opacity: 1; filter: none; background-position: center; }
+.gnz-home .seanime-banner-image { inset: -6%; opacity: .85; filter: blur(40px) saturate(1.06) brightness(.9); background-position: center; }
+/* Portrait covers keep their own ratio as a sharp poster; the blurred copy above is only the ambient fill. */
+.gnz-banner-poster { position: absolute; z-index: 3; right: clamp(28px, 4.5vw, 72px); bottom: 0; height: 82%; width: auto; max-width: 32%; object-fit: contain; object-position: right bottom; border-radius: 8px 8px 0 0; box-shadow: 0 26px 54px rgb(0 0 0 / .45); }
+@media (max-width: 1040px) { .gnz-banner-poster { display: none; } }
 .gnz-home .seanime-banner::before { z-index: 1; background: rgb(3 8 9 / .14); }
 .gnz-home .seanime-banner::after { z-index: 2; background: linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); box-shadow: none; }
-:root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(90deg, rgb(243 246 245 / .91) 0%, rgb(243 246 245 / .77) 35%, transparent 64%), linear-gradient(0deg, rgb(243 246 245 / .28), transparent 45%); }
+:root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 .gnz-home-copy-mask { position: absolute; z-index: 3; inset: 0 auto 0 0; width: min(760px, 64%); pointer-events: none; }
 .gnz-home .seanime-home-toolbar { top: 0; right: 44px; height: 54px; }
 .gnz-home .seanime-home-toolbar .icon-button, .gnz-home .seanime-library-count { color: var(--muted); background: rgba(var(--shade), .52); border-color: rgba(var(--tint), .1); border-radius: 7px; }

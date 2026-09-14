@@ -97,6 +97,7 @@ export function HomePage() {
   const carouselWorks = useMemo(() => data?.recentWorks.slice(0, 5) ?? [], [data]);
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
   const featuredArtwork = workBackdrop(featured, featuredIndex);
+  const featuredCover = featured ? coverUrl(featured.coverPath) : null;
 
   useEffect(() => {
     document.documentElement.classList.toggle("has-window-backdrop", Boolean(featuredArtwork));
@@ -116,6 +117,7 @@ export function HomePage() {
     <div className="seanime-home gnz-home">
       <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
+        {featuredCover ? <img className="gnz-banner-poster" src={featuredCover} alt="" /> : null}
         <div className="seanime-home-toolbar">
           <span className="seanime-library-count">{data.totalWorks} 部作品 · 最近同步于今天</span>
           <Link className="icon-button" aria-label="打开媒体库" data-tooltip="打开媒体库" to="/library"><Library size={19} /></Link>
