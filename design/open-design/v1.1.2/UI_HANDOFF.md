@@ -16,6 +16,8 @@
 | F-12 | 打开设置抽屉后，左侧导航被设为 `inert`，无法点击切页 | 与 F-11 同样处理：`#themeDrawer` 位于最上层时**不再对 `.sidebar` 施加 `inert`**；点击导航会先关闭抽屉（`closeDrawer()`）再切页，其它模态弹窗仍保持整个背景 `inert` |
 | F-13 | 标题栏在上一轮被改成半透明色带（`rgba(var(--shade),.58)` + `backdrop-filter: blur(18px)`，浅色同值） | 标题栏恢复**完全透明**：`background: transparent`，去掉 `backdrop-filter` 与底部分隔线，与首页大图 / 页面背景直接融合 |
 | F-14 | 首页精选大图固定为同一张 `reference-primary.png`；切换「切换到其他作品」只改变裁切位置，观感上背景不随作品更换（截图标注“首页的背景在程序里并没有根据作品更换”） | `featuredWorks` 每部作品新增 `tint`；`selectFeatured()` 把 `.hero-art` 背景改为 `linear-gradient(tint,tint), url("assets/reference-primary.png")` + `background-blend-mode: color`，同一张自制抽象位图按作品取色；`hero-nav-thumb` 同步取色；初始化调用 `selectFeatured(0)`，首屏与切换一致 |
+| F-15 | 浅色主题过白：首页精选大图被两层近不透明的白色渐变覆盖，背景图基本看不清 | 浅色主题只留一层文字遮罩并提前淡出——`.hero-art::after` `rgba(243,246,245,.78→0)`（78% 处透明）、`.hero::after` `rgba(243,246,245,.3→0)`（68% 处透明），`.hero-art` 透明度 1；右侧背景图清晰可见，左侧文字对比度仍达标 |
+| F-16 | 正式前端首页横幅把 2:3 竖版封面 `cover` 铺满 552px 宽横幅，海报被极度放大、比例失真；浅色遮罩 `rgb(243 246 245 / .91→.77)` 又把它洗白 | 正式 React 前端：封面改为右侧**保持自身比例的清晰海报**（`height:82%; width:auto; object-fit:contain`，≤1040px 隐藏），背后为同一封面的**模糊放大副本**（`blur(40px)`、`opacity:.85`）；浅色遮罩减弱为 `.8→0`（56% 处透明） |
 
 ## v1.1.1 修复内容
 

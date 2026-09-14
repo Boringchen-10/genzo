@@ -2430,6 +2430,10 @@
     [data-theme="light"] .hero { background-color:#e9efed; }
     [data-theme="light"] .hero-content { position:relative; z-index:1; }
     [data-theme="light"] .hero .eyebrow, [data-theme="light"] .hero p { color:#33413d; }
+    /* keep the hero artwork visible: one scrim only, fading out before the right edge */
+    [data-theme="light"] .hero-art { opacity:1; }
+    [data-theme="light"] .hero-art::after { background:linear-gradient(90deg, rgba(243,246,245,.78) 0%, rgba(243,246,245,.42) 40%, rgba(243,246,245,.08) 62%, rgba(243,246,245,0) 78%), linear-gradient(0deg, rgba(233,239,237,.9) 0%, rgba(233,239,237,0) 26%); }
+    [data-theme="light"] .hero::after { background:linear-gradient(90deg, rgba(243,246,245,.3) 0%, rgba(243,246,245,.12) 46%, rgba(243,246,245,0) 68%); }
 
     /* accessible focus ring */
     :where(button, a, input, select, textarea, [tabindex]):focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
