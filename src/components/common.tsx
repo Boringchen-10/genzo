@@ -1,6 +1,44 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, Inbox, LoaderCircle, X } from "lucide-react";
+
+const overlayStack: symbol[] = [];
+const focusableSelector = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+function useOverlayFocus(ref: RefObject<HTMLElement | null>, onClose: () => void) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => {
+    const token = Symbol("overlay");
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const appRoot = document.getElementById("root");
+    overlayStack.push(token);
+    if (appRoot) appRoot.inert = true;
+    const frame = window.requestAnimationFrame(() => {
+      const first = ref.current?.querySelector<HTMLElement>(focusableSelector);
+      (first ?? ref.current)?.focus();
+    });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (overlayStack.at(-1) !== token) return;
+      if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); return; }
+      if (event.key !== "Tab" || !ref.current) return;
+      const items = Array.from(ref.current.querySelectorAll<HTMLElement>(focusableSelector)).filter((item) => item.offsetParent !== null);
+      if (!items.length) { event.preventDefault(); ref.current.focus(); return; }
+      const first = items[0]!; const last = items[items.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      const index = overlayStack.indexOf(token);
+      if (index >= 0) overlayStack.splice(index, 1);
+      if (appRoot && overlayStack.length === 0) appRoot.inert = false;
+      window.requestAnimationFrame(() => previous?.focus());
+    };
+  }, [ref]);
+}
 
 export function PageHeader({
   title,
@@ -89,10 +127,12 @@ export function Modal({
   width?: "small" | "medium" | "large";
 }) {
   const portal = document.getElementById("portal-root");
+  const dialogRef = useRef<HTMLElement>(null);
+  useOverlayFocus(dialogRef, onClose);
   if (!portal) return null;
   return createPortal(
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className={`modal modal-${width}`} role="dialog" aria-modal="true" aria-label={title}>
+      <section ref={dialogRef} tabIndex={-1} className={`modal modal-${width}`} role="dialog" aria-modal="true" aria-label={title}>
         <header className="modal-header">
           <h2>{title}</h2>
           <IconButton tooltip="关闭" onClick={onClose}>
@@ -100,6 +140,22 @@ export function Modal({
           </IconButton>
         </header>
         <div className="modal-body">{children}</div>
+      </section>
+    </div>,
+    portal,
+  );
+}
+
+export function Drawer({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const portal = document.getElementById("portal-root");
+  const drawerRef = useRef<HTMLElement>(null);
+  useOverlayFocus(drawerRef, onClose);
+  if (!portal) return null;
+  return createPortal(
+    <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section ref={drawerRef} tabIndex={-1} className="settings-drawer" role="dialog" aria-modal="true" aria-label={title}>
+        <header className="drawer-header"><h1>{title}</h1><IconButton tooltip="关闭设置" onClick={onClose}><X size={19}/></IconButton></header>
+        <div className="drawer-body">{children}</div>
       </section>
     </div>,
     portal,

@@ -59,9 +59,15 @@ if (!page) throw new Error("No Genzo WebView page was exposed on the debug endpo
 
 const runtimeErrors = [];
 page.on("console", (message) => {
-  if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
+  if (message.type() === "error") {
+    const location = message.location();
+    runtimeErrors.push(`console: ${message.text()} @ ${location.url || "unknown"}:${location.lineNumber ?? 0}`);
+  }
 });
 page.on("pageerror", (error) => runtimeErrors.push(`page: ${error.message}`));
+page.on("response", (response) => {
+  if (response.status() >= 400) runtimeErrors.push(`response ${response.status()}: ${response.url()}`);
+});
 
 await page.waitForSelector(".sidebar", { timeout: 15_000 });
 
@@ -328,6 +334,20 @@ async function assertNoHorizontalOverflow(label) {
   const result = await page.evaluate(() => ({
     viewport: globalThis.innerWidth,
     scrollWidth: document.documentElement.scrollWidth,
+    containers: [document.documentElement, document.body, document.querySelector(".main-content")]
+      .filter(Boolean)
+      .map((element) => ({ name: element.className || element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })),
+    contentOverflowing: (() => {
+      const container = document.querySelector(".main-content");
+      if (!container) return [];
+      const bounds = container.getBoundingClientRect();
+      return [...container.querySelectorAll("*")]
+        .filter((element) => { const style = getComputedStyle(element); const rect = element.getBoundingClientRect(); return style.display !== "none" && rect.width > 0 && (rect.right > bounds.right + 1 || rect.left < bounds.left - 1); })
+        .slice(0, 10)
+        .map((element) => `${element.tagName}.${element.className}`);
+    })(),
+    contentChildren: [...(document.querySelector(".main-content")?.children ?? [])].map((element) => ({ className: element.className, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, width: element.getBoundingClientRect().width })),
+    wideDescendants: [...(document.querySelector(".main-content")?.querySelectorAll("*") ?? [])].filter((element) => element.scrollWidth > element.clientWidth + 1).slice(0, 10).map((element) => ({ tag: element.tagName, className: element.className, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })),
     overflowing: [...document.querySelectorAll("body *")]
       .filter((element) => {
         if (element.classList.contains("seanime-banner-image")) return false;
@@ -339,7 +359,7 @@ async function assertNoHorizontalOverflow(label) {
       .slice(0, 10)
       .map((element) => `${element.tagName}.${element.className}`),
   }));
-  if (result.scrollWidth > result.viewport || result.overflowing.length) {
+  if (result.scrollWidth > result.viewport || result.overflowing.length || result.containers.some((item) => item.scrollWidth > item.clientWidth + 1)) {
     throw new Error(`${label} overflow: ${JSON.stringify(result)}`);
   }
 }
@@ -389,21 +409,23 @@ await page.mouse.move(700, 500);
 await page.waitForTimeout(300);
 await assertNoHorizontalOverflow("home 1366x768");
 await page.screenshot({ path: path.join(screenshots, "genzo-home-1366x768.png") });
-const homeCardWidth1366 = (await page.locator(".seanime-episode-card").first().boundingBox())?.width ?? 0;
+if ((await page.locator(".gnz-switcher-items button").count()) < 3) {
+  throw new Error("Home work switcher did not show the available recent works.");
+}
 
 await page.setViewportSize({ width: 1920, height: 1080 });
 await setRoute("#/");
 await assertNoHorizontalOverflow("home 1920x1080");
-const homeCardWidth1920 = (await page.locator(".seanime-episode-card").first().boundingBox())?.width ?? 0;
-if (homeCardWidth1366 > 365 || homeCardWidth1920 > 365 || Math.abs(homeCardWidth1920 - homeCardWidth1366) > 2) {
-  throw new Error(`Home cards scaled with the window: 1366=${homeCardWidth1366}, 1920=${homeCardWidth1920}.`);
-}
 await page.screenshot({ path: path.join(screenshots, "genzo-home-1920x1080.png") });
 
 await setRoute("#/library");
 await page.getByLabel("海报网格").click();
 await page.mouse.move(1200, 760);
 await page.waitForSelector(".work-card");
+await assertNoHorizontalOverflow("library 1920x1080");
+await page.screenshot({ path: path.join(screenshots, "genzo-library-1920x1080.png") });
+await page.getByRole("tab", { name: /待整理/ }).click();
+await page.waitForSelector(".unassigned-row");
 if ((await page.getByLabel("待整理内容排序").inputValue()) !== "status") {
   throw new Error("Unassigned content did not default to recognition-status sorting.");
 }
@@ -436,10 +458,11 @@ for (const row of await looseMediaRows.all()) {
     throw new Error("A loose media row included files from another work.");
   }
 }
-await assertNoHorizontalOverflow("library 1920x1080");
-await page.screenshot({ path: path.join(screenshots, "genzo-library-1920x1080.png") });
+await assertNoHorizontalOverflow("inbox 1920x1080");
+await page.screenshot({ path: path.join(screenshots, "genzo-inbox-1920x1080.png") });
 
 await page.setViewportSize({ width: 1024, height: 640 });
+await page.getByRole("tab", { name: "媒体库" }).click();
 await page.getByLabel("列表").click();
 await page.waitForSelector(".work-list-row");
 await assertNoHorizontalOverflow("library list 1024x640");
@@ -465,10 +488,62 @@ await setRoute("#/scan");
 if ((await page.locator(".root-row").count()) !== 4) throw new Error("Scan directory UI did not show all configured roots.");
 await setRoute("#/tools");
 if ((await page.locator(".tool-row").count()) !== 1) throw new Error("Tool management UI did not show the configured tool.");
-await setRoute("#/settings");
+await assertNoHorizontalOverflow("tools 1024x640");
+await page.screenshot({ path: path.join(screenshots, "genzo-tools-1024x640.png") });
+await setRoute("#/explore");
+if (!(await page.getByText("Prototype · Future", { exact: true }).count())) throw new Error("Explore did not identify future-only content.");
+if (!(await page.getByLabel("搜索探索内容（尚未开放）").isDisabled())) throw new Error("Explore future search was unexpectedly interactive.");
+await assertNoHorizontalOverflow("explore 1024x640");
+await page.screenshot({ path: path.join(screenshots, "genzo-explore-1024x640.png") });
+const settingsTrigger = page.getByRole("link", { name: "设置" });
+await settingsTrigger.click();
+await page.waitForSelector(".settings-drawer");
 await page.getByRole("radio", { name: "深色" }).click();
 if (!(await page.locator("html.dark").count())) throw new Error("Dark theme did not activate.");
+if (!(await page.getByRole("button", { name: "下载与备份 · Future" }).isDisabled())) throw new Error("Future download settings were unexpectedly interactive.");
+await assertNoHorizontalOverflow("settings drawer 1024x640");
+await page.screenshot({ path: path.join(screenshots, "genzo-settings-1024x640.png") });
+await page.keyboard.press("Escape");
+await page.waitForTimeout(150);
+if (await page.locator(".settings-drawer").count()) throw new Error("Escape did not close the settings drawer.");
+if (!(await settingsTrigger.evaluate((element) => element === document.activeElement))) throw new Error("Settings drawer did not return focus to its trigger.");
+await setRoute("#/settings");
 await page.getByRole("radio", { name: "跟随系统" }).click();
+await page.keyboard.press("Escape");
+await page.waitForSelector(".settings-drawer", { state: "detached" });
+
+const visualRoutes = [
+  { route: "#/", name: "home", selector: ".gnz-home" },
+  { route: "#/library", name: "library", selector: ".page-library" },
+  { route: "#/explore", name: "explore", selector: ".gnz-explore-page" },
+  { route: `#/library/${works.find((item) => item.title === "星海列车：第一季").id}`, name: "detail", selector: ".detail-page" },
+];
+await setRoute("#/settings");
+await page.getByRole("radio", { name: "深色" }).click();
+await page.keyboard.press("Escape");
+for (const size of [{ width: 1024, height: 640 }, { width: 1366, height: 768 }, { width: 1920, height: 1080 }]) {
+  await page.setViewportSize(size);
+  for (const item of visualRoutes) {
+    await setRoute(item.route);
+    await page.waitForSelector(item.selector);
+    await assertNoHorizontalOverflow(`${item.name} ${size.width}x${size.height}`);
+    await page.screenshot({ path: path.join(screenshots, `genzo-v1-1-1-${item.name}-${size.width}x${size.height}.png`) });
+  }
+}
+
+await page.setViewportSize({ width: 1366, height: 768 });
+await setRoute("#/settings");
+await page.getByRole("radio", { name: "浅色" }).click();
+await page.keyboard.press("Escape");
+await setRoute("#/");
+await assertNoHorizontalOverflow("light home 1366x768");
+await page.screenshot({ path: path.join(screenshots, "genzo-v1-1-1-light-home-1366x768.png") });
+await setRoute("#/library");
+await assertNoHorizontalOverflow("light library 1366x768");
+await page.screenshot({ path: path.join(screenshots, "genzo-v1-1-1-light-library-1366x768.png") });
+await setRoute("#/settings");
+await page.getByRole("radio", { name: "跟随系统" }).click();
+await page.keyboard.press("Escape");
 
 if (runtimeErrors.length) throw new Error(`Runtime errors: ${runtimeErrors.join("\n")}`);
 console.log(JSON.stringify({

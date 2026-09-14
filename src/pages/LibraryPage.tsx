@@ -7,6 +7,7 @@ import { MediaVisual } from "../components/MediaVisual";
 import { WorkCard } from "../components/WorkCard";
 import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
+import { ScanPage } from "./ScanPage";
 import { usePreferences, useToasts } from "../store";
 import type { MediaType, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, unassignedStatusRank } from "../utils";
@@ -19,6 +20,7 @@ export function LibraryPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const initialScope = (params.get("scope") as Scope | null) ?? "all";
+  const [activeSection, setActiveSection] = useState<"library" | "inbox">(params.get("tab") === "inbox" ? "inbox" : "library");
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [unassignedGroups, setUnassignedGroups] = useState<UnassignedMediaGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,9 +172,14 @@ export function LibraryPage() {
     <div className="page workspace-page page-library">
       <PageHeader
         title="媒体库"
-        description={`${filtered.length} / ${works.length} 部作品 · ${filteredUnassigned.length} 个待整理目录或文件`}
-        actions={<><button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button><button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button></>}
+        description={`${works.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
+        actions={activeSection === "inbox" ? <button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button> : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
       />
+      <div className="gnz-primary-tabs gnz-library-tabs" role="tablist" aria-label="媒体库页面">
+        <button type="button" role="tab" aria-selected={activeSection === "library"} className={activeSection === "library" ? "active" : ""} onClick={() => setActiveSection("library")}>媒体库</button>
+        <button type="button" role="tab" aria-selected={activeSection === "inbox"} className={activeSection === "inbox" ? "active" : ""} onClick={() => setActiveSection("inbox")}>待整理{unassignedGroups.length ? <span className="tab-count">{unassignedGroups.length}</span> : null}</button>
+      </div>
+      {activeSection === "library" ? <ScanPage embedded /> : null}
       <div className="library-toolbar">
         <div className="search-box">
           <Search size={17} />
@@ -191,7 +198,7 @@ export function LibraryPage() {
           <option value="createdAt">最近创建</option>
           <option value="title">标题</option>
         </select>
-        <button type="button" className={`filter-toggle ${favoriteOnly ? "active" : ""}`} onClick={() => setFavoriteOnly(!favoriteOnly)} aria-pressed={favoriteOnly}>
+        <button type="button" className={`filter-toggle ${favoriteOnly ? "active" : ""}`} onClick={() => setFavoriteOnly(!favoriteOnly)} aria-pressed={favoriteOnly} disabled={activeSection === "inbox"}>
           <Heart size={16} fill={favoriteOnly ? "currentColor" : "none"} /> 收藏
         </button>
         <div className="segmented" aria-label="显示方式">
@@ -199,13 +206,13 @@ export function LibraryPage() {
           <button type="button" data-tooltip="列表" aria-label="列表" className={view === "list" ? "active" : ""} onClick={() => setView("list")}><List size={17} /></button>
         </div>
       </div>
-      <div className="scope-tabs" role="tablist" aria-label="媒体库范围">
+      {activeSection === "library" ? <div className="scope-tabs" role="tablist" aria-label="媒体库范围">
         {([['all', '全部'], ['recent', '最近添加'], ['favorites', '收藏'], ['missing', '文件缺失']] as const).map(([value, label]) => (
           <button key={value} type="button" className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>
         ))}
-      </div>
+      </div> : <div className="gnz-inbox-note">默认按作品文件夹聚合，不逐个铺开扫描到的文件。字幕会作为视频作品组的附属文件显示。</div>}
 
-      {!loading && !error && filteredUnassigned.length > 0 ? (
+      {activeSection === "inbox" && !loading && !error && filteredUnassigned.length > 0 ? (
         <section className="unassigned-section">
           <div className="section-heading">
             <div><h2>待整理内容</h2><span>{filteredUnassigned.length} 个目录或散文件，共 {unassignedFileCount} 个媒体文件；目录内文件会一起整理。</span></div>
@@ -244,19 +251,20 @@ export function LibraryPage() {
         </section>
       ) : null}
 
-      {loading ? <LoadingState label="正在读取作品" /> : null}
+      {loading ? <LoadingState label={activeSection === "inbox" ? "正在读取待整理作品组" : "正在读取作品"} /> : null}
       {!loading && error ? <ErrorState message={error} retry={() => void load()} /> : null}
-      {!loading && !error && filtered.length === 0 && filteredUnassigned.length === 0 ? (
+      {activeSection === "library" && !loading && !error && filtered.length === 0 ? (
         <EmptyState
           title={works.length ? "没有符合条件的作品" : "还没有作品记录"}
           description={works.length ? "调整搜索词或筛选条件后再试。" : "你可以手动创建作品，或先扫描本地目录。"}
           action={!works.length ? <button type="button" className="button primary" onClick={() => setShowCreate(true)}>新建作品</button> : undefined}
         />
       ) : null}
-      {!loading && !error && filtered.length > 0 && view === "grid" ? (
+      {activeSection === "inbox" && !loading && !error && filteredUnassigned.length === 0 ? <EmptyState title="没有待整理作品组" description="扫描到的内容已整理完成，或当前筛选条件没有结果。" /> : null}
+      {activeSection === "library" && !loading && !error && filtered.length > 0 && view === "grid" ? (
         <div className="work-grid">{filtered.map((work) => <WorkCard key={work.id} work={work} />)}</div>
       ) : null}
-      {!loading && !error && filtered.length > 0 && view === "list" ? (
+      {activeSection === "library" && !loading && !error && filtered.length > 0 && view === "list" ? (
         <div className="work-list">
           <div className="work-list-head"><span>作品</span><span>类型</span><span>标签</span><span>文件</span><span>更新</span></div>
           {filtered.map((work) => (

@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
-  FolderSearch,
+  Compass,
+  Heart,
   Home,
   Library,
   Settings,
@@ -13,14 +14,16 @@ import { WindowTitleBar } from "./WindowTitleBar";
 
 const navigation = [
   { to: "/", label: "首页", icon: Home, end: true },
+  { to: "/explore", label: "探索", icon: Compass },
   { to: "/library", label: "媒体库", icon: Library },
-  { to: "/scan", label: "扫描目录", icon: FolderSearch },
-  { to: "/tools", label: "工具管理", icon: Wrench },
+  { to: "/favorites", label: "收藏", icon: Heart },
+  { to: "/tools", label: "工具", icon: Wrench },
   { to: "/settings", label: "设置", icon: Settings },
 ];
 
 export function AppShell() {
   const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
   const theme = usePreferences((state) => state.theme);
   const messages = useToasts((state) => state.messages);
   const dismiss = useToasts((state) => state.dismiss);
@@ -36,6 +39,10 @@ export function AppShell() {
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [theme]);
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname, location.search]);
 
   return (
     <div className={`app-frame ${location.pathname === "/" ? "is-home-route" : "is-workspace-route"}`}>
@@ -59,10 +66,10 @@ export function AppShell() {
         <div className="sidebar-foot">
           <span className="status-dot" />
           <span>本地资料库</span>
-          <small>v0.1</small>
+          <small>v0.2.4</small>
         </div>
       </aside>
-      <main className="main-content">
+      <main ref={mainRef} className="main-content">
         <Outlet />
       </main>
       <div className="toast-stack" aria-live="polite">

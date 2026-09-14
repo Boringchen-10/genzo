@@ -5,19 +5,19 @@
 :root {
   font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
   font-synthesis: none;
-  color: #202226;
-  background: #eef0f2;
-  --bg: #eef0f2; --surface: #f8f9fa; --raised: #fff; --subtle: #e7e9ec; --hover: #dfe2e6;
-  --border: #17191d1a; --border-strong: #17191d2b; --text: #202226; --muted: #6e747b; --faint: #959ba1;
-  --accent: #a66f36; --accent-hover: #8e5d2b; --accent-soft: #e8d8c5; --danger: #b84450; --warning: #a66b25; --success: #287555;
-  --shadow: 0 18px 48px rgb(14 16 18 / .16);
+  color: #16201e;
+  background: #f3f6f5;
+  --bg: #f3f6f5; --surface: #ffffffc7; --raised: #fff; --subtle: #e7edeb; --hover: #dfe8e5;
+  --border: #08141224; --border-strong: #08141242; --text: #16201e; --muted: #42524e; --faint: #5c6a66;
+  --accent: #197a5b; --accent-hover: #126348; --accent-soft: #197a5b1f; --danger: #b64242; --warning: #996a1c; --success: #197a5b;
+  --shadow: 0 22px 60px rgb(0 0 0 / .42);
 }
 :root.dark {
-  color: #f0f1f2; background: #08090a;
-  --bg: #0b0d0e; --surface: #121416; --raised: #17191c; --subtle: #1b1e21; --hover: #22262a;
-  --border: #ffffff17; --border-strong: #ffffff29; --text: #f0f1f2; --muted: #969ca2; --faint: #656c72;
-  --accent: #d5a668; --accent-hover: #e1b477; --accent-soft: #3c3024; --danger: #e56772; --warning: #dea255; --success: #63bf91;
-  --shadow: 0 18px 50px rgb(0 0 0 / .46);
+  color: #f4f7f6; background: #090d0f;
+  --bg: #090d0f; --surface: #11181bb8; --raised: #12191d; --subtle: #11191c; --hover: #182226;
+  --border: #ffffff1b; --border-strong: #ffffff2e; --text: #f4f7f6; --muted: #a8b0af; --faint: #77817f;
+  --accent: #75d2ad; --accent-hover: #8bdfbd; --accent-soft: #75d2ad1f; --danger: #ff8e8e; --warning: #e8ba64; --success: #75d2ad;
+  --shadow: 0 22px 60px rgb(0 0 0 / .42);
 }
 :root.native-window-material { background: transparent; }
 * { box-sizing: border-box; }
@@ -29,11 +29,11 @@ button { color: inherit; } a { color: inherit; text-decoration: none; } h1, h2, 
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Navigation structure adapted from Seanime (GPLv3); branding and visual details are Genzo-original. */
-.app-frame { position: relative; isolation: isolate; display: grid; grid-template-columns: 80px minmax(0, 1fr); grid-template-rows: 40px minmax(0, 1fr); width: 100%; height: 100%; background: transparent; }
-.app-frame::before { position: fixed; z-index: -2; inset: 0; content: ""; background-image: var(--genzo-backdrop, none); background-position: center; background-size: cover; opacity: .2; filter: blur(28px) saturate(.72); transform: scale(1.09); }
-.app-frame::after { position: fixed; z-index: -1; inset: 0; content: ""; background: var(--bg); }
-.native-window-material .app-frame::after { background: color-mix(in srgb, var(--bg) 82%, transparent); }
-.window-titlebar { position: relative; z-index: 150; grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; min-width: 0; height: 40px; color: var(--text); background: color-mix(in srgb, var(--bg) 87%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--text) 9%, transparent); box-shadow: inset 0 1px rgb(255 255 255 / .035), 0 4px 16px rgb(0 0 0 / .08); backdrop-filter: blur(18px) saturate(1.05); -webkit-backdrop-filter: blur(18px) saturate(1.05); }
+.app-frame { position: relative; isolation: isolate; display: grid; grid-template-columns: 68px minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); width: 100%; height: 100%; background: transparent; }
+.app-frame::before { position: fixed; z-index: -2; inset: -3%; content: ""; background-image: var(--genzo-backdrop, none); background-position: center; background-size: cover; opacity: .25; filter: blur(34px) saturate(.72); transform: scale(1.08); }
+.app-frame::after { position: fixed; z-index: -1; inset: 0; content: ""; background: color-mix(in srgb, var(--bg) 90%, transparent); }
+.native-window-material .app-frame::after { background: color-mix(in srgb, var(--bg) 76%, transparent); }
+.window-titlebar { position: relative; z-index: 150; grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; min-width: 0; height: 42px; color: var(--text); background: color-mix(in srgb, var(--bg) 70%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent); box-shadow: inset 0 1px rgb(255 255 255 / .04), 0 8px 24px rgb(0 0 0 / .12); backdrop-filter: blur(22px) saturate(1.08); -webkit-backdrop-filter: blur(22px) saturate(1.08); }
 .is-home-route .window-titlebar { color: #f2f3f4; background-color: rgb(9 11 12 / .64); background-image: linear-gradient(rgb(9 11 12 / .64), rgb(9 11 12 / .64)), var(--genzo-backdrop, none); background-position: center top; background-size: cover; border-bottom-color: rgb(255 255 255 / .10); }
 .has-window-backdrop .is-home-route .window-titlebar { background-image: linear-gradient(rgb(9 11 12 / .78), rgb(9 11 12 / .78)), var(--genzo-backdrop, none); }
 .window-titlebar.is-unfocused { opacity: .82; }
@@ -48,17 +48,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .window-control-close:hover, .window-control-close:focus-visible { color: #fff; background: #c42b1c; }
 .window-control[data-tooltip]::after { top: calc(100% + 5px); right: auto; bottom: auto; left: 50%; transform: translateX(-50%); }
 .window-control-close[data-tooltip]::after { right: 5px; left: auto; transform: none; }
-.sidebar { position: relative; z-index: 80; grid-column: 1; grid-row: 2; display: flex; flex-direction: column; width: 80px; min-width: 0; padding: 18px 14px 15px; overflow: hidden; color: #e9ebef; background: #0b0d0ebd; border-right: 1px solid #ffffff0b; transition: width 190ms ease, background-color 190ms ease, box-shadow 190ms ease; backdrop-filter: blur(18px) saturate(1.04); -webkit-backdrop-filter: blur(18px) saturate(1.04); }
-.sidebar:hover, .sidebar:focus-within { width: 244px; background: #090a0cf5; box-shadow: 22px 0 50px rgb(0 0 0 / .38); }
-.brand { display: flex; align-items: center; width: 216px; height: 48px; gap: 17px; margin: 0 2px 32px; }
-.brand-mark { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 44px; color: #fff; background: #6556d8; border-radius: 8px; font-size: 21px; font-weight: 800; box-shadow: 0 8px 24px rgb(0 0 0 / .28); }
+.sidebar { position: relative; z-index: 80; grid-column: 1; grid-row: 2; display: flex; flex-direction: column; width: 68px; min-width: 0; padding: 15px 10px 13px; overflow: hidden; color: #e9edf0; background: #0b1013a8; border-right: 1px solid #ffffff10; transition: width 190ms ease, background-color 190ms ease, box-shadow 190ms ease; backdrop-filter: blur(24px) saturate(1.08); -webkit-backdrop-filter: blur(24px) saturate(1.08); }
+.sidebar:hover, .sidebar:focus-within { width: 232px; background: #0b1013e8; box-shadow: 24px 0 54px rgb(0 0 0 / .34); }
+.brand { display: flex; align-items: center; width: 212px; height: 45px; gap: 14px; margin: 0 1px 28px; }
+.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; color: var(--accent); background: var(--raised); border: 1px solid var(--border-strong); border-radius: 8px; font-size: 20px; font-weight: 800; box-shadow: none; }
 .brand div:last-child { min-width: 0; opacity: 0; transform: translateX(-5px); transition: opacity 140ms ease, transform 160ms ease; }
 .sidebar:hover .brand div:last-child, .sidebar:focus-within .brand div:last-child { opacity: 1; transform: none; }
 .brand strong, .brand span { display: block; } .brand strong { font-size: 18px; line-height: 21px; }
 .brand span { margin-top: 2px; color: #858b91; font-size: 9px; font-weight: 700; letter-spacing: 1.2px; }
 .nav-list { display: flex; flex-direction: column; width: 216px; gap: 5px; }
-.nav-list a { position: relative; display: flex; align-items: center; width: 52px; height: 45px; gap: 17px; padding: 0 14px; overflow: hidden; color: #8b9197; border-radius: 7px; white-space: nowrap; transition: width 170ms ease, color 120ms ease, background-color 120ms ease; }
-.nav-list a:hover { color: #fff; background: #ffffff12; } .nav-list a.active { color: #fff; background: #ffffff17; }
+.nav-list a { position: relative; display: flex; align-items: center; width: 48px; height: 44px; gap: 16px; padding: 0 13px; overflow: hidden; color: #849198; border-radius: 10px; white-space: nowrap; transition: width 170ms ease, color 120ms ease, background-color 120ms ease; }
+.nav-list a:hover { color: #fff; background: #ffffff10; } .nav-list a.active { color: #fff; background: #ffffff16; }
 .nav-list a.active::before { position: absolute; left: 0; width: 2px; height: 20px; content: ""; background: var(--accent); border-radius: 0 2px 2px 0; }
 .nav-list a svg { flex: 0 0 auto; } .nav-list a span { overflow: hidden; opacity: 0; transition: opacity 100ms ease 30ms; }
 .sidebar:hover .nav-list a, .sidebar:focus-within .nav-list a { width: 214px; }
@@ -67,8 +67,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .sidebar-foot span:not(.status-dot), .sidebar-foot small { opacity: 0; transition: opacity 110ms ease; }
 .sidebar:hover .sidebar-foot span, .sidebar:hover .sidebar-foot small, .sidebar:focus-within .sidebar-foot span, .sidebar:focus-within .sidebar-foot small { opacity: 1; }
 .sidebar-foot small { color: #6f757b; } .status-dot { width: 7px; height: 7px; background: #55bc8a; border-radius: 50%; }
-.main-content { position: relative; z-index: 1; grid-column: 2; grid-row: 2; min-width: 0; height: 100%; overflow: auto; background: color-mix(in srgb, var(--bg) 92%, transparent); }
-.is-home-route .main-content { background: color-mix(in srgb, var(--bg) 74%, transparent); }
+.main-content { position: relative; z-index: 1; grid-column: 2; grid-row: 2; min-width: 0; height: 100%; overflow: auto; background: color-mix(in srgb, var(--bg) 90%, transparent); }
+.is-home-route .main-content { background: color-mix(in srgb, var(--bg) 70%, transparent); }
 
 @supports not ((backdrop-filter: blur(1px))) {
   .window-titlebar, .sidebar { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -101,32 +101,32 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .info-band svg { flex: 0 0 auto; color: var(--accent); } .warning-text { color: var(--warning) !important; } .available-text { color: var(--success) !important; }
 
 /* Content-first home */
-.seanime-home-state { min-height: 100%; padding: 30px; } .seanime-home { min-height: 100%; background: var(--bg); }
-.seanime-banner { position: relative; height: clamp(360px, 49vh, 520px); overflow: hidden; background: #141719; }
-.seanime-banner-image { position: absolute; inset: 0; background-image: var(--banner-image, none); background-position: center 30%; background-size: cover; opacity: .9; transition: background-image 220ms ease; }
+.seanime-home-state { min-height: 100%; padding: 30px; } .seanime-home { min-height: 100%; background: transparent; }
+.seanime-banner { position: relative; height: clamp(385px, 53vh, 570px); overflow: hidden; background: #12181b; }
+.seanime-banner-image { position: absolute; inset: -2%; background-image: var(--banner-image, none); background-position: center 28%; background-size: cover; opacity: .92; filter: saturate(.88) contrast(1.04); transition: background-image 220ms ease, filter 220ms ease; }
 .seanime-banner.no-artwork .seanime-banner-image { background: #171a1d; }
 .seanime-banner.no-artwork .seanime-banner-image::before { position: absolute; inset: 0; content: "G"; display: grid; place-items: center; color: #ffffff0c; font-size: min(38vw, 430px); font-weight: 800; }
-.seanime-banner::before { position: absolute; z-index: 1; inset: 0; content: ""; background: rgb(5 6 7 / .1); }
-.seanime-banner::after { position: absolute; z-index: 2; inset: 0; content: ""; background: linear-gradient(to bottom, transparent 48%, color-mix(in srgb, var(--bg) 18%, transparent) 68%, var(--bg) 100%); }
-.seanime-home-toolbar { position: absolute; z-index: 4; right: 30px; top: 34px; display: flex; align-items: center; gap: 7px; }
-.seanime-home-toolbar .icon-button { color: #eef0f2; background: #111315a8; border-color: #ffffff24; backdrop-filter: blur(14px); }
-.seanime-library-count { margin-right: 3px; padding: 7px 10px; color: #d7dbde; background: #111315a8; border: 1px solid #ffffff20; border-radius: 6px; font-size: 11px; backdrop-filter: blur(14px); }
-.seanime-banner-title { position: absolute; z-index: 4; left: 30px; bottom: 31px; max-width: min(760px, 68vw); color: #fff; text-shadow: 0 3px 18px #000; }
-.seanime-banner-title span { display: block; color: #d6d9dc; font-size: 12px; font-weight: 680; } .seanime-banner-title h1 { margin-top: 5px; overflow: hidden; font-size: 34px; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
-.seanime-home-content { position: relative; z-index: 5; max-width: 1920px; padding: 22px 30px 60px; } .seanime-section { margin-top: 32px; } .seanime-watch-section { margin-top: 0; }
-.seanime-watch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 360px)); gap: 17px; } .seanime-episode-card { min-width: 0; }
-.seanime-episode-image { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--surface); border-radius: 7px; box-shadow: 0 10px 24px rgb(0 0 0 / .2); }
+.seanime-banner::before { position: absolute; z-index: 1; inset: 0; content: ""; background: rgb(4 7 9 / .22); }
+.seanime-banner::after { position: absolute; z-index: 2; inset: 0; content: ""; background: color-mix(in srgb, var(--bg) 16%, transparent); box-shadow: inset 0 -160px 150px color-mix(in srgb, var(--bg) 84%, transparent), inset 0 90px 90px rgb(3 5 6 / .28); }
+.seanime-home-toolbar { position: absolute; z-index: 4; right: clamp(22px, 3vw, 48px); top: 24px; display: flex; align-items: center; gap: 7px; }
+.seanime-home-toolbar .icon-button { color: #eef0f2; background: #10161ab8; border-color: #ffffff28; border-radius: 10px; backdrop-filter: blur(18px); }
+.seanime-library-count { margin-right: 3px; padding: 8px 11px; color: #d7dbde; background: #10161ab8; border: 1px solid #ffffff24; border-radius: 10px; font-size: 11px; backdrop-filter: blur(18px); }
+.seanime-banner-title { position: absolute; z-index: 4; left: clamp(30px, 4vw, 64px); bottom: 48px; max-width: min(820px, 68vw); color: #fff; text-shadow: 0 4px 22px #000; }
+.seanime-banner-title span { display: block; color: #d6d9dc; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; } .seanime-banner-title h1 { margin-top: 7px; overflow: hidden; font-size: clamp(32px, 3vw, 48px); line-height: 1.08; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.seanime-home-content { position: relative; z-index: 5; max-width: 1920px; padding: 24px clamp(30px, 4vw, 64px) 64px; } .seanime-section { margin-top: 38px; } .seanime-watch-section { margin-top: 0; }
+.seanime-watch-grid { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 18px; } .seanime-episode-card { min-width: 0; }
+.seanime-episode-image { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--surface); border: 1px solid #ffffff12; border-radius: 11px; box-shadow: 0 18px 34px rgb(0 0 0 / .28); }
 .seanime-episode-image > img, .seanime-episode-image > .media-placeholder { width: 100%; height: 100%; object-fit: cover; transition: transform 220ms ease, filter 220ms ease; }
 .seanime-episode-card:hover .seanime-episode-image > img, .seanime-episode-card:hover .seanime-episode-image > .media-placeholder { transform: scale(1.025); filter: brightness(.72); }
-.seanime-play { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 42px; height: 42px; color: #fff; background: #08090a91; border: 1px solid #ffffff3d; border-radius: 50%; opacity: 0; transform: translate(-50%, -44%); transition: 150ms ease; backdrop-filter: blur(10px); }
+.seanime-play { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 48px; height: 48px; color: #fff; background: #10161ac2; border: 1px solid #ffffff4a; border-radius: 50%; opacity: 0; transform: translate(-50%, -44%); transition: 150ms ease; backdrop-filter: blur(12px); }
 .seanime-episode-card:hover .seanime-play, .seanime-episode-card:focus-visible .seanime-play { opacity: 1; transform: translate(-50%, -50%); }
-.seanime-episode-card > strong { display: block; margin-top: 8px; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.seanime-episode-card > strong { display: block; margin-top: 10px; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .seanime-episode-card > p { display: flex; margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .seanime-episode-card > p b { flex: 0 0 auto; color: var(--text); } .seanime-episode-card > p span { overflow: hidden; text-overflow: ellipsis; }
 .seanime-section-heading { display: flex; align-items: center; justify-content: space-between; min-height: 38px; margin-bottom: 11px; }
-.seanime-section-heading h2 { font-size: 20px; } .seanime-section-heading a { color: var(--muted); font-size: 12px; } .seanime-section-heading a:hover { color: var(--text); }
+.seanime-section-heading h2 { font-size: 21px; letter-spacing: -.01em; } .seanime-section-heading a { color: var(--muted); font-size: 12px; } .seanime-section-heading a:hover { color: var(--text); }
 .seanime-book-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 160px)); gap: 14px; } .seanime-book-card { min-width: 0; }
-.seanime-book-cover { position: relative; aspect-ratio: 2 / 3; overflow: hidden; background: var(--surface); border-radius: 6px; box-shadow: 0 10px 25px rgb(0 0 0 / .2); }
+.seanime-book-cover { position: relative; aspect-ratio: 2 / 3; overflow: hidden; background: var(--surface); border: 1px solid #ffffff12; border-radius: 9px; box-shadow: 0 14px 28px rgb(0 0 0 / .26); }
 .seanime-book-cover > img, .seanime-book-cover > .media-placeholder { width: 100%; height: 100%; object-fit: cover; transition: transform 190ms ease, filter 190ms ease; }
 .seanime-book-card:hover .seanime-book-cover > img, .seanime-book-card:hover .seanime-book-cover > .media-placeholder { transform: scale(1.025); filter: brightness(.82); }
 .seanime-book-cover > span { position: absolute; right: 7px; top: 7px; padding: 3px 6px; color: #fff; background: #08090ab5; border: 1px solid #ffffff20; border-radius: 4px; font-size: 10px; }

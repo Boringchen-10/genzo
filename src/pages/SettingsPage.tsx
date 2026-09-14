@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Database, FolderOpen, HardDrive, Info, Monitor, Moon, Sun } from "lucide-react";
+import { CloudDownload, Database, FolderOpen, HardDrive, Info, Monitor, Moon, Sun } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { ErrorState, LoadingState, PageHeader } from "../components/common";
+import { Drawer, ErrorState, LoadingState } from "../components/common";
 import { usePreferences, useToasts } from "../store";
 import type { AppInfo, ThemeMode } from "../types";
 import { getErrorMessage } from "../utils";
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const theme = usePreferences((state) => state.theme);
   const setTheme = usePreferences((state) => state.setTheme);
   const toast = useToasts((state) => state.push);
@@ -57,8 +59,11 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="page workspace-page settings-page">
-      <PageHeader title="设置" description="主题、本地数据位置和扫描行为" />
+    <>
+    <div className="settings-stage" aria-hidden="true" />
+    <Drawer title="设置" onClose={() => navigate(-1)}>
+      <div className="settings-page">
+      <div className="settings-drawer-tabs" role="tablist"><button className="active" type="button">主题</button><button type="button" disabled title="Future：下载与备份需要新增后端">下载与备份 · Future</button></div>
       {loading ? <LoadingState label="正在读取设置" /> : null}
       {!loading && error ? <ErrorState message={error} retry={() => void load()} /> : null}
       {!loading && info ? (
@@ -75,6 +80,11 @@ export function SettingsPage() {
                 ] as const).map(([value, label, Icon]) => <button type="button" role="radio" aria-checked={theme === value} className={theme === value ? "active" : ""} key={value} onClick={() => void updateTheme(value)}><Icon size={16} />{label}</button>)}
               </div>
             </div>
+          </section>
+
+          <section className="settings-section gnz-future-section" aria-disabled="true">
+            <div className="settings-heading"><CloudDownload size={19} /><div><h2>下载与备份 <span className="future-badge">Future</span></h2><p>需要新增后端；当前版本不会下载媒体或创建云备份。</p></div></div>
+            <div className="setting-row"><div><strong>下载目录</strong><span>尚未开放</span></div><button type="button" className="button secondary" disabled>选择目录</button></div>
           </section>
 
           <section className="settings-section">
@@ -98,6 +108,8 @@ export function SettingsPage() {
           </section>
         </div>
       ) : null}
-    </div>
+      </div>
+    </Drawer>
+    </>
   );
 }

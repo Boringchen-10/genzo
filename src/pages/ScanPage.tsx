@@ -7,7 +7,7 @@ import { useToasts } from "../store";
 import type { LibraryRoot, RootKind, ScanResult } from "../types";
 import { formatDate, getErrorMessage, rootKindLabels } from "../utils";
 
-export function ScanPage() {
+export function ScanPage({ embedded = false }: { embedded?: boolean }) {
   const toast = useToasts((state) => state.push);
   const [roots, setRoots] = useState<LibraryRoot[]>([]);
   const [jobs, setJobs] = useState<ScanResult[]>([]);
@@ -111,12 +111,13 @@ export function ScanPage() {
   };
 
   return (
-    <div className="page workspace-page scan-page">
-      <PageHeader
+    <div className={embedded ? "scan-page scan-embedded" : "page workspace-page scan-page"}>
+      {!embedded ? <PageHeader
         title="扫描目录"
         description="扫描只读取文件路径、大小和修改时间，不会改动媒体文件"
         actions={<><button type="button" className="button secondary icon-text" disabled={scanningId !== null || !roots.some((root) => root.enabled)} onClick={() => void scanAll()}><ScanSearch size={17} />扫描全部</button><button type="button" className="button primary icon-text" onClick={() => void chooseDirectory()}><Plus size={17} />添加目录</button></>}
-      />
+      /> : <div className="section-heading gnz-source-heading"><div><h2>媒体源</h2><span>管理本地文件夹；WebDAV 与网盘将在后续版本开放。</span></div><div className="page-actions"><button type="button" className="button secondary icon-text" disabled={scanningId !== null || !roots.some((root) => root.enabled)} onClick={() => void scanAll()}><ScanSearch size={17} />扫描全部</button><button type="button" className="button primary icon-text" onClick={() => void chooseDirectory()}><Plus size={17} />添加来源</button></div></div>}
+      {embedded ? <div className="gnz-source-type-tabs"><button type="button" className="active">全部</button><button type="button">本地</button><button type="button" disabled title="Future：WebDAV 后端尚未开放">WebDAV <span>Future</span></button><button type="button" disabled title="Future：网盘后端尚未开放">网盘 <span>Future</span></button></div> : null}
       {loading ? <LoadingState label="正在读取扫描目录" /> : null}
       {!loading && error ? <ErrorState message={error} retry={() => void load()} /> : null}
       {!loading && !error && roots.length === 0 ? (

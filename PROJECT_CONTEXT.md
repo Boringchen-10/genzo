@@ -93,6 +93,13 @@ v0.1 不实现联网刮削、网盘、WebDAV、云同步、社区分享、内置
 
 详细后续规划见 `ROADMAP.md`。
 
+## 正式界面规范
+
+- 用户已于 2026-09-14 确认 Open Design 交付的 **Genzo UI Design v1.1.1** 为正式界面规范。
+- 原始交付归档在 `design/open-design/v1.1.1/`，实现时以其中 `UI_HANDOFF.md`、`DESIGN_TOKENS.md` 和能力矩阵为准。
+- 可以保留尚无后端能力的视觉位置，但必须禁用并标注 `Future`，不得展示伪造的连接、扫描、下载或识别成功状态。
+- 正式 React/Tauri 前端应复用现有真实 command 和数据模型，不把独立 HTML 原型作为应用运行时。
+
 ## 长期规划摘要
 
 - 接入 Bangumi 等元数据来源。
