@@ -4,6 +4,26 @@ Genzo 的重要变更记录在此文件中。格式参考 Keep a Changelog，版
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-14
+
+### Added
+
+- 将 Open Design v1.1.1 纳入仓库并确认为正式界面规范和设计 Token 基线。
+- 新增探索与收藏页面；探索中的网络能力保持禁用并明确标注 `Future`。
+- 新增统一 Modal/Drawer 焦点管理，支持焦点陷阱、Esc 关闭和焦点返回。
+
+### Changed
+
+- 正式前端迁移到 v1.1.1 的窄侧栏、连续背景首页、作品切换条、书架、媒体库双 Tab 和设置 Drawer。
+- 扫描目录整合到媒体库“媒体源”，待整理内容改为独立作品组视图，不再与作品列表上下竞争。
+- 深浅主题改用中性灰绿 Token，标题栏在首页背景上使用半透明材质，并提供稳定不透明降级。
+
+### Fixed
+
+- 切换路由时主内容回到页面顶部，避免媒体库从旧滚动位置打开。
+- 修复 1024 宽度探索页因长 tooltip 产生的内部横向滚动。
+- 补充站点图标，消除 Tauri 调试端点的 `/favicon.ico` 404。
+
 ## [0.2.4] - 2026-09-14
 
 ### Changed
@@ -64,7 +84,8 @@ Genzo 的重要变更记录在此文件中。格式参考 Keep a Changelog，版
 - 产品正式名称统一为 Genzo。
 - 项目许可证统一为 GNU GPL v3.0 only。
 
-[Unreleased]: https://github.com/Boringchen-10/genzo/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/Boringchen-10/genzo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Boringchen-10/genzo/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/Boringchen-10/genzo/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Boringchen-10/genzo/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Boringchen-10/genzo/compare/v0.2.1...v0.2.2

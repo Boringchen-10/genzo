@@ -66,7 +66,7 @@ export function AppShell() {
         <div className="sidebar-foot">
           <span className="status-dot" />
           <span>本地资料库</span>
-          <small>v0.2.4</small>
+          <small>v0.3.0</small>
         </div>
       </aside>
       <main ref={mainRef} className="main-content">
