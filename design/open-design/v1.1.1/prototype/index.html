@@ -2392,8 +2392,10 @@
     :root { --win-titlebar: 40px; }
 
     /* Windows custom title bar */
-    .gnz-titlebar { position:fixed; inset:0 0 auto 0; z-index:90; height:var(--win-titlebar); display:flex; align-items:center; gap:10px; padding:0 6px 0 14px; background:rgba(var(--shade),.58); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); border-bottom:1px solid rgba(var(--tint),.07); color:var(--text); -webkit-app-region:drag; }
-    [data-theme="light"] .gnz-titlebar { background:rgba(255,255,255,.72); }
+    .gnz-titlebar { position:fixed; inset:0 0 auto 0; z-index:90; height:var(--win-titlebar); display:flex; align-items:center; gap:10px; padding:0 6px 0 14px; background:rgba(var(--shade),.58); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); border-bottom:0; color:var(--text); -webkit-app-region:drag; }
+    /* light theme reuses the same surface: the bar colour equals the page background,
+       so it never reads as a strip or draws a boundary line against the page */
+    [data-theme="light"] .gnz-titlebar { background:rgba(var(--shade),.58); }
     .gnz-titlebar .gnz-brand { display:flex; align-items:center; gap:8px; font-size:12.5px; letter-spacing:.02em; color:var(--muted); }
     .gnz-titlebar .gnz-brand b { color:var(--text); font-weight:600; }
     .gnz-titlebar .gnz-drag { flex:1 1 auto; height:100%; }
@@ -2402,7 +2404,12 @@
     .gnz-wincontrols button:hover { background:rgba(var(--tint),.08); color:var(--text); }
     .gnz-wincontrols button.gnz-close:hover { background:#c42b1c; color:#fff; }
 
-    /* title bar overlays the page; the home backdrop starts at window y=0 */
+    /* the bar draws no divider line and its surface matches the page background in
+       both themes, so no band edge shows. the home banner still runs from window
+       y=0 and blends behind the bar; only the home top bar (the 首页 crumb, the
+       search field and the icon buttons) starts below the bar, so nothing hides
+       under it and no full-page content is pushed down. */
+    .topbar { top:var(--win-titlebar); }
     .sidebar { top:var(--win-titlebar); height:calc(100vh - var(--win-titlebar)); }
     .workspace-page, .explore-page, .source-page, .detail-page { top:var(--win-titlebar); }
     .drawer { top:var(--win-titlebar); height:calc(100vh - var(--win-titlebar)); }
