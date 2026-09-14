@@ -64,11 +64,15 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 .app-frame {
   grid-template-columns: 75px minmax(0, 1fr);
-  grid-template-rows: var(--win-titlebar) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   background: var(--bg);
 }
 .app-frame::before, .app-frame::after { display: none; }
 .window-titlebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
   z-index: 300;
   height: var(--win-titlebar);
   color: var(--text);
@@ -82,11 +86,12 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 :root.dark .window-titlebar { background: rgba(var(--shade), .58); }
 .is-home-route .window-titlebar {
   color: var(--text);
-  background: rgba(var(--shade), .58);
+  background: rgba(var(--shade), .16);
   background-image: none;
-  border-bottom-color: rgba(var(--tint), .07);
+  border-bottom-color: transparent;
+  box-shadow: none;
 }
-:root:not(.dark) .is-home-route .window-titlebar { color: var(--text); background: rgb(255 255 255 / .72); }
+:root:not(.dark) .is-home-route .window-titlebar { color: var(--text); background: rgba(var(--shade), .16); }
 .window-identity { min-width: 90px; padding-left: 14px; gap: 7px; font-size: 12px; font-weight: 650; }
 .window-identity img { display: none; }
 .window-control { width: 46px; height: 39px; color: var(--muted); background: transparent; border: 0; border-radius: 0; }
@@ -95,8 +100,9 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 .sidebar {
   z-index: 120;
+  grid-row: 1;
   width: 75px;
-  padding: 20px 11px 14px;
+  padding: calc(var(--win-titlebar) + 20px) 11px 14px;
   color: var(--muted);
   background: color-mix(in srgb, var(--bg) 86%, transparent);
   border-right: 1px solid var(--line);
@@ -118,8 +124,8 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .nav-list a.active { color: var(--text); background: var(--surface-strong); border-color: var(--line-strong); }
 .nav-list a.active::before { left: -12px; width: 3px; height: 27px; background: var(--accent); }
 .sidebar-foot { display: none; }
-.main-content { background: var(--bg); }
-.is-home-route .main-content { background: var(--bg); }
+.main-content { grid-row: 1; padding-top: var(--win-titlebar); background: var(--bg); }
+.is-home-route .main-content { padding-top: 0; background: var(--bg); }
 
 .page { max-width: none; padding: 34px 44px 64px; }
 .page-header { min-height: 108px; margin-bottom: 20px; align-items: flex-start; }
@@ -143,7 +149,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-home .seanime-banner::after { z-index: 2; background: linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); box-shadow: none; }
 :root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(90deg, rgb(243 246 245 / .91) 0%, rgb(243 246 245 / .77) 35%, transparent 64%), linear-gradient(0deg, rgb(243 246 245 / .28), transparent 45%); }
 .gnz-home-copy-mask { position: absolute; z-index: 3; inset: 0 auto 0 0; width: min(760px, 64%); pointer-events: none; }
-.gnz-home .seanime-home-toolbar { top: 0; right: 44px; height: 54px; }
+.gnz-home .seanime-home-toolbar { top: var(--win-titlebar); right: 44px; height: 54px; }
 .gnz-home .seanime-home-toolbar .icon-button, .gnz-home .seanime-library-count { color: var(--muted); background: rgba(var(--shade), .52); border-color: rgba(var(--tint), .1); border-radius: 7px; }
 .gnz-home .seanime-banner-title { left: 44px; bottom: 60px; width: min(660px, 58vw); max-width: none; color: var(--text); text-shadow: none; }
 .gnz-home .seanime-banner-title > span { color: var(--accent); font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1.4px; }
