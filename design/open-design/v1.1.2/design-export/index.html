@@ -1080,11 +1080,11 @@
 
     document.querySelectorAll('[data-notice]').forEach(button => button.addEventListener('click', () => notify(button.dataset.notice)));
     const featuredWorks = [
-      { title:'葬送的芙莉莲', eyebrow:'Continue your journey', type:'动画', source:'本地', art:'50% 20%', action:'继续观看', notice:'正在从第 16 集 15:18 继续', copy:'勇者一行击败魔王之后，精灵魔法使重新踏上旅途。在漫长时间里，学会理解那些曾被忽略的短暂相遇。', meta:['动画','28 集','已看到第 16 集','本地高清'] },
-      { title:'蓝色时期', eyebrow:'Pick up where you left', type:'动画', source:'阿里云盘', art:'22% 42%', action:'继续观看', notice:'正在从第 6 集继续', copy:'把画笔重新握回手里，在考试与画室之间寻找属于自己的表达方式。', meta:['动画','12 集','观看中','阿里云盘'] },
-      { title:'迷宫饭', eyebrow:'Back to the dungeon', type:'漫画', source:'本地', art:'46% 26%', action:'继续阅读', notice:'正在打开第 9 卷', copy:'在迷宫里就地取材，把冒险变成一场关于食物与伙伴的漫长晚餐。', meta:['漫画','14 卷','已同步','本地'] },
-      { title:'来自深渊', eyebrow:'Descend further', type:'动画', source:'WebDAV', art:'64% 44%', action:'继续观看', notice:'正在从第 13 集继续', copy:'越往下走，代价越清晰。少女与机器人在深渊中继续寻找答案。', meta:['动画','25 集','已收藏','WebDAV'] },
-      { title:'边境回声', eyebrow:'Return to the frontier', type:'游戏', source:'本地', art:'81% 30%', action:'继续游玩', notice:'正在读取最近存档', copy:'在废弃的边境据点里恢复信号，让被封存的故事重新被人听见。', meta:['游戏','42 小时','进行中','本地'] }
+      { title:'葬送的芙莉莲', eyebrow:'Continue your journey', type:'动画', source:'本地', tint:'#7fb8a4', art:'50% 20%', action:'继续观看', notice:'正在从第 16 集 15:18 继续', copy:'勇者一行击败魔王之后，精灵魔法使重新踏上旅途。在漫长时间里，学会理解那些曾被忽略的短暂相遇。', meta:['动画','28 集','已看到第 16 集','本地高清'] },
+      { title:'蓝色时期', eyebrow:'Pick up where you left', type:'动画', source:'阿里云盘', tint:'#7f9dc4', art:'22% 42%', action:'继续观看', notice:'正在从第 6 集继续', copy:'把画笔重新握回手里，在考试与画室之间寻找属于自己的表达方式。', meta:['动画','12 集','观看中','阿里云盘'] },
+      { title:'迷宫饭', eyebrow:'Back to the dungeon', type:'漫画', source:'本地', tint:'#c2a878', art:'46% 26%', action:'继续阅读', notice:'正在打开第 9 卷', copy:'在迷宫里就地取材，把冒险变成一场关于食物与伙伴的漫长晚餐。', meta:['漫画','14 卷','已同步','本地'] },
+      { title:'来自深渊', eyebrow:'Descend further', type:'动画', source:'WebDAV', tint:'#9e8fc2', art:'64% 44%', action:'继续观看', notice:'正在从第 13 集继续', copy:'越往下走，代价越清晰。少女与机器人在深渊中继续寻找答案。', meta:['动画','25 集','已收藏','WebDAV'] },
+      { title:'边境回声', eyebrow:'Return to the frontier', type:'游戏', source:'本地', tint:'#c2907f', art:'81% 30%', action:'继续游玩', notice:'正在读取最近存档', copy:'在废弃的边境据点里恢复信号，让被封存的故事重新被人听见。', meta:['游戏','42 小时','进行中','本地'] }
     ];
     const workCopy = {};
     featuredWorks.forEach(work => { workCopy[work.title] = work.copy; });
@@ -1098,7 +1098,7 @@
     let featuredIndex = 0;
     function renderFeaturedRail() {
       document.getElementById('heroNavCount').textContent = `${featuredWorks.length} 部`;
-      heroNavList.innerHTML = featuredWorks.map((work, index) => `<button class="hero-nav-item${index === featuredIndex ? ' active' : ''}" role="tab" aria-selected="${index === featuredIndex}" data-index="${index}"><span class="hero-nav-thumb" style="background-position:${work.art}"></span><span class="hero-nav-text"><strong class="od-truncate">${work.title}</strong><small>${work.type} · ${work.source}</small></span></button>`).join('');
+      heroNavList.innerHTML = featuredWorks.map((work, index) => `<button class="hero-nav-item${index === featuredIndex ? ' active' : ''}" role="tab" aria-selected="${index === featuredIndex}" data-index="${index}"><span class="hero-nav-thumb" style="background-image:linear-gradient(${work.tint}, ${work.tint}), url('assets/reference-secondary.png'); background-blend-mode:color; background-position:center, ${work.art}"></span><span class="hero-nav-text"><strong class="od-truncate">${work.title}</strong><small>${work.type} · ${work.source}</small></span></button>`).join('');
       heroNavList.querySelectorAll('.hero-nav-item').forEach(button => button.addEventListener('click', () => selectFeatured(Number(button.dataset.index))));
     }
     function selectFeatured(index) {
@@ -1109,10 +1109,14 @@
       document.getElementById('heroCopy').textContent = work.copy;
       document.getElementById('heroMeta').innerHTML = work.meta.map(item => `<span>${item}</span>`).join('');
       document.getElementById('continueButton').textContent = work.action;
-      document.getElementById('heroArt').style.backgroundPosition = work.art;
+      var heroArt = document.getElementById('heroArt');
+      heroArt.style.backgroundImage = 'linear-gradient(' + work.tint + ', ' + work.tint + '), url("assets/reference-primary.png")';
+      heroArt.style.backgroundBlendMode = 'color';
+      heroArt.style.backgroundPosition = 'center, ' + work.art;
       renderFeaturedRail();
     }
     renderFeaturedRail();
+    selectFeatured(0);
     document.getElementById('heroPrev').addEventListener('click', () => selectFeatured((featuredIndex - 1 + featuredWorks.length) % featuredWorks.length));
     document.getElementById('heroNext').addEventListener('click', () => selectFeatured((featuredIndex + 1) % featuredWorks.length));
     document.getElementById('continueButton').addEventListener('click', () => notify(featuredWorks[featuredIndex].notice));

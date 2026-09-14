@@ -28,6 +28,12 @@
 | EXPLORE-011 | 探索页样式复用占位版（含假数据背景图渐变） | 新增 `src/explore.css`；沿用冻结令牌，无阴影 / 光晕 / 装饰渐变 | 真实封面为竖版海报 | 探索 | 无 | 否 |
 | EXPLORE-012 | 「新番时间表」禁用但未说明原因 | 保持禁用，tooltip 说明需要新增后端「按星期分组的放送时间表」 | 契约未提供 | 探索 | NEW_REQUIRED | 否 |
 
+## v1.1.2 补充修订：首页精选背景随作品更换（2026-09-14）
+
+| 功能 ID | 修改前 | 修改后 | 原因 | 页面 / 组件 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| HOME-005 | 首页精选大图固定为 `assets/reference-primary.png`；切换「切换到其他作品」只改 `background-position`（同一张图的不同裁切），观感上背景不随作品更换 | `featuredWorks` 每部作品新增 `tint`；`selectFeatured()` 把 `.hero-art` 背景改为 `linear-gradient(tint,tint), url("assets/reference-primary.png")` 并设 `background-blend-mode: color`，使同一张自制抽象位图按作品取色；缩略图 `hero-nav-thumb` 同步取色；初始化即调用 `selectFeatured(0)`，首屏与切换后一致 | 首页背景需随作品更换 | 首页 · 精选大图 · 切换到其他作品 | 无（纯原型；正式前端 `HomePage` 已按作品真实封面切换背景） | 否 |
+
 ## 相对 v1.1 的修改（v1.1.1 已生效，仍然有效）
 
 | 功能 ID | 修改前 | 修改后 | 原因 | 页面 / 组件 | 后端影响 | 需确认 |
