@@ -51,6 +51,18 @@
 | EXPLORE-014 | 热度与列表合为一个按 Tab 切换的海报网格（标题在「最高热度 / 本季番组」间切换） | 拆回旧版两段：先「最高热度」横向卡片 rail（取 trending 前 5），再「推荐作品」海报网格（随 Tab / 搜索切换） | 旧版构图更好 | 探索 · 列表区 | 无 | 否 |
 | EXPLORE-015 | 「新番时间表」入口位于海报网格标题行 | 移到「最高热度」标题行；网格标题行仅保留搜索态的「清除搜索」 | 与旧版构图一致 | 探索 | NEW_REQUIRED（按星期分组的时间表） | 否 |
 
+## 探索页：删除「最高热度」横排，条目详情改用作品详情页版面（2026-09-15）
+
+按指示把探索页收敛成与作品详情页一致的阅读体验：**删除「最高热度」横向卡片区**；**点开探索条目不再用独立弹窗，而是打开作品详情页那种整页详情**（背景图 + 顶栏 + 封面 / 标题 hero + 网络数据 + 简介与标签 + 右侧条目信息）。
+
+原型侧：探索卡片此前已通过 `openDetail(card, 'explore')` 打开 `#detailPage`（作品详情页），本次只删除热度区及其样式与监听。正式前端：从 `Modal` 弹窗改为整页 `detail-page` 版面。两份同步落地。
+
+| 功能 ID | 修改前 | 修改后 | 原因 | 页面 / 组件 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| EXPLORE-016 | 探索页 Tab 下方有「最高热度」横向卡片区（5 张 heat card + 禁用的「新番时间表」） | 整段删除：移除 `.heat-section` / `.heat-rail` / `.heat-card*` 样式、`#exploreContent` 内的 heat 标记与 `.heat-card` 点击监听；列表直接进入「推荐作品」海报网格 | 该区块与列表重复，按要求舍弃 | 探索 · 列表区 | 无 | 否 |
+| EXPLORE-017 | 点开探索条目弹出独立小弹窗（`.gnz-explore-detail-*`，`Modal width="large"`） | 改为**作品详情页版面**：整页 `detail-page / detail-backdrop / detail-inner / detail-topbar / detail-hero / detail-cover / detail-copy / detail-body / detail-main / detail-side`，含封面、原文标题、别名、网络评分 / 排名 / 人数统计、简介与标签、右侧「条目信息」栏，以及底部「加入媒体库 / 追番状态 / 收藏」；返回按钮回到探索列表 | 与作品详情页统一 | 探索 · 条目详情 | 无 | 否 |
+| EXPLORE-018 | 正式前端 `src/explore.css` 的热区样式与旧弹窗样式 | 移除 heat 与旧弹窗规则（`.gnz-explore-detail-top/-cover/-copy/-about/-save`、`.gnz-explore-save-row`、`.gnz-explore-tag`），保留统计 / 提示 / 错误样式并新增详情页桥接规则（`.gnz-explore-detail-page`） | 与实现一致 | 前端样式 | 无 | 否 |
+
 ## 相对 v1.1 的修改（v1.1.1 已生效，仍然有效）
 
 | 功能 ID | 修改前 | 修改后 | 原因 | 页面 / 组件 | 后端影响 | 需确认 |

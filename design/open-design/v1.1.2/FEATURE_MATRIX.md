@@ -42,14 +42,16 @@
 | TOOLS-002 | 一键下载 / 安装 | v1.1.1 禁用 + Future | FUTURE | A + B |
 | SETTINGS-001 | 设置（外观 / 通用） | 保留 v1.1 | EXISTING_PARTIAL | A + B |
 | SETTINGS-002 | 下载与备份 | v1.1.1 标记 Future + 控件禁用 | FUTURE | A + B |
-| EXPLORE-001 | 探索 · 页面结构与本季 / 热度列表 | 正式数据版本（网格 + 空值 / 缓存 / 数据源错误态） | EXISTING_VERIFIED（`get_explore_overview`） | A + B |
+| EXPLORE-001 | 探索 · 页面结构与本季番组列表 | 正式数据版本（分类 Tab + 筛选 + 海报网格；无「最高热度」横排；条目详情复用作品详情页版面 + 空值 / 缓存 / 数据源错误态） | EXISTING_VERIFIED（`get_explore_overview`） | A + B |
 | EXPLORE-002 | 探索 · 番组日历（按年月选择本季） | 年月筛选可用；按星期的放送时间表仍禁用 + `Future` | EXISTING_PARTIAL（月度番组 EXISTING_VERIFIED；周表 NEW_REQUIRED） | A + B |
 | EXPLORE-003 | 探索 · 网络评分 / 排名 / 人数 | 卡片与详情展示，明确标注「不是个人评分」 | EXISTING_VERIFIED（`ExploreSubject.score/rank/ratingCount/collectionCount`） | A + B |
-| EXPLORE-004 | 探索 · 追番状态 | 详情弹窗内选择状态（`WorkStatus`） | EXISTING_VERIFIED（`save_explore_subject`） | A + B |
+| EXPLORE-004 | 探索 · 追番状态 | 条目详情（作品详情页版面）内选择状态（`WorkStatus`） | EXISTING_VERIFIED（`save_explore_subject`） | A + B |
 | EXPLORE-005 | 探索 · 别名与番组索引 | 详情显示原文标题与别名；列表来自 bangumi-data 索引 | EXISTING_VERIFIED（`aliases` + bangumi-data） | A + B |
 | EXPLORE-006 | 探索 · Bangumi 条目搜索 | 顶部搜索框（Enter 提交、可清除） | EXISTING_VERIFIED（`search_explore_subjects`） | A + B |
 | EXPLORE-007 | 探索 · 漫画探索 | 禁用 + `Future` 徽标 + tooltip | NEW_REQUIRED（无漫画数据源） | A + B |
 | EXPLORE-008 | 探索 · 按类型全量浏览（动画） | 禁用 + `Future` 徽标 + tooltip | NEW_REQUIRED（无全年 / 全量浏览查询） | A + B |
+| EXPLORE-009 | 探索 · 「最高热度」横排 | 已删除（样式 / 标记 / 监听一并移除），列表直接进入海报网格 | 纯前端 | A |
+| EXPLORE-010 | 探索 · 条目详情版面 | 复用作品详情页版面（`detail-page` / `detail-hero` / `detail-body`），不再是独立弹窗 | 纯前端 | A + B |
 | A11Y-001 | 统一 Overlay Manager | v1.1.1 新增 | 纯前端 | A + B |
 | A11Y-002 | 图标按钮 aria-label / tooltip | v1.1.1 补齐 | 纯前端 | A |
 | THEME-002 | 浅色主题对比与背景可见性 | v1.1.1 修复 | 纯前端 | A + B |

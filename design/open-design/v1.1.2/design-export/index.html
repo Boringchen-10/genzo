@@ -518,22 +518,7 @@
     .filter-select { display:grid; gap:6px; }
     .filter-select > span { color:var(--quiet); font-size:12px; }
     .filter-select select { min-height:40px; padding:0 30px 0 12px; border:1px solid var(--line); border-radius:6px; background:rgba(var(--tint),.035); color:var(--text); }
-    .heat-section { margin-top:2px; }
-    .heat-head { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:14px; }
-    .heat-head h2,.continue-head h2 { margin:0; font-size:21px; }
-    .schedule-link { min-height:40px; display:inline-flex; align-items:center; gap:8px; border:0; background:transparent; color:#a9c8e5; font:inherit; cursor:pointer; }
-    .schedule-link svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; }
-    .schedule-link:hover,.schedule-link:focus-visible { color:var(--text); outline:none; }
-    .heat-rail { display:grid; grid-template-columns:repeat(5,minmax(190px,1fr)); gap:12px; overflow-x:auto; padding-bottom:4px; }
-    .heat-card { position:relative; min-height:176px; border:0; border-radius:var(--radius); overflow:hidden; padding:0; background:linear-gradient(145deg,#284049,#11191d 58%,#544154); color:var(--text); text-align:left; cursor:pointer; }
-    .heat-card:nth-child(2) { background:linear-gradient(145deg,#5a4558,#19232a 55%,#6c6a3e); }
-    .heat-card:nth-child(3) { background:linear-gradient(145deg,#5b2746,#1f2536 56%,#684b22); }
-    .heat-card:nth-child(4) { background:linear-gradient(145deg,#28516a,#182327 58%,#35433c); }
-    .heat-card:nth-child(5) { background:linear-gradient(145deg,#4d4145,#171b20 58%,#55343d); }
-    .heat-card::after { content:""; position:absolute; inset:auto 0 0; height:58%; background:linear-gradient(transparent,rgba(4,7,8,.9)); }
-    .heat-card-body { position:absolute; z-index:1; left:14px; right:14px; bottom:12px; display:grid; gap:5px; }
-    .heat-card-body strong { font-size:15px; }.heat-card-body span { color:#c3cac9; font-size:12px; }
-    .heat-card:hover,.heat-card:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    .continue-head h2 { margin:0; font-size:21px; }
     .continue-section { margin-top:26px; }
     .continue-head { margin-bottom:12px; }
     .continue-empty { min-height:58px; display:flex; align-items:center; padding:0 16px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); color:var(--muted); font-size:14px; }
@@ -544,11 +529,11 @@
     .discover-card .local-state { top:9px; right:9px; bottom:auto; left:auto; }
     .discover-card > strong { display:none; }
     .discover-card > small { font-size:12px; }
-    @media (max-width:1500px) { .discover-grid { grid-template-columns:repeat(6,minmax(0,1fr)); }.heat-rail { grid-template-columns:repeat(5,minmax(210px,1fr)); } }
-    @media (max-width:1200px) { .discover-grid { grid-template-columns:repeat(5,minmax(0,1fr)); }.heat-rail { grid-template-columns:repeat(5,220px); } }
-    @media (max-width:980px) { .discover-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }.heat-rail { grid-template-columns:repeat(5,210px); } }
-    @media (max-width:760px) { .explore-heading { align-items:flex-start; }.heat-card { min-height:154px; }.discover-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
-    @media (max-width:480px) { .discover-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.heat-rail { grid-template-columns:repeat(5,190px); } }
+    @media (max-width:1500px) { .discover-grid { grid-template-columns:repeat(6,minmax(0,1fr)); } }
+    @media (max-width:1200px) { .discover-grid { grid-template-columns:repeat(5,minmax(0,1fr)); } }
+    @media (max-width:980px) { .discover-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+    @media (max-width:760px) { .explore-heading { align-items:flex-start; }.discover-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+    @media (max-width:480px) { .discover-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
     /* ============ Media sources (v1.5) ============ */
     .source-page { position:fixed; z-index:30; inset:0 0 0 var(--sidebar); display:none; overflow-y:auto; padding:0 var(--page-pad) 72px; background:var(--bg); }
@@ -816,7 +801,7 @@
     <header class="explore-topbar"><div class="crumb od-fill"><strong>探索</strong><span>Prototype · 数据源待接入</span></div><label class="search explore-search" aria-label="搜索探索内容"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg><input id="exploreSearchInput" type="search" placeholder="搜索动漫、漫画或作品名"></label><button class="icon-button" id="exploreRefresh" aria-label="刷新探索数据" title="刷新探索数据"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg></button></header>
     <div class="explore-heading"><div><h1 id="exploreTitle">探索</h1><p>发现本季动画与漫画；内容为设计预览数据。</p></div><div class="source-note"><strong>2026 秋季 · Prototype</strong><span>数据源待开发 Agent 确认</span></div></div>
     <div class="explore-filters" role="tablist" aria-label="探索分类"><button class="explore-filter active" role="tab" aria-selected="true" data-explore-filter="推荐">推荐</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="本季">本季</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="动画">动画</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="漫画">漫画</button></div>
-    <div id="exploreContent"><section class="heat-section" aria-labelledby="heatTitle"><div class="heat-head"><h2 id="heatTitle">最高热度</h2><button class="schedule-link" data-notice="Prototype：新番时间表需要季度日程接口"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg><span>新番时间表</span></button></div><div class="heat-rail"><button class="heat-card" id="featureDetail" data-heat-title="星海邮差" data-heat-type="动画"><span class="heat-card-body"><strong>星海邮差</strong><span>编辑推荐 · Prototype</span></span></button><button class="heat-card" data-heat-title="雨声与机械城" data-heat-type="漫画"><span class="heat-card-body"><strong>雨声与机械城</strong><span>热度 #2 · Prototype</span></span></button><button class="heat-card" data-heat-title="第七码头的夏天" data-heat-type="动画"><span class="heat-card-body"><strong>第七码头的夏天</strong><span>热度 #3 · Prototype</span></span></button><button class="heat-card" data-heat-title="群青观测站" data-heat-type="动画"><span class="heat-card-body"><strong>群青观测站</strong><span>本季更新 · Prototype</span></span></button><button class="heat-card" data-heat-title="玻璃庭院" data-heat-type="漫画"><span class="heat-card-body"><strong>玻璃庭院</strong><span>漫画推荐 · Prototype</span></span></button></div></section>
+    <div id="exploreContent">
       <section class="explore-filter-panel" aria-labelledby="exploreFilterTitle">
         <div class="filter-head"><h2 id="exploreFilterTitle">筛选</h2><p id="filterSummary">共 14 部作品</p><button class="ghost-button" id="filterReset">重置</button></div>
         <div class="filter-field"><span class="filter-label">动漫标签</span><div class="tag-row" role="group" aria-label="按标签筛选" id="tagFilterRow"></div></div>
@@ -1398,7 +1383,6 @@
     document.getElementById('yearFilter').addEventListener('change', event => { currentYear = event.target.value; renderDiscover(); });
     document.getElementById('monthFilter').addEventListener('change', event => { currentMonth = event.target.value; renderDiscover(); });
     document.getElementById('filterReset').addEventListener('click', () => { currentExploreTags = []; currentYear = '全部'; currentMonth = '全部'; renderTagFilter(); renderFilterSelects(); renderDiscover(); });
-    document.querySelectorAll('.heat-card').forEach(card => card.addEventListener('click', () => openDetail({ dataset:{ title:card.dataset.heatTitle, type:card.dataset.heatType } }, 'explore')));
     document.getElementById('exploreRefresh').addEventListener('click', () => notify('Prototype：刷新需要探索数据接口'));
 
     const previewRows = document.getElementById('previewRows');
