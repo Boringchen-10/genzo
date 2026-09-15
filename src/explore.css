@@ -33,6 +33,63 @@
 
 .gnz-explore-search-clear:hover { color: var(--text); background: var(--hover); }
 
+/* 标题区：大标题 + 右侧数据源 note */
+.gnz-explore-heading {
+  display: flex;
+  gap: 24px;
+  align-items: end;
+  justify-content: space-between;
+  padding: 6px 0 18px;
+}
+
+.gnz-explore-heading h1 { margin: 0 0 8px; font-size: 30px; line-height: 1.15; }
+.gnz-explore-heading p { max-width: 650px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+
+.gnz-explore-source-note { display: grid; flex: 0 0 auto; gap: 4px; text-align: right; }
+.gnz-explore-source-note strong { color: var(--text); font-size: 12px; }
+.gnz-explore-source-note span { color: var(--quiet); font-size: 11px; }
+
+/* 最高热度：横向卡片 rail */
+.gnz-explore-heat { margin-top: 22px; }
+
+.gnz-heat-rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 1fr);
+  gap: 12px;
+  padding-bottom: 6px;
+  overflow-x: auto;
+}
+
+.gnz-heat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 92px;
+  padding: 14px;
+  color: inherit;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--ui-radius);
+  cursor: pointer;
+}
+
+.gnz-heat-card:hover { border-color: var(--line-strong); }
+
+.gnz-heat-card strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.gnz-heat-card span { color: var(--quiet); font-size: 11px; }
+
 /* 数据源提示：stale = 缓存提示；is-error = 数据源不可用 */
 .gnz-explore-notice {
   display: flex;
@@ -215,4 +272,10 @@
   .gnz-explore-detail-top { grid-template-columns: minmax(0, 1fr); }
   .gnz-explore-detail-cover { width: 148px; }
   .gnz-explore-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .gnz-explore-heading { flex-direction: column; align-items: flex-start; }
+  .gnz-explore-source-note { text-align: left; }
+  .gnz-heat-rail { grid-auto-columns: minmax(160px, 1fr); }
 }

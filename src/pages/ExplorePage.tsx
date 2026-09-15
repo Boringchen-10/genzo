@@ -124,9 +124,7 @@ export function ExplorePage() {
   const gridSubjects = searchTerm !== null ? filterByTag(results, tag) : visible;
   const heading = searchTerm !== null
     ? { title: "搜索结果", detail: `「${searchTerm}」共 ${gridSubjects.length} 条` }
-    : tab === "seasonal"
-      ? { title: "本季番组", detail: `${seasonLabel(year, month)} · 来自 bangumi-data 番组索引` }
-      : { title: "最高热度", detail: "按 Bangumi 评分人数与收藏人数排序" };
+    : { title: "推荐作品", detail: tab === "seasonal" ? `${seasonLabel(year, month)} · 来自 bangumi-data 番组索引` : "按 Bangumi 评分人数与收藏人数排序" };
 
   useEffect(() => {
     if (tag && !filterTags.includes(tag)) setTag(null);
@@ -236,14 +234,13 @@ export function ExplorePage() {
         </IconButton>
       </header>
 
-      <section className="gnz-explore-intro">
+      <section className="gnz-explore-heading">
         <div>
-          <span className="gnz-explore-badge">Bangumi 数据源</span>
           <h1>探索</h1>
           <p>浏览本季番组与当前热度作品，并把要追的条目加入本地媒体库。评分与排名来自 Bangumi 网络数据，不是你的个人评分。</p>
         </div>
-        <div className="gnz-explore-season">
-          <strong>{seasonLabel(year, month)}</strong>
+        <div className="gnz-explore-source-note">
+          <strong>{overview ? seasonLabel(overview.year, overview.month) : seasonLabel(year, month)} · Bangumi 数据源</strong>
           <span>{overview ? `本季 ${overview.seasonal.length} 部 · 热度 ${overview.trending.length} 部` : loading ? "正在读取网络数据" : "暂无数据"}</span>
           {overview ? <span>数据时间 {formatDate(overview.fetchedAt)}</span> : null}
         </div>
@@ -277,6 +274,31 @@ export function ExplorePage() {
         <button type="button" disabled title="需要新增后端：漫画探索数据源（当前只接入 Bangumi 动画条目）">漫画<span className="future-badge">Future</span></button>
       </div>
 
+      {!error && overview && overview.trending.length ? (
+        <section className="gnz-explore-heat" aria-labelledby="gnz-explore-heat-title">
+          <div className="section-heading">
+            <div><h2 id="gnz-explore-heat-title">最高热度</h2><span>按 Bangumi 评分人数与收藏人数排序</span></div>
+            <button type="button" className="button ghost icon-text" disabled title="需要新增后端：按星期分组的放送时间表（当前契约未提供）">
+              <CalendarDays size={16} />新番时间表
+            </button>
+          </div>
+          <div className="gnz-heat-rail">
+            {overview.trending.slice(0, 5).map((subject, index) => (
+              <button
+                key={subject.externalId}
+                type="button"
+                className="gnz-heat-card"
+                onClick={() => void openDetail(subject)}
+                aria-label={`查看 ${subject.title} 的条目详情`}
+              >
+                <strong title={subject.title}>{subject.title}</strong>
+                <span>{index === 0 ? "编辑推荐" : `热度 #${index + 1}`} · {formatScore(subject.score)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {error ? <ErrorState message={error} retry={() => void load(year, month)} /> : null}
 
       {!error && overview ? (
@@ -284,13 +306,9 @@ export function ExplorePage() {
           <section className="gnz-explore-trending" aria-busy={loading}>
             <div className="section-heading">
               <div><h2>{heading.title}</h2><span>{loading ? "正在读取网络数据" : heading.detail}</span></div>
-              {searchTerm === null ? (
-                <button type="button" className="button ghost icon-text" disabled title="需要新增后端：按星期分组的放送时间表（当前契约未提供）">
-                  <CalendarDays size={16} />新番时间表
-                </button>
-              ) : (
+              {searchTerm !== null ? (
                 <button type="button" className="button secondary compact" onClick={clearSearch}>清除搜索</button>
-              )}
+              ) : null}
             </div>
             {loading || searching ? (
               <LoadingState label={searching ? "正在搜索 Bangumi 条目" : "正在读取 Bangumi 探索数据"} />
