@@ -19,6 +19,7 @@
 | F-15 | 浅色主题过白：首页精选大图被两层近不透明的白色渐变覆盖，背景图基本看不清 | 浅色主题只留一层文字遮罩并提前淡出——`.hero-art::after` `rgba(243,246,245,.78→0)`（78% 处透明）、`.hero::after` `rgba(243,246,245,.3→0)`（68% 处透明），`.hero-art` 透明度 1；右侧背景图清晰可见，左侧文字对比度仍达标 |
 | F-16 | 正式前端首页横幅把 2:3 竖版封面 `cover` 铺满 552px 宽横幅，海报被极度放大、比例失真；浅色遮罩 `rgb(243 246 245 / .91→.77)` 又把它洗白 | 正式 React 前端：封面改为右侧**保持自身比例的清晰海报**（`height:82%; width:auto; object-fit:contain`，≤1040px 隐藏），背后为同一封面的**模糊放大副本**（`blur(40px)`、`opacity:.85`）；浅色遮罩减弱为 `.8→0`（56% 处透明） |
 | F-17 | 作品详情页顶部背景固定为 `reference-secondary.png`，对每部作品都一样，点开详情看着仍像「首页那张背景图」 | `openDetail()` 调 `tintFor(title)` 取得当前作品的取色，把 `.detail-backdrop` 背景改为 `linear-gradient(tint,tint), url("assets/reference-secondary.png")` + `background-blend-mode: color`，详情背景随作品变化；正式前端详情页用作品真实封面（`--detail-artwork`） |
+| F-18 | 原型探索页与正式 React 实现构图不同（原型：大标题 + source-note、最高热度纵向文字 rail、独立「推荐作品」栏、抽象渐变海报；实现：数据源徽标 + 季节计数、主 Tab、海报网格卡片带评分·排名 / 放送 / 标签、缓存与数据源异常提示） | 按实现重排原型探索页（`.explore-intro` / `.explore-badge` / `.explore-season` / `.explore-notice` / `.primary-tabs` / `.explore-results` + `.explore-grid` / `.explore-card`）：标题区 + 数据源提示 + 主 Tab（推荐 / 本季，动画 / 漫画 Future）+ 海报网格 + 筛选；卡片加入入库 / 收藏角标与网络评分·排名；补齐缓存与数据源异常提示、搜索清除；数据仍为示例并标注 |
 
 ## v1.1.1 修复内容
 
