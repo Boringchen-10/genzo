@@ -1,19 +1,7 @@
 /* Genzo UI Design v1.1.2 — 探索页（正式接入 Bangumi 数据）
    归属：Open Design 前端样式。沿用冻结令牌：低对比、圆角 ≤8px、无阴影 / 光晕 / 装饰性渐变。
-   与 v1-1-1.css 中的 `.gnz-explore-*` 占位版共存；本文件为正式数据版本的增量规则。 */
-
-.gnz-explore-badge {
-  display: inline-flex;
-  align-items: center;
-  width: max-content;
-  padding: 2px 7px;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-}
+   条目详情不再使用独立弹窗，而是复用作品详情页的版面（detail-page / detail-hero / detail-body），
+   本文件只保留探索列表与详情里的探索专属片段。 */
 
 .gnz-explore-search { height: 40px; }
 
@@ -48,47 +36,6 @@
 .gnz-explore-source-note { display: grid; flex: 0 0 auto; gap: 4px; text-align: right; }
 .gnz-explore-source-note strong { color: var(--text); font-size: 12px; }
 .gnz-explore-source-note span { color: var(--quiet); font-size: 11px; }
-
-/* 最高热度：横向卡片 rail */
-.gnz-explore-heat { margin-top: 22px; }
-
-.gnz-heat-rail {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 1fr);
-  gap: 12px;
-  padding-bottom: 6px;
-  overflow-x: auto;
-}
-
-.gnz-heat-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 92px;
-  padding: 14px;
-  color: inherit;
-  text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--ui-radius);
-  cursor: pointer;
-}
-
-.gnz-heat-card:hover { border-color: var(--line-strong); }
-
-.gnz-heat-card strong {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.gnz-heat-card span { color: var(--quiet); font-size: 11px; }
 
 /* 数据源提示：stale = 缓存提示；is-error = 数据源不可用 */
 .gnz-explore-notice {
@@ -208,60 +155,27 @@
 }
 .gnz-filter-selects .field { width: 150px; }
 
-/* 条目详情 */
-.gnz-explore-detail { display: flex; flex-direction: column; gap: 22px; }
-
-.gnz-explore-detail-top {
-  display: grid;
-  grid-template-columns: 148px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.gnz-explore-detail-cover {
-  display: block;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--ui-radius);
-}
-
-.gnz-explore-detail-copy { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.gnz-explore-detail-original { color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
-.gnz-explore-detail-aliases { color: var(--quiet); font-size: 12px; overflow-wrap: anywhere; }
-.gnz-explore-detail-facts { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12px; }
-
+/* 条目详情：复用作品详情页版面，这里只补探索专属片段 */
 .gnz-explore-detail-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin: 2px 0 0;
-  padding: 12px 0;
-  border-top: 1px solid var(--line);
+  margin: 0;
+  padding: 0 0 12px;
   border-bottom: 1px solid var(--line);
 }
 
 .gnz-explore-detail-stats > div { min-width: 0; }
 .gnz-explore-detail-stats dt { color: var(--quiet); font-size: 11px; }
 .gnz-explore-detail-stats dd { margin: 4px 0 0; color: var(--text); font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
-.gnz-explore-detail-note { color: var(--quiet); font-size: 11px; line-height: 1.6; }
 
-.gnz-explore-detail-about, .gnz-explore-detail-save { padding-top: 18px; border-top: 1px solid var(--line); }
-.gnz-explore-detail-about h3, .gnz-explore-detail-save h3 { margin: 0 0 10px; font-size: 14px; }
-.gnz-explore-detail-description { color: var(--muted); font-size: 13.5px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
-.gnz-explore-detail-tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.gnz-explore-detail-note { margin: 12px 0 0; color: var(--quiet); font-size: 11px; line-height: 1.6; }
+.gnz-explore-detail-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
 
-.gnz-explore-tag {
-  padding: 4px 8px;
-  color: var(--muted);
-  background: rgba(var(--tint), .045);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  font-size: 11px;
-}
-
-.gnz-explore-detail-error { margin-top: 8px; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
-.gnz-explore-save-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 12px 0 16px; }
-.gnz-explore-save-row .field { width: 150px; }
+.gnz-explore-detail-page .detail-section:first-child { padding-top: 0; border-top: 0; }
+.gnz-explore-detail-page .detail-actions { row-gap: 12px; }
+.gnz-explore-detail-page .detail-actions .field { width: 170px; }
+.gnz-explore-detail-page .detail-tags { margin-top: 14px; }
 
 @media (max-width: 1100px) {
   .gnz-explore-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
@@ -269,13 +183,10 @@
 }
 
 @media (max-width: 820px) {
-  .gnz-explore-detail-top { grid-template-columns: minmax(0, 1fr); }
-  .gnz-explore-detail-cover { width: 148px; }
   .gnz-explore-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
 
 @media (max-width: 760px) {
   .gnz-explore-heading { flex-direction: column; align-items: flex-start; }
   .gnz-explore-source-note { text-align: left; }
-  .gnz-heat-rail { grid-auto-columns: minmax(160px, 1fr); }
 }

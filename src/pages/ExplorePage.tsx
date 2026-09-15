@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { AlertTriangle, CalendarDays, Heart, Info, Library, RefreshCw, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { AlertTriangle, ArrowLeft, Heart, Info, Library, RefreshCw, Search, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider, getExploreProvider } from "../data";
-import { EmptyState, ErrorState, IconButton, LoadingState, Modal } from "../components/common";
+import { EmptyState, ErrorState, IconButton, LoadingState } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { useToasts } from "../store";
 import type { ExploreOverview, ExploreSubject, WorkStatus } from "../types";
@@ -203,10 +203,113 @@ export function ExplorePage() {
   }, [initial.year]);
 
   const emptyState = searchTerm !== null
-    ? <EmptyState title="没有匹配的条目" description="换一个关键词，或清除搜索回到本季与热度列表。" />
+    ? <EmptyState title="没有匹配的条目" description="换一个关键词，或清除搜索回到本季列表。" />
     : tab === "seasonal"
       ? <EmptyState title="这个月份没有索引到番组" description={`bangumi-data 番组索引里没有 ${seasonLabel(year, month)} 的条目，换一个年份或月份再试。`} />
-      : <EmptyState title="没有可显示的热度作品" description={problems.blockers[0]?.warning ?? "当前月份没有可用的番组日历数据；历史月份只有本季番组列表。"} />;
+      : <EmptyState title="没有可显示的作品" description={problems.blockers[0]?.warning ?? "当前月份没有可用的番组日历数据；历史月份只有本季番组列表。"} />;
+
+  /* 条目详情：与作品详情页共用同一套版面（detail-page / detail-hero / detail-body）。 */
+  if (selected) {
+    const detailSeason = selected.year !== null ? seasonLabel(selected.year, selected.month ?? 1) : null;
+    return (
+      <div
+        className={`detail-page gnz-explore-detail-page${selected.coverUrl ? " has-detail-artwork" : ""}`}
+        style={selected.coverUrl ? ({ "--detail-artwork": `url("${selected.coverUrl}")` } as CSSProperties) : undefined}
+      >
+        <div className="detail-backdrop" aria-hidden="true" />
+        <div className="detail-inner">
+          <div className="detail-topbar">
+            <button type="button" className="icon-button detail-back" aria-label="返回探索" data-tooltip="返回探索" onClick={() => setSelected(null)}>
+              <ArrowLeft size={17} />
+            </button>
+            <strong>条目详情</strong>
+            <span className="detail-topbar-fill" />
+            <IconButton
+              tooltip={draftFavorite ? "取消收藏" : "加入收藏"}
+              aria-pressed={draftFavorite}
+              onClick={() => setDraftFavorite(!draftFavorite)}
+              disabled={saving || !provider}
+            >
+              <Heart size={17} fill={draftFavorite ? "currentColor" : "none"} />
+            </IconButton>
+          </div>
+
+          <section className="detail-hero">
+            <div className="detail-cover"><ExploreCover subject={selected} /></div>
+            <div className="detail-copy">
+              <span className="detail-eyebrow">
+                {subjectTypeLabels[selected.subjectType]}{detailSeason ? ` · ${detailSeason}` : ""}
+              </span>
+              <h1>{selected.title}</h1>
+              {selected.originalTitle
+                ? <p className="original-title">{selected.originalTitle}</p>
+                : <p className="original-title quiet-inline">Bangumi 未提供原文标题。</p>}
+              {selected.aliases.length ? <p className="quiet-inline">别名：{selected.aliases.join(" / ")}</p> : null}
+              <div className="detail-actions">
+                {selected.localWorkId ? (
+                  <Link className="button secondary icon-text" to={`/library/${selected.localWorkId}`}>
+                    <Library size={16} />打开作品
+                  </Link>
+                ) : null}
+                <button type="button" className="button primary" onClick={() => void save()} disabled={saving || !provider}>
+                  {saving ? "正在保存…" : selected.inLibrary ? "更新媒体库条目" : "加入媒体库"}
+                </button>
+                <label className="field gnz-explore-status"><span>追番状态</span>
+                  <select value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as WorkStatus)} disabled={saving || !provider}>
+                    {exploreStatusOptions.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}
+                  </select>
+                </label>
+              </div>
+              {detailLoading ? <p className="quiet-inline" role="status">正在读取条目详情…</p> : null}
+              {detailError ? <p className="gnz-explore-detail-error" role="alert">{detailError}（上面显示的是列表里已有的信息）</p> : null}
+            </div>
+          </section>
+
+          <div className="detail-body">
+            <main className="detail-main">
+              <section className="detail-section">
+                <dl className="gnz-explore-detail-stats">
+                  <div><dt>网络评分</dt><dd>{formatScore(selected.score)}</dd></div>
+                  <div><dt>网络排名</dt><dd>{formatRank(selected.rank)}</dd></div>
+                  <div><dt>评分人数</dt><dd>{selected.ratingCount > 0 ? formatCount(selected.ratingCount) : "暂无数据"}</dd></div>
+                  <div><dt>收藏人数</dt><dd>{selected.collectionCount > 0 ? formatCount(selected.collectionCount) : "暂无数据"}</dd></div>
+                </dl>
+                <p className="gnz-explore-detail-note">网络评分与排名来自 Bangumi，不会写入你的个人评分。</p>
+              </section>
+
+              <section className="detail-section">
+                <div className="detail-section-head"><h2>简介</h2></div>
+                {selected.description.trim()
+                  ? <p className="detail-description">{selected.description}</p>
+                  : <p className="quiet-inline">Bangumi 没有提供该条目的简介。</p>}
+                <div className="detail-tags">
+                  {selected.genres.length
+                    ? selected.genres.map((genre) => <span className="detail-tag" key={genre}>{genre}</span>)
+                    : <span className="quiet-inline">暂无标签</span>}
+                </div>
+              </section>
+            </main>
+
+            <aside className="detail-side">
+              <section className="detail-metadata-panel">
+                <div className="metadata-head"><h2>条目信息</h2></div>
+                <dl className="metadata-grid">
+                  <div><dt>类型</dt><dd>{subjectTypeLabels[selected.subjectType]}</dd></div>
+                  <div><dt>年份</dt><dd>{detailSeason ?? "未提供"}</dd></div>
+                  <div><dt>放送</dt><dd>{formatBroadcast(selected.airDate, selected.broadcast)}</dd></div>
+                  <div><dt>原名</dt><dd>{selected.originalTitle ?? "未提供"}</dd></div>
+                  <div><dt>别名</dt><dd>{selected.aliases.length ? selected.aliases.join(" / ") : "未提供"}</dd></div>
+                  <div><dt>本地媒体库</dt><dd>{formatLibraryState(selected)}</dd></div>
+                  <div><dt>数据来源</dt><dd>Bangumi #{selected.externalId}</dd></div>
+                </dl>
+                {selected.stale ? <p className="quiet-inline" role="status">该条目详情来自本地过期缓存。</p> : null}
+              </section>
+            </aside>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page workspace-page gnz-explore-page">
@@ -274,31 +377,6 @@ export function ExplorePage() {
         <button type="button" disabled title="需要新增后端：漫画探索数据源（当前只接入 Bangumi 动画条目）">漫画<span className="future-badge">Future</span></button>
       </div>
 
-      {!error && overview && overview.trending.length ? (
-        <section className="gnz-explore-heat" aria-labelledby="gnz-explore-heat-title">
-          <div className="section-heading">
-            <div><h2 id="gnz-explore-heat-title">最高热度</h2><span>按 Bangumi 评分人数与收藏人数排序</span></div>
-            <button type="button" className="button ghost icon-text" disabled title="需要新增后端：按星期分组的放送时间表（当前契约未提供）">
-              <CalendarDays size={16} />新番时间表
-            </button>
-          </div>
-          <div className="gnz-heat-rail">
-            {overview.trending.slice(0, 5).map((subject, index) => (
-              <button
-                key={subject.externalId}
-                type="button"
-                className="gnz-heat-card"
-                onClick={() => void openDetail(subject)}
-                aria-label={`查看 ${subject.title} 的条目详情`}
-              >
-                <strong title={subject.title}>{subject.title}</strong>
-                <span>{index === 0 ? "编辑推荐" : `热度 #${index + 1}`} · {formatScore(subject.score)}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
       {error ? <ErrorState message={error} retry={() => void load(year, month)} /> : null}
 
       {!error && overview ? (
@@ -348,68 +426,6 @@ export function ExplorePage() {
 
       {!error && !overview && loading ? <LoadingState label="正在读取 Bangumi 探索数据" /> : null}
 
-      {selected ? (
-        <Modal title={selected.title} width="large" onClose={() => setSelected(null)}>
-          <div className="gnz-explore-detail">
-            <div className="gnz-explore-detail-top">
-              <span className="gnz-explore-detail-cover"><ExploreCover subject={selected} /></span>
-              <div className="gnz-explore-detail-copy">
-                {selected.originalTitle ? <p className="gnz-explore-detail-original">{selected.originalTitle}</p> : <p className="quiet-inline">Bangumi 未提供原文标题。</p>}
-                {selected.aliases.length ? <p className="gnz-explore-detail-aliases">别名：{selected.aliases.join(" / ")}</p> : null}
-                <div className="gnz-explore-detail-facts">
-                  <span>{subjectTypeLabels[selected.subjectType]}</span>
-                  <span>{selected.year !== null ? seasonLabel(selected.year, selected.month ?? 1) : "年份未提供"}</span>
-                  <span>{formatBroadcast(selected.airDate, selected.broadcast)}</span>
-                  <span>Bangumi #{selected.externalId}</span>
-                </div>
-                <dl className="gnz-explore-detail-stats">
-                  <div><dt>网络评分</dt><dd>{formatScore(selected.score)}</dd></div>
-                  <div><dt>网络排名</dt><dd>{formatRank(selected.rank)}</dd></div>
-                  <div><dt>评分人数</dt><dd>{selected.ratingCount > 0 ? formatCount(selected.ratingCount) : "暂无数据"}</dd></div>
-                  <div><dt>收藏人数</dt><dd>{selected.collectionCount > 0 ? formatCount(selected.collectionCount) : "暂无数据"}</dd></div>
-                </dl>
-                <p className="gnz-explore-detail-note">网络评分与排名来自 Bangumi，不会写入你的个人评分。</p>
-              </div>
-            </div>
-
-            <section className="gnz-explore-detail-about">
-              <h3>简介</h3>
-              {selected.description.trim() ? (
-                <p className="gnz-explore-detail-description">{selected.description}</p>
-              ) : (
-                <p className="quiet-inline">Bangumi 没有提供该条目的简介。</p>
-              )}
-              <div className="gnz-explore-detail-tags">
-                {selected.genres.length ? selected.genres.map((genre) => <span className="gnz-explore-tag" key={genre}>{genre}</span>) : <span className="quiet-inline">暂无标签</span>}
-              </div>
-            </section>
-
-            <section className="gnz-explore-detail-save">
-              <h3>加入本地媒体库</h3>
-              <p className="quiet-inline">{formatLibraryState(selected)}</p>
-              {detailLoading ? <p className="quiet-inline" role="status">正在读取条目详情…</p> : null}
-              {detailError ? <p className="gnz-explore-detail-error" role="alert">{detailError}（上面显示的是列表里已有的信息）</p> : null}
-              <div className="gnz-explore-save-row">
-                <label className="field"><span>追番状态</span>
-                  <select value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as WorkStatus)} disabled={saving || !provider}>
-                    {exploreStatusOptions.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}
-                  </select>
-                </label>
-                <button type="button" className={`filter-toggle ${draftFavorite ? "active" : ""}`} aria-pressed={draftFavorite} onClick={() => setDraftFavorite(!draftFavorite)} disabled={saving || !provider}>
-                  <Heart size={16} fill={draftFavorite ? "currentColor" : "none"} /> 收藏
-                </button>
-              </div>
-              <div className="form-actions">
-                {selected.localWorkId ? <Link className="button secondary" to={`/library/${selected.localWorkId}`}>打开作品</Link> : null}
-                <button type="button" className="button primary" onClick={() => void save()} disabled={saving || !provider}>
-                  {saving ? "正在保存…" : selected.inLibrary ? "更新媒体库条目" : "加入媒体库"}
-                </button>
-              </div>
-              {selected.stale ? <p className="quiet-inline" role="status">该条目详情来自本地过期缓存。</p> : null}
-            </section>
-          </div>
-        </Modal>
-      ) : null}
     </div>
   );
 }
