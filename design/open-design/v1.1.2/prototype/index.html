@@ -549,58 +549,6 @@
     @media (max-width:980px) { .discover-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }.heat-rail { grid-template-columns:repeat(5,210px); } }
     @media (max-width:760px) { .explore-heading { align-items:flex-start; }.heat-card { min-height:154px; }.discover-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
     @media (max-width:480px) { .discover-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.heat-rail { grid-template-columns:repeat(5,190px); } }
-    /* ===== 探索页：与正式 React 实现对齐的区块（标题区 / 数据源提示 / 主 Tab / 结果网格） ===== */
-    .explore-intro { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:30px 0 20px; }
-    .explore-intro h1 { margin:8px 0 8px; font:700 clamp(30px,3.6vw,48px)/1.05 "Bahnschrift SemiCondensed","Microsoft YaHei UI",sans-serif; }
-    .explore-intro p { max-width:660px; margin:0; color:var(--muted); line-height:1.6; }
-    .explore-badge { display:inline-flex; padding:4px 9px; border:1px solid var(--line); border-radius:999px; background:rgba(117,210,173,.08); color:var(--accent); font-size:11px; letter-spacing:.04em; }
-    .explore-season { display:grid; gap:4px; text-align:right; color:var(--quiet); font-size:12px; }
-    .explore-season strong { color:var(--text); font-size:13px; }
-    .explore-notice { display:flex; gap:10px; align-items:flex-start; margin:0 0 14px; padding:11px 13px; border:1px solid var(--line); border-left:2px solid var(--accent); border-radius:6px; background:rgba(var(--tint),.04); color:var(--muted); font-size:12px; }
-    .explore-notice[hidden] { display:none; }
-    .explore-notice.is-error { border-left-color:var(--danger); }
-    .explore-notice strong { display:block; color:var(--text); font-size:12px; }
-    .explore-notice p { margin:3px 0 0; overflow-wrap:anywhere; }
-    .explore-notice-hint { color:var(--quiet); }
-    .explore-notice-icon { flex:none; width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.6; color:var(--muted); }
-    .primary-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 22px; }
-    .primary-tabs button { min-height:40px; display:inline-flex; align-items:center; gap:6px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--muted); font:inherit; cursor:pointer; }
-    .primary-tabs button:hover:not([disabled]),.primary-tabs button:focus-visible:not([disabled]) { color:var(--text); border-color:var(--line-strong); outline:none; }
-    .primary-tabs button.active { color:var(--accent); border-color:rgba(117,210,173,.42); background:rgba(117,210,173,.1); }
-    .primary-tabs button[disabled] { cursor:not-allowed; opacity:.6; }
-    .future-badge { margin-left:2px; padding:2px 5px; border-radius:3px; background:rgba(var(--tint),.08); color:var(--quiet); font-size:10px; letter-spacing:.04em; }
-    .explore-results { margin-top:4px; }
-    .results-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:14px; }
-    .results-head h2 { margin:0; font-size:21px; }
-    .results-head span { display:block; margin-top:3px; color:var(--muted); font-size:12px; }
-    .results-head .ghost-button { display:inline-flex; align-items:center; gap:8px; }
-    .results-head .ghost-button svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8; }
-    .results-head .ghost-button[disabled] { cursor:not-allowed; opacity:.6; }
-    .explore-results-note { margin:16px 0 0; color:var(--quiet); font-size:11px; }
-    .explore-search-clear { flex:none; display:grid; place-items:center; width:24px; height:24px; border:0; border-radius:50%; background:rgba(var(--tint),.06); color:var(--muted); cursor:pointer; }
-    .explore-search-clear svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:2; }
-    .explore-search-clear[hidden] { display:none; }
-    .explore-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:22px 16px; }
-    .explore-card { display:grid; gap:9px; border:0; padding:0; background:transparent; color:var(--text); text-align:left; font:inherit; cursor:pointer; }
-    .explore-poster { position:relative; aspect-ratio:2/3; border-radius:var(--radius); border:1px solid var(--line); overflow:hidden; background:linear-gradient(145deg,#233134,#11191b 62%,#36423e); }
-    .explore-card:nth-child(2n) .explore-poster { background:linear-gradient(145deg,#303237,#15191c 58%,#403c37); }
-    .explore-card:nth-child(3n) .explore-poster { background:linear-gradient(145deg,#263039,#11171b 60%,#2e443c); }
-    .explore-poster::after { content:""; position:absolute; inset:auto 0 0; height:42%; background:linear-gradient(transparent,rgba(5,8,9,.86)); }
-    .explore-flag { position:absolute; z-index:1; top:9px; left:9px; display:inline-flex; align-items:center; padding:4px 7px; border-radius:4px; background:rgba(7,10,12,.72); backdrop-filter:blur(8px); color:#dfe5e2; font-size:11px; }
-    .explore-flag.is-favorite { top:auto; left:auto; right:9px; bottom:9px; color:var(--accent); }
-    .explore-card-body { display:grid; gap:4px; min-width:0; }
-    .explore-card-body > strong { font-size:14px; line-height:1.35; }
-    .explore-card-meta { color:var(--accent); font-size:11px; }
-    .explore-card-sub { overflow:hidden; color:var(--muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
-    .explore-card-tags { display:flex; flex-wrap:nowrap; gap:5px; overflow:hidden; }
-    .explore-card-tags em { flex:none; padding:3px 7px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:10px; font-style:normal; }
-    .explore-card-tags em.is-empty { border-style:dashed; color:var(--quiet); }
-    .explore-card:hover .explore-poster,.explore-card:focus-visible .explore-poster { border-color:rgba(117,210,173,.46); }
-    .explore-card:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:4px; }
-    .explore-empty { grid-column:1/-1; min-height:160px; display:grid; place-items:center; padding:32px; border:1px dashed var(--line); border-radius:var(--radius); color:var(--muted); text-align:center; }
-    @media (max-width:1100px) { .explore-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
-    @media (max-width:760px) { .explore-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }.explore-intro { align-items:flex-start; flex-direction:column; gap:14px; }.explore-season { text-align:left; } }
-    @media (max-width:480px) { .explore-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
     /* ============ Media sources (v1.5) ============ */
     .source-page { position:fixed; z-index:30; inset:0 0 0 var(--sidebar); display:none; overflow-y:auto; padding:0 var(--page-pad) 72px; background:var(--bg); }
@@ -865,24 +813,10 @@
   </div>
 
   <main class="explore-page" id="exploreView" aria-hidden="true" aria-labelledby="exploreTitle">
-    <header class="explore-topbar"><div class="crumb od-fill"><strong>探索</strong><span id="exploreSourceLine">2026 年 9 月 · Bangumi 网络数据 · 示例数据</span></div><label class="search explore-search" aria-label="搜索 Bangumi 条目"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg><input id="exploreSearchInput" type="search" placeholder="搜索 Bangumi 条目（示例数据）" maxlength="200"><button class="explore-search-clear" id="exploreSearchClear" type="button" aria-label="清除搜索" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></label><button class="icon-button" id="exploreRefresh" aria-label="刷新探索数据" title="刷新探索数据"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg></button></header>
-    <section class="explore-intro" aria-labelledby="exploreTitle">
-      <div>
-        <span class="explore-badge">Bangumi 数据源 · 示例数据</span>
-        <h1 id="exploreTitle">探索</h1>
-        <p>浏览本季番组与当前热度作品，并把要追的条目加入本地媒体库。评分与排名来自 Bangumi 网络数据，不是你的个人评分。</p>
-      </div>
-      <div class="explore-season"><strong id="exploreSeasonLabel">2026 年 9 月</strong><span id="exploreSeasonCounts">本季 8 部 · 热度 14 部</span><span>数据时间 2026-09-14 13:42</span></div>
-    </section>
-    <div class="explore-notice" id="exploreStaleNotice" role="status" hidden><svg class="explore-notice-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.5"/></svg><div><strong>当前使用本地缓存数据</strong><p id="exploreStaleText">网络更新失败，正在展示上一次成功同步的番组与热度数据。</p></div></div>
-    <div class="explore-notice is-error" id="exploreSourceNotice" role="alert" hidden><svg class="explore-notice-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.6V13M12 16.4v.5"/></svg><div><strong>部分数据源不可用</strong><p id="exploreSourceText">bangumi-data 番组索引暂时不可用，当前只展示可用来源的数据。</p><p class="explore-notice-hint">这不会影响本地媒体库，已收藏的作品仍可正常浏览。</p></div></div>
-    <div class="primary-tabs" role="tablist" aria-label="探索分类"><button type="button" role="tab" aria-selected="true" class="active" data-explore-tab="热门">推荐</button><button type="button" role="tab" aria-selected="false" data-explore-tab="本季">本季</button><button type="button" disabled title="需要新增后端：全年 / 全量动画浏览查询（当前契约只提供本季番组与热度）">动画<span class="future-badge">Future</span></button><button type="button" disabled title="需要新增后端：漫画探索数据源（当前只接入 Bangumi 动画条目）">漫画<span class="future-badge">Future</span></button></div>
-    <div id="exploreContent">
-      <section class="explore-results" aria-labelledby="exploreResultsTitle">
-        <div class="results-head"><div><h2 id="exploreResultsTitle">最高热度</h2><span id="exploreResultsDetail">按 Bangumi 评分人数与收藏人数排序</span></div><button type="button" class="ghost-button" id="exploreSchedule" disabled title="需要新增后端：按星期分组的放送时间表（当前契约未提供）"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg><span>新番时间表</span></button></div>
-        <div class="explore-grid" id="discoverGrid"></div>
-        <p class="explore-results-note">示例数据 · 条目详情与「加入媒体库」为原型演示，真实数据由 Bangumi 网络服务提供。</p>
-      </section>
+    <header class="explore-topbar"><div class="crumb od-fill"><strong>探索</strong><span>Prototype · 数据源待接入</span></div><label class="search explore-search" aria-label="搜索探索内容"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg><input id="exploreSearchInput" type="search" placeholder="搜索动漫、漫画或作品名"></label><button class="icon-button" id="exploreRefresh" aria-label="刷新探索数据" title="刷新探索数据"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg></button></header>
+    <div class="explore-heading"><div><h1 id="exploreTitle">探索</h1><p>发现本季动画与漫画；内容为设计预览数据。</p></div><div class="source-note"><strong>2026 秋季 · Prototype</strong><span>数据源待开发 Agent 确认</span></div></div>
+    <div class="explore-filters" role="tablist" aria-label="探索分类"><button class="explore-filter active" role="tab" aria-selected="true" data-explore-filter="推荐">推荐</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="本季">本季</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="动画">动画</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="漫画">漫画</button></div>
+    <div id="exploreContent"><section class="heat-section" aria-labelledby="heatTitle"><div class="heat-head"><h2 id="heatTitle">最高热度</h2><button class="schedule-link" data-notice="Prototype：新番时间表需要季度日程接口"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg><span>新番时间表</span></button></div><div class="heat-rail"><button class="heat-card" id="featureDetail" data-heat-title="星海邮差" data-heat-type="动画"><span class="heat-card-body"><strong>星海邮差</strong><span>编辑推荐 · Prototype</span></span></button><button class="heat-card" data-heat-title="雨声与机械城" data-heat-type="漫画"><span class="heat-card-body"><strong>雨声与机械城</strong><span>热度 #2 · Prototype</span></span></button><button class="heat-card" data-heat-title="第七码头的夏天" data-heat-type="动画"><span class="heat-card-body"><strong>第七码头的夏天</strong><span>热度 #3 · Prototype</span></span></button><button class="heat-card" data-heat-title="群青观测站" data-heat-type="动画"><span class="heat-card-body"><strong>群青观测站</strong><span>本季更新 · Prototype</span></span></button><button class="heat-card" data-heat-title="玻璃庭院" data-heat-type="漫画"><span class="heat-card-body"><strong>玻璃庭院</strong><span>漫画推荐 · Prototype</span></span></button></div></section>
       <section class="explore-filter-panel" aria-labelledby="exploreFilterTitle">
         <div class="filter-head"><h2 id="exploreFilterTitle">筛选</h2><p id="filterSummary">共 14 部作品</p><button class="ghost-button" id="filterReset">重置</button></div>
         <div class="filter-field"><span class="filter-label">动漫标签</span><div class="tag-row" role="group" aria-label="按标签筛选" id="tagFilterRow"></div></div>
@@ -891,6 +825,7 @@
           <label class="filter-select"><span>月份</span><select id="monthFilter" aria-label="按月份筛选"></select></label>
         </div>
       </section>
+      <section class="discover" aria-labelledby="discoverTitle"><div class="discover-head"><h2 id="discoverTitle">推荐作品</h2><p id="discoverCount">6 部示例作品</p></div><div class="discover-grid" id="discoverGrid"></div></section>
     </div>
     <section class="explore-state" id="exploreState" hidden><div class="state-message" id="exploreStateMessage"></div></section>
   </main>
@@ -1233,7 +1168,7 @@
       initDetailDescription();
       document.getElementById('detailBack').focus();
     };
-    const closeDetail = () => { detailPage.classList.remove('open'); detailPage.setAttribute('aria-hidden','true'); if (detailReturnView === 'explore') { exploreView.setAttribute('aria-hidden','false'); document.getElementById('exploreSearchInput').focus(); } else { homeView.removeAttribute('aria-hidden'); document.getElementById('detailOpen').focus(); } };
+    const closeDetail = () => { detailPage.classList.remove('open'); detailPage.setAttribute('aria-hidden','true'); if (detailReturnView === 'explore') { exploreView.setAttribute('aria-hidden','false'); document.getElementById('featureDetail').focus(); } else { homeView.removeAttribute('aria-hidden'); document.getElementById('detailOpen').focus(); } };
     document.getElementById('detailOpen').addEventListener('click', () => { const work = featuredWorks[featuredIndex]; openDetail({ dataset:{ title:work.title, type:work.type, source:work.source } }); });
     document.getElementById('detailBack').addEventListener('click', closeDetail);
     detail.addEventListener('click', event => { if (event.target === detail) closeDetail(); });
@@ -1394,53 +1329,32 @@
       notify(`已手动匹配《${matchSelected.title}》`);
     });
 
-    // 示例数据（MOCK）：标题、评分与排名均为虚构占位，不代表任何真实条目的真实数据。
     const discoverItems = [
-      { title:'星海邮差', type:'动画', meta:'周三更新 · 12 集', local:true, favorite:true, score:8.4, rank:402, tags:['科幻','冒险'], year:2026, month:4 },
-      { title:'雨声与机械城', type:'漫画', meta:'连载中 · 48 话', local:false, favorite:false, score:8.1, rank:761, tags:['科幻','悬疑'], year:2025, month:11 },
-      { title:'第七码头的夏天', type:'动画', meta:'周六更新 · 24 集', local:false, favorite:true, score:7.9, rank:1204, tags:['日常','治愈'], year:2026, month:7 },
-      { title:'玻璃庭院', type:'漫画', meta:'完结 · 9 卷', local:true, favorite:false, score:8.6, rank:318, tags:['悬疑','奇幻'], year:2026, month:1 },
-      { title:'群青观测站', type:'动画', meta:'周五更新 · 13 集', local:false, favorite:false, score:7.6, rank:1889, tags:['科幻','日常'], year:2026, month:4 },
-      { title:'深夜食谱研究会', type:'漫画', meta:'连载中 · 31 话', local:false, favorite:true, score:7.4, rank:2107, tags:['日常','治愈'], year:2026, month:2 },
-      { title:'北纬三十五度', type:'动画', meta:'周日更新 · 12 集', local:false, favorite:false, score:8.0, rank:932, tags:['冒险','日常'], year:2025, month:10 },
-      { title:'白昼信号', type:'漫画', meta:'连载中 · 22 话', local:false, favorite:false, score:7.8, rank:1420, tags:['悬疑','科幻'], year:2026, month:3 },
-      { title:'回声档案', type:'动画', meta:'完结 · 13 集', local:true, favorite:true, score:8.2, rank:688, tags:['悬疑','奇幻'], year:2024, month:12 },
-      { title:'月面车站', type:'漫画', meta:'连载中 · 17 话', local:false, favorite:false, score:7.2, rank:2460, tags:['科幻','治愈'], year:2026, month:5 },
-      { title:'春日巡航', type:'动画', meta:'周二更新 · 24 集', local:false, favorite:true, score:8.3, rank:540, tags:['日常','治愈'], year:2026, month:4 },
-      { title:'第四次日落', type:'漫画', meta:'完结 · 6 卷', local:true, favorite:false, score:8.5, rank:377, tags:['奇幻','冒险'], year:2025, month:9 },
-      { title:'雾港来信', type:'动画', meta:'周四更新 · 12 集', local:false, favorite:false, score:7.7, rank:1655, tags:['悬疑','治愈'], year:2026, month:6 },
-      { title:'纸上天文台', type:'漫画', meta:'连载中 · 39 话', local:false, favorite:false, score:8.0, rank:1011, tags:['奇幻','日常'], year:2024, month:8 }
+      { title:'星海邮差', type:'动画', meta:'周三更新 · 12 集', local:true, tags:['科幻','冒险'], year:2026, month:4 },
+      { title:'雨声与机械城', type:'漫画', meta:'连载中 · 48 话', local:false, tags:['科幻','悬疑'], year:2025, month:11 },
+      { title:'第七码头的夏天', type:'动画', meta:'周六更新 · 24 集', local:false, tags:['日常','治愈'], year:2026, month:7 },
+      { title:'玻璃庭院', type:'漫画', meta:'完结 · 9 卷', local:true, tags:['悬疑','奇幻'], year:2026, month:1 },
+      { title:'群青观测站', type:'动画', meta:'周五更新 · 13 集', local:false, tags:['科幻','日常'], year:2026, month:4 },
+      { title:'深夜食谱研究会', type:'漫画', meta:'连载中 · 31 话', local:false, tags:['日常','治愈'], year:2026, month:2 },
+      { title:'北纬三十五度', type:'动画', meta:'周日更新 · 12 集', local:false, tags:['冒险','日常'], year:2025, month:10 },
+      { title:'白昼信号', type:'漫画', meta:'连载中 · 22 话', local:false, tags:['悬疑','科幻'], year:2026, month:3 },
+      { title:'回声档案', type:'动画', meta:'完结 · 13 集', local:true, tags:['悬疑','奇幻'], year:2024, month:12 },
+      { title:'月面车站', type:'漫画', meta:'连载中 · 17 话', local:false, tags:['科幻','治愈'], year:2026, month:5 },
+      { title:'春日巡航', type:'动画', meta:'周二更新 · 24 集', local:false, tags:['日常','治愈'], year:2026, month:4 },
+      { title:'第四次日落', type:'漫画', meta:'完结 · 6 卷', local:true, tags:['奇幻','冒险'], year:2025, month:9 },
+      { title:'雾港来信', type:'动画', meta:'周四更新 · 12 集', local:false, tags:['悬疑','治愈'], year:2026, month:6 },
+      { title:'纸上天文台', type:'漫画', meta:'连载中 · 39 话', local:false, tags:['奇幻','日常'], year:2024, month:8 }
     ];
     const discoverGrid = document.getElementById('discoverGrid');
     const exploreContent = document.getElementById('exploreContent');
     const exploreState = document.getElementById('exploreState');
     const exploreStateMessage = document.getElementById('exploreStateMessage');
-    const exploreSearchInput = document.getElementById('exploreSearchInput');
-    const exploreSearchClear = document.getElementById('exploreSearchClear');
-    const exploreResultsTitle = document.getElementById('exploreResultsTitle');
-    const exploreResultsDetail = document.getElementById('exploreResultsDetail');
-    // 数据源状态（真实实现由 Bangumi 契约返回）。原型固定为「可用且新鲜」，故默认不显示提示；
-    // 把某项 available / stale 改成对应值即可演示「缓存」与「数据源不可用」两种状态。
-    const exploreSources = [
-      { key:'bangumi', label:'Bangumi 官方 API', available:true, stale:false, warning:null },
-      { key:'bangumi-data', label:'bangumi-data 番组索引', available:true, stale:false, warning:null }
-    ];
-    let currentExploreTab = '热门';
+    let currentExploreFilter = '推荐';
     let currentExploreTags = [];
     let currentYear = '全部';
     let currentMonth = '全部';
     const exploreTags = [...new Set(discoverItems.flatMap(item => item.tags || []))];
     const exploreYears = [...new Set(discoverItems.map(item => item.year))].sort((a, b) => b - a);
-    function formatScore(score) { return score === null || score === undefined ? '暂无网络评分' : Number(score).toFixed(1); }
-    function formatRank(rank) { return rank === null || rank === undefined ? '暂无排名' : '#' + rank; }
-    function renderSourceNotices() {
-      const staleNotices = exploreSources.filter(source => source.available && source.stale);
-      const blockers = exploreSources.filter(source => !source.available);
-      if (staleNotices.length) document.getElementById('exploreStaleText').textContent = staleNotices.map(source => `${source.label}：${source.warning || '网络更新失败，正在使用过期缓存'}`).join('；');
-      if (blockers.length) document.getElementById('exploreSourceText').textContent = blockers.map(source => `${source.label}：${source.warning || '数据源不可用'}`).join('；');
-      document.getElementById('exploreStaleNotice').hidden = !staleNotices.length;
-      document.getElementById('exploreSourceNotice').hidden = !blockers.length;
-    }
     function renderTagFilter() {
       const row = document.getElementById('tagFilterRow');
       row.innerHTML = exploreTags.map(tag => `<button type="button" class="chip${currentExploreTags.includes(tag) ? ' active' : ''}" data-tag="${tag}" aria-pressed="${currentExploreTags.includes(tag) ? 'true' : 'false'}">${tag}</button>`).join('');
@@ -1457,43 +1371,35 @@
       document.getElementById('yearFilter').value = currentYear;
       document.getElementById('monthFilter').value = currentMonth;
     }
-    function renderDiscover() {
-      const query = exploreSearchInput.value.trim().toLowerCase();
+    function renderDiscover(filter = currentExploreFilter) {
+      currentExploreFilter = filter;
+      const query = document.getElementById('exploreSearchInput').value.trim().toLowerCase();
       const items = discoverItems.filter(item => {
-        const byTab = currentExploreTab === '热门' || item.year === 2026;
+        const byCategory = filter === '推荐' || filter === '本季' || item.type === filter;
         const byTag = !currentExploreTags.length || (item.tags || []).some(tag => currentExploreTags.includes(tag));
         const byYear = currentYear === '全部' || item.year === Number(currentYear);
         const byMonth = currentMonth === '全部' || item.month === Number(currentMonth);
         const byQuery = !query || `${item.title} ${item.type} ${item.meta} ${(item.tags || []).join(' ')}`.toLowerCase().includes(query);
-        return byTab && byTag && byYear && byMonth && byQuery;
+        return byCategory && byTag && byYear && byMonth && byQuery;
       });
-      discoverGrid.innerHTML = items.length ? items.map(item => `<button class="explore-card" data-title="${item.title}" data-type="${item.type}"><span class="explore-poster">${item.local ? '<span class="explore-flag">入库</span>' : ''}${item.favorite ? '<span class="explore-flag is-favorite">收藏</span>' : ''}</span><span class="explore-card-body"><strong class="od-truncate">${item.title}</strong><span class="explore-card-meta">${formatScore(item.score)} · ${formatRank(item.rank)}</span><span class="explore-card-sub">${item.meta}</span><span class="explore-card-tags">${(item.tags || []).length ? item.tags.slice(0, 3).map(tag => `<em>${tag}</em>`).join('') : '<em class="is-empty">暂无标签</em>'}</span></span></button>`).join('') : '<div class="explore-empty"><span>没有找到匹配的探索内容，请尝试其他关键词、标签或时间。</span></div>';
+      discoverGrid.innerHTML = items.length ? items.map(item => `<button class="discover-card" data-title="${item.title}" data-type="${item.type}"><span class="discover-poster"><span class="discover-kind">${item.type}</span><span class="local-state ${item.local ? 'in-library' : ''}">${item.local ? '已在本地' : '未入库'}</span><span class="discover-title od-truncate">${item.title}</span></span><strong class="od-truncate">${item.title}</strong><small>${item.meta} · Prototype</small></button>`).join('') : '<div class="discover-empty"><span>没有找到匹配的探索内容，请尝试其他关键词、标签或时间。</span></div>';
       const summary = document.getElementById('filterSummary');
       if (summary) summary.textContent = `共 ${items.length} 部作品`;
-      if (query) { exploreResultsTitle.textContent = '搜索结果'; exploreResultsDetail.textContent = `「${exploreSearchInput.value.trim()}」共 ${items.length} 条`; }
-      else if (currentExploreTab === '本季') { exploreResultsTitle.textContent = '本季番组'; exploreResultsDetail.textContent = '来自 bangumi-data 番组索引（示例数据）'; }
-      else { exploreResultsTitle.textContent = '最高热度'; exploreResultsDetail.textContent = '按 Bangumi 评分人数与收藏人数排序'; }
-      exploreSearchClear.hidden = !exploreSearchInput.value.trim();
-      discoverGrid.querySelectorAll('.explore-card').forEach(card => card.addEventListener('click', () => openDetail(card, 'explore')));
+      document.getElementById('discoverCount').textContent = query ? `${items.length} 部匹配作品` : `${items.length} 部示例作品`;
+      discoverGrid.querySelectorAll('.discover-card').forEach(card => card.addEventListener('click', () => openDetail(card, 'explore')));
     }
     function setExploreState(state) { if (!state || state === 'normal') { exploreContent.hidden = false; exploreState.hidden = true; return; } exploreContent.hidden = true; exploreState.hidden = false; const messages = { loading:'<span class="skeleton-poster"></span><span class="skeleton-line"></span><p>正在读取探索数据…</p>', empty:'<h2>当前分类暂无作品</h2><p>可以切换季度或媒体类型。正式数据由后端来源决定。</p><button class="action" id="clearExploreState">查看推荐</button>', error:'<h2>探索数据暂时不可用</h2><p>数据源请求失败。请检查网络或继续浏览已经缓存的内容。</p><button class="action" id="clearExploreState">重试</button>', disabled:'<h2>当前处于离线模式</h2><p>刷新功能已禁用；正式应用可继续展示上次成功同步的缓存。</p><button class="action" disabled>刷新探索数据</button>' }; exploreStateMessage.innerHTML = messages[state] || messages.empty; document.getElementById('clearExploreState')?.addEventListener('click', () => setExploreState('normal')); }
     renderTagFilter();
     renderFilterSelects();
-    renderSourceNotices();
     renderDiscover();
     setExploreState(new URLSearchParams(location.search).get('exploreState'));
-    document.getElementById('exploreSeasonCounts').textContent = `本季 ${discoverItems.filter(item => item.year === 2026).length} 部 · 热度 ${discoverItems.length} 部`;
-    document.querySelectorAll('.primary-tabs [data-explore-tab]').forEach(button => button.addEventListener('click', () => {
-      document.querySelectorAll('.primary-tabs [data-explore-tab]').forEach(item => { const on = item === button; item.classList.toggle('active', on); item.setAttribute('aria-selected', on ? 'true' : 'false'); });
-      currentExploreTab = button.dataset.exploreTab;
-      renderDiscover();
-    }));
-    exploreSearchInput.addEventListener('input', () => renderDiscover());
-    exploreSearchClear.addEventListener('click', () => { exploreSearchInput.value = ''; renderDiscover(); exploreSearchInput.focus(); });
+    document.querySelectorAll('.explore-filter').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.explore-filter').forEach(item => { item.classList.remove('active'); item.setAttribute('aria-selected','false'); }); button.classList.add('active'); button.setAttribute('aria-selected','true'); renderDiscover(button.dataset.exploreFilter); }));
+    document.getElementById('exploreSearchInput').addEventListener('input', () => renderDiscover());
     document.getElementById('yearFilter').addEventListener('change', event => { currentYear = event.target.value; renderDiscover(); });
     document.getElementById('monthFilter').addEventListener('change', event => { currentMonth = event.target.value; renderDiscover(); });
     document.getElementById('filterReset').addEventListener('click', () => { currentExploreTags = []; currentYear = '全部'; currentMonth = '全部'; renderTagFilter(); renderFilterSelects(); renderDiscover(); });
-    document.getElementById('exploreRefresh').addEventListener('click', () => notify('Prototype：刷新探索数据需要 Bangumi 探索接口（当前为示例数据）'));
+    document.querySelectorAll('.heat-card').forEach(card => card.addEventListener('click', () => openDetail({ dataset:{ title:card.dataset.heatTitle, type:card.dataset.heatType } }, 'explore')));
+    document.getElementById('exploreRefresh').addEventListener('click', () => notify('Prototype：刷新需要探索数据接口'));
 
     const previewRows = document.getElementById('previewRows');
     const previewTitle = document.getElementById('previewTitle');
