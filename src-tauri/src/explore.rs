@@ -15,9 +15,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool};
 use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration as StdDuration;
 use tauri::AppHandle;
+use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -72,6 +73,8 @@ pub(crate) struct BangumiDataLinks {
 }
 
 static BANGUMI_DATA_INDEX: OnceLock<Result<BangumiDataIndex, String>> = OnceLock::new();
+static COVER_CACHE_IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static COVER_CACHE_LIMIT: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
 #[derive(Debug, FromRow)]
 struct CacheRow {
@@ -416,6 +419,71 @@ pub async fn check_in_local_library(pool: &SqlitePool, external_id: &str) -> App
         .bind(external_id)
         .fetch_one(pool)
         .await?)
+}
+
+pub(crate) async fn prepare_cover_cache(
+    app: &AppHandle,
+    state: &AppState,
+    subjects: &mut [ExploreSubject],
+) {
+    for subject in subjects {
+        let Some(remote_url) = subject.cover_url.as_deref() else {
+            continue;
+        };
+        if !remote_url.starts_with("http://") && !remote_url.starts_with("https://") {
+            continue;
+        }
+
+        let destination = state
+            .cover_cache_path
+            .join(format!("explore-bangumi-{}.jpg", subject.external_id));
+        let thumbnail = crate::metadata_aggregator::thumbnail_path(&destination);
+        if thumbnail.is_file() {
+            if db::allow_cover_file(app, &thumbnail).is_ok() {
+                subject.cover_url = Some(thumbnail.to_string_lossy().to_string());
+            }
+            continue;
+        }
+
+        let download_url = explore_thumbnail_url(remote_url);
+        subject.cover_url = Some(download_url.clone());
+        let cache_key = destination.to_string_lossy().to_string();
+        let mut in_flight = cover_cache_in_flight().lock().await;
+        if !in_flight.insert(cache_key.clone()) {
+            continue;
+        }
+        drop(in_flight);
+
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let limiter = COVER_CACHE_LIMIT
+                .get_or_init(|| Arc::new(Semaphore::new(4)))
+                .clone();
+            let permit = limiter.acquire_owned().await.ok();
+            if permit.is_some()
+                && crate::metadata_aggregator::cache_cover(&download_url, &destination)
+                    .await
+                    .is_ok()
+            {
+                let _ = db::allow_cover_file(&app, &destination);
+                let _ = db::allow_cover_file(&app, &thumbnail);
+            }
+            cover_cache_in_flight().lock().await.remove(&cache_key);
+        });
+    }
+}
+
+fn cover_cache_in_flight() -> &'static Mutex<HashSet<String>> {
+    COVER_CACHE_IN_FLIGHT.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn explore_thumbnail_url(value: &str) -> String {
+    let value = if let Some(path) = value.strip_prefix("http://lain.bgm.tv/") {
+        format!("https://lain.bgm.tv/{path}")
+    } else {
+        value.to_string()
+    };
+    value.replacen("/pic/cover/l/", "/pic/cover/c/", 1)
 }
 
 pub async fn save_subject(
@@ -1095,6 +1163,14 @@ mod tests {
         }))
         .expect("bangumi-data document");
         assert_eq!(document.items.len(), 1);
+    }
+
+    #[test]
+    fn uses_https_common_bangumi_images_for_explore_cards() {
+        assert_eq!(
+            explore_thumbnail_url("http://lain.bgm.tv/pic/cover/l/92/97/975_GFGYI.jpg"),
+            "https://lain.bgm.tv/pic/cover/c/92/97/975_GFGYI.jpg"
+        );
     }
 
     #[tokio::test]

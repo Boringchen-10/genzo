@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type {
   AppInfo,
   Dashboard,
@@ -37,6 +37,27 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   } catch (error: unknown) {
     throw new Error(errorMessage(error));
   }
+}
+
+function localAssetUrl(value: string | null | undefined): string | null | undefined {
+  if (!value || /^(?:https?:|asset:|data:|blob:)/i.test(value)) return value;
+  return convertFileSrc(value);
+}
+
+function withExploreAssets(subject: ExploreSubject): ExploreSubject {
+  return {
+    ...subject,
+    coverUrl: localAssetUrl(subject.coverUrl) ?? null,
+    bannerUrl: localAssetUrl(subject.bannerUrl),
+  };
+}
+
+function withExploreOverviewAssets(overview: ExploreOverview): ExploreOverview {
+  return {
+    ...overview,
+    seasonal: overview.seasonal.map(withExploreAssets),
+    trending: overview.trending.map(withExploreAssets),
+  };
 }
 
 export const api = {
@@ -88,12 +109,12 @@ export const api = {
     call<void>("cancel_match_candidates", { mediaFileId }),
   setFieldLock: (workId: string, field: string, locked: boolean) =>
     call<void>("set_work_field_lock", { workId, field, locked }),
-  exploreOverview: (year: number | null = null, month: number | null = null) =>
-    call<ExploreOverview>("get_explore_overview", { year, month }),
-  searchExplore: (query: string) =>
-    call<ExploreSubject[]>("search_explore_subjects", { query }),
-  getExploreSubject: (externalId: string) =>
-    call<ExploreSubject>("get_explore_subject", { externalId }),
+  exploreOverview: async (year: number | null = null, month: number | null = null) =>
+    withExploreOverviewAssets(await call<ExploreOverview>("get_explore_overview", { year, month })),
+  searchExplore: async (query: string) =>
+    (await call<ExploreSubject[]>("search_explore_subjects", { query })).map(withExploreAssets),
+  getExploreSubject: async (externalId: string) =>
+    withExploreAssets(await call<ExploreSubject>("get_explore_subject", { externalId })),
   saveExploreSubject: (input: ExploreSaveInput) =>
     call<string>("save_explore_subject", { input }),
   discoveryList: (
@@ -113,8 +134,11 @@ export const api = {
       month,
       page,
       pageSize,
-    }),
-  weeklyCalendar: () => call<WeeklyCalendar>("get_weekly_calendar"),
+    }).then((subjects) => subjects.map(withExploreAssets)),
+  weeklyCalendar: () => call<WeeklyCalendar>("get_weekly_calendar").then((calendar) => ({
+    ...calendar,
+    days: calendar.days.map((day) => ({ ...day, items: day.items.map(withExploreAssets) })),
+  })),
   checkInLocalLibrary: (bangumiId: string) =>
     call<boolean>("check_in_local_library", { bangumiId }),
   metadataProviderStatuses: () =>

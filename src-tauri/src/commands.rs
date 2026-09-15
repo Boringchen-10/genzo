@@ -971,25 +971,35 @@ pub async fn set_setting(key: String, value: String, state: State<'_, AppState>)
 pub async fn get_explore_overview(
     year: Option<i32>,
     month: Option<u32>,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<ExploreOverview> {
-    explore::overview(&state.pool, year, month).await
+    let mut result = explore::overview(&state.pool, year, month).await?;
+    explore::prepare_cover_cache(&app, &state, &mut result.seasonal).await;
+    explore::prepare_cover_cache(&app, &state, &mut result.trending).await;
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn search_explore_subjects(
     query: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<ExploreSubject>> {
-    explore::search(&state.pool, &query).await
+    let mut result = explore::search(&state.pool, &query).await?;
+    explore::prepare_cover_cache(&app, &state, &mut result).await;
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn get_explore_subject(
     external_id: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<ExploreSubject> {
-    explore::subject(&state.pool, &external_id).await
+    let mut result = explore::subject(&state.pool, &external_id).await?;
+    explore::prepare_cover_cache(&app, &state, std::slice::from_mut(&mut result)).await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1011,9 +1021,10 @@ pub async fn get_discovery_list(
     month: Option<u32>,
     page: u32,
     page_size: u32,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<ExploreSubject>> {
-    explore::discovery_list(
+    let mut result = explore::discovery_list(
         &state.pool,
         &category,
         &sort,
@@ -1023,12 +1034,21 @@ pub async fn get_discovery_list(
         page,
         page_size,
     )
-    .await
+    .await?;
+    explore::prepare_cover_cache(&app, &state, &mut result).await;
+    Ok(result)
 }
 
 #[tauri::command]
-pub async fn get_weekly_calendar(state: State<'_, AppState>) -> AppResult<WeeklyCalendar> {
-    explore::weekly_calendar(&state.pool).await
+pub async fn get_weekly_calendar(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<WeeklyCalendar> {
+    let mut result = explore::weekly_calendar(&state.pool).await?;
+    for day in &mut result.days {
+        explore::prepare_cover_cache(&app, &state, &mut day.items).await;
+    }
+    Ok(result)
 }
 
 #[tauri::command]

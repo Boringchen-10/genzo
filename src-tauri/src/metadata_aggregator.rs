@@ -233,7 +233,12 @@ pub async fn episodes_for_work(
 }
 
 pub async fn cache_cover(url: &str, destination: &Path) -> AppResult<()> {
-    let parsed = reqwest::Url::parse(url)
+    let normalized_url = if let Some(path) = url.strip_prefix("http://lain.bgm.tv/") {
+        format!("https://lain.bgm.tv/{path}")
+    } else {
+        url.to_string()
+    };
+    let parsed = reqwest::Url::parse(&normalized_url)
         .map_err(|_| AppError::Network("元数据封面地址无效".to_string()))?;
     let trusted = matches!(
         parsed.host_str(),
@@ -307,7 +312,7 @@ fn decode_and_save_cover(bytes: &[u8], destination: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn thumbnail_path(destination: &Path) -> PathBuf {
+pub(crate) fn thumbnail_path(destination: &Path) -> PathBuf {
     let stem = destination
         .file_stem()
         .and_then(|value| value.to_str())

@@ -274,6 +274,11 @@ pub(crate) fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
         .and_then(Value::as_object)
         .map(|collection| collection.values().filter_map(Value::as_i64).sum::<i64>())
         .unwrap_or_default();
+    let cover_url = value
+        .get("images")
+        .and_then(|images| images.get("large").or_else(|| images.get("common")))
+        .and_then(Value::as_str)
+        .map(normalize_bangumi_image_url);
     let air_date = value
         .get("date")
         .or_else(|| value.get("air_date"))
@@ -290,11 +295,7 @@ pub(crate) fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        cover_url: value
-            .get("images")
-            .and_then(|images| images.get("large").or_else(|| images.get("common")))
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        cover_url: cover_url.clone(),
         banner_url: None,
         year,
         season: extract_season(value),
@@ -316,12 +317,7 @@ pub(crate) fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
         air_date,
         broadcast: None,
         source_keys: vec!["bangumi".to_string()],
-        cover_provider: value
-            .get("images")
-            .and_then(|images| images.get("large").or_else(|| images.get("common")))
-            .and_then(Value::as_str)
-            .is_some()
-            .then_some("bangumi".to_string()),
+        cover_provider: cover_url.map(|_| "bangumi".to_string()),
         banner_provider: None,
         score_provider: rating
             .and_then(|value| value.get("score"))
@@ -329,6 +325,16 @@ pub(crate) fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
             .map(|_| "bangumi".to_string()),
         fetched_at: Utc::now().to_rfc3339(),
     })
+}
+
+fn normalize_bangumi_image_url(value: &str) -> String {
+    if let Some(path) = value.strip_prefix("http://lain.bgm.tv/") {
+        format!("https://lain.bgm.tv/{path}")
+    } else if let Some(path) = value.strip_prefix("//lain.bgm.tv/") {
+        format!("https://lain.bgm.tv/{path}")
+    } else {
+        value.to_string()
+    }
 }
 
 fn nonempty(value: Option<&str>) -> Option<String> {
@@ -393,6 +399,18 @@ mod tests {
         assert_eq!(metadata.rank, Some(42));
         assert_eq!(metadata.rating_count, 36_198);
         assert_eq!(metadata.collection_count, 35);
+    }
+
+    #[test]
+    fn normalizes_bangumi_cover_urls_to_https() {
+        assert_eq!(
+            normalize_bangumi_image_url("http://lain.bgm.tv/pic/cover/l/test.jpg"),
+            "https://lain.bgm.tv/pic/cover/l/test.jpg"
+        );
+        assert_eq!(
+            normalize_bangumi_image_url("//lain.bgm.tv/pic/cover/l/test.jpg"),
+            "https://lain.bgm.tv/pic/cover/l/test.jpg"
+        );
     }
     #[test]
     fn fetched_at_is_recorded() {

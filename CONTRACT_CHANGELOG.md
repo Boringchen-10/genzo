@@ -111,3 +111,14 @@ Open Design 需要在其负责的 `GenzoDataProvider` / Mock Provider 中声明�
 ### Open Design 后续接线
 
 Open Design 可按正式 UI 节奏把 `discoveryList`、`weeklyCalendar`、`metadataProviderStatuses` 与 `listAnimeEpisodes` 加入其 Provider 接口和 Mock，并连接探索筛选、周时间表、设置数据源状态及详情分集区域。`manga` 分类当前会返回明确“尚未接入”错误，不得用动画数据冒充。
+
+---
+
+## 007 · 2026-09-15 · 探索封面 HTTPS 与本地缩略图缓存（Codex）
+
+- **变更**：Bangumi 图片地址统一升级为 HTTPS；探索列表首次使用 Bangumi `common` 缩略图并后台缓存，后续请求优先返回本地 400×600 以内缩略图。`src/api.ts` 仅在真实 Tauri 结果为本地路径时转换为 asset URL。
+- **原因**：避免 `large` 原图并发加载和 HTTP 307 跳转导致海报墙长期空白或显示破图图标。
+- **字段**：没有新增或改名字段；`ExploreSubject.coverUrl` 仍为可直接展示的 URL。
+- **兼容性**：向后兼容。远程缓存失败时继续返回 HTTPS 网络缩略图，不阻断探索数据；Mock Provider 和 Open Design 页面无需修改。
+- **受影响功能 ID**：EXPLORE-001、EXPLORE-002、EXPLORE-003、EXPLORE-005。
+- **变更方**：Codex（Rust、Tauri Command 内部处理和最薄数据适配）；未修改页面、组件、样式或 Mock。
