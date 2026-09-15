@@ -12,6 +12,8 @@ pub struct Work {
     pub work_type: String,
     pub description: String,
     pub cover_path: Option<String>,
+    #[sqlx(default)]
+    pub banner_path: Option<String>,
     pub status: String,
     pub favorite: bool,
     pub rating: Option<f64>,

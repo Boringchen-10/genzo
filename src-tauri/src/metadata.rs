@@ -22,7 +22,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error";
-const WORK_COLUMNS: &str = "id, title, original_title, type, description, cover_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at";
+const WORK_COLUMNS: &str = "id, title, original_title, type, description, cover_path, banner_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at";
 const AUTO_MATCH_THRESHOLD: f64 = 0.80;
 const PENDING_MATCH_THRESHOLD: f64 = 0.60;
 type SearchMemoryCache = lru::LruCache<String, (Instant, Vec<WorkMetadata>)>;
@@ -478,6 +478,7 @@ pub(crate) async fn apply_metadata(
     work_id: &str,
     metadata: &WorkMetadata,
     cover_path: Option<String>,
+    banner_path: Option<String>,
     now: &str,
 ) -> AppResult<()> {
     let current =
@@ -511,8 +512,10 @@ pub(crate) async fn apply_metadata(
     } else {
         cover_path.or(current.cover_path)
     };
-    sqlx::query("UPDATE works SET title = ?, original_title = ?, description = ?, cover_path = ?, metadata_year = ?, metadata_status = 'matched', last_recognized_at = ?, updated_at = ? WHERE id = ?")
-        .bind(title).bind(original).bind(description).bind(cover).bind(year).bind(now).bind(now).bind(work_id).execute(&mut **transaction).await?;
+    let banner_updated = banner_path.is_some();
+    let banner = banner_path.or(current.banner_path);
+    sqlx::query("UPDATE works SET title = ?, original_title = ?, description = ?, cover_path = ?, banner_path = ?, metadata_year = ?, metadata_status = 'matched', last_recognized_at = ?, updated_at = ? WHERE id = ?")
+        .bind(title).bind(original).bind(description).bind(cover).bind(banner).bind(year).bind(now).bind(now).bind(work_id).execute(&mut **transaction).await?;
     for field in [
         "title",
         "originalTitle",
@@ -531,6 +534,19 @@ pub(crate) async fn apply_metadata(
             };
             record_source(transaction, work_id, field, provider, now).await?;
         }
+    }
+    if banner_updated {
+        record_source(
+            transaction,
+            work_id,
+            "bannerPath",
+            metadata
+                .banner_provider
+                .as_deref()
+                .unwrap_or(&metadata.provider),
+            now,
+        )
+        .await?;
     }
     if !locks.contains("tags") {
         for genre in &metadata.genres {
@@ -605,6 +621,22 @@ pub async fn confirm_candidate(
     } else {
         None
     };
+    let banner_path = if let Some(url) = &metadata.banner_url {
+        let destination = state
+            .cover_cache_path
+            .join(format!("bangumi-{}-banner.jpg", metadata.external_id));
+        if destination.is_file()
+            || crate::metadata_aggregator::cache_banner(url, &destination)
+                .await
+                .is_ok()
+        {
+            Some(destination.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let now = Utc::now().to_rfc3339();
     let mut transaction = state.pool.begin().await?;
     let media_work: Option<String> =
@@ -628,10 +660,18 @@ pub async fn confirm_candidate(
         .fetch_one(&mut *transaction)
         .await?;
     if !exists {
-        sqlx::query("INSERT INTO works (id, title, original_title, type, description, cover_path, status, favorite, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at) VALUES (?, ?, ?, 'video', ?, ?, 'planned', 0, '', ?, ?, 'matched', ?, ?)")
-            .bind(&work_id).bind(&metadata.title).bind(&metadata.original_title).bind(&metadata.description).bind(&cover_path).bind(&now).bind(&now).bind(metadata.year).bind(&now).execute(&mut *transaction).await?;
+        sqlx::query("INSERT INTO works (id, title, original_title, type, description, cover_path, banner_path, status, favorite, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at) VALUES (?, ?, ?, 'video', ?, ?, ?, 'planned', 0, '', ?, ?, 'matched', ?, ?)")
+            .bind(&work_id).bind(&metadata.title).bind(&metadata.original_title).bind(&metadata.description).bind(&cover_path).bind(&banner_path).bind(&now).bind(&now).bind(metadata.year).bind(&now).execute(&mut *transaction).await?;
     }
-    apply_metadata(&mut transaction, &work_id, &metadata, cover_path, &now).await?;
+    apply_metadata(
+        &mut transaction,
+        &work_id,
+        &metadata,
+        cover_path,
+        banner_path,
+        &now,
+    )
+    .await?;
     if let Some(aggregation) = &aggregation {
         crate::metadata_aggregator::persist_for_work(&mut transaction, &work_id, aggregation)
             .await?;
@@ -834,7 +874,7 @@ mod tests {
             fetched_at: now.clone(),
         };
         let mut transaction = pool.begin().await.unwrap();
-        apply_metadata(&mut transaction, "w", &metadata, None, &now)
+        apply_metadata(&mut transaction, "w", &metadata, None, None, &now)
             .await
             .unwrap();
         transaction.commit().await.unwrap();
@@ -846,6 +886,75 @@ mod tests {
         assert_eq!(row.0, "我的标题");
         assert_eq!(row.1, "新简介");
         assert_eq!(row.2, Some(2024));
+    }
+
+    #[tokio::test]
+    async fn metadata_refresh_persists_and_preserves_cached_banner() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('w', '测试', 'video', ?, ?)")
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut metadata = WorkMetadata {
+            provider: "bangumi".to_string(),
+            external_id: "1".to_string(),
+            title: "测试".to_string(),
+            original_title: None,
+            aliases: Vec::new(),
+            description: String::new(),
+            cover_url: None,
+            banner_url: Some("https://s4.anilist.co/banner.jpg".to_string()),
+            year: None,
+            season: None,
+            subject_type: "tv".to_string(),
+            genres: Vec::new(),
+            score: None,
+            rank: None,
+            rating_count: 0,
+            collection_count: 0,
+            air_date: None,
+            broadcast: None,
+            source_keys: vec!["bangumi".to_string(), "anilist".to_string()],
+            cover_provider: None,
+            banner_provider: Some("anilist".to_string()),
+            score_provider: None,
+            fetched_at: now.clone(),
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        apply_metadata(
+            &mut transaction,
+            "w",
+            &metadata,
+            None,
+            Some("C:\\cache\\banner.jpg".to_string()),
+            &now,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+
+        metadata.banner_url = None;
+        metadata.banner_provider = None;
+        let mut transaction = pool.begin().await.unwrap();
+        apply_metadata(&mut transaction, "w", &metadata, None, None, &now)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+
+        let banner: Option<String> =
+            sqlx::query_scalar("SELECT banner_path FROM works WHERE id = 'w'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(banner.as_deref(), Some("C:\\cache\\banner.jpg"));
+        let source: String = sqlx::query_scalar("SELECT provider FROM work_field_sources WHERE work_id = 'w' AND field_name = 'bannerPath'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(source, "anilist");
     }
 
     #[tokio::test]

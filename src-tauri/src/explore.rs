@@ -584,14 +584,18 @@ async fn prepare_cached_image(
         let limiter = COVER_CACHE_LIMIT
             .get_or_init(|| Arc::new(Semaphore::new(4)))
             .clone();
-        let permit = limiter.acquire_owned().await.ok();
-        if permit.is_some()
-            && crate::metadata_aggregator::cache_cover(&cache_url, &destination)
-                .await
-                .is_ok()
-        {
-            let _ = db::allow_cover_file(&app, &destination);
-            let _ = db::allow_cover_file(&app, &thumbnail);
+        if let Ok(_permit) = limiter.acquire_owned().await {
+            let cached = if use_thumbnail {
+                crate::metadata_aggregator::cache_cover(&cache_url, &destination).await
+            } else {
+                crate::metadata_aggregator::cache_banner(&cache_url, &destination).await
+            };
+            if cached.is_ok() {
+                let _ = db::allow_cover_file(&app, &destination);
+                if use_thumbnail {
+                    let _ = db::allow_cover_file(&app, &thumbnail);
+                }
+            }
         }
         cover_cache_in_flight().lock().await.remove(&cache_key);
     });
@@ -643,12 +647,30 @@ pub async fn save_subject(
     } else {
         None
     };
+    let banner_path = if let Some(url) = &metadata.banner_url {
+        let destination = state
+            .cover_cache_path
+            .join(format!("bangumi-{}-banner.jpg", metadata.external_id));
+        if destination.is_file()
+            || crate::metadata_aggregator::cache_banner(url, &destination)
+                .await
+                .is_ok()
+        {
+            db::allow_cover_file(app, &destination)?;
+            Some(destination.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     persist_subject(
         state,
         metadata,
         &input.status,
         input.favorite,
         cover_path,
+        banner_path,
         Some(&aggregated),
     )
     .await
@@ -660,6 +682,7 @@ async fn persist_subject(
     status: &str,
     favorite: bool,
     cover_path: Option<String>,
+    banner_path: Option<String>,
     aggregation: Option<&crate::metadata_aggregator::AggregationResult>,
 ) -> AppResult<String> {
     let now = Utc::now().to_rfc3339();
@@ -676,12 +699,13 @@ async fn persist_subject(
         .fetch_one(&mut *transaction)
         .await?;
     if !exists {
-        sqlx::query("INSERT INTO works (id, title, original_title, type, description, cover_path, status, favorite, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at) VALUES (?, ?, ?, 'video', ?, ?, ?, ?, '', ?, ?, 'matched', ?, ?)")
+        sqlx::query("INSERT INTO works (id, title, original_title, type, description, cover_path, banner_path, status, favorite, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at) VALUES (?, ?, ?, 'video', ?, ?, ?, ?, ?, '', ?, ?, 'matched', ?, ?)")
             .bind(&work_id)
             .bind(&metadata.title)
             .bind(&metadata.original_title)
             .bind(&metadata.description)
             .bind(&cover_path)
+            .bind(&banner_path)
             .bind(status)
             .bind(favorite)
             .bind(&now)
@@ -691,7 +715,15 @@ async fn persist_subject(
             .execute(&mut *transaction)
             .await?;
     }
-    metadata::apply_metadata(&mut transaction, &work_id, metadata, cover_path, &now).await?;
+    metadata::apply_metadata(
+        &mut transaction,
+        &work_id,
+        metadata,
+        cover_path,
+        banner_path,
+        &now,
+    )
+    .await?;
     sqlx::query("UPDATE works SET status = ?, favorite = ?, updated_at = ? WHERE id = ?")
         .bind(status)
         .bind(favorite)
@@ -1403,25 +1435,40 @@ mod tests {
             cover_cache_path: directory.path().join("covers"),
         };
         let metadata = sample_metadata();
-        let first = persist_subject(&state, &metadata, "planned", false, None, None)
+        let first = persist_subject(&state, &metadata, "planned", false, None, None, None)
             .await
             .expect("first save");
-        let second = persist_subject(&state, &metadata, "in_progress", true, None, None)
-            .await
-            .expect("second save");
+        let second = persist_subject(
+            &state,
+            &metadata,
+            "in_progress",
+            true,
+            None,
+            Some("C:\\cache\\banner.jpg".to_string()),
+            None,
+        )
+        .await
+        .expect("second save");
         assert_eq!(first, second);
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM works")
             .fetch_one(&state.pool)
             .await
             .expect("work count");
-        let local: (String, bool) =
-            sqlx::query_as("SELECT status, favorite FROM works WHERE id = ?")
+        let local: (String, bool, Option<String>) =
+            sqlx::query_as("SELECT status, favorite, banner_path FROM works WHERE id = ?")
                 .bind(first)
                 .fetch_one(&state.pool)
                 .await
                 .expect("saved work");
         assert_eq!(count, 1);
-        assert_eq!(local, ("in_progress".to_string(), true));
+        assert_eq!(
+            local,
+            (
+                "in_progress".to_string(),
+                true,
+                Some("C:\\cache\\banner.jpg".to_string())
+            )
+        );
     }
 
     #[tokio::test]

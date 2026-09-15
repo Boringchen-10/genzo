@@ -36,6 +36,7 @@ pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
         .await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
+    backfill_cached_banner_paths(&pool, &cover_cache_path).await?;
 
     Ok(AppState {
         pool,
@@ -43,6 +44,28 @@ pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
         data_directory,
         cover_cache_path,
     })
+}
+
+async fn backfill_cached_banner_paths(pool: &SqlitePool, cache_directory: &Path) -> AppResult<()> {
+    let works: Vec<(String, String)> = sqlx::query_as(
+        "SELECT w.id, e.external_id FROM works w JOIN work_external_ids e ON e.work_id = w.id AND e.provider = 'bangumi' WHERE w.banner_path IS NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    for (work_id, external_id) in works {
+        let candidates = [
+            cache_directory.join(format!("bangumi-{external_id}-banner.jpg")),
+            cache_directory.join(format!("explore-bangumi-{external_id}-banner.jpg")),
+        ];
+        if let Some(path) = candidates.into_iter().find(|path| path.is_file()) {
+            sqlx::query("UPDATE works SET banner_path = ? WHERE id = ? AND banner_path IS NULL")
+                .bind(path.to_string_lossy().to_string())
+                .bind(work_id)
+                .execute(pool)
+                .await?;
+        }
+    }
+    Ok(())
 }
 
 pub fn allow_cover_file(app: &AppHandle, path: &Path) -> AppResult<()> {
@@ -76,4 +99,42 @@ pub async fn test_pool() -> AppResult<SqlitePool> {
         .await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[tokio::test]
+    async fn backfills_existing_work_from_explore_banner_cache() {
+        let pool = test_pool().await.expect("test pool");
+        let directory = tempfile::tempdir().expect("cache directory");
+        let banner = directory.path().join("explore-bangumi-42-banner.jpg");
+        std::fs::write(&banner, b"cached image").expect("cached banner file");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('work', '作品', 'video', ?, ?)")
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .expect("work");
+        sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES ('work', 'bangumi', '42', ?, ?)")
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .expect("external id");
+
+        backfill_cached_banner_paths(&pool, directory.path())
+            .await
+            .expect("backfill");
+
+        let stored: Option<String> =
+            sqlx::query_scalar("SELECT banner_path FROM works WHERE id = 'work'")
+                .fetch_one(&pool)
+                .await
+                .expect("stored banner path");
+        assert_eq!(stored.as_deref(), Some(banner.to_string_lossy().as_ref()));
+    }
 }

@@ -101,7 +101,7 @@ async fn tags_for_work(pool: &SqlitePool, work_id: &str) -> AppResult<Vec<String
 
 async fn work_list_items(pool: &SqlitePool) -> AppResult<Vec<WorkListItem>> {
     let works = sqlx::query_as::<_, Work>(
-        "SELECT id, title, original_title, type, description, cover_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at FROM works ORDER BY updated_at DESC",
+        "SELECT id, title, original_title, type, description, cover_path, banner_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at FROM works ORDER BY updated_at DESC",
     )
     .fetch_all(pool)
     .await?;
@@ -132,7 +132,7 @@ pub async fn list_works(state: State<'_, AppState>) -> AppResult<Vec<WorkListIte
 #[tauri::command]
 pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkDetail> {
     let work = sqlx::query_as::<_, Work>(
-        "SELECT id, title, original_title, type, description, cover_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at FROM works WHERE id = ?",
+        "SELECT id, title, original_title, type, description, cover_path, banner_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at FROM works WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -888,15 +888,42 @@ pub async fn recognize_media_file(
     media_file_id: String,
     query: Option<String>,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> AppResult<RecognitionResult> {
-    metadata::recognize_media(&state, &media_file_id, query).await
+    let result = metadata::recognize_media(&state, &media_file_id, query).await?;
+    if result.status == "matched" {
+        allow_media_work_artwork(&app, &state.pool, &media_file_id).await?;
+    }
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn recognize_unmatched_media(
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> AppResult<RecognitionSummary> {
-    metadata::recognize_batch(&state).await
+    let result = metadata::recognize_batch(&state).await?;
+    db::allow_cached_covers(&app, &state.cover_cache_path)?;
+    Ok(result)
+}
+
+async fn allow_media_work_artwork(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    media_file_id: &str,
+) -> AppResult<()> {
+    let paths: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT w.cover_path, w.banner_path FROM works w JOIN media_files m ON m.work_id = w.id WHERE m.id = ?",
+    )
+    .bind(media_file_id)
+    .fetch_optional(pool)
+    .await?;
+    if let Some(paths) = paths {
+        for path in [paths.0, paths.1].into_iter().flatten() {
+            db::allow_cover_file(app, Path::new(&path))?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -915,14 +942,13 @@ pub async fn confirm_match_candidate(
     app: AppHandle,
 ) -> AppResult<String> {
     let work_id = metadata::confirm_candidate(&state, &media_file_id, &candidate_id).await?;
-    let cover_path: Option<String> =
-        sqlx::query_scalar("SELECT cover_path FROM works WHERE id = ?")
+    let artwork_paths: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT cover_path, banner_path FROM works WHERE id = ?")
             .bind(&work_id)
-            .fetch_optional(&state.pool)
-            .await?
-            .flatten();
-    if let Some(cover_path) = cover_path {
-        db::allow_cover_file(&app, Path::new(&cover_path))?;
+            .fetch_one(&state.pool)
+            .await?;
+    for path in [artwork_paths.0, artwork_paths.1].into_iter().flatten() {
+        db::allow_cover_file(&app, Path::new(&path))?;
     }
     Ok(work_id)
 }
@@ -1103,6 +1129,13 @@ mod tests {
         .await
         .expect("query metadata aggregation tables");
         assert_eq!(metadata_tables, 2);
+        let banner_column_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('works') WHERE name = 'banner_path')",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query banner_path column");
+        assert!(banner_column_exists);
 
         let now = Utc::now().to_rfc3339();
         sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('1', '测试', 'video', ?, ?)")
@@ -1117,6 +1150,22 @@ mod tests {
             .execute(&pool)
             .await;
         assert!(invalid.is_err());
+    }
+
+    #[tokio::test]
+    async fn work_list_serializes_cached_banner_path() {
+        let pool = db::test_pool().await.expect("create test database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, banner_path, created_at, updated_at) VALUES ('banner-work', '横版背景作品', 'video', 'C:\\cache\\banner.jpg', ?, ?)")
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .expect("insert work with banner");
+
+        let items = work_list_items(&pool).await.expect("list works");
+        let value = serde_json::to_value(&items[0]).expect("serialize work list item");
+        assert_eq!(value["bannerPath"], "C:\\cache\\banner.jpg");
     }
 
     #[tokio::test]

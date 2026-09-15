@@ -133,3 +133,18 @@ Open Design 可按正式 UI 节奏把 `discoveryList`、`weeklyCalendar`、`meta
 - **兼容性**：**向后兼容**。无新迁移、无新 Tauri Command、无 Provider 签名变化；AniList 不可用时列表仍返回离线基础数据，不伪造封面或成功状态。超过 100 条的广域查询只合并现有缓存，不会在一次列表请求中触发无界批量网络调用。
 - **受影响功能 ID**：EXPLORE-001、EXPLORE-002、EXPLORE-003、EXPLORE-005、EXPLORE-007、EXPLORE-008。
 - **变更方**：Codex（Rust 数据源、聚合、缓存与契约记录）；未修改 Open Design 拥有的页面、组件、样式、Mock 或 Provider 界面。
+
+---
+
+## 009 · 2026-09-15 · 本地作品横版背景契约（Codex）
+
+- **变更**：`Work` / `WorkListItem` / `WorkDetail` 向后兼容新增可空字段 `bannerPath`；迁移 `0006_work_banner_path.sql` 为 `works` 新增 `banner_path`。探索条目加入资料库和本地动画确认匹配时，会把已通过多源同一条目校验的横版图片缓存到本地并保存路径；升级时会从现有探索横图缓存无网络回填旧作品。
+- **原因**：此前 `Dashboard.recentWorks` 只有竖版 `coverPath`，首页只能放大竖版封面充当宽幅背景。横版图已存在于 TMDB / AniList 聚合结果中，但没有进入本地作品契约。
+- **来源与保留规则**：沿用聚合层现有优先级 `TMDB backdrop > AniList banner > null`；Bangumi 仍是唯一作品锚点。刷新没有返回新横图或缓存失败时保留已有 `banner_path`，不伪造图像，也不以竖版封面写入该字段。
+- **兼容性**：**向后兼容**。字段在 TypeScript 中为可选可空，旧 Mock 和现有前端无需同步修改即可继续编译；Rust 对旧查询行使用 SQLx 默认值。未新增或改义 Tauri Command，未修改 Open Design 页面、组件和样式。
+- **受影响功能 ID**：HOME-001、EXPLORE-004、MATCH-001、FE-PROVIDER-003。
+- **变更方**：Codex（SQLite、Rust、共享类型和契约记录）。
+
+### Open Design 接线要求
+
+首页作品背景应优先使用 `bannerPath`，缺失时再采用已确认的视觉降级方案。图片裁切位置、遮罩强度与响应式构图继续由 Open Design 负责；Codex 不修改已确认 UI。

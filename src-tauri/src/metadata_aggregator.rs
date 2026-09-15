@@ -233,6 +233,14 @@ pub async fn episodes_for_work(
 }
 
 pub async fn cache_cover(url: &str, destination: &Path) -> AppResult<()> {
+    cache_image(url, destination, true).await
+}
+
+pub async fn cache_banner(url: &str, destination: &Path) -> AppResult<()> {
+    cache_image(url, destination, false).await
+}
+
+async fn cache_image(url: &str, destination: &Path, create_thumbnail: bool) -> AppResult<()> {
     let normalized_url = if let Some(path) = url.strip_prefix("http://lain.bgm.tv/") {
         format!("https://lain.bgm.tv/{path}")
     } else {
@@ -278,13 +286,19 @@ pub async fn cache_cover(url: &str, destination: &Path) -> AppResult<()> {
         return Err(AppError::Network("封面超过 20 MB 安全限制".to_string()));
     }
     let destination = destination.to_path_buf();
-    tauri::async_runtime::spawn_blocking(move || decode_and_save_cover(&bytes, &destination))
-        .await
-        .map_err(|error| AppError::System(format!("封面处理任务失败：{error}")))??;
+    tauri::async_runtime::spawn_blocking(move || {
+        decode_and_save_image(&bytes, &destination, create_thumbnail)
+    })
+    .await
+    .map_err(|error| AppError::System(format!("封面处理任务失败：{error}")))??;
     Ok(())
 }
 
-fn decode_and_save_cover(bytes: &[u8], destination: &Path) -> AppResult<()> {
+fn decode_and_save_image(
+    bytes: &[u8],
+    destination: &Path,
+    create_thumbnail: bool,
+) -> AppResult<()> {
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|error| AppError::Validation(format!("无法识别图片格式：{error}")))?;
@@ -304,11 +318,13 @@ fn decode_and_save_cover(bytes: &[u8], destination: &Path) -> AppResult<()> {
     image
         .save_with_format(destination, image::ImageFormat::Jpeg)
         .map_err(|error| AppError::System(format!("封面写入失败：{error}")))?;
-    let thumbnail = image.thumbnail(600, 900);
-    let thumbnail_path = thumbnail_path(destination);
-    thumbnail
-        .save_with_format(thumbnail_path, image::ImageFormat::Jpeg)
-        .map_err(|error| AppError::System(format!("封面缩略图写入失败：{error}")))?;
+    if create_thumbnail {
+        let thumbnail = image.thumbnail(600, 900);
+        let thumbnail_path = thumbnail_path(destination);
+        thumbnail
+            .save_with_format(thumbnail_path, image::ImageFormat::Jpeg)
+            .map_err(|error| AppError::System(format!("封面缩略图写入失败：{error}")))?;
+    }
     Ok(())
 }
 
@@ -594,9 +610,24 @@ mod tests {
     fn rejects_non_image_cover_payload() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let destination = directory.path().join("cover.jpg");
-        let result = decode_and_save_cover(b"not an image", &destination);
+        let result = decode_and_save_image(b"not an image", &destination, true);
         assert!(matches!(result, Err(AppError::Validation(_))));
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn banner_cache_keeps_full_image_without_poster_thumbnail() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let destination = directory.path().join("banner.jpg");
+        let mut bytes = Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(160, 90)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("encode test image");
+
+        decode_and_save_image(bytes.get_ref(), &destination, false).expect("cache banner");
+
+        assert!(destination.is_file());
+        assert!(!thumbnail_path(&destination).exists());
     }
 
     #[tokio::test]

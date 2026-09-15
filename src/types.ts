@@ -11,6 +11,8 @@ export interface Work {
   type: MediaType;
   description: string;
   coverPath: string | null;
+  /** Local cached landscape artwork supplied by the metadata backend. */
+  bannerPath?: string | null;
   status: WorkStatus;
   favorite: boolean;
   rating: number | null;
