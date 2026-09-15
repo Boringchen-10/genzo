@@ -1,6 +1,7 @@
+use anitomy_ng::{parse as anitomy_parse, ElementKind, Options as AnitomyOptions};
 use serde::Serialize;
 use std::path::Path;
-use strsim::normalized_levenshtein;
+use strsim::jaro_winkler;
 
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -10,6 +11,8 @@ pub struct ParsedAnime {
     pub original_title: Option<String>,
     pub season: Option<i64>,
     pub episode: Option<String>,
+    pub episode_start: Option<u32>,
+    pub episode_end: Option<u32>,
     pub year: Option<i64>,
     pub release_group: Option<String>,
     pub special_type: Option<String>,
@@ -96,6 +99,7 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
         raw_file_name: file_name.to_string(),
         ..Default::default()
     };
+    parse_numeric_episode(raw, &mut parsed);
     let mut text = raw
         .replace(['_', '.'], " ")
         .replace('【', "[")
@@ -145,10 +149,11 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
     )
     .expect("static regex");
     if let Some(caps) = episode_re.captures_iter(&text).last() {
-        parsed.episode = caps.get(1).map(|start| match caps.get(2) {
-            Some(end) => format!("{}-{}", start.as_str(), end.as_str()),
-            None => start.as_str().to_string(),
-        });
+        set_episode_range(
+            &mut parsed,
+            caps.get(1).and_then(|value| value.as_str().parse().ok()),
+            caps.get(2).and_then(|value| value.as_str().parse().ok()),
+        );
         if let Some(range) = caps.get(0) {
             text.replace_range(range.start()..range.end(), " ");
         }
@@ -157,16 +162,159 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
         .expect("static regex")
         .replace_all(&text, " ")
         .to_string();
-    let title = text.trim().trim_matches('-').trim();
-    let title = clean_token(title);
+    let anitomy = anitomy_elements(raw);
+    merge_anitomy(&mut parsed, &anitomy, false);
+    let title = clean_token(text.trim().trim_matches('-').trim());
     if !title.is_empty() {
-        parsed.title = Some(title);
+        parsed.title = parsed.title.or(Some(title));
     }
     parsed
 }
 
 pub fn parse_folder_name(folder_name: &str) -> ParsedAnime {
-    parse_file_name(folder_name)
+    let cleaned = preprocess_folder_name(folder_name);
+    let mut parsed = parse_file_name(&cleaned);
+    let elements = anitomy_elements(&cleaned);
+    merge_anitomy(&mut parsed, &elements, true);
+    parsed.raw_file_name = folder_name.to_string();
+    if parsed.title.is_none() && !cleaned.is_empty() {
+        parsed.title = Some(cleaned);
+    }
+    parsed
+}
+
+/// Selects the nearest non-season container in at most three parent levels.
+pub fn parse_work_folder(file_path: &Path, library_root: Option<&Path>) -> ParsedAnime {
+    let mut fallback = ParsedAnime::default();
+    for directory in file_path.ancestors().skip(1).take(3) {
+        if library_root.is_some_and(|root| directory == root) {
+            break;
+        }
+        let Some(name) = directory.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let candidate = parse_folder_name(name);
+        if fallback.title.is_none() {
+            fallback = candidate.clone();
+        }
+        if !is_division_folder(name) {
+            return candidate;
+        }
+    }
+    fallback
+}
+
+pub fn preprocess_folder_name(value: &str) -> String {
+    let bracketed =
+        regex::Regex::new(r"\[[^\]]*\]|【[^】]*】|\([^)]*\)|（[^）]*）").expect("static regex");
+    let suffix = regex::Regex::new(
+        r"(?i)(?:全\s*\d{1,4}\s*[集话]|\d{1,4}\s*[集话]\s*(?:全|完)|全集|高清|超清|1080p|2160p|4k|内嵌字幕|蓝光|bdrip)\s*$",
+    )
+    .expect("static regex");
+    let separators = regex::Regex::new(r"[\s._\-—–]+$").expect("static regex");
+    let spaces = regex::Regex::new(r"\s+").expect("static regex");
+    let mut cleaned = bracketed.replace_all(value, " ").to_string();
+    loop {
+        let next = suffix.replace(&cleaned, "").to_string();
+        if next == cleaned {
+            break;
+        }
+        cleaned = next;
+    }
+    cleaned = separators.replace_all(cleaned.trim(), "").to_string();
+    spaces.replace_all(cleaned.trim(), " ").to_string()
+}
+
+fn is_division_folder(value: &str) -> bool {
+    regex::Regex::new(
+        r"(?i)^(?:season\s*\d{0,2}|s\d{1,2}|第[一二三四五六七八九十\d]+季|vol\.?\s*\d+|bd|dvd|disc\s*\d*|sp|ova|oad|特别篇|劇場版|剧场版|特典|video|videos|subtitle|subtitles|视频|字幕)$",
+    )
+    .expect("static regex")
+    .is_match(value.trim())
+}
+
+fn anitomy_elements(input: &str) -> Vec<anitomy_ng::Element> {
+    anitomy_parse(input, AnitomyOptions::default())
+}
+
+fn merge_anitomy(parsed: &mut ParsedAnime, elements: &[anitomy_ng::Element], prefer_title: bool) {
+    for element in elements {
+        match element.kind {
+            ElementKind::Title if prefer_title || parsed.title.is_none() => {
+                let title = clean_token(&element.value);
+                if !title.is_empty() {
+                    parsed.title = Some(title);
+                }
+            }
+            ElementKind::Season if parsed.season.is_none() => {
+                parsed.season = element.value.parse().ok();
+            }
+            ElementKind::Episode if parsed.episode_start.is_none() => {
+                let mut values = element.value.split(['-', '~']);
+                let start = values.next().and_then(|value| value.trim().parse().ok());
+                let end = values.next().and_then(|value| value.trim().parse().ok());
+                set_episode_range(parsed, start, end);
+            }
+            ElementKind::Year if parsed.year.is_none() => parsed.year = element.value.parse().ok(),
+            ElementKind::ReleaseGroup if parsed.release_group.is_none() => {
+                parsed.release_group = Some(element.value.clone());
+            }
+            ElementKind::Type if parsed.special_type.is_none() => {
+                let kind = element.value.to_ascii_uppercase();
+                if matches!(kind.as_str(), "SP" | "OVA" | "OAD" | "MOVIE") {
+                    parsed.special_type = Some(kind);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn parse_numeric_episode(raw_stem: &str, parsed: &mut ParsedAnime) {
+    let numeric = regex::Regex::new(r"^(\d{1,3})$").expect("static regex");
+    let prefixed =
+        regex::Regex::new(r"(?i)(?:EP|E|第|话|話|集)\s*(\d{1,3})").expect("static regex");
+    let range =
+        regex::Regex::new(r"(?:^|\D)(\d{1,3})\s*[-~]\s*(\d{1,3})(?:\D|$)").expect("static regex");
+    if let Some(captures) = numeric.captures(raw_stem.trim()) {
+        set_episode_range(
+            parsed,
+            captures
+                .get(1)
+                .and_then(|value| value.as_str().parse().ok()),
+            None,
+        );
+    } else if let Some(captures) = prefixed.captures(raw_stem) {
+        set_episode_range(
+            parsed,
+            captures
+                .get(1)
+                .and_then(|value| value.as_str().parse().ok()),
+            None,
+        );
+    } else if let Some(captures) = range.captures(raw_stem) {
+        set_episode_range(
+            parsed,
+            captures
+                .get(1)
+                .and_then(|value| value.as_str().parse().ok()),
+            captures
+                .get(2)
+                .and_then(|value| value.as_str().parse().ok()),
+        );
+    }
+}
+
+fn set_episode_range(parsed: &mut ParsedAnime, start: Option<u32>, end: Option<u32>) {
+    let Some(start) = start else {
+        return;
+    };
+    parsed.episode_start = Some(start);
+    parsed.episode_end = end;
+    parsed.episode = Some(match end {
+        Some(end) => format!("{start}-{end}"),
+        None => start.to_string(),
+    });
 }
 
 fn is_media_token(token: &str) -> bool {
@@ -185,22 +333,35 @@ pub fn score_candidate(
     candidate_season: Option<i64>,
 ) -> (f64, Vec<String>) {
     let q = normalize_title(query.title.as_deref().unwrap_or_default());
-    let mut best = normalized_levenshtein(&q, &normalize_title(title));
-    for alias in aliases {
-        best = best.max(normalized_levenshtein(&q, &normalize_title(alias)));
+    let normalized_title = normalize_title(title);
+    let title_exact = !q.is_empty() && q == normalized_title;
+    let title_similarity = jaro_winkler(&q, &normalized_title);
+    let alias_exact = aliases.iter().any(|alias| normalize_title(alias) == q);
+    let alias_similarity = aliases
+        .iter()
+        .map(|alias| jaro_winkler(&q, &normalize_title(alias)))
+        .fold(0.0, f64::max);
+    let best = title_similarity.max(alias_similarity);
+    let mut reasons = if title_exact {
+        vec!["标题完全匹配".to_string()]
+    } else {
+        vec![format!("标题相似度 {:.0}%", best * 100.0)]
+    };
+    let mut score = if title_exact { 1.0 } else { best * 0.60 };
+    if alias_exact {
+        score += 0.20;
+        reasons.push("别名完全匹配".to_string());
     }
-    let mut reasons = vec![format!("标题相似度 {:.0}%", best * 100.0)];
-    let mut score = best * 0.82;
     if query.year.is_some() && query.year == year {
-        score += 0.10;
+        score += 0.15;
         reasons.push("年份一致".to_string());
     }
     if query.season.is_some() && query.season == candidate_season {
-        score += 0.08;
+        score += 0.15;
         reasons.push("季度一致".to_string());
     }
     if query.special_type.is_some() {
-        score = score.min(0.89);
+        score = score.min(0.79);
         reasons.push("特别篇或剧场版需确认".to_string());
     }
     (score.min(1.0), reasons)
@@ -214,7 +375,7 @@ mod tests {
         let p = parse_file_name("[字幕组] 进击的巨人 S2 - 01 [1080p].mkv");
         assert_eq!(p.title.as_deref(), Some("进击的巨人"));
         assert_eq!(p.season, Some(2));
-        assert_eq!(p.episode.as_deref(), Some("01"));
+        assert_eq!(p.episode_start, Some(1));
         assert_eq!(p.release_group.as_deref(), Some("字幕组"));
     }
     #[test]
@@ -259,6 +420,23 @@ mod tests {
     #[test]
     fn stores_episode_ranges_without_separator_noise() {
         let p = parse_file_name("Show - 01-12 [1080p].mkv");
-        assert_eq!(p.episode.as_deref(), Some("01-12"));
+        assert_eq!(p.episode_start, Some(1));
+        assert_eq!(p.episode_end, Some(12));
+    }
+
+    #[test]
+    fn finds_work_folder_above_video_container_for_numeric_episode() {
+        let path = Path::new(r"G:\影音\【 4K 】Q 亲吻姐姐 12集全\视频\01.mkv");
+        let parsed = parse_work_folder(path, Some(Path::new(r"G:\影音")));
+        assert_eq!(parsed.title.as_deref(), Some("Q 亲吻姐姐"));
+        let episode = parse_file_name("01.mkv");
+        assert_eq!(episode.episode_start, Some(1));
+    }
+
+    #[test]
+    fn skips_season_folder_when_locating_work() {
+        let path = Path::new(r"G:\影音\进击的巨人\Season 2\01.mkv");
+        let parsed = parse_work_folder(path, Some(Path::new(r"G:\影音")));
+        assert_eq!(parsed.title.as_deref(), Some("进击的巨人"));
     }
 }

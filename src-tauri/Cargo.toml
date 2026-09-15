@@ -29,6 +29,12 @@ thiserror = "2"
 regex = "1"
 strsim = "0.11"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest13 = { package = "reqwest", version = "0.13.5", default-features = false, features = ["json", "query", "rustls"] }
+anitomy-ng = "1.0.10"
+async-trait = "0.1"
+lru = "0.12"
+tmdb-rs = "1.0.4"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

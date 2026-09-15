@@ -186,7 +186,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     // Records are deliberately retained when a root configuration is deleted. Include those
     // orphaned rows so re-adding the same directory reclaims them instead of violating path UNIQUE.
     let existing_files = sqlx::query_as::<_, MediaFile>(
-        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE library_root_id = ? OR (library_root_id IS NULL AND substr(path, 1, length(?)) = ? COLLATE NOCASE)",
+        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE library_root_id = ? OR (library_root_id IS NULL AND substr(path, 1, length(?)) = ? COLLATE NOCASE)",
     )
     .bind(&root.id)
     .bind(&root.path)

@@ -49,6 +49,8 @@ export interface MediaFile {
   parsedOriginalTitle: string | null;
   parsedSeason: number | null;
   parsedEpisode: string | null;
+  parsedEpisodeStart?: number | null;
+  parsedEpisodeEnd?: number | null;
   parsedYear: number | null;
   parsedReleaseGroup: string | null;
   parsedSpecialType: string | null;
@@ -216,6 +218,7 @@ export interface ExploreSubject {
   aliases: string[];
   description: string;
   coverUrl: string | null;
+  bannerUrl?: string | null;
   year: number | null;
   month: number | null;
   airDate: string | null;
@@ -232,6 +235,10 @@ export interface ExploreSubject {
   localStatus: WorkStatus | null;
   fetchedAt: string;
   stale: boolean;
+  sourceKeys?: string[];
+  coverProvider?: string | null;
+  bannerProvider?: string | null;
+  scoreProvider?: string | null;
 }
 
 export interface ExploreSourceStatus {
@@ -258,4 +265,41 @@ export interface ExploreSaveInput {
   externalId: string;
   status: WorkStatus;
   favorite: boolean;
+}
+
+export interface WeeklyCalendarDay {
+  weekday: number;
+  label: string;
+  items: ExploreSubject[];
+}
+
+export interface WeeklyCalendar {
+  sourceVersion: string;
+  generatedAt: string;
+  days: WeeklyCalendarDay[];
+}
+
+export type DiscoveryCategory = "recommended" | "seasonal" | "anime" | "manga";
+export type DiscoverySort = "popularity" | "score" | "title" | "date";
+
+export interface MetadataProviderStatus {
+  key: "bangumi" | "tmdb" | "anilist" | "douban";
+  label: string;
+  available: boolean;
+  configured: boolean;
+  requiresCredential: boolean;
+  message: string | null;
+}
+
+export interface AnimeEpisodeMetadata {
+  provider: string;
+  externalId: string;
+  episodeNumber: number | null;
+  sortNumber: number;
+  title: string;
+  originalTitle: string | null;
+  description: string;
+  airDate: string | null;
+  duration: string | null;
+  fetchedAt: string;
 }

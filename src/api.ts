@@ -7,6 +7,11 @@ import type {
   ExploreOverview,
   ExploreSaveInput,
   ExploreSubject,
+  WeeklyCalendar,
+  DiscoveryCategory,
+  DiscoverySort,
+  MetadataProviderStatus,
+  AnimeEpisodeMetadata,
   LibraryRoot,
   MediaFile,
   UnassignedMediaGroup,
@@ -91,4 +96,29 @@ export const api = {
     call<ExploreSubject>("get_explore_subject", { externalId }),
   saveExploreSubject: (input: ExploreSaveInput) =>
     call<string>("save_explore_subject", { input }),
+  discoveryList: (
+    category: DiscoveryCategory,
+    sort: DiscoverySort,
+    tags: string[],
+    year: number | null,
+    month: number | null,
+    page: number,
+    pageSize: number,
+  ) =>
+    call<ExploreSubject[]>("get_discovery_list", {
+      category,
+      sort,
+      tags,
+      year,
+      month,
+      page,
+      pageSize,
+    }),
+  weeklyCalendar: () => call<WeeklyCalendar>("get_weekly_calendar"),
+  checkInLocalLibrary: (bangumiId: string) =>
+    call<boolean>("check_in_local_library", { bangumiId }),
+  metadataProviderStatuses: () =>
+    call<MetadataProviderStatus[]>("get_metadata_provider_statuses"),
+  listAnimeEpisodes: (workId: string) =>
+    call<AnimeEpisodeMetadata[]>("list_anime_episodes", { workId }),
 };

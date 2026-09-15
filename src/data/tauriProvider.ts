@@ -43,5 +43,9 @@ export function createTauriProvider(): GenzoDataProvider {
     confirmMatch: api.confirmMatch,
     cancelMatch: api.cancelMatch,
     setFieldLock: api.setFieldLock,
+    exploreOverview: api.exploreOverview,
+    searchExplore: api.searchExplore,
+    getExploreSubject: api.getExploreSubject,
+    saveExploreSubject: api.saveExploreSubject,
   } satisfies GenzoDataProvider;
 }

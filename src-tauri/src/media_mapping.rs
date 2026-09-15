@@ -5,7 +5,7 @@ use chrono::Utc;
 use sqlx::{Sqlite, Transaction};
 use std::path::Path;
 
-const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error";
+const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SubtitleMatch {
@@ -173,6 +173,8 @@ mod tests {
             parsed_original_title: None,
             parsed_season: Some(1),
             parsed_episode: Some(episode.to_string()),
+            parsed_episode_start: episode.parse().ok(),
+            parsed_episode_end: None,
             parsed_year: None,
             parsed_release_group: None,
             parsed_special_type: None,

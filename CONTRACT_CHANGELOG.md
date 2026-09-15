@@ -94,3 +94,20 @@ Open Design 需要在其负责的 `GenzoDataProvider` / Mock Provider 中声明�
 2. 补齐后可将 `GenzoDataProvider` 上的四个方法改为**必选**（届时 `satisfies GenzoDataProvider` 会强制约束表面），本条目的「尚未接入」错误态随之消失，前端无需再改。
 3. 新的契约需求（尚未提供，界面保持禁用 + `Future`，见 `design/open-design/v1.1.2/BACKEND_CAPABILITY_MATRIX.md`）：按星期分组的放送时间表、全年 / 全量动画浏览查询、漫画探索数据源。
 4. 是否将 `GenzoExploreProvider` 迁入 `contracts/` 作为正式共享契约。
+
+---
+
+## 006 · 2026-09-15 · 动画多源聚合、分集与探索扩展契约（Codex）
+
+- **变更**：新增 `get_discovery_list`、`get_weekly_calendar`、`check_in_local_library`、`get_metadata_provider_statuses`、`list_anime_episodes` 五个 Tauri Command；`src/api.ts` 新增对应薄适配。`ExploreSubject` 向后兼容新增可选背景图和来源字段；新增 `WeeklyCalendar`、`MetadataProviderStatus`、`AnimeEpisodeMetadata` 类型。
+- **原因**：落实用户确认的 v0.2 动画识别、多源元数据和探索后端范围，同时保持 Open Design 对页面与 Provider 接口的所有权。
+- **字段**：`ExploreSubject.bannerUrl/sourceKeys/coverProvider/bannerProvider/scoreProvider`；`MetadataProviderStatus.key/label/available/configured/requiresCredential/message`；`AnimeEpisodeMetadata.provider/externalId/episodeNumber/sortNumber/title/originalTitle/description/airDate/duration/fetchedAt`。
+- **持久化**：迁移 `0004_anime_episode_numbers.sql` 为 `media_files` 增加整数集数起止字段；迁移 `0005_metadata_aggregation.sql` 新增 `metadata_provider_records` 与 `anime_episodes`。继续复用 `works`、`media_files`、`work_external_ids` 和 `metadata_cache`，未建立重复媒体库表。
+- **数据源语义**：Bangumi 始终为主锚点；TMDB 与 AniList 只有在标题/年份综合置信度达到 0.85 后才能补全。TMDB 需要 `metadata.tmdb_read_token` 或 `TMDB_READ_TOKEN`；AniList 使用公开 GraphQL；豆瓣返回明确不可用状态，不抓取网页或未公开接口。
+- **兼容性**：**向后兼容**。Rust `WorkMetadata` 新字段使用 Serde 默认值，可读取旧缓存；TypeScript `ExploreSubject` 新字段为可选，不要求 Open Design 立即修改现有 Mock。新命令尚未加入 Open Design 拥有的 `GenzoDataProvider`，现有四个探索方法保持原语义。
+- **受影响功能 ID**：INBOX-004、MATCH-001、MATCH-002、EXPLORE-001、EXPLORE-002、EXPLORE-003、EXPLORE-005、EXPLORE-007、EXPLORE-008、FE-PROVIDER-003。
+- **变更方**：Codex（Rust、SQLite、共享类型与 `src/api.ts`）；未修改页面、组件、样式、路由、Mock Provider 或前端 Provider 接口。
+
+### Open Design 后续接线
+
+Open Design 可按正式 UI 节奏把 `discoveryList`、`weeklyCalendar`、`metadataProviderStatuses` 与 `listAnimeEpisodes` 加入其 Provider 接口和 Mock，并连接探索筛选、周时间表、设置数据源状态及详情分集区域。`manga` 分类当前会返回明确“尚未接入”错误，不得用动画数据冒充。

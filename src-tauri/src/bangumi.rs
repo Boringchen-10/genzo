@@ -1,12 +1,15 @@
 use crate::error::{AppError, AppResult};
-use crate::models::WorkMetadata;
+use crate::metadata_provider::{MetadataProvider, MetadataSearchQuery, ProviderRateLimiter};
+use crate::models::{AnimeEpisodeMetadata, MetadataProviderStatus, WorkMetadata};
+use async_trait::async_trait;
 use chrono::Utc;
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const API_ROOT: &str = "https://api.bgm.tv/v0";
+static RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct BangumiProvider {
@@ -24,6 +27,7 @@ impl BangumiProvider {
     }
 
     pub async fn search(&self, query: &str) -> AppResult<Vec<WorkMetadata>> {
+        self.wait().await;
         let response = self
             .client
             .post(format!("{API_ROOT}/search/subjects"))
@@ -57,6 +61,7 @@ impl BangumiProvider {
     }
 
     pub async fn get_details(&self, external_id: &str) -> AppResult<WorkMetadata> {
+        self.wait().await;
         let response = self
             .client
             .get(format!("{API_ROOT}/subjects/{external_id}"))
@@ -78,6 +83,7 @@ impl BangumiProvider {
     }
 
     pub async fn calendar(&self) -> AppResult<Vec<WorkMetadata>> {
+        self.wait().await;
         let response = self
             .client
             .get("https://api.bgm.tv/calendar")
@@ -109,40 +115,118 @@ impl BangumiProvider {
             .collect())
     }
 
-    pub async fn download_cover(&self, url: &str, destination: &Path) -> AppResult<()> {
-        let parsed = reqwest::Url::parse(url)
-            .map_err(|_| AppError::Network("Bangumi 封面地址无效".to_string()))?;
-        if parsed.scheme() != "https"
-            || !matches!(parsed.host_str(), Some("lain.bgm.tv" | "bgm.tv"))
-        {
-            return Err(AppError::Network(
-                "Bangumi 返回了不受信任的封面地址".to_string(),
-            ));
+    pub async fn episodes(&self, external_id: &str) -> AppResult<Vec<AnimeEpisodeMetadata>> {
+        let subject_id = external_id
+            .trim()
+            .parse::<i64>()
+            .map_err(|_| AppError::Validation("Bangumi 条目 ID 无效".to_string()))?;
+        let mut episodes = Vec::new();
+        let mut offset = 0_u32;
+        loop {
+            self.wait().await;
+            let response = self
+                .client
+                .get(format!("{API_ROOT}/episodes"))
+                .query(&[
+                    ("subject_id", subject_id.to_string()),
+                    ("type", "0".to_string()),
+                    ("limit", "100".to_string()),
+                    ("offset", offset.to_string()),
+                ])
+                .send()
+                .await
+                .map_err(network_error)?;
+            if response.status().as_u16() == 429 {
+                return Err(AppError::Network(
+                    "Bangumi 请求过于频繁，请稍后再试".to_string(),
+                ));
+            }
+            if !response.status().is_success() {
+                return Err(AppError::Network(format!(
+                    "Bangumi 分集读取失败（HTTP {}）",
+                    response.status().as_u16()
+                )));
+            }
+            let body: Value = response.json().await.map_err(|error| {
+                AppError::Network(format!("Bangumi 返回了无法解析的分集数据：{error}"))
+            })?;
+            let data = body
+                .get("data")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let fetched_at = Utc::now().to_rfc3339();
+            episodes.extend(
+                data.iter()
+                    .filter_map(|item| episode_to_metadata(item, &fetched_at)),
+            );
+            if data.len() < 100 {
+                break;
+            }
+            offset += 100;
         }
-        let response = self
-            .client
-            .get(parsed)
-            .send()
-            .await
-            .map_err(network_error)?;
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Bangumi 封面下载失败（HTTP {}）",
-                response.status().as_u16()
-            )));
+        Ok(episodes)
+    }
+
+    async fn wait(&self) {
+        RATE_LIMITER
+            .get_or_init(|| ProviderRateLimiter::new(Duration::from_secs(2)))
+            .wait()
+            .await;
+    }
+}
+
+fn episode_to_metadata(item: &Value, fetched_at: &str) -> Option<AnimeEpisodeMetadata> {
+    let id = item.get("id")?.as_i64()?.to_string();
+    let sort = item.get("sort").and_then(Value::as_f64).unwrap_or_default();
+    let episode_number = (sort >= 0.0 && sort.fract() == 0.0).then_some(sort as u32);
+    let original_title = nonempty(item.get("name").and_then(Value::as_str));
+    let title = nonempty(item.get("name_cn").and_then(Value::as_str))
+        .or_else(|| original_title.clone())
+        .unwrap_or_else(|| {
+            episode_number.map_or_else(|| "特别篇".to_string(), |number| format!("第 {number} 集"))
+        });
+    Some(AnimeEpisodeMetadata {
+        provider: "bangumi".to_string(),
+        external_id: id,
+        episode_number,
+        sort_number: sort.max(0.0).round() as u32,
+        title,
+        original_title,
+        description: item
+            .get("desc")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        air_date: nonempty(item.get("airdate").and_then(Value::as_str)),
+        duration: nonempty(item.get("duration").and_then(Value::as_str)),
+        fetched_at: fetched_at.to_string(),
+    })
+}
+
+#[async_trait]
+impl MetadataProvider for BangumiProvider {
+    fn key(&self) -> &'static str {
+        "bangumi"
+    }
+
+    fn status(&self) -> MetadataProviderStatus {
+        MetadataProviderStatus {
+            key: "bangumi".to_string(),
+            label: "Bangumi".to_string(),
+            available: true,
+            configured: true,
+            requires_credential: false,
+            message: Some("主匹配源，使用官方 API".to_string()),
         }
-        if response
-            .content_length()
-            .is_some_and(|size| size > 20 * 1024 * 1024)
-        {
-            return Err(AppError::Network("Bangumi 封面超过 20 MB".to_string()));
-        }
-        let bytes = response.bytes().await.map_err(network_error)?;
-        if bytes.len() > 20 * 1024 * 1024 {
-            return Err(AppError::Network("Bangumi 封面超过 20 MB".to_string()));
-        }
-        tokio::fs::write(destination, bytes).await?;
-        Ok(())
+    }
+
+    async fn search(&self, query: &MetadataSearchQuery) -> AppResult<Vec<WorkMetadata>> {
+        BangumiProvider::search(self, &query.title).await
+    }
+
+    async fn get_details(&self, external_id: &str) -> AppResult<WorkMetadata> {
+        BangumiProvider::get_details(self, external_id).await
     }
 }
 
@@ -231,6 +315,18 @@ pub(crate) fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
         collection_count,
         air_date,
         broadcast: None,
+        source_keys: vec!["bangumi".to_string()],
+        cover_provider: value
+            .get("images")
+            .and_then(|images| images.get("large").or_else(|| images.get("common")))
+            .and_then(Value::as_str)
+            .is_some()
+            .then_some("bangumi".to_string()),
+        banner_provider: None,
+        score_provider: rating
+            .and_then(|value| value.get("score"))
+            .and_then(Value::as_f64)
+            .map(|_| "bangumi".to_string()),
         fetched_at: Utc::now().to_rfc3339(),
     })
 }
@@ -317,5 +413,35 @@ mod tests {
         assert_eq!(metadata.rating_count, 599);
         assert_eq!(metadata.rank, Some(9798));
         assert_eq!(metadata.collection_count, 2151);
+    }
+
+    #[test]
+    fn maps_episode_numbers_as_integers() {
+        let episode = episode_to_metadata(
+            &json!({
+                "id": 100,
+                "sort": 12,
+                "name": "The End of the Journey",
+                "name_cn": "旅途的终点",
+                "airdate": "2023-12-01",
+                "duration": "00:24:00"
+            }),
+            "2026-09-15T00:00:00Z",
+        )
+        .expect("episode");
+        assert_eq!(episode.episode_number, Some(12));
+        assert_eq!(episode.sort_number, 12);
+        assert_eq!(episode.title, "旅途的终点");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the live Bangumi API"]
+    async fn live_episode_contract_is_parseable() {
+        let provider = BangumiProvider::new().expect("provider");
+        let episodes = provider.episodes("400602").await.expect("episodes");
+        assert!(!episodes.is_empty());
+        assert!(episodes
+            .iter()
+            .any(|episode| episode.episode_number.is_some()));
     }
 }

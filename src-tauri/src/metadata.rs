@@ -1,9 +1,12 @@
-use crate::anime_parser::{parse_file_name, parse_folder_name, score_candidate, ParsedAnime};
+use crate::anime_parser::{
+    parse_file_name, parse_folder_name, parse_work_folder, score_candidate, ParsedAnime,
+};
 use crate::bangumi::BangumiProvider;
 use crate::db::AppState;
 use crate::error::{AppError, AppResult};
 use crate::grouping;
 use crate::media_mapping;
+use crate::metadata_provider::retry_network;
 use crate::models::{
     MatchCandidate, MatchCandidateRow, MediaFile, RecognitionResult, RecognitionSummary, Work,
     WorkMetadata,
@@ -11,11 +14,19 @@ use crate::models::{
 use chrono::{Duration, Utc};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 use std::path::Path;
+use std::sync::OnceLock;
+use std::time::{Duration as StdDuration, Instant};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
-const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error";
+const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error";
 const WORK_COLUMNS: &str = "id, title, original_title, type, description, cover_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at";
+const AUTO_MATCH_THRESHOLD: f64 = 0.80;
+const PENDING_MATCH_THRESHOLD: f64 = 0.60;
+type SearchMemoryCache = lru::LruCache<String, (Instant, Vec<WorkMetadata>)>;
+static SEARCH_MEMORY_CACHE: OnceLock<Mutex<SearchMemoryCache>> = OnceLock::new();
 
 pub async fn candidates_for_media(
     pool: &SqlitePool,
@@ -40,11 +51,24 @@ pub async fn candidates_for_work(
 }
 
 async fn cached_search(pool: &SqlitePool, key: &str) -> AppResult<Option<Vec<WorkMetadata>>> {
+    if let Some((expires_at, value)) = search_memory_cache().lock().await.get(key).cloned() {
+        if expires_at > Instant::now() {
+            return Ok(Some(value));
+        }
+    }
     let now = Utc::now().to_rfc3339();
     let json: Option<String> = sqlx::query_scalar("SELECT response_json FROM metadata_cache WHERE provider = 'bangumi' AND cache_key = ? AND expires_at > ?")
         .bind(key).bind(now).fetch_optional(pool).await?;
-    json.map(|value| serde_json::from_str(&value).map_err(AppError::from))
-        .transpose()
+    let value: Option<Vec<WorkMetadata>> = json
+        .map(|value| serde_json::from_str(&value).map_err(AppError::from))
+        .transpose()?;
+    if let Some(value) = &value {
+        search_memory_cache().lock().await.put(
+            key.to_string(),
+            (Instant::now() + StdDuration::from_secs(3600), value.clone()),
+        );
+    }
+    Ok(value)
 }
 
 async fn save_cache(
@@ -56,7 +80,23 @@ async fn save_cache(
     let now = Utc::now();
     sqlx::query("INSERT INTO metadata_cache (provider, cache_key, response_json, fetched_at, expires_at) VALUES ('bangumi', ?, ?, ?, ?) ON CONFLICT(provider, cache_key) DO UPDATE SET response_json = excluded.response_json, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at")
         .bind(key).bind(serde_json::to_string(data)?).bind(now.to_rfc3339()).bind((now + Duration::days(days)).to_rfc3339()).execute(pool).await?;
+    search_memory_cache().lock().await.put(
+        key.to_string(),
+        (
+            Instant::now()
+                + StdDuration::from_secs(u64::try_from(days.max(1)).unwrap_or(1) * 86_400),
+            data.to_vec(),
+        ),
+    );
     Ok(())
+}
+
+fn search_memory_cache() -> &'static Mutex<SearchMemoryCache> {
+    SEARCH_MEMORY_CACHE.get_or_init(|| {
+        Mutex::new(lru::LruCache::new(
+            NonZeroUsize::new(100).expect("non-zero search cache size"),
+        ))
+    })
 }
 
 async fn search_provider(
@@ -64,11 +104,32 @@ async fn search_provider(
     query: &str,
     provider: &BangumiProvider,
 ) -> AppResult<Vec<WorkMetadata>> {
+    let indexed = crate::explore::lookup_title(query)?;
+    if !indexed.is_empty() {
+        let mut resolved = Vec::with_capacity(indexed.len());
+        for item in indexed {
+            let detail_key = format!("detail:{}", item.external_id);
+            if let Some(mut cached) = cached_search(pool, &detail_key).await? {
+                if let Some(detail) = cached.pop() {
+                    resolved.push(detail);
+                    continue;
+                }
+            }
+            match retry_network(|| provider.get_details(&item.external_id)).await {
+                Ok(detail) => {
+                    save_cache(pool, &detail_key, std::slice::from_ref(&detail), 30).await?;
+                    resolved.push(detail);
+                }
+                Err(_) => resolved.push(item),
+            }
+        }
+        return Ok(resolved);
+    }
     let key = format!("search:{}", crate::anime_parser::normalize_title(query));
     if let Some(cached) = cached_search(pool, &key).await? {
         return Ok(cached);
     }
-    let results = provider.search(query).await?;
+    let results = retry_network(|| provider.search(query)).await?;
     save_cache(pool, &key, &results, 7).await?;
     Ok(results)
 }
@@ -80,8 +141,9 @@ async fn store_parse(
     status: &str,
     error: Option<&str>,
 ) -> AppResult<()> {
-    sqlx::query("UPDATE media_files SET recognition_status = ?, parsed_title = ?, parsed_original_title = ?, parsed_season = ?, parsed_episode = ?, parsed_year = ?, parsed_release_group = ?, parsed_special_type = ?, parsed_media_info = ?, last_recognized_at = ?, recognition_error = ?, updated_at = ? WHERE id = ?")
-        .bind(status).bind(&parsed.title).bind(&parsed.original_title).bind(parsed.season).bind(&parsed.episode).bind(parsed.year)
+    sqlx::query("UPDATE media_files SET recognition_status = ?, parsed_title = ?, parsed_original_title = ?, parsed_season = ?, parsed_episode = ?, parsed_episode_start = ?, parsed_episode_end = ?, parsed_year = ?, parsed_release_group = ?, parsed_special_type = ?, parsed_media_info = ?, last_recognized_at = ?, recognition_error = ?, updated_at = ? WHERE id = ?")
+        .bind(status).bind(&parsed.title).bind(&parsed.original_title).bind(parsed.season).bind(&parsed.episode)
+        .bind(parsed.episode_start.map(i64::from)).bind(parsed.episode_end.map(i64::from)).bind(parsed.year)
         .bind(&parsed.release_group).bind(&parsed.special_type).bind(serde_json::to_string(&parsed.media_info)?)
         .bind(Utc::now().to_rfc3339()).bind(error).bind(Utc::now().to_rfc3339()).bind(media_id).execute(pool).await?;
     sqlx::query("UPDATE works SET metadata_status = ?, last_recognized_at = ?, updated_at = ? WHERE id = (SELECT work_id FROM media_files WHERE id = ?) AND metadata_status != 'matched'")
@@ -102,20 +164,17 @@ fn has_descriptive_title(value: Option<&str>) -> bool {
     })
 }
 
-fn parse_with_path_context(media: &MediaFile) -> ParsedAnime {
+fn parse_with_path_context(media: &MediaFile, library_root: Option<&Path>) -> ParsedAnime {
     let mut parsed = parse_file_name(&media.file_name);
-    for component in Path::new(&media.path)
-        .ancestors()
-        .skip(1)
-        .filter_map(Path::file_name)
-    {
-        let folder = parse_folder_name(&component.to_string_lossy());
-        if parsed.season.is_none() {
-            parsed.season = folder.season;
-        }
-        if parsed.year.is_none() {
-            parsed.year = folder.year;
-        }
+    let folder = parse_work_folder(Path::new(&media.path), library_root);
+    if !has_descriptive_title(parsed.title.as_deref()) {
+        parsed.title = folder.title.clone();
+    }
+    if parsed.season.is_none() {
+        parsed.season = folder.season;
+    }
+    if parsed.year.is_none() {
+        parsed.year = folder.year;
     }
     parsed
 }
@@ -124,8 +183,9 @@ fn group_query_parse(
     group_title: Option<&str>,
     members: &[MediaFile],
     requested: &MediaFile,
+    library_root: Option<&Path>,
 ) -> ParsedAnime {
-    let requested_parse = parse_with_path_context(requested);
+    let requested_parse = parse_with_path_context(requested, library_root);
     let folder_parse = group_title.map(parse_folder_name).unwrap_or_default();
     let mut query = if has_descriptive_title(requested_parse.title.as_deref()) {
         requested_parse.clone()
@@ -134,7 +194,7 @@ fn group_query_parse(
     } else {
         members
             .iter()
-            .map(parse_with_path_context)
+            .map(|media| parse_with_path_context(media, library_root))
             .find(|parsed| has_descriptive_title(parsed.title.as_deref()))
             .unwrap_or(requested_parse.clone())
     };
@@ -142,14 +202,14 @@ fn group_query_parse(
         query.season = requested_parse.season.or(folder_parse.season).or_else(|| {
             members
                 .iter()
-                .find_map(|media| parse_with_path_context(media).season)
+                .find_map(|media| parse_with_path_context(media, library_root).season)
         });
     }
     if query.year.is_none() {
         query.year = requested_parse.year.or(folder_parse.year).or_else(|| {
             members
                 .iter()
-                .find_map(|media| parse_with_path_context(media).year)
+                .find_map(|media| parse_with_path_context(media, library_root).year)
         });
     }
     query
@@ -159,11 +219,12 @@ async fn store_group_parse(
     pool: &SqlitePool,
     members: &[MediaFile],
     fallback: &ParsedAnime,
+    library_root: Option<&Path>,
     status: &str,
     error: Option<&str>,
 ) -> AppResult<()> {
     for media in members {
-        let mut parsed = parse_with_path_context(media);
+        let mut parsed = parse_with_path_context(media, library_root);
         if !has_descriptive_title(parsed.title.as_deref()) {
             parsed.title = fallback.title.clone();
         }
@@ -199,12 +260,22 @@ pub async fn recognize_media(
         return Err(AppError::Validation("文件已缺失，无法识别".to_string()));
     }
     let group = grouping::unassigned_group_context(&state.pool, media_file_id).await?;
+    let library_root_path: Option<String> = match &media.library_root_id {
+        Some(root_id) => {
+            sqlx::query_scalar("SELECT path FROM library_roots WHERE id = ?")
+                .bind(root_id)
+                .fetch_optional(&state.pool)
+                .await?
+        }
+        None => None,
+    };
+    let library_root = library_root_path.as_deref().map(Path::new);
     let group_title = group.as_ref().map(|context| context.title.as_str());
     let members = group
         .as_ref()
         .map(|context| context.members.clone())
         .unwrap_or_else(|| vec![media.clone()]);
-    let parsed = group_query_parse(group_title, &members, &media);
+    let parsed = group_query_parse(group_title, &members, &media, library_root);
     let query = manual_query
         .as_deref()
         .map(str::trim)
@@ -216,6 +287,7 @@ pub async fn recognize_media(
             &state.pool,
             &members,
             &parsed,
+            library_root,
             "unmatched",
             Some("无法从作品目录或文件名提取标题，请手动搜索"),
         )
@@ -228,13 +300,29 @@ pub async fn recognize_media(
             error: Some("无法从作品目录或文件名提取标题，请手动搜索".to_string()),
         });
     };
-    store_group_parse(&state.pool, &members, &parsed, "unmatched", None).await?;
+    store_group_parse(
+        &state.pool,
+        &members,
+        &parsed,
+        library_root,
+        "unmatched",
+        None,
+    )
+    .await?;
     let provider = BangumiProvider::new()?;
     let results = match search_provider(&state.pool, &query, &provider).await {
         Ok(results) => results,
         Err(error) => {
             let message = error.to_string();
-            store_group_parse(&state.pool, &members, &parsed, "error", Some(&message)).await?;
+            store_group_parse(
+                &state.pool,
+                &members,
+                &parsed,
+                library_root,
+                "error",
+                Some(&message),
+            )
+            .await?;
             return Ok(RecognitionResult {
                 media_file_id: media_file_id.to_string(),
                 status: "error".to_string(),
@@ -301,7 +389,7 @@ pub async fn recognize_media(
         && !ambiguous
         && scored
             .first()
-            .is_some_and(|candidate| candidate.confidence >= 0.90)
+            .is_some_and(|candidate| candidate.confidence >= AUTO_MATCH_THRESHOLD)
     {
         let candidate_id = scored[0].id.clone();
         confirm_candidate(state, media_file_id, &candidate_id).await?;
@@ -315,13 +403,13 @@ pub async fn recognize_media(
     }
     let status = if scored
         .first()
-        .is_some_and(|candidate| candidate.confidence >= 0.65)
+        .is_some_and(|candidate| candidate.confidence >= PENDING_MATCH_THRESHOLD)
     {
         "candidate_pending"
     } else {
         "unmatched"
     };
-    store_group_parse(&state.pool, &members, &parsed, status, None).await?;
+    store_group_parse(&state.pool, &members, &parsed, library_root, status, None).await?;
     Ok(RecognitionResult {
         media_file_id: media_file_id.to_string(),
         status: status.to_string(),
@@ -377,10 +465,11 @@ async fn record_source(
     transaction: &mut Transaction<'_, Sqlite>,
     work_id: &str,
     field: &str,
+    provider: &str,
     now: &str,
 ) -> AppResult<()> {
-    sqlx::query("INSERT INTO work_field_sources (work_id, field_name, provider, updated_at) VALUES (?, ?, 'bangumi', ?) ON CONFLICT(work_id, field_name) DO UPDATE SET provider = excluded.provider, updated_at = excluded.updated_at")
-        .bind(work_id).bind(field).bind(now).execute(&mut **transaction).await?;
+    sqlx::query("INSERT INTO work_field_sources (work_id, field_name, provider, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(work_id, field_name) DO UPDATE SET provider = excluded.provider, updated_at = excluded.updated_at")
+        .bind(work_id).bind(field).bind(provider).bind(now).execute(&mut **transaction).await?;
     Ok(())
 }
 
@@ -432,7 +521,15 @@ pub(crate) async fn apply_metadata(
         "metadataYear",
     ] {
         if !locks.contains(field) {
-            record_source(transaction, work_id, field, now).await?;
+            let provider = if field == "coverPath" {
+                metadata
+                    .cover_provider
+                    .as_deref()
+                    .unwrap_or(&metadata.provider)
+            } else {
+                &metadata.provider
+            };
+            record_source(transaction, work_id, field, provider, now).await?;
         }
     }
     if !locks.contains("tags") {
@@ -455,7 +552,12 @@ pub(crate) async fn apply_metadata(
                 .execute(&mut **transaction)
                 .await?;
         }
-        record_source(transaction, work_id, "tags", now).await?;
+        let provider = if metadata.source_keys.len() > 1 {
+            "aggregate"
+        } else {
+            &metadata.provider
+        };
+        record_source(transaction, work_id, "tags", provider, now).await?;
     }
     Ok(())
 }
@@ -476,15 +578,26 @@ pub async fn confirm_candidate(
         if let Some(item) = cached.pop() {
             metadata = item;
         }
-    } else if let Ok(details) = provider.get_details(&metadata.external_id).await {
+    } else if let Ok(details) = retry_network(|| provider.get_details(&metadata.external_id)).await
+    {
         metadata = details;
         save_cache(&state.pool, &detail_key, &[metadata.clone()], 30).await?;
+    }
+    let aggregation = crate::metadata_aggregator::aggregate(&state.pool, metadata.clone())
+        .await
+        .ok();
+    if let Some(result) = &aggregation {
+        metadata = result.metadata.clone();
     }
     let cover_path = if let Some(url) = &metadata.cover_url {
         let destination = state
             .cover_cache_path
             .join(format!("bangumi-{}.jpg", metadata.external_id));
-        if destination.is_file() || provider.download_cover(url, &destination).await.is_ok() {
+        if destination.is_file()
+            || crate::metadata_aggregator::cache_cover(url, &destination)
+                .await
+                .is_ok()
+        {
             Some(destination.to_string_lossy().to_string())
         } else {
             None
@@ -519,6 +632,10 @@ pub async fn confirm_candidate(
             .bind(&work_id).bind(&metadata.title).bind(&metadata.original_title).bind(&metadata.description).bind(&cover_path).bind(&now).bind(&now).bind(metadata.year).bind(&now).execute(&mut *transaction).await?;
     }
     apply_metadata(&mut transaction, &work_id, &metadata, cover_path, &now).await?;
+    if let Some(aggregation) = &aggregation {
+        crate::metadata_aggregator::persist_for_work(&mut transaction, &work_id, aggregation)
+            .await?;
+    }
     sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(work_id, provider) DO UPDATE SET external_id = excluded.external_id, updated_at = excluded.updated_at")
         .bind(&work_id).bind(&metadata.provider).bind(&metadata.external_id).bind(&now).bind(&now).execute(&mut *transaction).await?;
     sqlx::query("UPDATE media_files SET work_id = ?, recognition_status = 'matched', recognition_error = NULL, last_recognized_at = ?, updated_at = ? WHERE id = ?")
@@ -624,6 +741,8 @@ mod tests {
             parsed_original_title: None,
             parsed_season: None,
             parsed_episode: None,
+            parsed_episode_start: None,
+            parsed_episode_end: None,
             parsed_year: None,
             parsed_release_group: None,
             parsed_special_type: None,
@@ -634,12 +753,19 @@ mod tests {
     }
 
     #[test]
+    fn uses_confirmed_auto_and_pending_thresholds() {
+        assert_eq!(AUTO_MATCH_THRESHOLD, 0.80);
+        assert_eq!(PENDING_MATCH_THRESHOLD, 0.60);
+    }
+
+    #[test]
     fn uses_work_folder_when_episode_file_has_no_title() {
         let media = media_for_query("G:\\影音\\葬送的芙莉莲 S2\\01.mkv", "01.mkv");
         let parsed = group_query_parse(
             Some("葬送的芙莉莲 S2"),
             std::slice::from_ref(&media),
             &media,
+            None,
         );
         assert_eq!(parsed.title.as_deref(), Some("葬送的芙莉莲"));
         assert_eq!(parsed.season, Some(2));
@@ -655,9 +781,10 @@ mod tests {
             Some("【 4K 】Q 亲吻姐姐 12集全"),
             std::slice::from_ref(&media),
             &media,
+            None,
         );
         assert_eq!(parsed.title.as_deref(), Some("Kiss x Sis"));
-        assert_eq!(parsed.episode.as_deref(), Some("01"));
+        assert_eq!(parsed.episode_start, Some(1));
     }
     #[tokio::test]
     async fn field_lock_round_trip() {
@@ -700,6 +827,10 @@ mod tests {
             collection_count: 0,
             air_date: None,
             broadcast: None,
+            source_keys: vec!["bangumi".to_string()],
+            cover_provider: None,
+            banner_provider: None,
+            score_provider: None,
             fetched_at: now.clone(),
         };
         let mut transaction = pool.begin().await.unwrap();

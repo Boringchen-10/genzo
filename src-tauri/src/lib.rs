@@ -8,7 +8,10 @@ mod grouping;
 mod launcher;
 mod media_mapping;
 mod metadata;
+mod metadata_aggregator;
+mod metadata_provider;
 mod models;
+mod providers;
 mod scanner;
 mod window_style;
 
@@ -22,7 +25,18 @@ pub fn run() {
             let state = tauri::async_runtime::block_on(db::initialize(app.handle()))
                 .map_err(|error| format!("Genzo 无法初始化本地数据库。{error}"))?;
             db::allow_cached_covers(app.handle(), &state.cover_cache_path)?;
+            let metadata_pool = state.pool.clone();
             app.manage(state);
+            tauri::async_runtime::spawn_blocking(|| {
+                if let Err(error) = explore::warm_embedded_index() {
+                    eprintln!("{error}");
+                }
+            });
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = explore::check_bangumi_data_update(&metadata_pool).await {
+                    eprintln!("{error}");
+                }
+            });
             if let Some(window) = app.get_webview_window("main") {
                 window_style::apply(&window);
             }
@@ -69,6 +83,11 @@ pub fn run() {
             commands::search_explore_subjects,
             commands::get_explore_subject,
             commands::save_explore_subject,
+            commands::get_discovery_list,
+            commands::get_weekly_calendar,
+            commands::check_in_local_library,
+            commands::get_metadata_provider_statuses,
+            commands::list_anime_episodes,
             window_style::window_material_supported,
         ])
         .run(tauri::generate_context!())

@@ -35,6 +35,11 @@ Genzo v0.2 使用以下直接依赖。具体传递依赖及锁定版本以 `pnpm
 | regex | 动漫文件名规则解析 | Apache-2.0 OR MIT |
 | strsim | 标题相似度评分 | MIT |
 | reqwest | Bangumi 官方 API HTTPS 请求 | Apache-2.0 OR MIT |
+| anitomy-ng | 动画文件名结构解析（Anitomy 的纯 Rust 移植） | MPL-2.0 |
+| tmdb-rs | TMDB 官方 API 的类型化 Rust 客户端 | MIT |
+| async-trait | 异步元数据 Provider trait | Apache-2.0 OR MIT |
+| lru | 进程内元数据搜索缓存 | MIT |
+| image | 封面格式校验与缩略图生成 | Apache-2.0 OR MIT |
 | windows | Windows Shell API 绑定 | Apache-2.0 OR MIT |
 | tempfile | 测试临时目录 | Apache-2.0 OR MIT |
 
@@ -50,6 +55,21 @@ Genzo 的侧栏、首页媒体布局和主题实现基于 Seanime 的 GPLv3 界�
 
 ## Bangumi
 
-Genzo 通过 Bangumi 官方 API（<https://github.com/bangumi/api>）搜索动画条目并读取作品元数据，不抓取网页。作品数据及封面版权归各自权利人所有，Genzo 仅按用户操作在本地缓存。实现未复制 Animeko 代码，也未移植 Anitomy 或 Seanime 的识别代码；文件名解析和评分为本项目独立 Rust 实现。
+Genzo 通过 Bangumi 官方 API（<https://github.com/bangumi/api>）搜索动画条目并读取作品元数据，不抓取网页。作品数据及封面版权归各自权利人所有，Genzo 仅按用户操作在本地缓存。动画结构解析使用 MPL-2.0 的 `anitomy-ng`；中文目录预处理、目录回溯和加权候选评分为 Genzo 自有实现。实现未复制 Animeko 代码。
 
 Genzo 的探索功能还使用 `bangumi-data`（<https://github.com/bangumi-data/bangumi-data>）提供的番组标题、译名、放送时间与 Bangumi 条目 ID 索引。该数据集采用 [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/)（CC BY 4.0）许可；Genzo 通过项目文档公开的 `unpkg` 地址读取数据并保留来源标识，解析后仅缓存 Bangumi ID，不缓存或使用其中列出的在线播放站点标识。
+
+发布包内置用户于 2026-09-15 提供的 `bangumi-data 0.3.132` 数据快照，用于离线标题索引、本季番组和放送时间表。Genzo 仅提取标题、译名、类型、日期和信息站点 ID；不将其中的在线播放站点作为媒体源。
+
+## TMDB 与 AniList
+
+Genzo 使用 `tmdb-rs` 访问 TMDB 官方 API。TMDB 仅在用户配置自己的 Read Access Token 后启用，用于补全经过标题与年份校验的海报和背景图；不提供媒体播放地址。TMDB API 使用受其服务条款约束，图片版权归各自权利人所有。
+
+Genzo 使用 AniList 公共 GraphQL API 补全经过校验的国际评分、标签和视觉字段。Genzo 不要求 AniList 用户账号，不代表 AniList 官方客户端。豆瓣当前没有适合本地桌面应用稳定使用的授权公开 API，因此 Genzo 不抓取豆瓣网页，也不调用未公开移动端接口。
+
+## 识别架构参考核对
+
+- `Rapptz/anitomy-rs` 为 MPL-2.0，但没有适合本项目锁定的稳定 crates.io 发布；本项目改用同为 MPL-2.0、仍在维护的 `anitomy-ng 1.0.10`，没有复制其品牌资产。
+- 用户提供的 `bangumi/api-client-rs` 地址当前不可用，因此保留已经通过真实 API 契约测试的 `reqwest` Bangumi 客户端，不假装使用不存在的 SDK。
+- `jwalk 0.9.0` 已由维护者标记为 deprecated；现有 `walkdir` 扫描器已有重复扫描、缺失标记和目录重加测试，本轮不为依赖清单而替换稳定实现。
+- Jellyfin Bangumi 插件与 Stump 仅用于核对候选加权、分层和缓存思路；本轮没有复制其代码。Genzo 的中文预处理、评分、聚合和迁移为独立实现。

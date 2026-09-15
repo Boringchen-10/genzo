@@ -140,7 +140,7 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
     .ok_or_else(|| AppError::NotFound("作品不存在".to_string()))?;
     let tags = tags_for_work(&state.pool, &id).await?;
     let media_files = sqlx::query_as::<_, MediaFile>(
-        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE work_id = ? ORDER BY file_name COLLATE NOCASE",
+        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE work_id = ? ORDER BY parsed_season, parsed_episode_start, file_name COLLATE NOCASE",
     )
     .bind(&id)
     .fetch_all(&state.pool)
@@ -308,7 +308,7 @@ pub async fn delete_work(id: String, state: State<'_, AppState>) -> AppResult<()
 #[tauri::command]
 pub async fn list_unassigned_media(state: State<'_, AppState>) -> AppResult<Vec<MediaFile>> {
     Ok(sqlx::query_as::<_, MediaFile>(
-        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE work_id IS NULL ORDER BY file_name COLLATE NOCASE",
+        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE work_id IS NULL ORDER BY parsed_season, parsed_episode_start, file_name COLLATE NOCASE",
     )
     .fetch_all(&state.pool)
     .await?)
@@ -947,9 +947,14 @@ pub async fn set_work_field_lock(
 
 #[tauri::command]
 pub async fn set_setting(key: String, value: String, state: State<'_, AppState>) -> AppResult<()> {
-    let allowed = ["theme", "scan.include_hidden"];
+    let allowed = ["theme", "scan.include_hidden", "metadata.tmdb_read_token"];
     if !allowed.contains(&key.as_str()) {
         return Err(AppError::Validation("不支持的设置项".to_string()));
+    }
+    if key == "metadata.tmdb_read_token" && value.chars().count() > 512 {
+        return Err(AppError::Validation(
+            "TMDB Read Access Token 长度无效".to_string(),
+        ));
     }
     sqlx::query(
         "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
@@ -996,6 +1001,59 @@ pub async fn save_explore_subject(
     explore::save_subject(&app, &state, input).await
 }
 
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn get_discovery_list(
+    category: String,
+    sort: String,
+    tags: Vec<String>,
+    year: Option<i32>,
+    month: Option<u32>,
+    page: u32,
+    page_size: u32,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ExploreSubject>> {
+    explore::discovery_list(
+        &state.pool,
+        &category,
+        &sort,
+        &tags,
+        year,
+        month,
+        page,
+        page_size,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn get_weekly_calendar(state: State<'_, AppState>) -> AppResult<WeeklyCalendar> {
+    explore::weekly_calendar(&state.pool).await
+}
+
+#[tauri::command]
+pub async fn check_in_local_library(
+    bangumi_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<bool> {
+    explore::check_in_local_library(&state.pool, &bangumi_id).await
+}
+
+#[tauri::command]
+pub async fn get_metadata_provider_statuses(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<MetadataProviderStatus>> {
+    crate::metadata_aggregator::provider_statuses(&state.pool).await
+}
+
+#[tauri::command]
+pub async fn list_anime_episodes(
+    work_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<AnimeEpisodeMetadata>> {
+    crate::metadata_aggregator::episodes_for_work(&state.pool, &work_id).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1018,6 +1076,13 @@ mod tests {
         .await
         .expect("query subtitle links table");
         assert!(subtitle_links_exists);
+        let metadata_tables: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('metadata_provider_records', 'anime_episodes')",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query metadata aggregation tables");
+        assert_eq!(metadata_tables, 2);
 
         let now = Utc::now().to_rfc3339();
         sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('1', '测试', 'video', ?, ?)")

@@ -52,6 +52,10 @@ pub struct MediaFile {
     #[sqlx(default)]
     pub parsed_episode: Option<String>,
     #[sqlx(default)]
+    pub parsed_episode_start: Option<i64>,
+    #[sqlx(default)]
+    pub parsed_episode_end: Option<i64>,
+    #[sqlx(default)]
     pub parsed_year: Option<i64>,
     #[sqlx(default)]
     pub parsed_release_group: Option<String>,
@@ -211,6 +215,40 @@ pub struct WorkMetadata {
     pub air_date: Option<String>,
     #[serde(default)]
     pub broadcast: Option<String>,
+    #[serde(default)]
+    pub source_keys: Vec<String>,
+    #[serde(default)]
+    pub cover_provider: Option<String>,
+    #[serde(default)]
+    pub banner_provider: Option<String>,
+    #[serde(default)]
+    pub score_provider: Option<String>,
+    pub fetched_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataProviderStatus {
+    pub key: String,
+    pub label: String,
+    pub available: bool,
+    pub configured: bool,
+    pub requires_credential: bool,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeEpisodeMetadata {
+    pub provider: String,
+    pub external_id: String,
+    pub episode_number: Option<u32>,
+    pub sort_number: u32,
+    pub title: String,
+    pub original_title: Option<String>,
+    pub description: String,
+    pub air_date: Option<String>,
+    pub duration: Option<String>,
     pub fetched_at: String,
 }
 
@@ -224,6 +262,7 @@ pub struct ExploreSubject {
     pub aliases: Vec<String>,
     pub description: String,
     pub cover_url: Option<String>,
+    pub banner_url: Option<String>,
     pub year: Option<i64>,
     pub month: Option<u32>,
     pub air_date: Option<String>,
@@ -240,6 +279,10 @@ pub struct ExploreSubject {
     pub local_status: Option<String>,
     pub fetched_at: String,
     pub stale: bool,
+    pub source_keys: Vec<String>,
+    pub cover_provider: Option<String>,
+    pub banner_provider: Option<String>,
+    pub score_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -272,6 +315,22 @@ pub struct ExploreSaveInput {
     pub external_id: String,
     pub status: String,
     pub favorite: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeeklyCalendarDay {
+    pub weekday: u32,
+    pub label: String,
+    pub items: Vec<ExploreSubject>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeeklyCalendar {
+    pub source_version: String,
+    pub generated_at: String,
+    pub days: Vec<WeeklyCalendarDay>,
 }
 
 #[derive(Debug, Clone, Serialize)]

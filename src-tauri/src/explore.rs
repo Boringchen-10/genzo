@@ -3,8 +3,10 @@ use crate::bangumi::BangumiProvider;
 use crate::db::{self, AppState};
 use crate::error::{AppError, AppResult};
 use crate::metadata;
+use crate::metadata_provider::retry_network;
 use crate::models::{
-    ExploreOverview, ExploreSaveInput, ExploreSourceStatus, ExploreSubject, WorkMetadata,
+    ExploreOverview, ExploreSaveInput, ExploreSourceStatus, ExploreSubject, WeeklyCalendar,
+    WeeklyCalendarDay, WorkMetadata,
 };
 use chrono::{Datelike, Duration, Utc};
 use reqwest::Client;
@@ -13,15 +15,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool};
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 use std::time::Duration as StdDuration;
 use tauri::AppHandle;
 use uuid::Uuid;
 
+#[cfg(test)]
 const BANGUMI_DATA_URL: &str = "https://unpkg.com/bangumi-data@0.3/dist/data.json";
+const BANGUMI_DATA_PACKAGE_URL: &str = "https://unpkg.com/bangumi-data@0.3/package.json";
+const BANGUMI_DATA_VERSION: &str = "0.3.132";
+const EMBEDDED_BANGUMI_DATA: &[u8] = include_bytes!("../resources/bangumi-data-0.3.132.json");
 const BANGUMI_DATA_PROVIDER: &str = "bangumi-data";
 const BANGUMI_PROVIDER: &str = "bangumi";
-const DATASET_CACHE_KEY: &str = "explore:dataset:0.3";
 const CALENDAR_CACHE_KEY: &str = "explore:calendar";
+#[cfg(test)]
 const MAX_DATASET_BYTES: usize = 20 * 1024 * 1024;
 const WORK_STATUSES: &[&str] = &["planned", "in_progress", "completed", "paused", "dropped"];
 
@@ -33,6 +40,8 @@ struct BangumiDataItem {
     #[serde(rename = "type")]
     item_type: String,
     begin: String,
+    #[serde(default)]
+    end: Option<String>,
     #[serde(default)]
     broadcast: Option<String>,
     #[serde(default)]
@@ -50,6 +59,19 @@ struct BangumiDataSite {
 struct BangumiDataDocument {
     items: Vec<BangumiDataItem>,
 }
+
+struct BangumiDataIndex {
+    items: Vec<BangumiDataItem>,
+    titles: HashMap<String, Vec<usize>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct BangumiDataLinks {
+    pub tmdb: Option<String>,
+    pub anilist: Option<String>,
+}
+
+static BANGUMI_DATA_INDEX: OnceLock<Result<BangumiDataIndex, String>> = OnceLock::new();
 
 #[derive(Debug, FromRow)]
 struct CacheRow {
@@ -233,7 +255,7 @@ pub async fn search(pool: &SqlitePool, query: &str) -> AppResult<Vec<ExploreSubj
         cached.expect("fresh cache checked")
     } else {
         let provider = BangumiProvider::new()?;
-        match provider.search(query).await {
+        match retry_network(|| provider.search(query)).await {
             Ok(items) => {
                 save_cache(pool, BANGUMI_PROVIDER, &key, &items, Duration::days(7)).await?;
                 Cached {
@@ -255,12 +277,145 @@ pub async fn search(pool: &SqlitePool, query: &str) -> AppResult<Vec<ExploreSubj
 
 pub async fn subject(pool: &SqlitePool, external_id: &str) -> AppResult<ExploreSubject> {
     let metadata = load_subject_metadata(pool, external_id).await?;
+    let aggregated = crate::metadata_aggregator::aggregate(pool, metadata.value).await?;
     let local_states = load_local_states(pool).await?;
     Ok(to_explore_subject(
-        metadata.value,
+        aggregated.metadata,
         &local_states,
         metadata.stale,
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn discovery_list(
+    pool: &SqlitePool,
+    category: &str,
+    sort: &str,
+    tags: &[String],
+    year: Option<i32>,
+    month: Option<u32>,
+    page: u32,
+    page_size: u32,
+) -> AppResult<Vec<ExploreSubject>> {
+    if page == 0 || !(1..=100).contains(&page_size) {
+        return Err(AppError::Validation(
+            "探索页码必须从 1 开始，每页数量必须在 1 到 100 之间".to_string(),
+        ));
+    }
+    let now = Utc::now();
+    let local_states = load_local_states(pool).await?;
+    let mut items = match category {
+        "recommended" => overview(pool, year, month).await?.trending,
+        "seasonal" | "anime" => {
+            let target_year = year.unwrap_or_else(|| now.year());
+            let target_month = month.unwrap_or_else(|| now.month());
+            if year.is_some() && !(1900..=2200).contains(&target_year)
+                || month.is_some() && !(1..=12).contains(&target_month)
+            {
+                return Err(AppError::Validation("探索年份或月份无效".to_string()));
+            }
+            embedded_index()?
+                .items
+                .iter()
+                .filter(|item| item.item_type != "resource")
+                .filter(|item| {
+                    if category == "seasonal" {
+                        item_matches_month(item, target_year, target_month)
+                    } else {
+                        item_date(item).is_some_and(|date| {
+                            year.is_none_or(|_| date.year() == target_year)
+                                && month.is_none_or(|_| date.month() == target_month)
+                        })
+                    }
+                })
+                .filter_map(|item| {
+                    data_item_to_metadata(item, &format!("bangumi-data {BANGUMI_DATA_VERSION}"))
+                })
+                .map(|item| to_explore_subject(item, &local_states, false))
+                .collect()
+        }
+        "manga" => {
+            return Err(AppError::Validation(
+                "漫画探索数据源尚未接入，本命令不会返回动画数据冒充漫画".to_string(),
+            ))
+        }
+        _ => return Err(AppError::Validation("无效的探索分类".to_string())),
+    };
+    if !tags.is_empty() {
+        items.retain(|item| tags.iter().all(|tag| item.genres.contains(tag)));
+    }
+    match sort {
+        "title" => items.sort_by(|left, right| left.title.cmp(&right.title)),
+        "score" => items.sort_by(|left, right| {
+            right
+                .score
+                .partial_cmp(&left.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }),
+        "date" => items.sort_by(|left, right| left.air_date.cmp(&right.air_date)),
+        "popularity" => items.sort_by(|left, right| {
+            right
+                .rating_count
+                .cmp(&left.rating_count)
+                .then_with(|| right.collection_count.cmp(&left.collection_count))
+        }),
+        _ => return Err(AppError::Validation("无效的探索排序方式".to_string())),
+    }
+    let start = ((page - 1) * page_size) as usize;
+    Ok(items
+        .into_iter()
+        .skip(start)
+        .take(page_size as usize)
+        .collect())
+}
+
+pub async fn weekly_calendar(pool: &SqlitePool) -> AppResult<WeeklyCalendar> {
+    let now = Utc::now();
+    let quarter_start = ((now.month() - 1) / 3) * 3 + 1;
+    let local_states = load_local_states(pool).await?;
+    let mut days = (1..=7)
+        .map(|weekday| WeeklyCalendarDay {
+            weekday,
+            label: weekday_label(weekday).to_string(),
+            items: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    for item in &embedded_index()?.items {
+        let Some(date) = item_date(item) else {
+            continue;
+        };
+        if date.year() != now.year() || !(quarter_start..=quarter_start + 2).contains(&date.month())
+        {
+            continue;
+        }
+        let weekday = date.weekday().number_from_monday();
+        if let Some(metadata) =
+            data_item_to_metadata(item, &format!("bangumi-data {BANGUMI_DATA_VERSION}"))
+        {
+            days[(weekday - 1) as usize].items.push(to_explore_subject(
+                metadata,
+                &local_states,
+                false,
+            ));
+        }
+    }
+    for day in &mut days {
+        day.items
+            .sort_by(|left, right| left.title.cmp(&right.title));
+    }
+    Ok(WeeklyCalendar {
+        source_version: BANGUMI_DATA_VERSION.to_string(),
+        generated_at: Utc::now().to_rfc3339(),
+        days,
+    })
+}
+
+pub async fn check_in_local_library(pool: &SqlitePool, external_id: &str) -> AppResult<bool> {
+    let external_id = validated_external_id(external_id)?;
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_external_ids WHERE provider = 'bangumi' AND external_id = ?)")
+        .bind(external_id)
+        .fetch_one(pool)
+        .await?)
 }
 
 pub async fn save_subject(
@@ -272,15 +427,20 @@ pub async fn save_subject(
     if !WORK_STATUSES.contains(&input.status.as_str()) {
         return Err(AppError::Validation("无效的本地追番状态".to_string()));
     }
-    let metadata = load_subject_metadata(&state.pool, &input.external_id)
+    let primary = load_subject_metadata(&state.pool, &input.external_id)
         .await?
         .value;
+    let aggregated = crate::metadata_aggregator::aggregate(&state.pool, primary).await?;
+    let metadata = &aggregated.metadata;
     let cover_path = if let Some(url) = &metadata.cover_url {
         let destination = state
             .cover_cache_path
             .join(format!("bangumi-{}.jpg", metadata.external_id));
-        let provider = BangumiProvider::new()?;
-        if destination.is_file() || provider.download_cover(url, &destination).await.is_ok() {
+        if destination.is_file()
+            || crate::metadata_aggregator::cache_cover(url, &destination)
+                .await
+                .is_ok()
+        {
             db::allow_cover_file(app, &destination)?;
             Some(destination.to_string_lossy().to_string())
         } else {
@@ -289,7 +449,15 @@ pub async fn save_subject(
     } else {
         None
     };
-    persist_subject(state, &metadata, &input.status, input.favorite, cover_path).await
+    persist_subject(
+        state,
+        metadata,
+        &input.status,
+        input.favorite,
+        cover_path,
+        Some(&aggregated),
+    )
+    .await
 }
 
 async fn persist_subject(
@@ -298,6 +466,7 @@ async fn persist_subject(
     status: &str,
     favorite: bool,
     cover_path: Option<String>,
+    aggregation: Option<&crate::metadata_aggregator::AggregationResult>,
 ) -> AppResult<String> {
     let now = Utc::now().to_rfc3339();
     let mut transaction = state.pool.begin().await?;
@@ -343,36 +512,133 @@ async fn persist_subject(
         .bind(&now)
         .execute(&mut *transaction)
         .await?;
+    if let Some(aggregation) = aggregation {
+        crate::metadata_aggregator::persist_for_work(&mut transaction, &work_id, aggregation)
+            .await?;
+    }
     transaction.commit().await?;
     Ok(work_id)
 }
 
 async fn load_bangumi_data(pool: &SqlitePool) -> AppResult<Cached<Vec<BangumiDataItem>>> {
-    let cached =
-        load_cache::<Vec<BangumiDataItem>>(pool, BANGUMI_DATA_PROVIDER, DATASET_CACHE_KEY).await?;
-    if cached.as_ref().is_some_and(|value| !value.stale) {
-        return Ok(cached.expect("fresh cache checked"));
-    }
+    let _ = pool;
+    let index = embedded_index()?;
+    Ok(Cached {
+        value: index.items.clone(),
+        fetched_at: format!("bangumi-data {BANGUMI_DATA_VERSION}"),
+        stale: false,
+    })
+}
 
-    match fetch_bangumi_data().await {
-        Ok(items) => {
-            let fetched_at = Utc::now().to_rfc3339();
-            save_cache(
-                pool,
-                BANGUMI_DATA_PROVIDER,
-                DATASET_CACHE_KEY,
-                &items,
-                Duration::days(7),
-            )
-            .await?;
-            Ok(Cached {
-                value: items,
-                fetched_at,
-                stale: false,
-            })
-        }
-        Err(error) => cached.ok_or(error),
+pub(crate) fn warm_embedded_index() -> AppResult<()> {
+    embedded_index().map(|_| ())
+}
+
+pub(crate) async fn check_bangumi_data_update(pool: &SqlitePool) -> AppResult<()> {
+    let checked_at = Utc::now().to_rfc3339();
+    let client = Client::builder()
+        .timeout(StdDuration::from_secs(10))
+        .user_agent("Genzo/0.3.0 (local media library)")
+        .build()
+        .map_err(|error| AppError::Network(format!("无法初始化 bangumi-data 更新检查：{error}")))?;
+    let response = client
+        .get(BANGUMI_DATA_PACKAGE_URL)
+        .send()
+        .await
+        .map_err(bangumi_data_network_error)?;
+    if !response.status().is_success() {
+        return Err(AppError::Network(format!(
+            "bangumi-data 更新检查失败（HTTP {}）",
+            response.status().as_u16()
+        )));
     }
+    let body: Value = response
+        .json()
+        .await
+        .map_err(|error| AppError::Network(format!("bangumi-data 版本信息无法解析：{error}")))?;
+    let latest = body
+        .get("version")
+        .and_then(Value::as_str)
+        .filter(|value| {
+            value
+                .chars()
+                .all(|character| character.is_ascii_digit() || character == '.')
+        })
+        .unwrap_or(BANGUMI_DATA_VERSION);
+    let status = serde_json::json!({
+        "bundledVersion": BANGUMI_DATA_VERSION,
+        "latestVersion": latest,
+        "checkedAt": checked_at,
+        "updateAvailable": latest != BANGUMI_DATA_VERSION
+    });
+    sqlx::query("INSERT INTO app_settings (key, value, updated_at) VALUES ('metadata.bangumi_data_status', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+        .bind(status.to_string())
+        .bind(&checked_at)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub(crate) fn lookup_title(query: &str) -> AppResult<Vec<WorkMetadata>> {
+    let index = embedded_index()?;
+    let normalized = normalize_title(query);
+    let Some(indices) = index.titles.get(&normalized) else {
+        return Ok(Vec::new());
+    };
+    Ok(indices
+        .iter()
+        .filter_map(|index_value| index.items.get(*index_value))
+        .filter_map(|item| {
+            data_item_to_metadata(item, &format!("bangumi-data {BANGUMI_DATA_VERSION}"))
+        })
+        .collect())
+}
+
+pub(crate) fn linked_ids_for_bangumi(external_id: &str) -> AppResult<BangumiDataLinks> {
+    let index = embedded_index()?;
+    let item = index
+        .items
+        .iter()
+        .find(|item| site_id(item, "bangumi").as_deref() == Some(external_id));
+    Ok(
+        item.map_or_else(BangumiDataLinks::default, |item| BangumiDataLinks {
+            tmdb: site_id(item, "tmdb"),
+            anilist: site_id(item, "aniList"),
+        }),
+    )
+}
+
+fn embedded_index() -> AppResult<&'static BangumiDataIndex> {
+    BANGUMI_DATA_INDEX
+        .get_or_init(|| build_index(EMBEDDED_BANGUMI_DATA).map_err(|error| error.to_string()))
+        .as_ref()
+        .map_err(|error| {
+            AppError::System(format!(
+                "内置 bangumi-data {BANGUMI_DATA_VERSION} 索引损坏：{error}"
+            ))
+        })
+}
+
+fn build_index(json: &[u8]) -> Result<BangumiDataIndex, serde_json::Error> {
+    let mut document: BangumiDataDocument = serde_json::from_slice(json)?;
+    for item in &mut document.items {
+        item.sites
+            .retain(|site| matches!(site.site.as_str(), "bangumi" | "tmdb" | "aniList" | "mal"));
+    }
+    let mut titles: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, item) in document.items.iter().enumerate() {
+        let names = std::iter::once(&item.title).chain(item.title_translate.values().flatten());
+        for name in names {
+            let normalized = normalize_title(name);
+            if !normalized.is_empty() {
+                titles.entry(normalized).or_default().push(index);
+            }
+        }
+    }
+    Ok(BangumiDataIndex {
+        items: document.items,
+        titles,
+    })
 }
 
 async fn load_calendar(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>> {
@@ -382,7 +648,7 @@ async fn load_calendar(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>
         return Ok(cached.expect("fresh cache checked"));
     }
     let provider = BangumiProvider::new()?;
-    match provider.calendar().await {
+    match retry_network(|| provider.calendar()).await {
         Ok(items) => {
             let fetched_at = Utc::now().to_rfc3339();
             save_cache(
@@ -421,7 +687,7 @@ async fn load_subject_metadata(
         return Ok(cached.expect("fresh cache checked"));
     }
     let provider = BangumiProvider::new()?;
-    match provider.get_details(&external_id).await {
+    match retry_network(|| provider.get_details(&external_id)).await {
         Ok(metadata) => {
             save_cache(
                 pool,
@@ -441,6 +707,7 @@ async fn load_subject_metadata(
     }
 }
 
+#[cfg(test)]
 async fn fetch_bangumi_data() -> AppResult<Vec<BangumiDataItem>> {
     let client = Client::builder()
         .timeout(StdDuration::from_secs(30))
@@ -561,22 +828,32 @@ async fn load_local_states(pool: &SqlitePool) -> AppResult<HashMap<String, Local
 }
 
 fn item_matches_month(item: &BangumiDataItem, year: i32, month: u32) -> bool {
-    chrono::DateTime::parse_from_rfc3339(&item.begin)
-        .map(|date| date.year() == year && date.month() == month)
-        .unwrap_or(false)
+    item_date(item).is_some_and(|date| date.year() == year && date.month() == month)
+}
+
+fn item_date(item: &BangumiDataItem) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+    let recurrence_start = item
+        .broadcast
+        .as_deref()
+        .and_then(|broadcast| broadcast.strip_prefix("R/"))
+        .and_then(|broadcast| broadcast.split('/').next());
+    chrono::DateTime::parse_from_rfc3339(recurrence_start.unwrap_or(&item.begin)).ok()
+}
+
+fn weekday_label(weekday: u32) -> &'static str {
+    match weekday {
+        1 => "周一",
+        2 => "周二",
+        3 => "周三",
+        4 => "周四",
+        5 => "周五",
+        6 => "周六",
+        _ => "周日",
+    }
 }
 
 fn data_item_to_metadata(item: &BangumiDataItem, fetched_at: &str) -> Option<WorkMetadata> {
-    let external_id = item.sites.iter().find_map(|site| {
-        if site.site != "bangumi" {
-            return None;
-        }
-        site.id.as_ref().and_then(|id| {
-            id.as_str()
-                .map(str::to_string)
-                .or_else(|| id.as_i64().map(|id| id.to_string()))
-        })
-    })?;
+    let external_id = site_id(item, "bangumi")?;
     let date = chrono::DateTime::parse_from_rfc3339(&item.begin).ok()?;
     let chinese = item
         .title_translate
@@ -619,7 +896,23 @@ fn data_item_to_metadata(item: &BangumiDataItem, fetched_at: &str) -> Option<Wor
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
+        source_keys: vec![BANGUMI_DATA_PROVIDER.to_string()],
+        cover_provider: None,
+        banner_provider: None,
+        score_provider: None,
         fetched_at: fetched_at.to_string(),
+    })
+}
+
+fn site_id(item: &BangumiDataItem, key: &str) -> Option<String> {
+    item.sites.iter().find_map(|site| {
+        (site.site == key).then(|| {
+            site.id.as_ref().and_then(|id| {
+                id.as_str()
+                    .map(str::to_string)
+                    .or_else(|| id.as_i64().map(|id| id.to_string()))
+            })
+        })?
     })
 }
 
@@ -639,6 +932,9 @@ fn merge_metadata(base: WorkMetadata, mut details: WorkMetadata) -> WorkMetadata
     details.year = details.year.or(base.year);
     details.air_date = details.air_date.or(base.air_date);
     details.broadcast = base.broadcast.or(details.broadcast);
+    details.source_keys.extend(base.source_keys);
+    details.source_keys.sort();
+    details.source_keys.dedup();
     details
 }
 
@@ -660,6 +956,7 @@ fn to_explore_subject(
         aliases: metadata.aliases,
         description: metadata.description,
         cover_url: metadata.cover_url,
+        banner_url: metadata.banner_url,
         year: metadata.year,
         month,
         air_date: metadata.air_date,
@@ -676,6 +973,10 @@ fn to_explore_subject(
         local_status: local.map(|state| state.status.clone()),
         fetched_at: metadata.fetched_at,
         stale,
+        source_keys: metadata.source_keys,
+        cover_provider: metadata.cover_provider,
+        banner_provider: metadata.banner_provider,
+        score_provider: metadata.score_provider,
     }
 }
 
@@ -702,7 +1003,11 @@ mod tests {
             "type": "tv",
             "begin": "2026-07-01T13:00:00.000Z",
             "broadcast": "R/2026-07-01T13:00:00.000Z/P7D",
-            "sites": [{"site": "bangumi", "id": "558064"}]
+            "sites": [
+                {"site": "bangumi", "id": "558064"},
+                {"site": "tmdb", "id": "tv/123/season/2"},
+                {"site": "aniList", "id": "456"}
+            ]
         }))
         .expect("sample bangumi-data item")
     }
@@ -727,6 +1032,10 @@ mod tests {
             collection_count: 72_459,
             air_date: Some("2023-09-29".to_string()),
             broadcast: None,
+            source_keys: vec!["bangumi".to_string()],
+            cover_provider: None,
+            banner_provider: None,
+            score_provider: Some("bangumi".to_string()),
             fetched_at: Utc::now().to_rfc3339(),
         }
     }
@@ -751,6 +1060,24 @@ mod tests {
             metadata.broadcast.as_deref(),
             Some("R/2026-07-01T13:00:00.000Z/P7D")
         );
+    }
+
+    #[test]
+    fn builds_multilingual_title_index_and_retains_metadata_links() {
+        let document = serde_json::json!({"items": [sample_item()]});
+        let index = build_index(document.to_string().as_bytes()).expect("index");
+        for title in [
+            "女主角？圣女？不，我是杂役女仆（自豪）！",
+            "Heroine? Saint? No, I'm an All-Works Maid (and Proud of It)!",
+            "ヒロイン？聖女？いいえ、オールワークスメイドです(誇)！",
+        ] {
+            assert_eq!(index.titles.get(&normalize_title(title)), Some(&vec![0]));
+        }
+        assert_eq!(
+            site_id(&index.items[0], "tmdb").as_deref(),
+            Some("tv/123/season/2")
+        );
+        assert_eq!(site_id(&index.items[0], "aniList").as_deref(), Some("456"));
     }
 
     #[test]
@@ -834,10 +1161,10 @@ mod tests {
             cover_cache_path: directory.path().join("covers"),
         };
         let metadata = sample_metadata();
-        let first = persist_subject(&state, &metadata, "planned", false, None)
+        let first = persist_subject(&state, &metadata, "planned", false, None, None)
             .await
             .expect("first save");
-        let second = persist_subject(&state, &metadata, "in_progress", true, None)
+        let second = persist_subject(&state, &metadata, "in_progress", true, None, None)
             .await
             .expect("second save");
         assert_eq!(first, second);
@@ -853,5 +1180,50 @@ mod tests {
                 .expect("saved work");
         assert_eq!(count, 1);
         assert_eq!(local, ("in_progress".to_string(), true));
+    }
+
+    #[tokio::test]
+    async fn discovery_supports_full_anime_paging_without_network() {
+        let pool = db::test_pool().await.expect("test pool");
+        let page = discovery_list(&pool, "anime", "title", &[], None, None, 2, 3)
+            .await
+            .expect("discovery page");
+        assert_eq!(page.len(), 3);
+        assert!(page
+            .windows(2)
+            .all(|items| items[0].title <= items[1].title));
+    }
+
+    #[tokio::test]
+    async fn weekly_calendar_has_monday_through_sunday_buckets() {
+        let pool = db::test_pool().await.expect("test pool");
+        let calendar = weekly_calendar(&pool).await.expect("calendar");
+        assert_eq!(calendar.days.len(), 7);
+        assert_eq!(calendar.days[0].label, "周一");
+        assert_eq!(calendar.days[6].label, "周日");
+    }
+
+    #[tokio::test]
+    async fn local_library_check_uses_bangumi_external_id() {
+        let pool = db::test_pool().await.expect("test pool");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('work', '作品', 'video', ?, ?)")
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .expect("work");
+        sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES ('work', 'bangumi', '400602', ?, ?)")
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .expect("external id");
+        assert!(check_in_local_library(&pool, "400602")
+            .await
+            .expect("check"));
+        assert!(!check_in_local_library(&pool, "1")
+            .await
+            .expect("check missing"));
     }
 }
