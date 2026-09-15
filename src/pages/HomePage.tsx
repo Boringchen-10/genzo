@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { Bookmark, ChevronLeft, ChevronRight, Heart, Library, Play, RefreshCw, Settings } from "lucide-react";
+import { Bookmark, ChevronLeft, ChevronRight, Library, Play, RefreshCw, Settings, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider as api } from "../data";
 import { EmptyState, ErrorState, IconButton, LoadingState } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { useUi } from "../store";
-import type { Dashboard, WorkListItem } from "../types";
-import { coverUrl, getErrorMessage, mediaLabels } from "../utils";
+import type { Dashboard, MediaType, WorkListItem } from "../types";
+import { coverUrl, getErrorMessage, mediaLabels, statusLabels } from "../utils";
+
+type ShelfFilter = "all" | MediaType;
+
+const shelfFilterOptions: { key: ShelfFilter; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "video", label: mediaLabels.video },
+  { key: "comic", label: mediaLabels.comic },
+  { key: "novel", label: mediaLabels.novel },
+  { key: "game", label: mediaLabels.game },
+];
 
 const demoLandscape = ["/demo/video-1.jpg", "/demo/video-2.jpg", "/demo/video-3.jpg"];
 const previewWorks: WorkListItem[] = [
@@ -78,13 +88,26 @@ export function HomePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [featuredIndex, setFeaturedIndex] = useState(0);
+  const [works, setWorks] = useState<WorkListItem[]>([]);
+  const [shelfFilter, setShelfFilter] = useState<ShelfFilter>("all");
   const openSettings = useUi((state) => state.openSettings);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      setData(previewMode ? previewDashboard : await api.dashboard());
+      if (previewMode) {
+        setData(previewDashboard);
+        setWorks(previewWorks);
+      } else {
+        const dashboard = await api.dashboard();
+        setData(dashboard);
+        try {
+          setWorks(await api.listWorks());
+        } catch {
+          setWorks(dashboard.recentWorks);
+        }
+      }
     } catch (loadError: unknown) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -98,6 +121,10 @@ export function HomePage() {
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
   const featuredArtwork = workBackdrop(featured, featuredIndex);
   const featuredCover = featured ? coverUrl(featured.coverPath) : null;
+  const shelfWorks = useMemo(
+    () => (shelfFilter === "all" ? works : works.filter((work) => work.type === shelfFilter)),
+    [works, shelfFilter],
+  );
 
   useEffect(() => {
     document.documentElement.classList.toggle("has-window-backdrop", Boolean(featuredArtwork));
@@ -142,13 +169,16 @@ export function HomePage() {
         <div className="gnz-switcher-head"><div><strong>切换到其他作品</strong><span>精选 · {carouselWorks.length} 部</span></div><div><IconButton tooltip="上一个作品" disabled={!carouselWorks.length} onClick={() => setFeaturedIndex((index) => (index - 1 + carouselWorks.length) % carouselWorks.length)}><ChevronLeft size={16}/></IconButton><IconButton tooltip="下一个作品" disabled={!carouselWorks.length} onClick={() => setFeaturedIndex((index) => (index + 1) % carouselWorks.length)}><ChevronRight size={16}/></IconButton></div></div>
         {carouselWorks.length ? <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{mediaLabels[work.type]} · 本地</small></span></button>)}</div> : <EmptyState title="媒体库还是空的" description="添加扫描目录，或手动创建第一条作品记录。" action={<Link className="button primary" to="/scan">添加扫描目录</Link>} />}
       </div>
-      {data.recentWorks.length ? <section className="gnz-home-shelf">
-        <div className="section-heading"><div><h2>我的书架</h2><span>{data.totalWorks} 部作品</span></div><Link to="/library">查看全部</Link></div>
-        <div className="gnz-shelf-filters"><span className="active">全部</span><span>动漫</span><span>漫画</span><span>小说</span><span>游戏</span></div>
-        <div className="gnz-shelf-grid">{data.recentWorks.slice(0, 6).map((work, index) => {
-          const shelfArtwork = artwork(work, index, previewMode) ?? workBackdrop(work, index);
-          return <Link className="gnz-shelf-card" to={`/library/${work.id}`} key={work.id} style={{ "--shelf-image": `url("${shelfArtwork}")` } as CSSProperties}><span>{mediaLabels[work.type]}</span>{work.favorite ? <Heart size={15} fill="currentColor"/> : null}<strong>{work.title}</strong><small>{work.mediaCount} 个文件 · 本地</small></Link>;
-        })}</div>
+      {works.length ? <section className="gnz-home-shelf">
+        <div className="section-heading"><div><h2>我的书架</h2><span>{shelfFilter === "all" ? `${data.totalWorks} 部作品` : `${shelfWorks.length} 部作品`}</span></div><Link to="/library">查看全部</Link></div>
+        <div className="gnz-shelf-filters" role="group" aria-label="作品分类筛选">
+          {shelfFilterOptions.map((option) => <button key={option.key} type="button" className={shelfFilter === option.key ? "active" : ""} aria-pressed={shelfFilter === option.key} onClick={() => setShelfFilter(option.key)}>{option.label}</button>)}
+        </div>
+        {shelfWorks.length ? <div className="gnz-shelf-grid">{shelfWorks.slice(0, 6).map((work, index) => <Link className="gnz-shelf-card" to={`/library/${work.id}`} key={work.id}>
+          <div className="gnz-shelf-poster"><ShelfArtwork work={work} index={index} previewMode={previewMode}/><span className="gnz-shelf-type">{mediaLabels[work.type]}</span>{work.favorite ? <span className="gnz-shelf-fav" aria-hidden="true"><Star size={15} fill="currentColor"/></span> : null}</div>
+          <strong>{work.title}</strong>
+          <small>{work.mediaCount} 个文件 · {statusLabels[work.status]}</small>
+        </Link>)}</div> : <p className="gnz-shelf-empty">该分类下还没有作品。</p>}
       </section> : null}
     </div>
   );
