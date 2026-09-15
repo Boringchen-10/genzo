@@ -111,3 +111,15 @@
 ## 正式仓库
 
 在协作模型（见 `FRONTEND_OWNERSHIP.md`）下，Open Design 的 v1.1.2 探索页修订**直接写入正式仓库** `H:\二次元阅读器` 的 `src/`，分支 `design/explore-frontend`（基于后端提交 `bcc5f21`）。未改动 `src-tauri/`、Rust、SQLite 与迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`，未提交正式仓库默认分支。
+
+## 正式前端对齐：首页「我的书架」（2026-09-15）
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| HOME-009 | 书架是横版图片卡（封面铺底、标题压在图上、卡片比例 1.28），分类是一排**不可点**的静态标签 | 改为本原型 v1.1.2 的海报卡：**2:3 竖版海报** + 左下类型角标 + 右上收藏星标，标题与「N 个文件 · 状态」位于海报下方；分类改为**可点筛选 chip**（全部 / 动漫 / 漫画 / 小说 / 游戏），选中即过滤书架 | 程序与设计不一致，且分类无法使用 | 首页 · 我的书架 | 无（复用既有 `list_works` / `get_dashboard`） | 否 |
+
+- 改动文件：`src/pages/HomePage.tsx`、`src/v1-1-1.css`；提交 `a22b769`（分支 `codex/anime-metadata-v02`）。
+- 数据源：优先 `list_works`（完整作品列表，供分类筛选），失败时回退 `get_dashboard.recentWorks`；两者均为已有契约，**未新增后端需求**。
+- 设计原型里的「来源筛选」一行（全部来源 / 本地 / WebDAV / 网盘）本版**未加入**：`WorkListItem` 没有来源字段，且 WebDAV / 网盘按项目规则仍属 Future，加入即等于展示假状态。若需要该行，需后端先提供作品来源字段（登记为 NEW_REQUIRED）。
+- 分类文案沿用应用既有词汇「动漫」（`mediaLabels.video`），未改成原型里的「动画」。
+- 视觉验收：未渲染 / 未截图（写入即交付），三尺寸与深浅主题见 `SCREENSHOT_CHECKLIST.md`。
