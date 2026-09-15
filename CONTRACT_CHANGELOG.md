@@ -122,3 +122,14 @@ Open Design 可按正式 UI 节奏把 `discoveryList`、`weeklyCalendar`、`meta
 - **兼容性**：向后兼容。远程缓存失败时继续返回 HTTPS 网络缩略图，不阻断探索数据；Mock Provider 和 Open Design 页面无需修改。
 - **受影响功能 ID**：EXPLORE-001、EXPLORE-002、EXPLORE-003、EXPLORE-005。
 - **变更方**：Codex（Rust、Tauri Command 内部处理和最薄数据适配）；未修改页面、组件、样式或 Mock。
+
+---
+
+## 008 · 2026-09-15 · 探索首屏多源补图与高清图片缓存（Codex）
+
+- **变更**：本季、全年动画列表和周时间表在返回前，使用 `bangumi-data` 的 AniList ID 批量补全封面、背景图和评分；补源结果继续执行标题与年份置信度≥0.85 校验，并按条目缓存 30 天。Bangumi 详情不可用且无缓存时，改用内置 `bangumi-data` 作为明确的过期/部分主锚点，使 AniList/TMDB 补全仍可继续。封面缓存由 400×600 提升为最大 600×900，并新增背景图本地缓存；首次返回仍使用可直接展示的 HTTPS 高清源。应用启动后异步预热当前季度元数据与图片缓存，不阻塞主窗口。
+- **原因**：避免探索页先显示大量空白占位、点开后才补图，并防止 Bangumi 单源 404 或短暂故障中断已有多源映射的条目。
+- **字段**：无新增、删除或改名字段；继续使用 `ExploreSubject.coverUrl` / `bannerUrl` / `sourceKeys` 及现有来源字段。
+- **兼容性**：**向后兼容**。无新迁移、无新 Tauri Command、无 Provider 签名变化；AniList 不可用时列表仍返回离线基础数据，不伪造封面或成功状态。超过 100 条的广域查询只合并现有缓存，不会在一次列表请求中触发无界批量网络调用。
+- **受影响功能 ID**：EXPLORE-001、EXPLORE-002、EXPLORE-003、EXPLORE-005、EXPLORE-007、EXPLORE-008。
+- **变更方**：Codex（Rust 数据源、聚合、缓存与契约记录）；未修改 Open Design 拥有的页面、组件、样式、Mock 或 Provider 界面。

@@ -304,7 +304,7 @@ fn decode_and_save_cover(bytes: &[u8], destination: &Path) -> AppResult<()> {
     image
         .save_with_format(destination, image::ImageFormat::Jpeg)
         .map_err(|error| AppError::System(format!("封面写入失败：{error}")))?;
-    let thumbnail = image.thumbnail(400, 600);
+    let thumbnail = image.thumbnail(600, 900);
     let thumbnail_path = thumbnail_path(destination);
     thumbnail
         .save_with_format(thumbnail_path, image::ImageFormat::Jpeg)
@@ -385,7 +385,7 @@ fn merge_tmdb(base: &mut WorkMetadata, supplement: &WorkMetadata) {
     merge_common(base, supplement);
 }
 
-fn merge_anilist(base: &mut WorkMetadata, supplement: &WorkMetadata) {
+pub(crate) fn merge_anilist(base: &mut WorkMetadata, supplement: &WorkMetadata) {
     if base.cover_url.is_none() {
         base.cover_url.clone_from(&supplement.cover_url);
         base.cover_provider.clone_from(&supplement.cover_provider);

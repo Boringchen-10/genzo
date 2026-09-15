@@ -37,6 +37,19 @@ pub fn run() {
                     eprintln!("{error}");
                 }
             });
+            let explore_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = explore_app.state::<db::AppState>();
+                match explore::overview(&state.pool, None, None).await {
+                    Ok(mut overview) => {
+                        explore::prepare_cover_cache(&explore_app, &state, &mut overview.seasonal)
+                            .await;
+                        explore::prepare_cover_cache(&explore_app, &state, &mut overview.trending)
+                            .await;
+                    }
+                    Err(error) => eprintln!("探索页后台预热失败：{error}"),
+                }
+            });
             if let Some(window) = app.get_webview_window("main") {
                 window_style::apply(&window);
             }

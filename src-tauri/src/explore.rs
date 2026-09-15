@@ -3,11 +3,13 @@ use crate::bangumi::BangumiProvider;
 use crate::db::{self, AppState};
 use crate::error::{AppError, AppResult};
 use crate::metadata;
-use crate::metadata_provider::retry_network;
+use crate::metadata_provider::{retry_network, supplemental_match_confidence, MetadataSearchQuery};
 use crate::models::{
     ExploreOverview, ExploreSaveInput, ExploreSourceStatus, ExploreSubject, WeeklyCalendar,
     WeeklyCalendarDay, WorkMetadata,
 };
+#[cfg(not(test))]
+use crate::providers::anilist::AniListProvider;
 use chrono::{Datelike, Duration, Utc};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
@@ -187,6 +189,7 @@ pub async fn overview(
             }
         }
     }
+    enrich_with_anilist(pool, &mut seasonal_metadata, true).await?;
 
     let local_states = load_local_states(pool).await?;
     let seasonal = seasonal_metadata
@@ -317,7 +320,7 @@ pub async fn discovery_list(
             {
                 return Err(AppError::Validation("探索年份或月份无效".to_string()));
             }
-            embedded_index()?
+            let mut metadata = embedded_index()?
                 .items
                 .iter()
                 .filter(|item| item.item_type != "resource")
@@ -334,6 +337,11 @@ pub async fn discovery_list(
                 .filter_map(|item| {
                     data_item_to_metadata(item, &format!("bangumi-data {BANGUMI_DATA_VERSION}"))
                 })
+                .collect::<Vec<_>>();
+            let allow_network_refresh = category == "seasonal" || metadata.len() <= 100;
+            enrich_with_anilist(pool, &mut metadata, allow_network_refresh).await?;
+            metadata
+                .into_iter()
                 .map(|item| to_explore_subject(item, &local_states, false))
                 .collect()
         }
@@ -383,6 +391,8 @@ pub async fn weekly_calendar(pool: &SqlitePool) -> AppResult<WeeklyCalendar> {
             items: Vec::new(),
         })
         .collect::<Vec<_>>();
+    let mut weekdays = HashMap::new();
+    let mut metadata_items = Vec::new();
     for item in &embedded_index()?.items {
         let Some(date) = item_date(item) else {
             continue;
@@ -391,11 +401,20 @@ pub async fn weekly_calendar(pool: &SqlitePool) -> AppResult<WeeklyCalendar> {
         {
             continue;
         }
-        let weekday = date.weekday().number_from_monday();
         if let Some(metadata) =
             data_item_to_metadata(item, &format!("bangumi-data {BANGUMI_DATA_VERSION}"))
         {
-            days[(weekday - 1) as usize].items.push(to_explore_subject(
+            weekdays.insert(
+                metadata.external_id.clone(),
+                date.weekday().number_from_monday(),
+            );
+            metadata_items.push(metadata);
+        }
+    }
+    enrich_with_anilist(pool, &mut metadata_items, true).await?;
+    for metadata in metadata_items {
+        if let Some(weekday) = weekdays.get(&metadata.external_id) {
+            days[(*weekday - 1) as usize].items.push(to_explore_subject(
                 metadata,
                 &local_states,
                 false,
@@ -421,69 +440,176 @@ pub async fn check_in_local_library(pool: &SqlitePool, external_id: &str) -> App
         .await?)
 }
 
+async fn enrich_with_anilist(
+    pool: &SqlitePool,
+    items: &mut [WorkMetadata],
+    allow_network_refresh: bool,
+) -> AppResult<()> {
+    let mut links = HashMap::new();
+    let mut metadata_by_id = HashMap::new();
+    let mut refresh_ids = Vec::new();
+
+    for item in items.iter() {
+        let Some(anilist_id) = linked_ids_for_bangumi(&item.external_id)?.anilist else {
+            continue;
+        };
+        links.insert(item.external_id.clone(), anilist_id.clone());
+        let cache_key = format!("detail:{anilist_id}");
+        match load_cache::<WorkMetadata>(pool, "anilist", &cache_key).await? {
+            Some(cached) => {
+                metadata_by_id.insert(anilist_id.clone(), cached.value);
+                if cached.stale {
+                    refresh_ids.push(anilist_id);
+                }
+            }
+            None => refresh_ids.push(anilist_id),
+        }
+    }
+
+    refresh_ids.sort();
+    refresh_ids.dedup();
+    #[cfg(not(test))]
+    if allow_network_refresh && !refresh_ids.is_empty() {
+        let provider = AniListProvider::new()?;
+        for chunk in refresh_ids.chunks(50) {
+            match retry_network(|| provider.get_details_many(chunk)).await {
+                Ok(metadata) => {
+                    for item in metadata {
+                        save_cache(
+                            pool,
+                            "anilist",
+                            &format!("detail:{}", item.external_id),
+                            &item,
+                            Duration::days(30),
+                        )
+                        .await?;
+                        metadata_by_id.insert(item.external_id.clone(), item);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("AniList 探索批量补全失败：{error}");
+                }
+            }
+        }
+    }
+    #[cfg(test)]
+    let _ = (refresh_ids, allow_network_refresh);
+
+    for item in items {
+        let Some(anilist_id) = links.get(&item.external_id) else {
+            continue;
+        };
+        let Some(supplement) = metadata_by_id.get(anilist_id) else {
+            continue;
+        };
+        let query = MetadataSearchQuery::from_primary(item);
+        if supplemental_match_confidence(&query, supplement) >= 0.85 {
+            crate::metadata_aggregator::merge_anilist(item, supplement);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn prepare_cover_cache(
     app: &AppHandle,
     state: &AppState,
     subjects: &mut [ExploreSubject],
 ) {
     for subject in subjects {
-        let Some(remote_url) = subject.cover_url.as_deref() else {
-            continue;
-        };
-        if !remote_url.starts_with("http://") && !remote_url.starts_with("https://") {
-            continue;
+        if let Some(remote_url) = subject.cover_url.clone() {
+            let destination = state.cover_cache_path.join(format!(
+                "explore-bangumi-{}-poster.jpg",
+                subject.external_id
+            ));
+            subject.cover_url = Some(
+                prepare_cached_image(
+                    app,
+                    &remote_url,
+                    normalize_trusted_image_url(&remote_url),
+                    destination,
+                    true,
+                )
+                .await,
+            );
         }
-
-        let destination = state
-            .cover_cache_path
-            .join(format!("explore-bangumi-{}.jpg", subject.external_id));
-        let thumbnail = crate::metadata_aggregator::thumbnail_path(&destination);
-        if thumbnail.is_file() {
-            if db::allow_cover_file(app, &thumbnail).is_ok() {
-                subject.cover_url = Some(thumbnail.to_string_lossy().to_string());
-            }
-            continue;
+        if let Some(remote_url) = subject.banner_url.clone() {
+            let destination = state.cover_cache_path.join(format!(
+                "explore-bangumi-{}-banner.jpg",
+                subject.external_id
+            ));
+            subject.banner_url = Some(
+                prepare_cached_image(
+                    app,
+                    &remote_url,
+                    normalize_trusted_image_url(&remote_url),
+                    destination,
+                    false,
+                )
+                .await,
+            );
         }
-
-        let download_url = explore_thumbnail_url(remote_url);
-        subject.cover_url = Some(download_url.clone());
-        let cache_key = destination.to_string_lossy().to_string();
-        let mut in_flight = cover_cache_in_flight().lock().await;
-        if !in_flight.insert(cache_key.clone()) {
-            continue;
-        }
-        drop(in_flight);
-
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let limiter = COVER_CACHE_LIMIT
-                .get_or_init(|| Arc::new(Semaphore::new(4)))
-                .clone();
-            let permit = limiter.acquire_owned().await.ok();
-            if permit.is_some()
-                && crate::metadata_aggregator::cache_cover(&download_url, &destination)
-                    .await
-                    .is_ok()
-            {
-                let _ = db::allow_cover_file(&app, &destination);
-                let _ = db::allow_cover_file(&app, &thumbnail);
-            }
-            cover_cache_in_flight().lock().await.remove(&cache_key);
-        });
     }
+}
+
+async fn prepare_cached_image(
+    app: &AppHandle,
+    cache_url: &str,
+    display_url: String,
+    destination: std::path::PathBuf,
+    use_thumbnail: bool,
+) -> String {
+    if !cache_url.starts_with("http://") && !cache_url.starts_with("https://") {
+        return cache_url.to_string();
+    }
+    let thumbnail = crate::metadata_aggregator::thumbnail_path(&destination);
+    let display_path = if use_thumbnail {
+        &thumbnail
+    } else {
+        &destination
+    };
+    if display_path.is_file() && db::allow_cover_file(app, display_path).is_ok() {
+        return display_path.to_string_lossy().to_string();
+    }
+
+    let cache_key = destination.to_string_lossy().to_string();
+    let mut in_flight = cover_cache_in_flight().lock().await;
+    if !in_flight.insert(cache_key.clone()) {
+        return display_url;
+    }
+    drop(in_flight);
+
+    let app = app.clone();
+    let cache_url = normalize_trusted_image_url(cache_url);
+    tauri::async_runtime::spawn(async move {
+        let limiter = COVER_CACHE_LIMIT
+            .get_or_init(|| Arc::new(Semaphore::new(4)))
+            .clone();
+        let permit = limiter.acquire_owned().await.ok();
+        if permit.is_some()
+            && crate::metadata_aggregator::cache_cover(&cache_url, &destination)
+                .await
+                .is_ok()
+        {
+            let _ = db::allow_cover_file(&app, &destination);
+            let _ = db::allow_cover_file(&app, &thumbnail);
+        }
+        cover_cache_in_flight().lock().await.remove(&cache_key);
+    });
+    display_url
 }
 
 fn cover_cache_in_flight() -> &'static Mutex<HashSet<String>> {
     COVER_CACHE_IN_FLIGHT.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-fn explore_thumbnail_url(value: &str) -> String {
-    let value = if let Some(path) = value.strip_prefix("http://lain.bgm.tv/") {
+fn normalize_trusted_image_url(value: &str) -> String {
+    if let Some(path) = value.strip_prefix("http://lain.bgm.tv/") {
+        format!("https://lain.bgm.tv/{path}")
+    } else if let Some(path) = value.strip_prefix("//lain.bgm.tv/") {
         format!("https://lain.bgm.tv/{path}")
     } else {
         value.to_string()
-    };
-    value.replacen("/pic/cover/l/", "/pic/cover/c/", 1)
+    }
 }
 
 pub async fn save_subject(
@@ -676,6 +802,15 @@ pub(crate) fn linked_ids_for_bangumi(external_id: &str) -> AppResult<BangumiData
     )
 }
 
+fn offline_metadata_for_bangumi(external_id: &str) -> AppResult<Option<WorkMetadata>> {
+    let fetched_at = format!("bangumi-data {BANGUMI_DATA_VERSION}");
+    Ok(embedded_index()?
+        .items
+        .iter()
+        .find(|item| site_id(item, "bangumi").as_deref() == Some(external_id))
+        .and_then(|item| data_item_to_metadata(item, &fetched_at)))
+}
+
 fn embedded_index() -> AppResult<&'static BangumiDataIndex> {
     BANGUMI_DATA_INDEX
         .get_or_init(|| build_index(EMBEDDED_BANGUMI_DATA).map_err(|error| error.to_string()))
@@ -771,7 +906,19 @@ async fn load_subject_metadata(
                 stale: false,
             })
         }
-        Err(error) => cached.ok_or(error),
+        Err(error) => {
+            if let Some(cached) = cached {
+                Ok(cached)
+            } else if let Some(metadata) = offline_metadata_for_bangumi(&external_id)? {
+                Ok(Cached {
+                    fetched_at: metadata.fetched_at.clone(),
+                    value: metadata,
+                    stale: true,
+                })
+            } else {
+                Err(error)
+            }
+        }
     }
 }
 
@@ -1149,6 +1296,25 @@ mod tests {
     }
 
     #[test]
+    fn creates_offline_anchor_for_known_bangumi_subject() {
+        let known = embedded_index()
+            .expect("embedded index")
+            .items
+            .iter()
+            .find_map(|item| site_id(item, "bangumi"))
+            .expect("known Bangumi subject");
+        let metadata = offline_metadata_for_bangumi(&known)
+            .expect("offline lookup")
+            .expect("offline metadata");
+        assert_eq!(metadata.external_id, known);
+        assert_eq!(metadata.provider, "bangumi");
+        assert!(metadata
+            .source_keys
+            .iter()
+            .any(|source| source == BANGUMI_DATA_PROVIDER));
+    }
+
+    #[test]
     fn parses_bangumi_data_document_envelope() {
         let document: BangumiDataDocument = serde_json::from_value(serde_json::json!({
             "siteMeta": {"bangumi": {"title": "番组计划"}},
@@ -1166,10 +1332,10 @@ mod tests {
     }
 
     #[test]
-    fn uses_https_common_bangumi_images_for_explore_cards() {
+    fn keeps_high_resolution_bangumi_images_for_explore_cards() {
         assert_eq!(
-            explore_thumbnail_url("http://lain.bgm.tv/pic/cover/l/92/97/975_GFGYI.jpg"),
-            "https://lain.bgm.tv/pic/cover/c/92/97/975_GFGYI.jpg"
+            normalize_trusted_image_url("http://lain.bgm.tv/pic/cover/l/92/97/975_GFGYI.jpg"),
+            "https://lain.bgm.tv/pic/cover/l/92/97/975_GFGYI.jpg"
         );
     }
 

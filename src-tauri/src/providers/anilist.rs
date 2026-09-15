@@ -70,6 +70,28 @@ impl AniListProvider {
             .map(|data| data.page.media.into_iter().map(map_media).collect())
             .unwrap_or_default())
     }
+
+    pub async fn get_details_many(&self, external_ids: &[String]) -> AppResult<Vec<WorkMetadata>> {
+        let ids = external_ids
+            .iter()
+            .map(|value| {
+                value
+                    .trim()
+                    .parse::<i64>()
+                    .map_err(|_| AppError::Validation("AniList 条目 ID 无效".to_string()))
+            })
+            .collect::<AppResult<Vec<_>>>()?;
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        if ids.len() > 50 {
+            return Err(AppError::Validation(
+                "AniList 批量详情每次最多读取 50 个条目".to_string(),
+            ));
+        }
+        self.request(json!({ "ids": ids, "page": 1, "perPage": ids.len() }))
+            .await
+    }
 }
 
 #[async_trait]
@@ -108,9 +130,9 @@ impl MetadataProvider for AniListProvider {
 }
 
 const QUERY: &str = r#"
-query GenzoAnime($id: Int, $search: String, $page: Int!, $perPage: Int!) {
+query GenzoAnime($id: Int, $ids: [Int], $search: String, $page: Int!, $perPage: Int!) {
   Page(page: $page, perPage: $perPage) {
-    media(id: $id, search: $search, type: ANIME, isAdult: false) {
+    media(id: $id, id_in: $ids, search: $search, type: ANIME, isAdult: false) {
       id
       title { romaji english native }
       startDate { year month day }
@@ -281,6 +303,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_oversized_batch_before_network_access() {
+        let provider = AniListProvider::new().expect("provider");
+        let ids = (0..51).map(|id| id.to_string()).collect::<Vec<_>>();
+        let result = provider.get_details_many(&ids).await;
+        assert!(matches!(result, Err(AppError::Validation(_))));
+    }
+
+    #[tokio::test]
     #[ignore = "requires the live AniList GraphQL API"]
     async fn live_anilist_contract_is_parseable() {
         let provider = AniListProvider::new().expect("provider");
@@ -291,5 +321,18 @@ mod tests {
         assert_eq!(metadata.external_id, "154587");
         assert!(metadata.score.is_some());
         assert!(metadata.cover_url.is_some());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the live AniList GraphQL API"]
+    async fn live_anilist_batch_returns_high_resolution_artwork() {
+        let provider = AniListProvider::new().expect("provider");
+        let metadata = provider
+            .get_details_many(&["199446".to_string(), "189046".to_string()])
+            .await
+            .expect("AniList batch details");
+        assert_eq!(metadata.len(), 2);
+        assert!(metadata.iter().all(|item| item.cover_url.is_some()));
+        assert!(metadata.iter().any(|item| item.banner_url.is_some()));
     }
 }
