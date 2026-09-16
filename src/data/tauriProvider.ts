@@ -47,5 +47,10 @@ export function createTauriProvider(): GenzoDataProvider {
     searchExplore: api.searchExplore,
     getExploreSubject: api.getExploreSubject,
     saveExploreSubject: api.saveExploreSubject,
+    getAnimeWorkStructure: api.getAnimeWorkStructure,
+    refreshWorkMetadata: api.refreshWorkMetadata,
+    setMediaEpisode: api.setMediaEpisode,
+    getMediaThumbnail: api.getMediaThumbnail,
+    animeRanking: api.animeRanking,
   } satisfies GenzoDataProvider;
 }
