@@ -8,7 +8,10 @@ import { useToasts } from "../store";
 import type { ExploreOverview, ExploreSubject, WorkStatus } from "../types";
 import { formatDate, getErrorMessage, statusLabels } from "../utils";
 import {
+  COUR_MONTHS,
   EXPLORE_UNAVAILABLE_MESSAGE,
+  courLabel,
+  courOf,
   exploreSourceProblems,
   exploreStatusOptions,
   filterByTag,
@@ -22,11 +25,6 @@ import {
 } from "../explore";
 
 type ExploreTab = "recommended" | "seasonal";
-
-function currentSeason() {
-  const now = new Date();
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
-}
 
 /** 封面：网络封面加载失败或缺失时回退到 Genzo 自制占位封面，不留破图。 */
 function ExploreCover({ subject }: { subject: ExploreSubject }) {
@@ -65,12 +63,14 @@ function ExploreCard({ subject, onOpen }: { subject: ExploreSubject; onOpen: (su
 export function ExplorePage() {
   const provider = useMemo(() => getExploreProvider(), []);
   const toast = useToasts((state) => state.push);
-  const initial = useMemo(currentSeason, []);
+  /** 「全部年份 / 全部月份」时的默认季度：按当前日期取所在季度（1 / 4 / 7 / 10 月）。 */
+  const initialCour = useMemo(() => courOf(new Date()), []);
   const [overview, setOverview] = useState<ExploreOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [year, setYear] = useState(initial.year);
-  const [month, setMonth] = useState(initial.month);
+  /** `null` = 全部年份 / 全部月份；请求时传 null，由后端规范化到季度。 */
+  const [year, setYear] = useState<number | null>(null);
+  const [month, setMonth] = useState<number | null>(null);
   const [tab, setTab] = useState<ExploreTab>("recommended");
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -84,7 +84,11 @@ export function ExplorePage() {
   const [draftStatus, setDraftStatus] = useState<WorkStatus>("planned");
   const [draftFavorite, setDraftFavorite] = useState(false);
 
-  const load = useCallback(async (targetYear: number, targetMonth: number) => {
+  /** 筛选为「全部」时，本季按当前日期所在季度自动取值。 */
+  const effectiveYear = year ?? initialCour.year;
+  const effectiveMonth = month ?? initialCour.month;
+
+  const load = useCallback(async (targetYear: number | null, targetMonth: number | null) => {
     if (!provider) {
       setOverview(null);
       setLoading(false);
@@ -115,6 +119,9 @@ export function ExplorePage() {
   }, [provider, year, month]);
 
   const problems = useMemo(() => exploreSourceProblems(overview?.sources ?? []), [overview]);
+  /** 展示用的季度：优先用后端规范化后的年份 / 月份，未取到时回落到「全部」时的当前季度。 */
+  const shownYear = overview?.year ?? effectiveYear;
+  const shownMonth = overview?.month ?? effectiveMonth;
   const activeList = tab === "seasonal" ? overview?.seasonal ?? [] : overview?.trending ?? [];
   const availableTags = overview?.availableTags ?? [];
   const visible = useMemo(() => filterByTag(activeList, tag), [activeList, tag]);
@@ -124,7 +131,7 @@ export function ExplorePage() {
   const gridSubjects = searchTerm !== null ? filterByTag(results, tag) : visible;
   const heading = searchTerm !== null
     ? { title: "搜索结果", detail: `「${searchTerm}」共 ${gridSubjects.length} 条` }
-    : { title: "推荐作品", detail: tab === "seasonal" ? `${seasonLabel(year, month)} · 来自 bangumi-data 番组索引` : "按 Bangumi 评分人数与收藏人数排序" };
+    : { title: "推荐作品", detail: tab === "seasonal" ? `${courLabel(shownYear, shownMonth)} · 来自 bangumi-data 番组索引` : "按 Bangumi 评分人数与收藏人数排序" };
 
   useEffect(() => {
     if (tag && !filterTags.includes(tag)) setTag(null);
@@ -132,7 +139,8 @@ export function ExplorePage() {
 
   const clearSearch = () => { setSearchTerm(null); setResults([]); setQuery(""); };
   const openTab = (next: ExploreTab) => { clearSearch(); setTab(next); };
-  const resetFilters = () => { setTag(null); setYear(initial.year); setMonth(initial.month); };
+  /** 重置回「全部年份 / 全部月份」，此时本季自动取当前季度。 */
+  const resetFilters = () => { setTag(null); setYear(null); setMonth(null); };
 
   const submitSearch = async (event: FormEvent) => {
     event.preventDefault();
@@ -198,15 +206,15 @@ export function ExplorePage() {
 
   const yearOptions = useMemo(() => {
     const years: number[] = [];
-    for (let value = initial.year - 6; value <= initial.year + 1; value += 1) years.push(value);
+    for (let value = initialCour.year - 6; value <= initialCour.year + 1; value += 1) years.push(value);
     return years;
-  }, [initial.year]);
+  }, [initialCour.year]);
 
   const emptyState = searchTerm !== null
     ? <EmptyState title="没有匹配的条目" description="换一个关键词，或清除搜索回到本季列表。" />
     : tab === "seasonal"
-      ? <EmptyState title="这个月份没有索引到番组" description={`bangumi-data 番组索引里没有 ${seasonLabel(year, month)} 的条目，换一个年份或月份再试。`} />
-      : <EmptyState title="没有可显示的作品" description={problems.blockers[0]?.warning ?? "当前月份没有可用的番组日历数据；历史月份只有本季番组列表。"} />;
+      ? <EmptyState title="这个季度没有索引到番组" description={`bangumi-data 番组索引里没有 ${courLabel(effectiveYear, effectiveMonth)} 的条目，换一个年份或季度再试。`} />
+      : <EmptyState title="没有可显示的作品" description={problems.blockers[0]?.warning ?? "当前季度没有可用的番组日历数据；历史季度只有本季番组列表。"} />;
 
   /* 条目详情：与作品详情页共用同一套版面（detail-page / detail-hero / detail-body）。 */
   if (selected) {
@@ -316,7 +324,7 @@ export function ExplorePage() {
       <header className="gnz-compact-header">
         <div>
           <strong>探索</strong>
-          <span>{overview ? `${seasonLabel(overview.year, overview.month)} · Bangumi 网络数据` : "Bangumi 网络数据"}</span>
+          <span>{overview ? `${courLabel(shownYear, shownMonth)} · Bangumi 网络数据` : "Bangumi 网络数据"}</span>
         </div>
         <form className="search-box gnz-explore-search" role="search" onSubmit={submitSearch}>
           <Search size={17} />
@@ -343,7 +351,7 @@ export function ExplorePage() {
           <p>浏览本季番组与当前热度作品，并把要追的条目加入本地媒体库。评分与排名来自 Bangumi 网络数据，不是你的个人评分。</p>
         </div>
         <div className="gnz-explore-source-note">
-          <strong>{overview ? seasonLabel(overview.year, overview.month) : seasonLabel(year, month)} · Bangumi 数据源</strong>
+          <strong>{courLabel(shownYear, shownMonth)} · Bangumi 数据源</strong>
           <span>{overview ? `本季 ${overview.seasonal.length} 部 · 热度 ${overview.trending.length} 部` : loading ? "正在读取网络数据" : "暂无数据"}</span>
           {overview ? <span>数据时间 {formatDate(overview.fetchedAt)}</span> : null}
         </div>
@@ -381,6 +389,47 @@ export function ExplorePage() {
 
       {!error && overview ? (
         <>
+          {/* 筛选面板：位置 / 间距 / 结构对齐 Open Design v1.1.2 —— 位于分类 Tab 之下、作品网格之上。 */}
+          <section className="gnz-filter-preview" aria-labelledby="explore-filter-title">
+            <div className="gnz-filter-head">
+              <h2 id="explore-filter-title">筛选</h2>
+              <p>共 {gridSubjects.length} 部作品</p>
+              <button type="button" className="button secondary compact" onClick={resetFilters} disabled={!tag && year === null && month === null}>重置</button>
+            </div>
+            <div className="gnz-filter-field">
+              <span className="gnz-filter-label" id="explore-tag-label">动漫标签</span>
+              <div className="gnz-filter-chips" role="group" aria-labelledby="explore-tag-label">
+                {filterTags.length ? filterTags.map((value) => (
+                  <button key={value} type="button" className={tag === value ? "active" : ""} aria-pressed={tag === value} onClick={() => setTag(tag === value ? null : value)}>{value}</button>
+                )) : <span className="quiet-inline">当前列表还没有可用标签。</span>}
+              </div>
+            </div>
+            <div className="gnz-filter-selects">
+              <label className="gnz-filter-select"><span>年份</span>
+                <select
+                  value={year === null ? "" : String(year)}
+                  onChange={(event) => setYear(event.target.value === "" ? null : Number(event.target.value))}
+                  aria-label="按年份筛选"
+                  disabled={!provider}
+                >
+                  <option value="">全部年份</option>
+                  {yearOptions.map((value) => <option key={value} value={value}>{value} 年</option>)}
+                </select>
+              </label>
+              <label className="gnz-filter-select"><span>月份</span>
+                <select
+                  value={month === null ? "" : String(month)}
+                  onChange={(event) => setMonth(event.target.value === "" ? null : Number(event.target.value))}
+                  aria-label="按季度筛选"
+                  disabled={!provider}
+                >
+                  <option value="">全部月份</option>
+                  {COUR_MONTHS.map((value) => <option key={value} value={value}>{value} 月新番</option>)}
+                </select>
+              </label>
+            </div>
+          </section>
+
           <section className="gnz-explore-trending" aria-busy={loading}>
             <div className="section-heading">
               <div><h2>{heading.title}</h2><span>{loading ? "正在读取网络数据" : heading.detail}</span></div>
@@ -395,31 +444,6 @@ export function ExplorePage() {
                 {gridSubjects.map((subject) => <ExploreCard key={subject.externalId} subject={subject} onOpen={(next) => void openDetail(next)} />)}
               </div>
             ) : emptyState}
-          </section>
-
-          <section className="gnz-filter-preview">
-            <div className="section-heading">
-              <div><h2>筛选 <span className="quiet-inline">共 {gridSubjects.length} 部</span></h2></div>
-              <button type="button" className="button secondary compact" onClick={resetFilters} disabled={!tag && year === initial.year && month === initial.month}>重置</button>
-            </div>
-            <span className="gnz-explore-filter-label" id="explore-tag-label">动画标签</span>
-            <div className="gnz-filter-chips" role="group" aria-labelledby="explore-tag-label">
-              {filterTags.length ? filterTags.map((value) => (
-                <button key={value} type="button" className={tag === value ? "active" : ""} aria-pressed={tag === value} onClick={() => setTag(tag === value ? null : value)}>{value}</button>
-              )) : <span className="quiet-inline">当前列表还没有可用标签。</span>}
-            </div>
-            <div className="gnz-filter-selects">
-              <label className="field"><span>年份</span>
-                <select value={year} onChange={(event) => setYear(Number(event.target.value))} disabled={!provider}>
-                  {yearOptions.map((value) => <option key={value} value={value}>{value} 年</option>)}
-                </select>
-              </label>
-              <label className="field"><span>月份</span>
-                <select value={month} onChange={(event) => setMonth(Number(event.target.value))} disabled={!provider}>
-                  {Array.from({ length: 12 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value} 月</option>)}
-                </select>
-              </label>
-            </div>
           </section>
         </>
       ) : null}

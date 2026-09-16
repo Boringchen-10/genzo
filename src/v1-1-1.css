@@ -260,11 +260,6 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-trending-card > div { position: absolute; inset: auto 13px 12px; color: #f4f7f6; }
 .gnz-trending-card strong, .gnz-trending-card span { display: block; }
 .gnz-trending-card span { margin-top: 5px; color: #c7cecc; font-size: 10px; }
-.gnz-filter-preview { margin-top: 30px; padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
-.gnz-filter-preview label { display: block; margin: 10px 0 8px; color: var(--quiet); font-size: 11px; }
-.gnz-filter-chips { display: flex; gap: 8px; }
-.gnz-filter-chips button { height: 34px; padding: 0 13px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
-.gnz-filter-selects { display: flex; gap: 12px; margin-top: 20px; }
 
 /* Detail */
 .detail-page { position: relative; isolation: isolate; min-height: 100%; overflow: hidden; background: var(--bg); }

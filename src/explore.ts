@@ -26,6 +26,27 @@ export function seasonLabel(year: number, month: number): string {
   return `${year} 年 ${month} 月`;
 }
 
+/**
+ * 后端把任意月份规范化到 1 / 4 / 7 / 10 月的季度（cour），
+ * 因此探索筛选只提供这四个季度，不再按 12 个自然月展示。
+ */
+export const COUR_MONTHS: number[] = [1, 4, 7, 10];
+
+/** 季度标签：`2026 年 4 月新番`。 */
+export function courLabel(year: number, month: number): string {
+  return `${year} 年 ${month} 月新番`;
+}
+
+/** 按日期取所在季度；筛选为「全部」时用它作为本季的默认季度。 */
+export function courOf(date: Date): { year: number; month: number } {
+  const month = date.getMonth() + 1;
+  let cour = 1; // 1 月新番
+  for (const value of COUR_MONTHS) {
+    if (value <= month) cour = value;
+  }
+  return { year: date.getFullYear(), month: cour };
+}
+
 /** 网络评分：`null` 时不显示数字，避免与个人评分混淆。 */
 export function formatScore(score: number | null): string {
   return score === null ? "暂无网络评分" : score.toFixed(1);
