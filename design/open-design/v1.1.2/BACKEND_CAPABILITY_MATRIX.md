@@ -94,3 +94,14 @@ WebDAV、SMB/NAS、网盘、远程播放、下载到本地、工具一键下载�
 | FE-EXPLORE-001 | 探索 | 探索页数据（本季番组 / 热度 / 搜索 / 详情 / 加入媒体库） | EXISTING_VERIFIED（后端 + 前端已接入） | `ExplorePage.tsx` 已改用 `getExploreProvider()`，不再使用本地 `samples`；新增 `src/explore.ts`（纯展示辅助 + 单测）与 `src/explore.css`；Mock Provider 保留「示例数据」标记 | 缓存由后端负责 | v0.2 |
 
 > 说明：`src/data/` 为前端新增层，只读引用 `src/types.ts` 与 `src/api.ts`；不改动任何 Tauri Command、Rust、SQLite、迁移或 `contracts/`。`src/store.ts` 经只读核对为纯前端偏好与 Toast（zustand + localStorage），归前端所有。
+
+## 探索「推荐」页的排行与注目动画（v1.1.2 本轮新增需求）
+
+当前「推荐」页只能显示**当前季度**的热度榜：`src-tauri/src/explore.rs` 的 `overview()` 只在 `year == now.year() && month == current_season_start(now)` 时加载 Bangumi 每日放送（第 143 行），否则 `trending` 为空（第 212 行 `unwrap_or_default()`）。因此「按排名推荐」与「注目动画（最近 30 日标记）」都需要新增后端能力。
+
+| 功能 ID | 页面 | 用户操作 | 现状与证据 | 需要的后端能力（建议契约） | 建议版本 |
+|---|---|---|---|---|---|
+| EXPLORE-020 | 探索 · 推荐 | 查看「动画排行」（按 Bangumi 评分 / 排名） | **NEW_REQUIRED**。本地番组索引 `BangumiDataItem` 只有 `title / titleTranslate / type / begin / end / broadcast / sites`，`data_item_to_metadata()` 写死 `score: None, rating_count: 0, collection_count: 0`（`src-tauri/src/explore.rs`），所以 `discovery_list("anime", "score"\|"popularity", …)` 排序无实际依据；`DiscoverySort` 的 `score` 在索引条目上全为 `null`。 | 建议命令 `get_anime_ranking(limit, offset) -> ExploreSubject[]`：批量返回带 `score / rank / ratingCount / collectionCount` 的条目（数据源待 Codex 确认：Bangumi 无批量排行接口，可能需要抓取或第三方排行数据；必须先确认许可与限流）。错误：网络失败 / 限流 → 复用 `ExploreSourceStatus` 表达，页面按错误态呈现。需持久化：是（建议 30 天缓存）。 | v0.4（待确认数据源） |
+| EXPLORE-021 | 探索 · 推荐 | 查看「注目动画」（最近 30 日标记） | **NEW_REQUIRED**。现有网络源只有：Bangumi `GET /calendar`（每日放送，仅当季条目，`src-tauri/src/bangumi.rs::calendar`）与 AniList `get_details_many`（仅按 id 查详情，`src-tauri/src/providers/anilist.rs`，无 trending 查询）。**没有任何“最近 30 日标记”数据**。 | 建议命令 `get_recent_marked_trending(limit) -> ExploreSubject[]`：返回最近 30 日被标记最多的条目及「N 人关注」计数。数据源与许可需 Codex 确认（NEEDS_CONFIRMATION）；若无法取得，请回复冲突，不要用当季热度冒充。需持久化：是（建议 1 天缓存）。 | v0.4（待确认数据源） |
+
+前端当前处理（本轮已交付）：`src/pages/ExplorePage.tsx` 的「推荐」页改为**始终取当前季度**的热度榜（与年份 / 季度筛选解耦，历史季度不再空白），并在页面内以 `Future` 徽标 + 说明保留这两个列表的结构，**不展示任何假排名或假 30 日标记数据**。待 Codex 接入上述命令后替换该段说明。

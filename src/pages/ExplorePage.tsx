@@ -66,6 +66,11 @@ export function ExplorePage() {
   /** 「全部年份 / 全部月份」时的默认季度：按当前日期取所在季度（1 / 4 / 7 / 10 月）。 */
   const initialCour = useMemo(() => courOf(new Date()), []);
   const [overview, setOverview] = useState<ExploreOverview | null>(null);
+  /**
+   * 「推荐」标签页的数据：**始终取当前季度**的热度榜（后端只在当前季度返回
+   * Bangumi 每日放送热度，历史季度该列表为空），因此它不随年份 / 季度筛选变化。
+   */
+  const [hot, setHot] = useState<ExploreOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   /** `null` = 全部年份 / 全部月份；请求时传 null，由后端规范化到季度。 */
@@ -91,6 +96,7 @@ export function ExplorePage() {
   const load = useCallback(async (targetYear: number | null, targetMonth: number | null) => {
     if (!provider) {
       setOverview(null);
+      setHot(null);
       setLoading(false);
       setError(EXPLORE_UNAVAILABLE_MESSAGE);
       return;
@@ -98,9 +104,17 @@ export function ExplorePage() {
     setLoading(true);
     setError("");
     try {
-      setOverview(await provider.exploreOverview(targetYear, targetMonth));
+      const seasonalRequest = provider.exploreOverview(targetYear, targetMonth);
+      /* 「全部年份 / 全部月份」时两个请求本来就一样，复用同一个 Promise，避免重复调用。 */
+      const hotRequest = targetYear === null && targetMonth === null
+        ? seasonalRequest
+        : provider.exploreOverview(null, null);
+      const [seasonal, hotOverview] = await Promise.all([seasonalRequest, hotRequest]);
+      setOverview(seasonal);
+      setHot(hotOverview);
     } catch (loadError: unknown) {
       setOverview(null);
+      setHot(null);
       setError(getErrorMessage(loadError));
     } finally {
       setLoading(false);
@@ -112,26 +126,34 @@ export function ExplorePage() {
   const refresh = useCallback(async () => {
     if (!provider) return;
     try {
-      setOverview(await provider.exploreOverview(year, month));
+      const seasonal = await provider.exploreOverview(year, month);
+      setOverview(seasonal);
+      setHot(year === null && month === null ? seasonal : await provider.exploreOverview(null, null));
     } catch {
       /* 静默刷新失败时保留现有列表，避免把已展示的数据整页替换成错误态 */
     }
   }, [provider, year, month]);
 
   const problems = useMemo(() => exploreSourceProblems(overview?.sources ?? []), [overview]);
+  const hotProblems = useMemo(() => exploreSourceProblems(hot?.sources ?? []), [hot]);
   /** 展示用的季度：优先用后端规范化后的年份 / 月份，未取到时回落到「全部」时的当前季度。 */
   const shownYear = overview?.year ?? effectiveYear;
   const shownMonth = overview?.month ?? effectiveMonth;
-  const activeList = tab === "seasonal" ? overview?.seasonal ?? [] : overview?.trending ?? [];
+  const hotYear = hot?.year ?? initialCour.year;
+  const hotMonth = hot?.month ?? initialCour.month;
+  const activeList = tab === "seasonal" ? overview?.seasonal ?? [] : hot?.trending ?? [];
   const availableTags = overview?.availableTags ?? [];
+  const hotTags = useMemo(() => Array.from(new Set((hot?.trending ?? []).flatMap((item) => item.genres))).sort((left, right) => left.localeCompare(right, "zh-CN")), [hot]);
   const visible = useMemo(() => filterByTag(activeList, tag), [activeList, tag]);
   const filterTags = useMemo(() => searchTerm !== null
     ? Array.from(new Set(results.flatMap((item) => item.genres))).sort((left, right) => left.localeCompare(right, "zh-CN"))
-    : availableTags, [searchTerm, results, availableTags]);
+    : tab === "seasonal" ? availableTags : hotTags, [searchTerm, results, availableTags, hotTags, tab]);
   const gridSubjects = searchTerm !== null ? filterByTag(results, tag) : visible;
   const heading = searchTerm !== null
     ? { title: "搜索结果", detail: `「${searchTerm}」共 ${gridSubjects.length} 条` }
-    : { title: "推荐作品", detail: tab === "seasonal" ? `${courLabel(shownYear, shownMonth)} · 来自 bangumi-data 番组索引` : "按 Bangumi 评分人数与收藏人数排序" };
+    : tab === "seasonal"
+      ? { title: "本季番组", detail: `${courLabel(shownYear, shownMonth)} · 来自 bangumi-data 番组索引` }
+      : { title: "本季热度", detail: `${courLabel(hotYear, hotMonth)} · 按 Bangumi 评分人数与收藏人数排序 · 不受年份 / 季度筛选影响` };
 
   useEffect(() => {
     if (tag && !filterTags.includes(tag)) setTag(null);
@@ -214,7 +236,7 @@ export function ExplorePage() {
     ? <EmptyState title="没有匹配的条目" description="换一个关键词，或清除搜索回到本季列表。" />
     : tab === "seasonal"
       ? <EmptyState title="这个季度没有索引到番组" description={`bangumi-data 番组索引里没有 ${courLabel(effectiveYear, effectiveMonth)} 的条目，换一个年份或季度再试。`} />
-      : <EmptyState title="没有可显示的作品" description={problems.blockers[0]?.warning ?? "当前季度没有可用的番组日历数据；历史季度只有本季番组列表。"} />;
+      : <EmptyState title="热度榜暂时没有数据" description={hotProblems.blockers[0]?.warning ?? `Bangumi 每日放送里暂时没有 ${courLabel(hotYear, hotMonth)} 的热度条目，稍后刷新再试。`} />;
 
   /* 条目详情：与作品详情页共用同一套版面（detail-page / detail-hero / detail-body）。 */
   if (selected) {
@@ -352,7 +374,7 @@ export function ExplorePage() {
         </div>
         <div className="gnz-explore-source-note">
           <strong>{courLabel(shownYear, shownMonth)} · Bangumi 数据源</strong>
-          <span>{overview ? `本季 ${overview.seasonal.length} 部 · 热度 ${overview.trending.length} 部` : loading ? "正在读取网络数据" : "暂无数据"}</span>
+          <span>{overview ? `本季 ${overview.seasonal.length} 部 · 热度榜 ${hot?.trending.length ?? 0} 部` : loading ? "正在读取网络数据" : "暂无数据"}</span>
           {overview ? <span>数据时间 {formatDate(overview.fetchedAt)}</span> : null}
         </div>
       </section>
@@ -410,7 +432,8 @@ export function ExplorePage() {
                   value={year === null ? "" : String(year)}
                   onChange={(event) => setYear(event.target.value === "" ? null : Number(event.target.value))}
                   aria-label="按年份筛选"
-                  disabled={!provider}
+                  disabled={!provider || tab === "recommended"}
+                  title={tab === "recommended" ? "年份筛选只作用于「本季」标签页" : "按年份筛选"}
                 >
                   <option value="">全部年份</option>
                   {yearOptions.map((value) => <option key={value} value={value}>{value} 年</option>)}
@@ -421,13 +444,17 @@ export function ExplorePage() {
                   value={month === null ? "" : String(month)}
                   onChange={(event) => setMonth(event.target.value === "" ? null : Number(event.target.value))}
                   aria-label="按季度筛选"
-                  disabled={!provider}
+                  disabled={!provider || tab === "recommended"}
+                  title={tab === "recommended" ? "季度筛选只作用于「本季」标签页" : "按季度筛选"}
                 >
                   <option value="">全部月份</option>
                   {COUR_MONTHS.map((value) => <option key={value} value={value}>{value} 月新番</option>)}
                 </select>
               </label>
             </div>
+            {tab === "recommended" ? (
+              <p className="gnz-filter-hint">年份 / 季度筛选只作用于「本季」标签页；上面的热度榜按 Bangumi 评分人数与收藏人数排序，不受季度筛选影响。</p>
+            ) : null}
           </section>
 
           <section className="gnz-explore-trending" aria-busy={loading}>
@@ -445,6 +472,25 @@ export function ExplorePage() {
               </div>
             ) : emptyState}
           </section>
+
+          {tab === "recommended" && searchTerm === null ? (
+            <section className="gnz-explore-future">
+              <div className="section-heading">
+                <div>
+                  <h2>动画排行 · 注目动画<span className="future-badge">Future</span></h2>
+                  <span>需要新增后端，暂未开放</span>
+                </div>
+              </div>
+              <div className="future-empty">
+                <p>这两个列表还没有数据源，所以现在没有入口可点：</p>
+                <ul>
+                  <li><strong>动画排行</strong>（按 Bangumi 评分 / 排名）：本地番组索引只有条目基本信息，没有评分；Bangumi 官方 API 也没有批量排行查询。</li>
+                  <li><strong>注目动画 · 最近 30 日标记</strong>：现有 Bangumi 每日放送只返回当季条目，不含最近 30 日的标记 / 关注数据。</li>
+                </ul>
+                <p>两项都已登记为新增后端能力（见 BACKEND_CAPABILITY_MATRIX 的 EXPLORE-020 / EXPLORE-021）；接入后会替换上面的「本季热度」。</p>
+              </div>
+            </section>
+          ) : null}
         </>
       ) : null}
 
