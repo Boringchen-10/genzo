@@ -197,3 +197,31 @@ Open Design 可按正式 UI 节奏把 `discoveryList`、`weeklyCalendar`、`meta
 Open Design 需先在其拥有的 `GenzoDataProvider` 与 Mock Provider 中声明上述方法，再由 Codex 在 `tauriProvider.ts` 逐项委托。详情页应使用 `AnimeWorkStructure.episodes[].localFiles` 渲染“官方分集 → 多个本地版本”，使用 `seasons` 渲染季度/关联作品选择，刷新按钮调用 `refreshWorkMetadata`，并把 `staff` / `characters` 接入已确认区域。探索推荐页的动画排行榜调用 `animeRanking`；视频缩略图为 `null` 时使用设计规定的明确降级，不重复使用作品海报冒充视频帧。
 
 `design/open-design/v1.1.2/BACKEND_CAPABILITY_MATRIX.md` 中 EXPLORE-020 所写“Bangumi 无批量排行接口”已被官方 OpenAPI 与真实调用证伪；该文件归 Open Design 所有，本次未直接修改，下一设计增量应将 EXPLORE-020 更新为后端已实现、前端待接线。
+
+---
+
+## 013 · 2026-09-16 · 前端接入动画详情与排行榜契约（Open Design）
+
+- **变更**：`src/data/provider.ts` 新增**可选**方法 `getAnimeWorkStructure` / `refreshWorkMetadata` / `setMediaEpisode` / `getMediaThumbnail` / `animeRanking`，并新增 `GenzoAnimeDetailProvider` 与 `GenzoAnimeRankingProvider` 子集；`src/data/index.ts` 新增 `getAnimeDetailProvider()` / `getAnimeRankingProvider()` 能力访问器；`src/data/mockProvider.ts` 完整实现五个方法（示例数据；缩略图一律返回 `null`，不伪造视频帧）；`src/pages/WorkDetailPage.tsx` 接入官方分集 / 本地多版本 / 关联作品 / 元数据刷新 / 制作人员与角色 / 手动分集映射 / 缩略图懒加载；`src/pages/ExplorePage.tsx` 的「推荐」页接入真实排行榜（分页 + `stale` 缓存标记），「注目动画」保留 `Future` 且不提供入口。样式集中在 `src/v1-1-1.css` 与 `src/explore.css` 的新增段落。
+- **原因**：接入 012 号条目交付的动画详情与排行榜后端，落实 012 的「Open Design 接线要求」，同时遵守「Open Design 只改前端、Codex 只改后端」的分工。
+- **字段**：与 `src/api.ts` 的 `get_anime_work_structure` / `refresh_work_metadata` / `set_media_episode` / `get_media_thumbnail` / `get_anime_ranking` 一一对应，参数与返回类型直接引用 `src/types.ts` 的 `AnimeWorkStructure` / `ExploreSubject`。**未新增或改义任何 Tauri Command，未修改 `src/api.ts`、`src/types.ts`、`src-tauri/`、SQLite 迁移或 `contracts/`。**
+- **语义遵守**：`refreshWorkMetadata` 只返回 `AnimeWorkStructure`，前端在成功后**重新调用** `getWork()` 与 `getAnimeWorkStructure()`，失败保留旧内容；`seasons` 按 `relation` 展示，只有 `seasonNumber !== null` 时才显示「第 N 季」，剧场版 / OVA / 续集不强行命名为季度，`localWorkId` 为空时不伪装已入库；`setMediaEpisode` 传 `null` 解除映射，成功后重新读取结构；`getMediaThumbnail` 返回 `null` 时使用中性文件占位，**不用作品海报冒充视频帧**，且缩略图失败不阻断打开文件 / 定位目录；排行榜网络失败**不用本季热度冒充**。
+- **兼容性**：**向后兼容**。五个方法在 `GenzoDataProvider` 上声明为**可选成员**，`src/data/tauriProvider.ts`（Codex 维护，本轮未改动）继续满足接口，其余调用方不受影响。运行期由访问器判定：方法齐备则返回可调用子集，否则返回 `null`，对应区域显示「尚未接入」，**不伪造数据**。Mock 继续显示「示例数据」标记。
+- **受影响功能 ID**：DETAIL-002、DETAIL-003、DETAIL-006、DETAIL-007、DETAIL-008、INBOX-006、EXPLORE-020、EXPLORE-021（仍为 Future）、FE-PROVIDER-004、FE-PROVIDER-005、FE-DETAIL-001 ~ 003、FE-RANKING-001。
+- **变更方**：Open Design（前端 Provider 接口、Mock、页面、样式与设计文档）。
+
+### 待 Codex 处理
+
+1. 在 `src/data/tauriProvider.ts` 补齐五个委托（其余文件零改动）：
+
+   ```ts
+   getAnimeWorkStructure: api.getAnimeWorkStructure,
+   refreshWorkMetadata: api.refreshWorkMetadata,
+   setMediaEpisode: api.setMediaEpisode,
+   getMediaThumbnail: api.getMediaThumbnail,
+   animeRanking: api.animeRanking,
+   ```
+
+2. 补齐后可将上述五个方法改为**必选**（届时 `satisfies GenzoDataProvider` 会强制约束表面），「尚未接入」状态随之消失，前端无需再改。
+3. 字幕与视频的持久化关联未在 012 中声明，已标为 NEEDS_CONFIRMATION（DETAIL-009），请确认是否已有映射表或需要新增。
+4. 「最近 30 日注目动画」仍无数据源，保持 `Future` / NEEDS_CONFIRMATION，**不得用排行榜或本季热度冒充**。

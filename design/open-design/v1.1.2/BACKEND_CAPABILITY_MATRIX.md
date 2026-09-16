@@ -1,8 +1,8 @@
 # Genzo UI Design v1.1.2 — Backend Capability Matrix
 
 版本：v1.1.2  
-日期：2026-09-14  
-证据来源：只读核对 `H:\二次元阅读器`（`src-tauri/src/commands.rs`、`src/api.ts`、`src/types.ts`、`src-tauri/src/{metadata,bangumi,anime_parser,grouping,scanner,launcher}.rs`、迁移 `0001_initial.sql` / `0002_metadata_matching.sql`）
+日期：2026-09-14（**2026-09-16 更新：动画详情与排行榜前端接线完成，见文末 FE-* 登记**）  
+证据来源：只读核对 `H:\二次元阅读器`（`src-tauri/src/commands.rs`、`src/api.ts`、`src/types.ts`、`src-tauri/src/{metadata,bangumi,anime_parser,grouping,scanner,launcher,explore,metadata_aggregator}.rs`、迁移 `0001_initial.sql` / `0002_metadata_matching.sql` / `0007_anime_file_structure.sql`；契约记录见 `CONTRACT_CHANGELOG.md` 012）
 
 状态枚举：EXISTING_VERIFIED / EXISTING_PARTIAL / NEW_REQUIRED / MOCK_ONLY / FUTURE / NEEDS_CONFIRMATION
 
@@ -35,10 +35,15 @@
 | INBOX-003 | 待整理 | 确认候选后关联组内文件 | EXISTING_VERIFIED | `confirm_match_candidate` + `attach_media_file` |
 | INBOX-004 | 待整理 | 基于整个作品组的标题 / 季度 / 别名综合识别 | EXISTING_PARTIAL → NEW_REQUIRED 扩展 | 现有为**文件级**识别（`recognize_media_file`、`recognize_unmatched_media`）与文件名解析（`anime_parser.rs`）；整组综合识别与别名索引需新增。**不得笼统写成完全不存在** |
 | INBOX-005 | 待整理 | 批量确认 / 批量重新识别 / 忽略 | NEW_REQUIRED | 无批量命令（界面禁用于 Future 入口） |
-| INBOX-006 | 待整理 | 逐集手动映射保存 | NEW_REQUIRED | 有文件级 `parsed_season` / `parsed_episode`（0002），无逐集映射保存 |
+| INBOX-006 | 待整理 / 作品详情 | 逐集手动映射保存 | **EXISTING_VERIFIED**（前端已接入） | `set_media_episode`；迁移 `0007_anime_file_structure.sql` 的 `media_episode_links`（自动 `parsed` 链接 + 用户 `manual` 覆盖），传 `null` 即解除映射 |
 | INBOX-007 | 待整理 | 漫画「作品 → 卷/话 → 图片」 | EXISTING_PARTIAL（基础聚合）→ NEW_REQUIRED（完整模型） | 已有基础漫画目录聚合与下钻；完整卷/话/图片结构化模型待建 |
 | DETAIL-001 | 作品详情 | 读取作品 | EXISTING_VERIFIED | `get_work`；`WorkDetail` |
-| DETAIL-002 | 作品详情 | 章节与本地文件 | EXISTING_PARTIAL | `media_files` + `parsed_*`；无章节聚合与进度 |
+| DETAIL-002 | 作品详情 | 官方分集 + 多个本地版本 | **EXISTING_VERIFIED**（前端已接入） | `get_anime_work_structure`；`AnimeWorkStructure.episodes[].localFiles`；迁移 `0007_anime_file_structure.sql` 的 `media_episode_links`。多个本地压制版本可关联同一官方分集，**不得按集数去重删除** |
+| DETAIL-003 | 作品详情 | 关联作品 / 季度 | **EXISTING_VERIFIED**（前端已接入） | `AnimeWorkStructure.seasons`（`relation` / `seasonNumber` / `localWorkId` / `current`）。来自 Bangumi **关联条目**，不保证都是季度：`seasonNumber` 为空时**不得**称「第 N 季」 |
+| DETAIL-006 | 作品详情 | 刷新元数据 | **EXISTING_VERIFIED**（前端已接入） | `refresh_work_metadata`；绕过 30 天聚合缓存重读 Bangumi 详情 / 官方分集 / 补源。**只返回 `AnimeWorkStructure`**，简介与标签必须再调 `get_work`；自动刷新只替换 `metadata` 来源标签、保留 `manual` 标签 |
+| DETAIL-007 | 作品详情 | 制作人员与角色 | **EXISTING_VERIFIED**（前端已接入） | `AnimeWorkStructure.staff` / `characters`（多源聚合结果） |
+| DETAIL-008 | 作品详情 | 视频缩略图 | **EXISTING_PARTIAL** | `get_media_thumbnail` 返回本地 JPEG 路径或 `null`（先读 Windows 缩略图缓存，再请 Shell 处理器）。实际 MKV/x264 与 MKV/x265 在当前机器均返回 `WTS_E_FAILEDEXTRACTION`，**不承诺所有编码可生成**；前端必须处理 `null`，且不得用作品海报冒充视频帧 |
+| DETAIL-009 | 作品详情 | 字幕与视频的持久化关联 | NEEDS_CONFIRMATION | 契约 012 声明了视频 / 集数的持久化（`media_episode_links`），**未声明字幕映射表**；不得按旧原型的 `subtitleLinks` 假定已实现 |
 | DETAIL-004 | 作品详情 | 本地评分 | EXISTING_VERIFIED | `update_work`；`works.rating` |
 | DETAIL-005 | 作品详情 | 备注 / 点评 | EXISTING_VERIFIED | `update_work`；`works.notes` |
 | MATCH-001 | 识别 | 单文件识别 | EXISTING_VERIFIED | **`recognize_media_file`** |
@@ -67,7 +72,9 @@
 
 ## 尚需新增（汇总）
 
-按作品文件夹整组识别；更可靠的动画文件名解析；视频 / 集数 / 字幕持久化映射；逐集手动映射保存；扫描实时进度事件；单个失败项重试；目录组数量统计；内置阅读器；阅读页码与进度；探索的**按星期分组放送时间表**、**全年 / 全量动画浏览查询**与**漫画探索数据源**。
+按作品文件夹整组识别；更可靠的动画文件名解析；字幕与视频的持久化关联（待确认，见 DETAIL-009）；扫描实时进度事件；单个失败项重试；目录组数量统计；播放 / 阅读进度；内置阅读器；探索的**按星期分组放送时间表**、**全年 / 全量动画浏览查询**、**漫画探索数据源**与**最近 30 日注目动画**。
+
+本轮从 NEW_REQUIRED 转正（后端已实现 + 前端已接入）：逐集手动映射保存（INBOX-006）、官方分集与本地多版本（DETAIL-002）、关联作品 / 季度（DETAIL-003）、刷新元数据（DETAIL-006）、制作人员与角色（DETAIL-007）、动画排行（EXPLORE-020）。视频缩略图（DETAIL-008）为 EXISTING_PARTIAL，受 Windows Shell 编解码限制。
 
 ## Future（不在当前范围）
 
@@ -92,16 +99,22 @@ WebDAV、SMB/NAS、网盘、远程播放、下载到本地、工具一键下载�
 | FE-PROVIDER-002 | 全局 | 运行期按环境选择数据源 | EXISTING_VERIFIED | `src/data/index.ts`：`isTauriRuntime()` → `createTauriProvider()`，否则 Mock；`dataProvider` 单例供 UI 使用（Codex 已实现 `tauriProvider.ts`，见 003） | 否 | v0.1 P0 |
 | FE-PROVIDER-003 | 全局 | Tauri Provider 补齐探索委托 | NEW_REQUIRED | `src/data/tauriProvider.ts`（Codex 维护）尚未包含 `exploreOverview` / `searchExplore` / `getExploreSubject` / `saveExploreSubject`；补齐前 `getExploreProvider()` 在桌面壳返回 `null`，探索页显示「尚未接入」错误态 | 否 | v0.2 P0 |
 | FE-EXPLORE-001 | 探索 | 探索页数据（本季番组 / 热度 / 搜索 / 详情 / 加入媒体库） | EXISTING_VERIFIED（后端 + 前端已接入） | `ExplorePage.tsx` 已改用 `getExploreProvider()`，不再使用本地 `samples`；新增 `src/explore.ts`（纯展示辅助 + 单测）与 `src/explore.css`；Mock Provider 保留「示例数据」标记 | 缓存由后端负责 | v0.2 |
+| FE-PROVIDER-004 | 全局 | 动画详情 / 缩略图能力访问器 | EXISTING_VERIFIED | `src/data/provider.ts` 新增**可选**方法 `getAnimeWorkStructure` / `refreshWorkMetadata` / `setMediaEpisode` / `getMediaThumbnail`；`src/data/index.ts` 的 `getAnimeDetailProvider()` 在四个方法都可用时返回子集，否则返回 `null`，页面显示「尚未接入」，不伪造数据 | 否 | v0.3 P0 |
+| FE-PROVIDER-005 | 全局 | Tauri Provider 补齐动画详情与排行委托 | **NEW_REQUIRED（Codex）** | `src/data/tauriProvider.ts` 尚未包含 `getAnimeWorkStructure` / `refreshWorkMetadata` / `setMediaEpisode` / `getMediaThumbnail` / `animeRanking` 五个委托；补齐前桌面壳内 `getAnimeDetailProvider()` 与 `getAnimeRankingProvider()` 返回 `null` | 否 | v0.3 P0 |
+| FE-DETAIL-001 | 作品详情 | 官方分集 / 本地多版本 / 关联作品 / 刷新 / 制作人员 | EXISTING_VERIFIED（UI 已接入） | `WorkDetailPage.tsx` 并行读取 `getWork` + `getAnimeWorkStructure`；`refreshWorkMetadata` 后**重新** `getWork()` + `getAnimeWorkStructure()`；失败保留旧内容并提示 | 否（读） | v0.3 P0 |
+| FE-DETAIL-002 | 作品详情 | 手动分集映射 | EXISTING_VERIFIED（UI 已接入） | 未匹配文件 → `setMediaEpisode(mediaFileId, episodeExternalId)`（`null` 解除映射），成功后重新读取结构；失败显示真实错误，不显示假成功 | 是（后端 `media_episode_links`） | v0.3 P0 |
+| FE-DETAIL-003 | 作品详情 | 视频缩略图懒加载 | EXISTING_VERIFIED（UI 已接入） | `LocalFileThumb` 用 `IntersectionObserver` 只对可见项按需调 `getMediaThumbnail`，每个文件最多一次；`null` → 中性文件占位，**不用作品海报冒充视频帧** | 缓存由后端负责 | v0.3 P1 |
+| FE-RANKING-001 | 探索 | 动画排行展示 | EXISTING_VERIFIED（UI 已接入） | `getAnimeRankingProvider()` + `ExplorePage.tsx` 排行区：分页「加载更多」、loading / 错误 / 空 / `stale` 缓存标记、入库与收藏角标、按钮键盘可达；网络失败**不用本季热度冒充** | 缓存由后端负责 | v0.3 P0 |
 
 > 说明：`src/data/` 为前端新增层，只读引用 `src/types.ts` 与 `src/api.ts`；不改动任何 Tauri Command、Rust、SQLite、迁移或 `contracts/`。`src/store.ts` 经只读核对为纯前端偏好与 Toast（zustand + localStorage），归前端所有。
 
-## 探索「推荐」页的排行与注目动画（v1.1.2 本轮新增需求）
+## 探索「推荐」页的排行与注目动画（v1.1.2；2026-09-16 更新）
 
-当前「推荐」页只能显示**当前季度**的热度榜：`src-tauri/src/explore.rs` 的 `overview()` 只在 `year == now.year() && month == current_season_start(now)` 时加载 Bangumi 每日放送（第 143 行），否则 `trending` 为空（第 212 行 `unwrap_or_default()`）。因此「按排名推荐」与「注目动画（最近 30 日标记）」都需要新增后端能力。
+「推荐」页的**本季热度**仍只取**当前季度**：`src-tauri/src/explore.rs` 的 `overview()` 只在 `year == now.year() && month == current_season_start(now)` 时加载 Bangumi 每日放送（第 143 行），否则 `trending` 为空（第 212 行 `unwrap_or_default()`）。因此前端已把「推荐」与年份 / 季度筛选解耦。**动画排行**已由后端实现并完成前端接线；**注目动画（最近 30 日标记）**仍无数据源。
 
 | 功能 ID | 页面 | 用户操作 | 现状与证据 | 需要的后端能力（建议契约） | 建议版本 |
 |---|---|---|---|---|---|
-| EXPLORE-020 | 探索 · 推荐 | 查看「动画排行」（按 Bangumi 评分 / 排名） | **NEW_REQUIRED**。本地番组索引 `BangumiDataItem` 只有 `title / titleTranslate / type / begin / end / broadcast / sites`，`data_item_to_metadata()` 写死 `score: None, rating_count: 0, collection_count: 0`（`src-tauri/src/explore.rs`），所以 `discovery_list("anime", "score"\|"popularity", …)` 排序无实际依据；`DiscoverySort` 的 `score` 在索引条目上全为 `null`。 | 建议命令 `get_anime_ranking(limit, offset) -> ExploreSubject[]`：批量返回带 `score / rank / ratingCount / collectionCount` 的条目（数据源待 Codex 确认：Bangumi 无批量排行接口，可能需要抓取或第三方排行数据；必须先确认许可与限流）。错误：网络失败 / 限流 → 复用 `ExploreSourceStatus` 表达，页面按错误态呈现。需持久化：是（建议 30 天缓存）。 | v0.4（待确认数据源） |
-| EXPLORE-021 | 探索 · 推荐 | 查看「注目动画」（最近 30 日标记） | **NEW_REQUIRED**。现有网络源只有：Bangumi `GET /calendar`（每日放送，仅当季条目，`src-tauri/src/bangumi.rs::calendar`）与 AniList `get_details_many`（仅按 id 查详情，`src-tauri/src/providers/anilist.rs`，无 trending 查询）。**没有任何“最近 30 日标记”数据**。 | 建议命令 `get_recent_marked_trending(limit) -> ExploreSubject[]`：返回最近 30 日被标记最多的条目及「N 人关注」计数。数据源与许可需 Codex 确认（NEEDS_CONFIRMATION）；若无法取得，请回复冲突，不要用当季热度冒充。需持久化：是（建议 1 天缓存）。 | v0.4（待确认数据源） |
+| EXPLORE-020 | 探索 · 推荐 | 查看「动画排行」（按 Bangumi 评分 / 排名） | **EXISTING_VERIFIED**（后端已实现，前端本轮已接入） | `get_anime_ranking(page, pageSize)`：使用 Bangumi 官方 `POST /v0/search/subjects`，`sort=rank` 且过滤 `rank >= 1`，缓存 12 小时，不抓取网页（见 `CONTRACT_CHANGELOG.md` 012）。前端：`ExplorePage.tsx` 的「动画排行」区，分页「加载更多」，含 loading / 错误 / 空 / `stale` 缓存标记 / 入库与收藏角标。**本文件此前「Bangumi 无批量排行接口」的结论已被官方 OpenAPI 与真实调用证伪** | v0.3 |
+| EXPLORE-021 | 探索 · 推荐 | 查看「注目动画」（最近 30 日标记） | **FUTURE / NEEDS_CONFIRMATION** | 仍无可靠数据源：Bangumi `GET /calendar`（`src-tauri/src/bangumi.rs::calendar`）只返回当季条目；AniList `get_details_many`（`src-tauri/src/providers/anilist.rs`）只有按 id 查详情，无 trending 查询。界面保留 `Future` 说明、**不提供入口**，也**不用排行榜或本季热度冒充** | v0.4（待确认数据源） |
 
-前端当前处理（本轮已交付）：`src/pages/ExplorePage.tsx` 的「推荐」页改为**始终取当前季度**的热度榜（与年份 / 季度筛选解耦，历史季度不再空白），并在页面内以 `Future` 徽标 + 说明保留这两个列表的结构，**不展示任何假排名或假 30 日标记数据**。待 Codex 接入上述命令后替换该段说明。
+前端当前处理（2026-09-16 更新）：`src/pages/ExplorePage.tsx` 的「推荐」页已接入 `animeRanking`（真实排行榜，支持分页与 `stale` 缓存提示）；「注目动画」保留 `Future` 说明且无入口。前端通过 `getAnimeRankingProvider()` 访问，未补齐时显示「尚未接入」，**不伪造数据**。

@@ -481,3 +481,69 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 @media (max-width: 600px) {
   .gnz-shelf-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 }
+
+/* ---------- 动画分集结构：官方分集 / 本地多版本 / 未匹配文件 / 关联作品 / 制作人员 ----------
+   沿用 v1.1.2 的克制表面：低透明度底色 + 1px 描边 + 设置驱动的 --ui-radius，
+   不新增发光、渐变或装饰性玻璃层。文字一律可换行或截断，长标题与长路径不溢出。 */
+
+.gnz-inline-error { margin: 0 0 14px; color: var(--danger); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+
+.official-episodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.official-episode { display: grid; gap: 8px; min-width: 0; padding: 14px 15px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.official-episode-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.official-episode-head strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.official-episode-count { flex: none; color: var(--quiet); font-size: 11px; white-space: nowrap; }
+.official-episode-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--quiet); font-size: 11px; }
+.official-episode-original { margin: 0; }
+.official-episode-desc { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+
+.local-version-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.local-version { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px; background: rgba(var(--tint), .035); border: 1px solid var(--line); border-radius: 6px; }
+.local-file-thumb { display: grid; flex: none; width: 64px; aspect-ratio: 16 / 9; overflow: hidden; place-items: center; background: rgba(var(--tint), .05); border: 1px solid var(--line); border-radius: 5px; }
+.local-file-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.local-file-thumb .media-placeholder { display: grid; gap: 0; place-items: center; width: 100%; height: 100%; background: transparent; border: 0; }
+.local-file-thumb .media-placeholder span { display: none; }
+.local-file-thumb .media-placeholder svg { width: 16px; height: 16px; color: var(--faint); }
+.local-version-copy { display: grid; flex: 1 1 auto; gap: 3px; min-width: 0; }
+.local-version-copy strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.local-version-copy small { overflow: hidden; color: var(--quiet); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.local-version-state { flex: none; font-size: 10px; }
+.local-version .file-actions { display: flex; flex: none; align-items: center; gap: 6px; margin-left: auto; }
+
+.unmatched-block { display: grid; gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line); }
+.unmatched-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.unmatched-head h3 { margin: 0; font-size: 15px; }
+.unmatched-head span { color: var(--quiet); font-size: 11px; }
+.unmatched-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.unmatched-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: 6px; }
+.unmatched-row .local-version-copy { flex: 1 1 220px; }
+.unmatched-map { flex: 0 1 220px; }
+.unmatched-map select { height: 36px; min-width: 0; }
+
+.related-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.related-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 12px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.related-row.is-current { background: rgba(var(--tint), .05); border-color: var(--line-strong); }
+.related-cover { display: grid; flex: none; width: 48px; aspect-ratio: 2 / 3; overflow: hidden; place-items: center; background: rgba(var(--tint), .05); border: 1px solid var(--line); border-radius: 4px; }
+.related-cover img { width: 100%; height: 100%; object-fit: cover; }
+.related-initial { color: var(--faint); font-size: 16px; font-weight: 700; }
+.related-copy { display: grid; flex: 1 1 auto; gap: 3px; min-width: 0; }
+.related-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.related-copy small { color: var(--quiet); font-size: 11px; }
+.related-state { flex: none; color: var(--quiet); font-size: 11px; }
+.related-state.is-current { color: var(--accent); font-weight: 600; }
+
+.credits-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.credit-card { display: grid; gap: 4px; justify-items: start; min-width: 0; padding: 10px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.credit-avatar { display: grid; width: 40px; height: 40px; overflow: hidden; place-items: center; background: rgba(var(--tint), .06); border: 1px solid var(--line); border-radius: 50%; }
+.credit-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.credit-initial { color: var(--faint); font-size: 15px; font-weight: 700; }
+.credit-card strong { max-width: 100%; overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.credit-card small { max-width: 100%; overflow: hidden; color: var(--quiet); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.credits-note { margin: 12px 0 0; }
+
+@media (max-width: 760px) {
+  .official-episodes { grid-template-columns: 1fr; }
+  .unmatched-row .local-version-copy { flex: 1 1 100%; }
+  .unmatched-map { flex: 1 1 100%; }
+  .credits-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}

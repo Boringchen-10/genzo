@@ -75,3 +75,22 @@
 ## 页面与组件（保留自 v1.1）
 
 首页、探索、媒体库、收藏、工具、设置抽屉；作品详情；作品组形式的待整理；动画作品组 → 季度 → 剧集 → 视频 / 字幕下钻；漫画「作品 → 卷/话 → 图片」；批量确认 / 批量重新识别（Future 入口）；Bangumi 探索（已接入正式数据，见 `DESIGN_CHANGELOG.md` 实现阶段修订）；深浅主题；左侧窄导航；播放器 / 阅读器选择；元数据编辑；候选对比。
+
+## 作品详情：官方分集结构与元数据刷新（2026-09-16 接入）
+
+数据来源：`getAnimeWorkStructure` / `refreshWorkMetadata` / `setMediaEpisode` / `getMediaThumbnail`（`GenzoDataProvider` 的可选方法，前端通过 `getAnimeDetailProvider()` 访问；`src/data/tauriProvider.ts` 的委托由 Codex 补齐）。
+
+| 区域 | 交互 | 数据 / 约束 |
+|---|---|---|
+| 章节与文件 | 官方分集卡片网格；每张卡下逐一列出本地版本 | `episodes[].localFiles[]`。**同一分集可有多个压制版本**，不按集数去重；无标题的集显示「第 N 集」，不虚构标题 |
+| 本地版本 | 打开 / 更多（其它工具、系统默认程序、打开所在目录、解除分集关联、解除作品关联） | `MediaFile.missing` 为真时禁用「打开」并显示「文件缺失」 |
+| 本地版本缩略图 | 进入可见范围才请求一次（`IntersectionObserver`） | `getMediaThumbnail` 返回 `null` 是合法结果（部分 MKV/HEVC 无法提取），显示中性文件占位，**不用作品海报冒充视频帧**；缩略图失败不阻断打开 / 定位 |
+| 未匹配文件 | 选择官方分集 → 「关联」；已映射 → 「解除分集关联」 | `setMediaEpisode(mediaFileId, episodeExternalId)`，`null` 表示解除；成功后重新读取结构，失败显示真实错误 |
+| 关联作品 | 显示 `relation`；`localWorkId` 存在时可跳转 | 来自 Bangumi **关联条目**，不保证都是季度：仅 `seasonNumber !== null` 显示「第 N 季」，剧场版 / OVA / 续集按 `relation` 标注，`localWorkId` 为空显示「未入库」 |
+| 元数据识别 · 刷新元数据 | 点击后禁用防重复；成功后重新 `getWork()` + 结构 | `refreshWorkMetadata` **只返回动画结构**；简介与标签必须重读 `getWork`；失败提示并**保留旧内容** |
+| 制作人员与角色 | 头像缺失时首字占位 | `staff` / `characters`；条目的 `warnings` 原样展示 |
+| 网络评分 | 显示「暂无 · 未提供」并注明「来自 Bangumi，不会写入你的个人评分」 | 个人评分仍是独立的本地字段 |
+
+探索页「推荐」新增**动画排行**区（`animeRanking`，分页「加载更多」，含 loading / 错误 / 空 / `stale` 缓存标记与入库 / 收藏角标）。「注目动画 · 最近 30 日标记」保持 `Future` 且**无入口**。
+
+> 未接入时（Codex 尚未补齐 `src/data/tauriProvider.ts` 的委托）：`getAnimeDetailProvider()` / `getAnimeRankingProvider()` 返回 `null`，对应区域显示「尚未接入」，**不伪造数据**。

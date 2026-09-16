@@ -12,6 +12,7 @@
  * 方法表面与 `src/api.ts` 的命令一一对应，便于 Codex 直接映射，不新增或改义。
  */
 import type {
+  AnimeWorkStructure,
   AppInfo,
   Dashboard,
   ExploreOverview,
@@ -102,6 +103,31 @@ export interface GenzoDataProvider {
   getExploreSubject?(externalId: string): Promise<ExploreSubject>;
   /** 幂等加入/更新本地媒体库，返回本地作品 ID；不写入个人评分字段。 */
   saveExploreSubject?(input: ExploreSaveInput): Promise<string>;
+
+  /**
+   * 动画详情与分集结构。
+   *
+   * - `getAnimeWorkStructure` 返回 Bangumi 官方分集、本地多版本文件、关联作品、制作人员与角色。
+   * - `refreshWorkMetadata` 返回**刷新后的动画结构**，不返回更新后的 `WorkDetail`；调用方必须
+   *   再次 `getWork()` 才能取得更新后的简介与标签。
+   * - `setMediaEpisode` 传 `null` 表示解除分集映射。
+   * - `getMediaThumbnail` 返回 `null` 是合法结果（部分 MKV/HEVC 无法提取封面帧），UI 必须按
+   *   无缩略图状态渲染，**不得用作品海报冒充视频帧**。
+   *
+   * **可选成员**：`tauriProvider.ts` 由 Codex 维护，其真实委托由 Codex 补齐；页面通过
+   * `getAnimeDetailProvider()` 访问，未补齐时显示明确的「尚未接入」状态，不伪造数据。
+   */
+  getAnimeWorkStructure?(workId: string): Promise<AnimeWorkStructure>;
+  refreshWorkMetadata?(workId: string): Promise<AnimeWorkStructure>;
+  setMediaEpisode?(mediaFileId: string, episodeExternalId: string | null): Promise<void>;
+  getMediaThumbnail?(mediaFileId: string): Promise<string | null>;
+
+  /**
+   * 动画排行榜（按 Bangumi 评分排名，支持分页）。
+   *
+   * 与「最近 30 日注目动画」不同：后者没有可靠数据源，仍为 Future。见 `getAnimeRankingProvider()`。
+   */
+  animeRanking?(page?: number, pageSize?: number): Promise<ExploreSubject[]>;
 }
 
 /** 探索能力子集：Provider 补齐探索方法后可用（见 `getExploreProvider()`）。 */
@@ -110,6 +136,19 @@ export interface GenzoExploreProvider {
   searchExplore(query: string): Promise<ExploreSubject[]>;
   getExploreSubject(externalId: string): Promise<ExploreSubject>;
   saveExploreSubject(input: ExploreSaveInput): Promise<string>;
+}
+
+/** 动画详情能力子集：Provider 补齐后可用（见 `getAnimeDetailProvider()`）。 */
+export interface GenzoAnimeDetailProvider {
+  getAnimeWorkStructure(workId: string): Promise<AnimeWorkStructure>;
+  refreshWorkMetadata(workId: string): Promise<AnimeWorkStructure>;
+  setMediaEpisode(mediaFileId: string, episodeExternalId: string | null): Promise<void>;
+  getMediaThumbnail(mediaFileId: string): Promise<string | null>;
+}
+
+/** 动画排行能力子集：Provider 补齐后可用（见 `getAnimeRankingProvider()`）。 */
+export interface GenzoAnimeRankingProvider {
+  animeRanking(page?: number, pageSize?: number): Promise<ExploreSubject[]>;
 }
 
 /** 后端尚未实现、且 Mock 也不应伪装成功的系统级操作。 */

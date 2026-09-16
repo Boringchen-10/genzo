@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { AlertTriangle, ArrowLeft, Heart, Info, Library, RefreshCw, Search, X } from "lucide-react";
 import { Link } from "react-router-dom";
-import { dataProvider, getExploreProvider } from "../data";
+import { dataProvider, getAnimeRankingProvider, getExploreProvider } from "../data";
 import { EmptyState, ErrorState, IconButton, LoadingState } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { useToasts } from "../store";
@@ -29,6 +29,9 @@ type ExploreTab = "recommended" | "seasonal";
 
 /** 年份筛选的最早年份：本季筛选从 2000 年起都可选（Bangumi 索引里的动画年份范围）。 */
 const YEAR_MIN = 2000;
+
+/** 动画排行榜每页条数（「加载更多」每次追加一页）。 */
+const RANKING_PAGE_SIZE = 12;
 
 /** 封面：网络封面加载失败或缺失时回退到 Genzo 自制占位封面，不留破图。 */
 function ExploreCover({ subject }: { subject: ExploreSubject }) {
@@ -93,6 +96,14 @@ export function ExplorePage() {
   const [draftStatus, setDraftStatus] = useState<WorkStatus>("planned");
   const [draftFavorite, setDraftFavorite] = useState(false);
 
+  /** 动画排行榜（按 Bangumi 评分排名）：后端已完成，与「最近 30 日注目动画」不是同一件事。 */
+  const rankingProvider = useMemo(() => getAnimeRankingProvider(), []);
+  const [ranking, setRanking] = useState<ExploreSubject[]>([]);
+  const [rankingPage, setRankingPage] = useState(1);
+  const [rankingLoading, setRankingLoading] = useState(false);
+  const [rankingError, setRankingError] = useState("");
+  const [rankingDone, setRankingDone] = useState(false);
+
   /** 筛选为「全部」时，本季按当前日期所在季度自动取值。 */
   const effectiveYear = year ?? initialCour.year;
   const effectiveMonth = month ?? initialCour.month;
@@ -137,6 +148,24 @@ export function ExplorePage() {
       /* 静默刷新失败时保留现有列表，避免把已展示的数据整页替换成错误态 */
     }
   }, [provider, year, month]);
+
+  /** 动画排行榜：`page === 1` 覆盖，其余追加（「加载更多」）。失败保留已加载的条目。 */
+  const loadRanking = useCallback(async (page: number) => {
+    if (!rankingProvider) return;
+    setRankingLoading(true);
+    setRankingError("");
+    try {
+      const items = await rankingProvider.animeRanking(page, RANKING_PAGE_SIZE);
+      setRanking((previous) => (page === 1 ? items : [...previous, ...items]));
+      setRankingPage(page);
+      setRankingDone(items.length < RANKING_PAGE_SIZE);
+    } catch (rankingLoadError: unknown) {
+      setRankingError(getErrorMessage(rankingLoadError));
+    } finally {
+      setRankingLoading(false);
+    }
+  }, [rankingProvider]);
+  useEffect(() => { void loadRanking(1); }, [loadRanking]);
 
   const problems = useMemo(() => exploreSourceProblems(overview?.sources ?? []), [overview]);
   const hotProblems = useMemo(() => exploreSourceProblems(hot?.sources ?? []), [hot]);
@@ -481,22 +510,73 @@ export function ExplorePage() {
           </section>
 
           {tab === "recommended" && searchTerm === null ? (
-            <section className="gnz-explore-future">
-              <div className="section-heading">
-                <div>
-                  <h2>动画排行 · 注目动画<span className="future-badge">Future</span></h2>
-                  <span>需要新增后端，暂未开放</span>
+            <>
+              <section className="gnz-explore-ranking" aria-busy={rankingLoading}>
+                <div className="section-heading">
+                  <div>
+                    <h2>动画排行</h2>
+                    <span>按 Bangumi 评分排名 · 与本地媒体库状态同步</span>
+                  </div>
+                  <button type="button" className="button secondary compact" onClick={() => void loadRanking(1)} disabled={!rankingProvider || rankingLoading}>刷新排行</button>
                 </div>
-              </div>
-              <div className="future-empty">
-                <p>这两个列表还没有数据源，所以现在没有入口可点：</p>
-                <ul>
-                  <li><strong>动画排行</strong>（按 Bangumi 评分 / 排名）：本地番组索引只有条目基本信息，没有评分；Bangumi 官方 API 也没有批量排行查询。</li>
-                  <li><strong>注目动画 · 最近 30 日标记</strong>：现有 Bangumi 每日放送只返回当季条目，不含最近 30 日的标记 / 关注数据。</li>
-                </ul>
-                <p>两项都已登记为新增后端能力（见 BACKEND_CAPABILITY_MATRIX 的 EXPLORE-020 / EXPLORE-021）；接入后会替换上面的「本季热度」。</p>
-              </div>
-            </section>
+
+                {rankingProvider === null ? (
+                  <div className="future-empty">排行榜尚未接入（需 Codex 在 tauriProvider.ts 中补齐委托）。</div>
+                ) : rankingError && !ranking.length ? (
+                  <ErrorState message={rankingError} retry={() => void loadRanking(1)} />
+                ) : rankingLoading && !ranking.length ? (
+                  <LoadingState label="正在读取动画排行榜" />
+                ) : ranking.length ? (
+                  <>
+                    <ol className="gnz-ranking-list">
+                      {ranking.map((subject, index) => (
+                        <li key={subject.externalId}>
+                          <button type="button" className="gnz-ranking-row" onClick={() => void openDetail(subject)} aria-label={`查看 ${subject.title} 的条目详情`}>
+                            <span className="gnz-ranking-index">{subject.rank ?? index + 1}</span>
+                            <span className="gnz-ranking-poster"><ExploreCover subject={subject} /></span>
+                            <span className="gnz-ranking-body">
+                              <strong title={subject.title}>{subject.title}</strong>
+                              <span className="gnz-explore-card-meta">
+                                {formatScore(subject.score)} · {subject.ratingCount > 0 ? `${formatCount(subject.ratingCount)} 人评分` : "暂无评分人数"}
+                              </span>
+                              <span className="gnz-explore-card-sub">{formatBroadcast(subject.airDate, subject.broadcast)}</span>
+                            </span>
+                            <span className="gnz-ranking-flags">
+                              {subject.inLibrary ? <span className="gnz-ranking-flag"><Library size={12} />入库</span> : null}
+                              {subject.favorite ? <span className="gnz-ranking-flag is-favorite"><Heart size={12} fill="currentColor" />收藏</span> : null}
+                              {subject.stale ? <span className="gnz-ranking-flag is-stale"><Info size={12} />缓存</span> : null}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                    {rankingError ? <p className="gnz-ranking-error" role="alert">{rankingError}（已加载的排行条目仍然可用）</p> : null}
+                    {!rankingDone ? (
+                      <div className="gnz-ranking-more">
+                        <button type="button" className="button secondary" onClick={() => void loadRanking(rankingPage + 1)} disabled={rankingLoading}>
+                          {rankingLoading ? "加载中…" : "加载更多"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <EmptyState title="排行榜暂时没有数据" description="Bangumi 排行榜没有返回条目，稍后刷新再试。" />
+                )}
+              </section>
+
+              <section className="gnz-explore-future">
+                <div className="section-heading">
+                  <div>
+                    <h2>注目动画<span className="future-badge">Future</span></h2>
+                    <span>需要新增后端，暂未开放</span>
+                  </div>
+                </div>
+                <div className="future-empty">
+                  <p><strong>注目动画 · 最近 30 日标记</strong>没有可靠数据源：现有 Bangumi 每日放送只返回当季条目，不含最近 30 日的标记 / 关注数据，所以不提供入口，也不用排行榜或本季热度冒充。</p>
+                  <p>已登记为新增后端能力（见 BACKEND_CAPABILITY_MATRIX 的 EXPLORE-021）；接入后会补在这里。</p>
+                </div>
+              </section>
+            </>
           ) : null}
         </>
       ) : null}

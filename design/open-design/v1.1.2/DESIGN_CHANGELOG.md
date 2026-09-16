@@ -162,3 +162,24 @@
 - 改动文件：`design/open-design/v1.1.2/prototype/index.html`、`design-export/index.html`（四份副本逐字节一致，SHA-256 `A000E0C1989FADE07AE903B3CEF51D8BC84EC10A20ACB67875C294E4180A4069`）；配套微调 `src/explore.css`（`.gnz-season-filter` 加 `justify-content: flex-end`，与设计稿同样靠右）。
 - 已知差异（刻意保留，不改）：原型示例数据没有完整的季度索引，所以原型里「全部季节」= 不按月过滤；正式前端「全部」会由后端规范化到**当前季度**。原型仍全程标注 `Prototype` / 示例数据。
 - 视觉验收：未渲染 / 未截图（写入即交付），三尺寸与深浅主题见 `SCREENSHOT_CHECKLIST.md`。
+
+## 正式前端：接入动画详情结构与官方排行榜（2026-09-16）
+
+接入 Codex 的契约 012（`get_anime_work_structure` / `refresh_work_metadata` / `set_media_episode` / `get_media_thumbnail` / `get_anime_ranking`）。**保持 v1.1.2 已确认的详情页与探索页版式，不重新设计。**
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 / 组件 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| DETAIL-002 | 「章节与文件」把 `mediaFiles` 平铺成互相重复的卡片，无法表达「一个官方分集有多个本地压制版本」 | 改为**官方分集 → 本地多版本**两层：每个官方分集显示集号、标题（无标题时回退「第 N 集」）、原名、放送、时长、简介，其下逐一列出本地版本（文件名、媒体信息、大小、可用状态、打开 / 更多操作） | 012 的分集语义以官方分集为基准，多个压制版本可关联同一分集，不能按集数去重 | 作品详情 · 章节与文件 | 已实现（`AnimeWorkStructure`） | 否 |
+| DETAIL-003 | 详情页没有关联作品 / 季度信息 | 新增**关联作品**区：显示 `relation`，**只有 `seasonNumber !== null` 才显示「第 N 季」**，剧场版 / OVA / 续集按 `relation` 如实标注；`localWorkId` 存在时可跳转本地作品，为空显示「未入库」 | 012 明确 `seasons` 来自 Bangumi **关联条目**，不保证每项都是季度 | 作品详情 · 关联作品 | 已实现 | 否 |
+| DETAIL-006 | 元数据识别面板只有「重新识别」（走候选确认），没有刷新入口 | 新增**刷新元数据**按钮：调 `refreshWorkMetadata`，成功后**重新** `getWork()` + `getAnimeWorkStructure()`；刷新中禁用防重复点击，成功 / 失败均有提示，**失败保留旧内容** | 012 的刷新绕过 30 天缓存并回填简介与图片，但只返回 `AnimeWorkStructure`，简介与标签必须重读 `getWork` | 作品详情 · 元数据识别 | 已实现 | 否 |
+| DETAIL-007 | 「制作人员与角色」显示 `Future` + 「元数据模型尚未包含」 | 接入真实 `staff` / `characters`（头像缺失时显示首字占位，不使用来源不明素材），并显示 012 返回的 `warnings` | 012 已完成制作人员与角色 | 作品详情 · 制作人员与角色 | 已实现 | 否 |
+| DETAIL-008 | 详情页没有视频缩略图 | 本地版本左侧缩略图：用 `IntersectionObserver` **只对可见项按需**调 `getMediaThumbnail`，每个文件最多一次；返回 `null` 时显示中性文件占位 | 012 声明 Windows Shell 无法为所有 MKV 生成帧图；**不得用作品海报冒充视频帧** | 作品详情 · 本地版本 | 已实现（PARTIAL，受系统编解码限制） | 否 |
+| DETAIL-009 | 无此项 | 字幕与视频的持久化关联：012 只声明了视频 / 集数持久化，**未声明字幕映射表**，故不按旧原型 `subtitleLinks` 假定已实现 | 避免把未确认能力写成已实现 | 作品详情 | 待确认 | 是 |
+| INBOX-006 | 逐集手动映射为 NEW_REQUIRED，界面无入口 | 「未匹配文件」区可按文件选择官方分集并「关联」，调 `setMediaEpisode`；已映射文件可「解除分集关联」（传 `null`）；成功后重新读取结构 | 012 已实现 `media_episode_links`（`parsed` 自动 + `manual` 覆盖） | 作品详情 · 章节与文件 | 已实现 | 否 |
+| EXPLORE-020 | 「动画排行」是 `Future` 说明，文案写「Bangumi 无批量排行接口」 | 接入真实排行榜：分页「加载更多」、loading / 错误 / 空 / `stale` 缓存标记、入库与收藏角标，可点开条目详情 | 012 已用 Bangumi 官方 `POST /v0/search/subjects` 实现排行；此前的「无接口」结论已被证伪 | 探索页 · 推荐 | 已实现 | 否 |
+| EXPLORE-021 | 与 EXPLORE-020 合并在一个 `Future` 说明里 | **单独保留 `Future`**：「注目动画 · 最近 30 日标记」仍无数据源，**不提供入口**，也**不用排行榜或本季热度冒充** | 现有数据源（Bangumi 每日放送 / AniList 按 id 查详情）都没有 30 日标记数据 | 探索页 · 推荐 | **NEW_REQUIRED / NEEDS_CONFIRMATION** | 数据源与许可待确认 |
+
+- 改动文件：`src/data/provider.ts`、`src/data/index.ts`、`src/data/mockProvider.ts`、`src/pages/WorkDetailPage.tsx`、`src/pages/ExplorePage.tsx`、`src/v1-1-1.css`、`src/explore.css`、`design/open-design/v1.1.2/BACKEND_CAPABILITY_MATRIX.md`、`CONTRACT_CHANGELOG.md` 013。
+- Mock 行为：`mockProvider.ts` 实现同样五个方法，分集 / 关联作品 / 制作人员全部显式标注「示例」；`getMediaThumbnail` **一律返回 `null`**（不伪造视频帧）；`refreshWorkMetadata` 只在内存里追加一个示例刷新标记，**不模拟持久化成功**；排行榜提供 16 条示例条目以验证分页与空状态。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 视觉验收：未渲染 / 未截图（写入即交付），三尺寸与深浅主题见 `SCREENSHOT_CHECKLIST.md`。

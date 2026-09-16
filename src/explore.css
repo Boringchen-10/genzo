@@ -242,3 +242,26 @@
   .gnz-explore-heading { flex-direction: column; align-items: flex-start; }
   .gnz-explore-source-note { text-align: left; }
 }
+
+/* ---------- 动画排行（真实后端：按 Bangumi 评分排名，支持分页） ---------- */
+
+.gnz-explore-ranking { margin-top: 26px; }
+.gnz-ranking-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.gnz-ranking-row { display: grid; grid-template-columns: 40px 48px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; color: var(--text); text-align: left; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); cursor: pointer; }
+.gnz-ranking-row:hover { background: rgba(var(--tint), .05); border-color: var(--line-strong); }
+.gnz-ranking-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gnz-ranking-index { color: var(--quiet); font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.gnz-ranking-poster { display: block; width: 48px; aspect-ratio: 2 / 3; overflow: hidden; border: 1px solid var(--line); border-radius: 4px; }
+.gnz-ranking-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.gnz-ranking-body strong { overflow: hidden; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
+.gnz-ranking-flags { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.gnz-ranking-flag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 999px; font-size: 10px; white-space: nowrap; }
+.gnz-ranking-flag.is-favorite { color: var(--accent); }
+.gnz-ranking-flag.is-stale { color: var(--quiet); border-style: dashed; }
+.gnz-ranking-more { display: flex; justify-content: center; margin-top: 14px; }
+.gnz-ranking-error { margin: 12px 0 0; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
+
+@media (max-width: 760px) {
+  .gnz-ranking-row { grid-template-columns: 32px 40px minmax(0, 1fr); row-gap: 8px; }
+  .gnz-ranking-flags { grid-column: 2 / -1; justify-content: flex-start; }
+}

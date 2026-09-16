@@ -9,6 +9,11 @@
  * - 正式实现由 Codex 在 `tauriProvider.ts` 中完成。
  */
 import type {
+  AnimeCharacter,
+  AnimeCredit,
+  AnimeEpisodeEntry,
+  AnimeSeasonOption,
+  AnimeWorkStructure,
   AppInfo,
   Dashboard,
   ExploreOverview,
@@ -169,7 +174,13 @@ const works = new Map<string, WorkListItem>(
   ]),
 );
 
-const mediaFile = (id: string, workId: string | null, fileName: string, episode: string | null): MediaFile => ({
+const mediaFile = (
+  id: string,
+  workId: string | null,
+  fileName: string,
+  episode: string | null,
+  overrides: Partial<MediaFile> = {},
+): MediaFile => ({
   id,
   workId,
   libraryRootId: "root-local",
@@ -193,6 +204,7 @@ const mediaFile = (id: string, workId: string | null, fileName: string, episode:
   parsedMediaInfo: "1080p",
   lastRecognizedAt: now,
   recognitionError: null,
+  ...overrides,
 });
 
 const roots = new Map<string, LibraryRoot>([
@@ -415,6 +427,191 @@ const notImplemented = (operation: string): never => {
     "设计期 Mock 不模拟该系统操作；由 Codex 在 tauriProvider.ts 中接入真实后端",
   );
 };
+
+/* ---------------- 动画详情结构（示例数据） ----------------
+   仅用于设计验证：分集、关联作品、制作人员与角色都显式标注「示例」，
+   不代表任何真实 Bangumi 数据；缩略图一律返回 null（Mock 不伪造视频帧）。 */
+
+const EPISODE_COUNT = 12;
+
+interface MockEpisodeSeed {
+  title: string;
+  description: string;
+}
+
+/* 只有前两集给出示例标题，其余留空：用于演示「没有标题时回退为『第 N 集』」。 */
+const EPISODE_SEEDS: MockEpisodeSeed[] = [
+  { title: "（示例）旅途的起点", description: "示例分集简介：Mock 环境未连接 Bangumi，分集信息为演示数据。" },
+  { title: "（示例）别离之前", description: "" },
+];
+
+const EPISODE_AIR_DATES = [
+  "2023-09-29",
+  "2023-10-06",
+  "2023-10-13",
+  "2023-10-20",
+  "2023-10-27",
+  "2023-11-03",
+];
+
+/** 每部作品的分集外部 ID：`setMediaEpisode` 的目标就是它。 */
+const structureEpisodeId = (workId: string, number: number): string => `mock-bgm-${workId}-ep-${number}`;
+
+/** 本地文件 → 分集的手动映射（`null` = 显式解除映射，回到未匹配）。刷新即丢失。 */
+const episodeMappings = new Map<string, string | null>();
+
+/** 元数据刷新的示例标记：只用于证明「刷新后有新内容可读」，不冒充真实刮削结果。 */
+const REFRESH_MARK = "（示例：本段由「刷新元数据」在 Mock 中重新读取，未连接 Bangumi。）";
+
+const mockAnimeStructure = (workId: string): AnimeWorkStructure => {
+  const work = requireWork(workId);
+  const bangumiId = `mock-bgm-${workId}`;
+  if (work.type !== "video") {
+    return {
+      workId,
+      bangumiId,
+      seasons: [],
+      episodes: [],
+      unmatchedFiles: [],
+      staff: [],
+      characters: [],
+      warnings: ["示例环境：该作品不是视频类型，因此没有动画分集结构。"],
+    };
+  }
+
+  const pool: MediaFile[] = [
+    mediaFile(`file-${workId}-01a`, workId, `${work.title} - 01 [1080p][HEVC].mkv`, "1", {
+      parsedMediaInfo: "1080p · HEVC · FLAC",
+      size: 1_450_000_000,
+    }),
+    mediaFile(`file-${workId}-01b`, workId, `${work.title} - 01 [720p].mkv`, "1", {
+      parsedMediaInfo: "720p · AVC",
+      size: 620_000_000,
+    }),
+    mediaFile(`file-${workId}-02`, workId, `${work.title} - 02 [1080p][HEVC].mkv`, "2", {
+      parsedMediaInfo: "1080p · HEVC",
+      missing: true,
+      size: 1_410_000_000,
+    }),
+    mediaFile(`file-${workId}-03`, workId, `${work.title} - 03 [1080p][HEVC].mkv`, "3", {
+      parsedMediaInfo: "1080p · HEVC",
+      size: 1_390_000_000,
+    }),
+    mediaFile(`file-${workId}-extra1`, workId, `未命名视频 A.mkv`, null, { parsedMediaInfo: "1080p" }),
+    mediaFile(`file-${workId}-extra2`, workId, `未命名视频 B.mkv`, null, { parsedMediaInfo: "1080p" }),
+  ];
+
+  const episodes: AnimeEpisodeEntry[] = Array.from({ length: EPISODE_COUNT }, (_unused, index) => {
+    const number = index + 1;
+    const seed = EPISODE_SEEDS[index];
+    return {
+      provider: "bangumi",
+      externalId: structureEpisodeId(workId, number),
+      episodeNumber: number,
+      sortNumber: number,
+      title: seed?.title ?? "",
+      originalTitle: null,
+      description: seed?.description ?? "",
+      airDate: EPISODE_AIR_DATES[index] ?? null,
+      duration: EPISODE_AIR_DATES[index] ? "24 分钟" : null,
+      fetchedAt: now,
+      localFiles: [],
+    };
+  });
+
+  const assigned = new Map<string, MediaFile[]>();
+  const unmatchedFiles: MediaFile[] = [];
+  for (const file of pool) {
+    /* 手动映射优先；否则按解析到的集数归位；都对不上就是未匹配。 */
+    const target = episodeMappings.has(file.id)
+      ? episodeMappings.get(file.id) ?? null
+      : file.parsedEpisode
+        ? structureEpisodeId(workId, Number(file.parsedEpisode))
+        : null;
+    if (!target) {
+      unmatchedFiles.push(file);
+      continue;
+    }
+    const list = assigned.get(target) ?? [];
+    list.push(file);
+    assigned.set(target, list);
+  }
+  for (const episode of episodes) episode.localFiles = assigned.get(episode.externalId) ?? [];
+
+  const seasons: AnimeSeasonOption[] = [
+    {
+      externalId: bangumiId,
+      title: work.title,
+      originalTitle: work.originalTitle,
+      relation: "当前作品",
+      seasonNumber: 1,
+      coverUrl: work.coverPath,
+      localWorkId: workId,
+      current: true,
+    },
+    {
+      externalId: `${bangumiId}-s2`,
+      title: `${work.title}（示例续作）`,
+      originalTitle: null,
+      relation: "续集",
+      seasonNumber: 2,
+      coverUrl: null,
+      localWorkId: null,
+      current: false,
+    },
+    {
+      externalId: `${bangumiId}-movie`,
+      title: `${work.title}（示例剧场版）`,
+      originalTitle: null,
+      relation: "剧场版",
+      seasonNumber: null,
+      coverUrl: null,
+      localWorkId: null,
+      current: false,
+    },
+  ];
+
+  const staff: AnimeCredit[] = [
+    { externalId: `${bangumiId}-staff-1`, name: "（示例）原作担当", role: "原作", imageUrl: null },
+    { externalId: `${bangumiId}-staff-2`, name: "（示例）系列构成", role: "系列构成", imageUrl: null },
+  ];
+
+  const characters: AnimeCharacter[] = [
+    { externalId: `${bangumiId}-char-1`, name: "（示例）主角", role: "主角", imageUrl: null, actors: ["（示例）声优 A"] },
+    { externalId: `${bangumiId}-char-2`, name: "（示例）同伴", role: "配角", imageUrl: null, actors: [] },
+  ];
+
+  return {
+    workId,
+    bangumiId,
+    seasons,
+    episodes,
+    unmatchedFiles,
+    staff,
+    characters,
+    warnings: ["示例环境：分集、关联作品、制作人员与角色均为 Mock 数据，未连接 Bangumi。"],
+  };
+};
+
+/* 排行榜专用示例条目：`rank` 与 `score` 均为示例值，用于演示分页、排序与空状态。 */
+const RANKING_SEEDS: MockExploreSeed[] = [
+  { externalId: "910001", title: "示例 · 星海邮差", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: "/design/reference-primary.png", year: 2024, month: 4, airDate: "2024-04-05", broadcast: null, subjectType: "tv", genres: ["科幻", "冒险"], score: 9.1, rank: 1, ratingCount: 18240, collectionCount: 42190 },
+  { externalId: "910002", title: "示例 · 雨声与机械城", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: "/design/reference-secondary.png", year: 2023, month: 10, airDate: "2023-10-02", broadcast: null, subjectType: "tv", genres: ["日常", "治愈"], score: 9.0, rank: 2, ratingCount: 16510, collectionCount: 38720 },
+  { externalId: "910003", title: "示例 · 第七码头的夏天", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2022, month: 7, airDate: "2022-07-09", broadcast: null, subjectType: "tv", genres: ["悬疑", "青春"], score: 8.9, rank: 3, ratingCount: 15020, collectionCount: 33140 },
+  { externalId: "910004", title: "示例 · 群青观测站", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2021, month: 1, airDate: "2021-01-08", broadcast: null, subjectType: "tv", genres: ["科幻"], score: 8.8, rank: 4, ratingCount: 14110, collectionCount: 30980 },
+  { externalId: "910005", title: "示例 · 无声的编年史", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2020, month: 10, airDate: "2020-10-04", broadcast: null, subjectType: "tv", genres: ["奇幻", "冒险"], score: 8.7, rank: 5, ratingCount: 13040, collectionCount: 28610 },
+  { externalId: "910006", title: "示例 · 纸鸢与长夜", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2019, month: 7, airDate: "2019-07-07", broadcast: null, subjectType: "tv", genres: ["剧情"], score: 8.6, rank: 6, ratingCount: 12010, collectionCount: 26240 },
+  { externalId: "910007", title: "示例 · 玻璃温室", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2018, month: 4, airDate: "2018-04-06", broadcast: null, subjectType: "tv", genres: ["治愈", "日常"], score: 8.5, rank: 7, ratingCount: 11520, collectionCount: 24810 },
+  { externalId: "910008", title: "示例 · 远雷", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2017, month: 1, airDate: "2017-01-11", broadcast: null, subjectType: "tv", genres: ["战争", "剧情"], score: 8.4, rank: 8, ratingCount: 10980, collectionCount: 22760 },
+  { externalId: "910009", title: "示例 · 银盐时代", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2016, month: 10, airDate: "2016-10-01", broadcast: null, subjectType: "tv", genres: ["校园"], score: 8.3, rank: 9, ratingCount: 10240, collectionCount: 21030 },
+  { externalId: "910010", title: "示例 · 候鸟航线", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2015, month: 7, airDate: "2015-07-05", broadcast: null, subjectType: "tv", genres: ["冒险"], score: 8.2, rank: 10, ratingCount: 9680, collectionCount: 19540 },
+  { externalId: "910011", title: "示例 · 雪国来信", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2014, month: 4, airDate: "2014-04-03", broadcast: null, subjectType: "tv", genres: ["剧情", "治愈"], score: 8.1, rank: 11, ratingCount: 9110, collectionCount: 18220 },
+  { externalId: "910012", title: "示例 · 灯塔守夜人", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2013, month: 1, airDate: "2013-01-10", broadcast: null, subjectType: "tv", genres: ["悬疑"], score: 8.0, rank: 12, ratingCount: 8540, collectionCount: 16980 },
+  { externalId: "910013", title: "示例 · 夏日回声", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2012, month: 7, airDate: "2012-07-02", broadcast: null, subjectType: "tv", genres: ["青春"], score: 7.9, rank: 13, ratingCount: 8020, collectionCount: 15610 },
+  { externalId: "910014", title: "示例 · 折线之城", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2011, month: 4, airDate: "2011-04-08", broadcast: null, subjectType: "tv", genres: ["科幻"], score: 7.8, rank: 14, ratingCount: 7480, collectionCount: 14230 },
+  { externalId: "910015", title: "示例 · 静海列车", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2010, month: 1, airDate: "2010-01-07", broadcast: null, subjectType: "tv", genres: ["剧情"], score: 7.7, rank: 15, ratingCount: 6910, collectionCount: 12940 },
+  { externalId: "910016", title: "示例 · 残响之森", originalTitle: null, aliases: [], description: "示例简介。", coverUrl: null, year: 2009, month: 10, airDate: "2009-10-01", broadcast: null, subjectType: "tv", genres: ["奇幻"], score: 7.6, rank: 16, ratingCount: 6240, collectionCount: 11520 },
+];
 
 export function createMockProvider(): GenzoDataProvider {
   return {
@@ -745,6 +942,36 @@ export function createMockProvider(): GenzoDataProvider {
           };
       works.set(workId, linked);
       return workId;
+    },
+
+    async getAnimeWorkStructure(workId) {
+      return clone(mockAnimeStructure(workId));
+    },
+    async refreshWorkMetadata(workId) {
+      const work = requireWork(workId);
+      const tags = work.tags.includes("元数据已刷新（示例）") ? work.tags : [...work.tags, "元数据已刷新（示例）"];
+      const description = work.description.includes(REFRESH_MARK) ? work.description : `${work.description}${REFRESH_MARK}`;
+      works.set(workId, { ...work, tags, description, metadataStatus: "matched", lastRecognizedAt: now, updatedAt: now });
+      return clone(mockAnimeStructure(workId));
+    },
+    async setMediaEpisode(mediaFileId, episodeExternalId) {
+      /* 设计期：只更新内存映射，用于验证「重新读取结构后文件换组」；不写入后端。 */
+      episodeMappings.set(mediaFileId, episodeExternalId);
+    },
+    async getMediaThumbnail() {
+      /* Mock 不伪造视频帧：一律返回 null，由 UI 渲染无缩略图状态。 */
+      return null;
+    },
+    async animeRanking(page = 1, pageSize = 50) {
+      if (!Number.isInteger(page) || page < 1) throw new Error("排行榜页码必须是从 1 开始的整数");
+      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+        throw new Error("排行榜每页数量必须是 1 到 100 之间的整数");
+      }
+      const sorted = [...RANKING_SEEDS].sort(
+        (left, right) => (left.rank ?? Number.MAX_SAFE_INTEGER) - (right.rank ?? Number.MAX_SAFE_INTEGER),
+      );
+      const start = (page - 1) * pageSize;
+      return clone(sorted.slice(start, start + pageSize).map(toExploreSubject));
     },
   };
 }

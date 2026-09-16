@@ -10,9 +10,20 @@
  */
 import { createMockProvider } from "./mockProvider";
 import { createTauriProvider } from "./tauriProvider";
-import type { GenzoDataProvider, GenzoExploreProvider } from "./provider";
+import type {
+  GenzoAnimeDetailProvider,
+  GenzoAnimeRankingProvider,
+  GenzoDataProvider,
+  GenzoExploreProvider,
+} from "./provider";
 
-export type { GenzoDataProvider, GenzoExploreProvider, ProviderMeta } from "./provider";
+export type {
+  GenzoAnimeDetailProvider,
+  GenzoAnimeRankingProvider,
+  GenzoDataProvider,
+  GenzoExploreProvider,
+  ProviderMeta,
+} from "./provider";
 export { MOCK_NOTICE } from "./mockProvider";
 export { ProviderNotImplementedError } from "./provider";
 
@@ -59,6 +70,33 @@ export function getExploreProvider(): GenzoExploreProvider | null {
     getExploreSubject: getExploreSubject.bind(current),
     saveExploreSubject: saveExploreSubject.bind(current),
   };
+}
+
+/**
+ * 动画详情能力访问器。
+ *
+ * `getAnimeWorkStructure` / `refreshWorkMetadata` / `setMediaEpisode` / `getMediaThumbnail`
+ * 在 Provider 契约上标记为**可选**（`src/data/tauriProvider.ts` 由 Codex 维护）。四个方法都
+ * 可用时返回可直接调用的子集，否则返回 `null`，由页面显示「尚未接入」，**绝不伪造数据**。
+ */
+export function getAnimeDetailProvider(): GenzoAnimeDetailProvider | null {
+  const current = getDataProvider();
+  const { getAnimeWorkStructure, refreshWorkMetadata, setMediaEpisode, getMediaThumbnail } = current;
+  if (!getAnimeWorkStructure || !refreshWorkMetadata || !setMediaEpisode || !getMediaThumbnail) return null;
+  return {
+    getAnimeWorkStructure: getAnimeWorkStructure.bind(current),
+    refreshWorkMetadata: refreshWorkMetadata.bind(current),
+    setMediaEpisode: setMediaEpisode.bind(current),
+    getMediaThumbnail: getMediaThumbnail.bind(current),
+  };
+}
+
+/** 动画排行能力访问器；未补齐 `animeRanking` 时返回 `null`，页面显示「尚未接入」。 */
+export function getAnimeRankingProvider(): GenzoAnimeRankingProvider | null {
+  const current = getDataProvider();
+  const { animeRanking } = current;
+  if (!animeRanking) return null;
+  return { animeRanking: animeRanking.bind(current) };
 }
 
 /** 供 Codex 接线与测试使用。 */
