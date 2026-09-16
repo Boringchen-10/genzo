@@ -32,9 +32,18 @@ export function seasonLabel(year: number, month: number): string {
  */
 export const COUR_MONTHS: number[] = [1, 4, 7, 10];
 
-/** 季度标签：`2026 年 4 月新番`。 */
+/** 季度 → 季节名：1 月冬季 / 4 月春季 / 7 月夏季 / 10 月秋季。 */
+export function courSeason(month: number): string {
+  if (month === 1) return "冬季";
+  if (month === 4) return "春季";
+  if (month === 7) return "夏季";
+  if (month === 10) return "秋季";
+  return `${month} 月`;
+}
+
+/** 季度标签：`2026 年夏季新番`。 */
 export function courLabel(year: number, month: number): string {
-  return `${year} 年 ${month} 月新番`;
+  return `${year} 年${courSeason(month)}新番`;
 }
 
 /** 按日期取所在季度；筛选为「全部」时用它作为本季的默认季度。 */

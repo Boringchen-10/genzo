@@ -12,6 +12,7 @@ import {
   EXPLORE_UNAVAILABLE_MESSAGE,
   courLabel,
   courOf,
+  courSeason,
   exploreSourceProblems,
   exploreStatusOptions,
   filterByTag,
@@ -25,6 +26,9 @@ import {
 } from "../explore";
 
 type ExploreTab = "recommended" | "seasonal";
+
+/** 年份筛选的最早年份：本季筛选从 2000 年起都可选（Bangumi 索引里的动画年份范围）。 */
+const YEAR_MIN = 2000;
 
 /** 封面：网络封面加载失败或缺失时回退到 Genzo 自制占位封面，不留破图。 */
 function ExploreCover({ subject }: { subject: ExploreSubject }) {
@@ -153,7 +157,7 @@ export function ExplorePage() {
     ? { title: "搜索结果", detail: `「${searchTerm}」共 ${gridSubjects.length} 条` }
     : tab === "seasonal"
       ? { title: "本季番组", detail: `${courLabel(shownYear, shownMonth)} · 来自 bangumi-data 番组索引` }
-      : { title: "本季热度", detail: `${courLabel(hotYear, hotMonth)} · 按 Bangumi 评分人数与收藏人数排序 · 不受年份 / 季度筛选影响` };
+      : { title: "本季热度", detail: `${courLabel(hotYear, hotMonth)} · 按 Bangumi 评分人数与收藏人数排序 · 不受年份 / 季节筛选影响` };
 
   useEffect(() => {
     if (tag && !filterTags.includes(tag)) setTag(null);
@@ -161,8 +165,10 @@ export function ExplorePage() {
 
   const clearSearch = () => { setSearchTerm(null); setResults([]); setQuery(""); };
   const openTab = (next: ExploreTab) => { clearSearch(); setTab(next); };
-  /** 重置回「全部年份 / 全部月份」，此时本季自动取当前季度。 */
-  const resetFilters = () => { setTag(null); setYear(null); setMonth(null); };
+  /** 标签筛选（对「推荐」和「本季」都生效）单独重置。 */
+  const resetTagFilter = () => setTag(null);
+  /** 本季的季节 / 年份筛选重置：回到「全部」时按当前日期所在季节取值。 */
+  const resetSeasonFilter = () => { setYear(null); setMonth(null); };
 
   const submitSearch = async (event: FormEvent) => {
     event.preventDefault();
@@ -226,16 +232,17 @@ export function ExplorePage() {
     }
   };
 
+  /** 年份选项：从 2000 年到明年，**新的在前**，方便先看到近几年。 */
   const yearOptions = useMemo(() => {
     const years: number[] = [];
-    for (let value = initialCour.year - 6; value <= initialCour.year + 1; value += 1) years.push(value);
+    for (let value = initialCour.year + 1; value >= YEAR_MIN; value -= 1) years.push(value);
     return years;
   }, [initialCour.year]);
 
   const emptyState = searchTerm !== null
     ? <EmptyState title="没有匹配的条目" description="换一个关键词，或清除搜索回到本季列表。" />
     : tab === "seasonal"
-      ? <EmptyState title="这个季度没有索引到番组" description={`bangumi-data 番组索引里没有 ${courLabel(effectiveYear, effectiveMonth)} 的条目，换一个年份或季度再试。`} />
+      ? <EmptyState title="这个季节没有索引到番组" description={`bangumi-data 番组索引里没有 ${courLabel(effectiveYear, effectiveMonth)} 的条目，换一个年份或季节再试。`} />
       : <EmptyState title="热度榜暂时没有数据" description={hotProblems.blockers[0]?.warning ?? `Bangumi 每日放送里暂时没有 ${courLabel(hotYear, hotMonth)} 的热度条目，稍后刷新再试。`} />;
 
   /* 条目详情：与作品详情页共用同一套版面（detail-page / detail-hero / detail-body）。 */
@@ -411,12 +418,13 @@ export function ExplorePage() {
 
       {!error && overview ? (
         <>
-          {/* 筛选面板：位置 / 间距 / 结构对齐 Open Design v1.1.2 —— 位于分类 Tab 之下、作品网格之上。 */}
+          {/* 筛选面板（位置 / 间距 / 结构对齐 Open Design v1.1.2）：只放标签筛选，对「推荐 / 本季」都生效；
+              季节与年份属于「本季」自己的界面，见下方本节。 */}
           <section className="gnz-filter-preview" aria-labelledby="explore-filter-title">
             <div className="gnz-filter-head">
               <h2 id="explore-filter-title">筛选</h2>
               <p>共 {gridSubjects.length} 部作品</p>
-              <button type="button" className="button secondary compact" onClick={resetFilters} disabled={!tag && year === null && month === null}>重置</button>
+              <button type="button" className="button secondary compact" onClick={resetTagFilter} disabled={!tag}>重置标签</button>
             </div>
             <div className="gnz-filter-field">
               <span className="gnz-filter-label" id="explore-tag-label">动漫标签</span>
@@ -426,35 +434,6 @@ export function ExplorePage() {
                 )) : <span className="quiet-inline">当前列表还没有可用标签。</span>}
               </div>
             </div>
-            <div className="gnz-filter-selects">
-              <label className="gnz-filter-select"><span>年份</span>
-                <select
-                  value={year === null ? "" : String(year)}
-                  onChange={(event) => setYear(event.target.value === "" ? null : Number(event.target.value))}
-                  aria-label="按年份筛选"
-                  disabled={!provider || tab === "recommended"}
-                  title={tab === "recommended" ? "年份筛选只作用于「本季」标签页" : "按年份筛选"}
-                >
-                  <option value="">全部年份</option>
-                  {yearOptions.map((value) => <option key={value} value={value}>{value} 年</option>)}
-                </select>
-              </label>
-              <label className="gnz-filter-select"><span>月份</span>
-                <select
-                  value={month === null ? "" : String(month)}
-                  onChange={(event) => setMonth(event.target.value === "" ? null : Number(event.target.value))}
-                  aria-label="按季度筛选"
-                  disabled={!provider || tab === "recommended"}
-                  title={tab === "recommended" ? "季度筛选只作用于「本季」标签页" : "按季度筛选"}
-                >
-                  <option value="">全部月份</option>
-                  {COUR_MONTHS.map((value) => <option key={value} value={value}>{value} 月新番</option>)}
-                </select>
-              </label>
-            </div>
-            {tab === "recommended" ? (
-              <p className="gnz-filter-hint">年份 / 季度筛选只作用于「本季」标签页；上面的热度榜按 Bangumi 评分人数与收藏人数排序，不受季度筛选影响。</p>
-            ) : null}
           </section>
 
           <section className="gnz-explore-trending" aria-busy={loading}>
@@ -464,6 +443,34 @@ export function ExplorePage() {
                 <button type="button" className="button secondary compact" onClick={clearSearch}>清除搜索</button>
               ) : null}
             </div>
+            {/* 季节 / 年份只作用于「本季」：全部时按当前日期所在季节取值。 */}
+            {tab === "seasonal" && searchTerm === null ? (
+              <div className="gnz-season-filter" role="group" aria-label="本季的季节与年份筛选">
+                <label className="gnz-filter-select"><span>季节</span>
+                  <select
+                    value={month === null ? "" : String(month)}
+                    onChange={(event) => setMonth(event.target.value === "" ? null : Number(event.target.value))}
+                    aria-label="按季节筛选"
+                    disabled={!provider}
+                  >
+                    <option value="">全部季节</option>
+                    {COUR_MONTHS.map((value) => <option key={value} value={value}>{courSeason(value)}（{value} 月）</option>)}
+                  </select>
+                </label>
+                <label className="gnz-filter-select"><span>年份</span>
+                  <select
+                    value={year === null ? "" : String(year)}
+                    onChange={(event) => setYear(event.target.value === "" ? null : Number(event.target.value))}
+                    aria-label="按年份筛选"
+                    disabled={!provider}
+                  >
+                    <option value="">全部年份</option>
+                    {yearOptions.map((value) => <option key={value} value={value}>{value} 年</option>)}
+                  </select>
+                </label>
+                <button type="button" className="button secondary compact" onClick={resetSeasonFilter} disabled={year === null && month === null}>重置</button>
+              </div>
+            ) : null}
             {loading || searching ? (
               <LoadingState label={searching ? "正在搜索 Bangumi 条目" : "正在读取 Bangumi 探索数据"} />
             ) : gridSubjects.length ? (

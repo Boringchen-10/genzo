@@ -185,9 +185,9 @@
 }
 .gnz-filter-chips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.gnz-filter-hint { margin: 2px 0 0; color: var(--quiet); font-size: 11.5px; line-height: 1.6; }
+/* 「本季」自己的季节 / 年份筛选：位于本季列表标题之下、作品网格之上 */
+.gnz-season-filter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 0 0 18px; }
 
-.gnz-filter-selects { display: flex; flex-wrap: wrap; gap: 12px; }
 .gnz-filter-select { display: grid; gap: 6px; }
 .gnz-filter-select > span { color: var(--quiet); font-size: 12px; }
 .gnz-filter-select select {
