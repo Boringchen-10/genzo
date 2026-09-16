@@ -59,6 +59,8 @@ export interface MediaFile {
   parsedMediaInfo: string;
   lastRecognizedAt: string | null;
   recognitionError: string | null;
+  contentFingerprint?: string | null;
+  thumbnailPath?: string | null;
 }
 
 export interface UnassignedMediaGroup {
@@ -306,4 +308,45 @@ export interface AnimeEpisodeMetadata {
   airDate: string | null;
   duration: string | null;
   fetchedAt: string;
+}
+
+export interface AnimeSeasonOption {
+  externalId: string;
+  title: string;
+  originalTitle: string | null;
+  relation: string;
+  seasonNumber: number | null;
+  coverUrl: string | null;
+  localWorkId: string | null;
+  current: boolean;
+}
+
+export interface AnimeCredit {
+  externalId: string;
+  name: string;
+  role: string;
+  imageUrl: string | null;
+}
+
+export interface AnimeCharacter {
+  externalId: string;
+  name: string;
+  role: string;
+  imageUrl: string | null;
+  actors: string[];
+}
+
+export interface AnimeEpisodeEntry extends AnimeEpisodeMetadata {
+  localFiles: MediaFile[];
+}
+
+export interface AnimeWorkStructure {
+  workId: string;
+  bangumiId: string;
+  seasons: AnimeSeasonOption[];
+  episodes: AnimeEpisodeEntry[];
+  unmatchedFiles: MediaFile[];
+  staff: AnimeCredit[];
+  characters: AnimeCharacter[];
+  warnings: string[];
 }

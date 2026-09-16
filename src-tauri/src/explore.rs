@@ -283,6 +283,42 @@ pub async fn search(pool: &SqlitePool, query: &str) -> AppResult<Vec<ExploreSubj
         .collect())
 }
 
+pub async fn anime_ranking(
+    pool: &SqlitePool,
+    page: u32,
+    page_size: u32,
+) -> AppResult<Vec<ExploreSubject>> {
+    if page == 0 || !(1..=100).contains(&page_size) {
+        return Err(AppError::Validation(
+            "排行榜页码必须从 1 开始，每页数量必须在 1 到 100 之间".to_string(),
+        ));
+    }
+    let key = format!("ranking:{page}:{page_size}");
+    let cached = load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &key).await?;
+    let result = if cached.as_ref().is_some_and(|value| !value.stale) {
+        cached.expect("fresh ranking cache checked")
+    } else {
+        let offset = (page - 1).saturating_mul(page_size);
+        match BangumiProvider::new()?.ranking(page_size, offset).await {
+            Ok(items) => {
+                save_cache(pool, BANGUMI_PROVIDER, &key, &items, Duration::hours(12)).await?;
+                Cached {
+                    value: items,
+                    fetched_at: Utc::now().to_rfc3339(),
+                    stale: false,
+                }
+            }
+            Err(error) => cached.ok_or(error)?,
+        }
+    };
+    let local_states = load_local_states(pool).await?;
+    Ok(result
+        .value
+        .into_iter()
+        .map(|item| to_explore_subject(item, &local_states, result.stale))
+        .collect())
+}
+
 pub async fn subject(pool: &SqlitePool, external_id: &str) -> AppResult<ExploreSubject> {
     let metadata = load_subject_metadata(pool, external_id).await?;
     let aggregated = crate::metadata_aggregator::aggregate(pool, metadata.value).await?;
@@ -1466,6 +1502,7 @@ mod tests {
             database_path: directory.path().join("genzo.db"),
             data_directory: directory.path().to_path_buf(),
             cover_cache_path: directory.path().join("covers"),
+            thumbnail_cache_path: directory.path().join("thumbnails"),
         };
         let metadata = sample_metadata();
         let first = persist_subject(&state, &metadata, "planned", false, None, None, None)

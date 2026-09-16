@@ -12,6 +12,7 @@ import type {
   DiscoverySort,
   MetadataProviderStatus,
   AnimeEpisodeMetadata,
+  AnimeWorkStructure,
   LibraryRoot,
   MediaFile,
   UnassignedMediaGroup,
@@ -57,6 +58,27 @@ function withExploreOverviewAssets(overview: ExploreOverview): ExploreOverview {
     ...overview,
     seasonal: overview.seasonal.map(withExploreAssets),
     trending: overview.trending.map(withExploreAssets),
+  };
+}
+
+function withAnimeStructureAssets(structure: AnimeWorkStructure): AnimeWorkStructure {
+  return {
+    ...structure,
+    seasons: structure.seasons.map((season) => ({
+      ...season,
+      coverUrl: localAssetUrl(season.coverUrl) ?? null,
+    })),
+    episodes: structure.episodes.map((episode) => ({
+      ...episode,
+      localFiles: episode.localFiles.map((file) => ({
+        ...file,
+        thumbnailPath: localAssetUrl(file.thumbnailPath) ?? null,
+      })),
+    })),
+    unmatchedFiles: structure.unmatchedFiles.map((file) => ({
+      ...file,
+      thumbnailPath: localAssetUrl(file.thumbnailPath) ?? null,
+    })),
   };
 }
 
@@ -145,4 +167,16 @@ export const api = {
     call<MetadataProviderStatus[]>("get_metadata_provider_statuses"),
   listAnimeEpisodes: (workId: string) =>
     call<AnimeEpisodeMetadata[]>("list_anime_episodes", { workId }),
+  getAnimeWorkStructure: async (workId: string) =>
+    withAnimeStructureAssets(await call<AnimeWorkStructure>("get_anime_work_structure", { workId })),
+  refreshWorkMetadata: async (workId: string) =>
+    withAnimeStructureAssets(await call<AnimeWorkStructure>("refresh_work_metadata", { workId })),
+  setMediaEpisode: (mediaFileId: string, episodeExternalId: string | null) =>
+    call<void>("set_media_episode", { mediaFileId, episodeExternalId }),
+  getMediaThumbnail: async (mediaFileId: string) =>
+    localAssetUrl(await call<string | null>("get_media_thumbnail", { mediaFileId })) ?? null,
+  animeRanking: (page = 1, pageSize = 50) =>
+    call<ExploreSubject[]>("get_anime_ranking", { page, pageSize }).then((subjects) =>
+      subjects.map(withExploreAssets),
+    ),
 };

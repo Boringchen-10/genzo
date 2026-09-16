@@ -11,6 +11,7 @@ pub struct AppState {
     pub database_path: PathBuf,
     pub data_directory: PathBuf,
     pub cover_cache_path: PathBuf,
+    pub thumbnail_cache_path: PathBuf,
 }
 
 pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
@@ -19,7 +20,9 @@ pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
         .app_data_dir()
         .map_err(|error| AppError::System(format!("无法确定应用数据目录：{error}")))?;
     let cover_cache_path = data_directory.join("covers");
+    let thumbnail_cache_path = data_directory.join("thumbnails");
     tokio::fs::create_dir_all(&cover_cache_path).await?;
+    tokio::fs::create_dir_all(&thumbnail_cache_path).await?;
 
     let database_path = data_directory.join("genzo.db");
     let database_url = format!(
@@ -43,6 +46,7 @@ pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
         database_path,
         data_directory,
         cover_cache_path,
+        thumbnail_cache_path,
     })
 }
 
@@ -81,7 +85,7 @@ pub fn allow_cover_file(app: &AppHandle, path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-pub fn allow_cached_covers(app: &AppHandle, directory: &Path) -> AppResult<()> {
+pub fn allow_cached_images(app: &AppHandle, directory: &Path) -> AppResult<()> {
     for entry in std::fs::read_dir(directory)? {
         let path = entry?.path();
         if path.is_file() {

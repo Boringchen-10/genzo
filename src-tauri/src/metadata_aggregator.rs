@@ -62,9 +62,21 @@ pub async fn provider_statuses(pool: &SqlitePool) -> AppResult<Vec<MetadataProvi
     Ok(vec![bangumi, tmdb, anilist, douban])
 }
 
-pub async fn aggregate(
+pub async fn aggregate(pool: &SqlitePool, primary: WorkMetadata) -> AppResult<AggregationResult> {
+    aggregate_internal(pool, primary, false).await
+}
+
+pub async fn aggregate_fresh(
+    pool: &SqlitePool,
+    primary: WorkMetadata,
+) -> AppResult<AggregationResult> {
+    aggregate_internal(pool, primary, true).await
+}
+
+async fn aggregate_internal(
     pool: &SqlitePool,
     mut primary: WorkMetadata,
+    force_refresh: bool,
 ) -> AppResult<AggregationResult> {
     if !primary.source_keys.iter().any(|key| key == "bangumi") {
         primary.source_keys.push("bangumi".to_string());
@@ -85,12 +97,14 @@ pub async fn aggregate(
         primary.external_id,
         u8::from(tmdb_token.is_some())
     );
-    if let Some(cached) = memory_get(&cache_key).await {
-        return Ok(cached);
-    }
-    if let Some(cached) = persistent_get(pool, &cache_key).await? {
-        memory_put(cache_key, cached.clone()).await;
-        return Ok(cached);
+    if !force_refresh {
+        if let Some(cached) = memory_get(&cache_key).await {
+            return Ok(cached);
+        }
+        if let Some(cached) = persistent_get(pool, &cache_key).await? {
+            memory_put(cache_key, cached.clone()).await;
+            return Ok(cached);
+        }
     }
 
     let query = MetadataSearchQuery::from_primary(&primary);
@@ -198,12 +212,19 @@ pub async fn persist_for_work(
                 .await?;
         }
     }
-    sqlx::query("DELETE FROM anime_episodes WHERE work_id = ? AND provider = 'bangumi'")
-        .bind(work_id)
-        .execute(&mut **transaction)
-        .await?;
+    let existing_episode_ids = sqlx::query_scalar::<_, String>(
+        "SELECT external_id FROM anime_episodes WHERE work_id = ? AND provider = 'bangumi'",
+    )
+    .bind(work_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let refreshed_episode_ids = result
+        .episodes
+        .iter()
+        .map(|episode| episode.external_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
     for episode in &result.episodes {
-        sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, title, original_title, description, air_date, duration, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, title, original_title, description, air_date, duration, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(work_id, provider, external_id) DO UPDATE SET episode_number = excluded.episode_number, sort_number = excluded.sort_number, title = excluded.title, original_title = excluded.original_title, description = excluded.description, air_date = excluded.air_date, duration = excluded.duration, fetched_at = excluded.fetched_at")
             .bind(work_id)
             .bind(&episode.provider)
             .bind(&episode.external_id)
@@ -217,6 +238,15 @@ pub async fn persist_for_work(
             .bind(&episode.fetched_at)
             .execute(&mut **transaction)
             .await?;
+    }
+    for external_id in existing_episode_ids {
+        if !refreshed_episode_ids.contains(external_id.as_str()) {
+            sqlx::query("DELETE FROM anime_episodes WHERE work_id = ? AND provider = 'bangumi' AND external_id = ?")
+                .bind(work_id)
+                .bind(external_id)
+                .execute(&mut **transaction)
+                .await?;
+        }
     }
     Ok(())
 }

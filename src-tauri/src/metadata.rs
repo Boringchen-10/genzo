@@ -21,7 +21,7 @@ use std::time::{Duration as StdDuration, Instant};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error";
+const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path";
 const WORK_COLUMNS: &str = "id, title, original_title, type, description, cover_path, banner_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at";
 const AUTO_MATCH_THRESHOLD: f64 = 0.80;
 const PENDING_MATCH_THRESHOLD: f64 = 0.60;
@@ -549,20 +549,24 @@ pub(crate) async fn apply_metadata(
         .await?;
     }
     if !locks.contains("tags") {
-        for genre in &metadata.genres {
+        sqlx::query("DELETE FROM work_tags WHERE work_id = ? AND source = 'metadata'")
+            .bind(work_id)
+            .execute(&mut **transaction)
+            .await?;
+        for genre in localized_metadata_genres(&metadata.genres) {
             let tag_id: Option<String> =
                 sqlx::query_scalar("SELECT id FROM tags WHERE name = ? COLLATE NOCASE")
-                    .bind(genre)
+                    .bind(&genre)
                     .fetch_optional(&mut **transaction)
                     .await?;
             let tag_id = tag_id.unwrap_or_else(|| Uuid::new_v4().to_string());
             sqlx::query("INSERT OR IGNORE INTO tags (id, name, created_at) VALUES (?, ?, ?)")
                 .bind(&tag_id)
-                .bind(genre)
+                .bind(&genre)
                 .bind(now)
                 .execute(&mut **transaction)
                 .await?;
-            sqlx::query("INSERT OR IGNORE INTO work_tags (work_id, tag_id) VALUES (?, ?)")
+            sqlx::query("INSERT OR IGNORE INTO work_tags (work_id, tag_id, source) VALUES (?, ?, 'metadata')")
                 .bind(work_id)
                 .bind(tag_id)
                 .execute(&mut **transaction)
@@ -576,6 +580,41 @@ pub(crate) async fn apply_metadata(
         record_source(transaction, work_id, "tags", provider, now).await?;
     }
     Ok(())
+}
+
+fn localized_metadata_genres(genres: &[String]) -> Vec<String> {
+    let mut localized = genres
+        .iter()
+        .filter_map(|genre| {
+            let trimmed = genre.trim();
+            let translated = match trimmed.to_ascii_lowercase().as_str() {
+                "action" => "动作",
+                "adventure" => "冒险",
+                "comedy" => "喜剧",
+                "drama" => "剧情",
+                "ecchi" => "卖肉",
+                "fantasy" => "奇幻",
+                "horror" => "恐怖",
+                "mahou shoujo" | "magical girl" => "魔法少女",
+                "mecha" => "机战",
+                "music" => "音乐",
+                "mystery" => "悬疑",
+                "psychological" => "心理",
+                "romance" => "恋爱",
+                "sci-fi" | "science fiction" => "科幻",
+                "slice of life" => "日常",
+                "sports" => "运动",
+                "supernatural" => "超自然",
+                "thriller" => "惊悚",
+                _ if !trimmed.is_ascii() => trimmed,
+                _ => return None,
+            };
+            Some(translated.to_string())
+        })
+        .collect::<Vec<_>>();
+    localized.sort();
+    localized.dedup();
+    localized
 }
 
 pub async fn confirm_candidate(
@@ -689,6 +728,7 @@ pub async fn confirm_candidate(
             .await?;
     }
     media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
+    crate::anime_details::rebuild_episode_links(&mut transaction, &work_id).await?;
     sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
         .bind(media_file_id)
         .execute(&mut *transaction)
@@ -760,6 +800,19 @@ pub async fn set_field_lock(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn localizes_known_anilist_genres_and_drops_unknown_english_values() {
+        assert_eq!(
+            localized_metadata_genres(&[
+                "Action".to_string(),
+                "Slice of Life".to_string(),
+                "奇幻".to_string(),
+                "Unknown English Tag".to_string(),
+            ]),
+            vec!["动作".to_string(), "奇幻".to_string(), "日常".to_string()]
+        );
+    }
     use crate::db;
 
     fn media_for_query(path: &str, file_name: &str) -> MediaFile {
@@ -789,6 +842,8 @@ mod tests {
             parsed_media_info: "[]".to_string(),
             last_recognized_at: None,
             recognition_error: None,
+            content_fingerprint: None,
+            thumbnail_path: None,
         }
     }
 
@@ -886,6 +941,57 @@ mod tests {
         assert_eq!(row.0, "我的标题");
         assert_eq!(row.1, "新简介");
         assert_eq!(row.2, Some(2024));
+    }
+
+    #[tokio::test]
+    async fn metadata_refresh_replaces_only_metadata_tags() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('w', '测试', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO tags (id, name, created_at) VALUES ('manual', '我的标签', ?), ('old', 'Action', ?)")
+            .bind(&now).bind(&now).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO work_tags (work_id, tag_id, source) VALUES ('w', 'manual', 'manual'), ('w', 'old', 'metadata')")
+            .execute(&pool).await.unwrap();
+        let metadata = WorkMetadata {
+            provider: "bangumi".to_string(),
+            external_id: "1".to_string(),
+            title: "测试".to_string(),
+            original_title: None,
+            aliases: Vec::new(),
+            description: "简介".to_string(),
+            cover_url: None,
+            banner_url: None,
+            year: Some(2024),
+            season: None,
+            subject_type: "tv".to_string(),
+            genres: vec!["Fantasy".to_string()],
+            score: None,
+            rank: None,
+            rating_count: 0,
+            collection_count: 0,
+            air_date: None,
+            broadcast: None,
+            source_keys: vec!["bangumi".to_string(), "anilist".to_string()],
+            cover_provider: None,
+            banner_provider: None,
+            score_provider: None,
+            fetched_at: now.clone(),
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        apply_metadata(&mut transaction, "w", &metadata, None, None, &now)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        let tags: Vec<(String, String)> = sqlx::query_as("SELECT t.name, wt.source FROM tags t JOIN work_tags wt ON wt.tag_id = t.id WHERE wt.work_id = 'w' ORDER BY t.name")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(
+            tags,
+            vec![
+                ("奇幻".to_string(), "metadata".to_string()),
+                ("我的标签".to_string(), "manual".to_string()),
+            ]
+        );
     }
 
     #[tokio::test]

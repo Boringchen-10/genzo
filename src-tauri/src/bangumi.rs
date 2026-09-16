@@ -1,6 +1,9 @@
 use crate::error::{AppError, AppResult};
 use crate::metadata_provider::{MetadataProvider, MetadataSearchQuery, ProviderRateLimiter};
-use crate::models::{AnimeEpisodeMetadata, MetadataProviderStatus, WorkMetadata};
+use crate::models::{
+    AnimeCharacter, AnimeCredit, AnimeEpisodeMetadata, AnimeSeasonOption, MetadataProviderStatus,
+    WorkMetadata,
+};
 use async_trait::async_trait;
 use chrono::Utc;
 use reqwest::Client;
@@ -56,6 +59,38 @@ impl BangumiProvider {
             .into_iter()
             .flatten()
             .take(12)
+            .filter_map(subject_to_metadata)
+            .collect())
+    }
+
+    pub async fn ranking(&self, limit: u32, offset: u32) -> AppResult<Vec<WorkMetadata>> {
+        self.wait().await;
+        let response = self
+            .client
+            .post(format!("{API_ROOT}/search/subjects"))
+            .query(&[("limit", limit.to_string()), ("offset", offset.to_string())])
+            .json(&json!({
+                "keyword": "",
+                "sort": "rank",
+                "filter": { "type": [2], "rank": [">=1"] }
+            }))
+            .send()
+            .await
+            .map_err(network_error)?;
+        if !response.status().is_success() {
+            return Err(AppError::Network(format!(
+                "Bangumi 动画排行榜读取失败（HTTP {}）",
+                response.status().as_u16()
+            )));
+        }
+        let body: Value = response.json().await.map_err(|error| {
+            AppError::Network(format!("Bangumi 返回了无法解析的排行榜数据：{error}"))
+        })?;
+        Ok(body
+            .get("data")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
             .filter_map(subject_to_metadata)
             .collect())
     }
@@ -168,12 +203,129 @@ impl BangumiProvider {
         Ok(episodes)
     }
 
+    pub async fn related_subjects(&self, external_id: &str) -> AppResult<Vec<AnimeSeasonOption>> {
+        let body = self
+            .get_subject_collection(external_id, "subjects", "关联作品")
+            .await?;
+        Ok(collection_items(&body)
+            .filter_map(|item| {
+                let subject = item.get("subject").unwrap_or(item);
+                let metadata = subject_to_metadata(subject)?;
+                Some(AnimeSeasonOption {
+                    external_id: metadata.external_id,
+                    title: metadata.title,
+                    original_title: metadata.original_title,
+                    relation: item
+                        .get("relation")
+                        .and_then(Value::as_str)
+                        .unwrap_or("关联作品")
+                        .to_string(),
+                    season_number: metadata.season.and_then(|value| u32::try_from(value).ok()),
+                    cover_url: metadata.cover_url,
+                    local_work_id: None,
+                    current: false,
+                })
+            })
+            .collect())
+    }
+
+    pub async fn staff(&self, external_id: &str) -> AppResult<Vec<AnimeCredit>> {
+        let body = self
+            .get_subject_collection(external_id, "persons", "制作人员")
+            .await?;
+        Ok(collection_items(&body)
+            .filter_map(|item| {
+                let person = item.get("person").unwrap_or(item);
+                Some(AnimeCredit {
+                    external_id: person.get("id")?.as_i64()?.to_string(),
+                    name: nonempty(person.get("name").and_then(Value::as_str))?,
+                    role: item
+                        .get("relation")
+                        .and_then(Value::as_str)
+                        .unwrap_or("制作人员")
+                        .to_string(),
+                    image_url: best_image_url(person),
+                })
+            })
+            .collect())
+    }
+
+    pub async fn characters(&self, external_id: &str) -> AppResult<Vec<AnimeCharacter>> {
+        let body = self
+            .get_subject_collection(external_id, "characters", "角色信息")
+            .await?;
+        Ok(collection_items(&body)
+            .filter_map(|item| {
+                let character = item.get("character").unwrap_or(item);
+                let actors = item
+                    .get("actors")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|actor| actor.get("name").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect();
+                Some(AnimeCharacter {
+                    external_id: character.get("id")?.as_i64()?.to_string(),
+                    name: nonempty(character.get("name").and_then(Value::as_str))?,
+                    role: item
+                        .get("relation")
+                        .and_then(Value::as_str)
+                        .unwrap_or("角色")
+                        .to_string(),
+                    image_url: best_image_url(character),
+                    actors,
+                })
+            })
+            .collect())
+    }
+
+    async fn get_subject_collection(
+        &self,
+        external_id: &str,
+        collection: &str,
+        label: &str,
+    ) -> AppResult<Value> {
+        self.wait().await;
+        let response = self
+            .client
+            .get(format!("{API_ROOT}/subjects/{external_id}/{collection}"))
+            .send()
+            .await
+            .map_err(network_error)?;
+        if !response.status().is_success() {
+            return Err(AppError::Network(format!(
+                "Bangumi {label}读取失败（HTTP {}）",
+                response.status().as_u16()
+            )));
+        }
+        response.json().await.map_err(|error| {
+            AppError::Network(format!("Bangumi 返回了无法解析的{label}数据：{error}"))
+        })
+    }
+
     async fn wait(&self) {
         RATE_LIMITER
             .get_or_init(|| ProviderRateLimiter::new(Duration::from_secs(2)))
             .wait()
             .await;
     }
+}
+
+fn collection_items(value: &Value) -> impl Iterator<Item = &Value> {
+    value
+        .as_array()
+        .or_else(|| value.get("data").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+}
+
+fn best_image_url(value: &Value) -> Option<String> {
+    let images = value.get("images")?;
+    ["large", "medium", "common", "grid", "small"]
+        .into_iter()
+        .find_map(|key| images.get(key).and_then(Value::as_str))
+        .map(normalize_bangumi_image_url)
 }
 
 fn episode_to_metadata(item: &Value, fetched_at: &str) -> Option<AnimeEpisodeMetadata> {
@@ -461,5 +613,26 @@ mod tests {
         assert!(episodes
             .iter()
             .any(|episode| episode.episode_number.is_some()));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the live Bangumi API"]
+    async fn live_ranking_and_detail_collections_are_parseable() {
+        let provider = BangumiProvider::new().expect("provider");
+        let ranking = provider.ranking(3, 0).await.expect("ranking");
+        assert_eq!(ranking.len(), 3);
+        assert!(ranking
+            .iter()
+            .all(|item| item.rank.is_some_and(|rank| rank >= 1)));
+
+        let related = provider
+            .related_subjects("400602")
+            .await
+            .expect("relations");
+        assert!(!related.is_empty());
+        let staff = provider.staff("400602").await.expect("staff");
+        assert!(!staff.is_empty());
+        let characters = provider.characters("400602").await.expect("characters");
+        assert!(!characters.is_empty());
     }
 }

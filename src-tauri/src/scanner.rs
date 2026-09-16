@@ -2,9 +2,12 @@ use crate::anime_parser::{parse_file_name, ParsedAnime};
 use crate::error::{AppError, AppResult};
 use crate::models::{LibraryRoot, MediaFile, ScanJob, ScanResult};
 use chrono::{DateTime, Utc};
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -19,6 +22,7 @@ struct ScannedFile {
     size: i64,
     modified_at: Option<String>,
     parsed_anime: Option<ParsedAnime>,
+    content_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -76,6 +80,28 @@ fn is_hidden(path: &Path, metadata: &std::fs::Metadata) -> bool {
     }
 }
 
+fn fingerprint_file(path: &Path, size: u64) -> std::io::Result<String> {
+    const SAMPLE_SIZE: u64 = 64 * 1024;
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"genzo-media-fingerprint-v1");
+    hasher.update(size.to_le_bytes());
+    let last = size.saturating_sub(SAMPLE_SIZE);
+    let middle = size.saturating_sub(SAMPLE_SIZE) / 2;
+    let mut positions = vec![0, middle, last];
+    positions.sort_unstable();
+    positions.dedup();
+    let mut buffer = vec![0_u8; SAMPLE_SIZE as usize];
+    for position in positions {
+        file.seek(SeekFrom::Start(position))?;
+        let sample_length = usize::try_from((size - position).min(SAMPLE_SIZE)).unwrap_or(0);
+        let read = file.read(&mut buffer[..sample_length])?;
+        hasher.update(position.to_le_bytes());
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("sha256-sampled-v1:{:x}", hasher.finalize()))
+}
+
 fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
     let mut output = WalkOutput::default();
 
@@ -122,6 +148,20 @@ fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
             .file_name()
             .map(|value| value.to_string_lossy().to_string())
             .unwrap_or_default();
+        let content_fingerprint = if media_type == "video" {
+            match fingerprint_file(path, metadata.len()) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    output.errors.push(format!(
+                        "无法生成 {} 的移动识别指纹：{error}",
+                        path.display()
+                    ));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         output.files.push(ScannedFile {
             path: normalized,
             file_name: file_name.clone(),
@@ -130,6 +170,7 @@ fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
             size: i64::try_from(metadata.len()).unwrap_or(i64::MAX),
             modified_at: metadata.modified().ok().and_then(system_time_to_string),
             parsed_anime: (media_type == "video").then(|| parse_file_name(&file_name)),
+            content_fingerprint,
         });
     }
 
@@ -192,7 +233,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     // Include every existing row below this directory. A more specific configured root owns
     // overlapping files; scanning a parent may refresh metadata but must not steal ownership.
     let existing_files = sqlx::query_as::<_, MediaFile>(
-        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE path = ? COLLATE NOCASE OR (substr(path, 1, length(?)) = ? COLLATE NOCASE AND substr(path, length(?) + 1, 1) IN ('\\', '/'))",
+        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path FROM media_files WHERE path = ? COLLATE NOCASE OR (substr(path, 1, length(?)) = ? COLLATE NOCASE AND substr(path, length(?) + 1, 1) IN ('\\', '/'))",
     )
     .bind(&root.path)
     .bind(&root.path)
@@ -200,6 +241,22 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     .bind(&root.path)
     .fetch_all(&mut *transaction)
     .await?;
+    let scanned_paths = walk_output
+        .files
+        .iter()
+        .map(|file| file.path.to_lowercase())
+        .collect::<HashSet<_>>();
+    let mut move_candidates: HashMap<String, Vec<MediaFile>> = HashMap::new();
+    for file in &existing_files {
+        if !scanned_paths.contains(&file.path.to_lowercase()) {
+            if let Some(fingerprint) = &file.content_fingerprint {
+                move_candidates
+                    .entry(fingerprint.clone())
+                    .or_default()
+                    .push(file.clone());
+            }
+        }
+    }
     let existing_by_path: HashMap<String, MediaFile> = existing_files
         .into_iter()
         .map(|file| (file.path.to_lowercase(), file))
@@ -239,9 +296,46 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
                 updated_count += 1;
             }
             if let Err(error) = sqlx::query(
-                "UPDATE media_files SET library_root_id = ?, file_name = ?, extension = ?, media_type = ?, size = ?, modified_at = ?, missing = 0, parsed_title = ?, parsed_original_title = ?, parsed_season = ?, parsed_episode = ?, parsed_year = ?, parsed_release_group = ?, parsed_special_type = ?, parsed_media_info = ?, updated_at = ? WHERE id = ?",
+                "UPDATE media_files SET library_root_id = ?, file_name = ?, extension = ?, media_type = ?, thumbnail_path = CASE WHEN size = ? AND modified_at IS ? THEN thumbnail_path ELSE NULL END, size = ?, modified_at = ?, missing = 0, parsed_title = ?, parsed_original_title = ?, parsed_season = ?, parsed_episode = ?, parsed_episode_start = ?, parsed_episode_end = ?, parsed_year = ?, parsed_release_group = ?, parsed_special_type = ?, parsed_media_info = ?, content_fingerprint = COALESCE(?, content_fingerprint), updated_at = ? WHERE id = ?",
             )
             .bind(target_root_id)
+            .bind(&file.file_name)
+            .bind(&file.extension)
+            .bind(&file.media_type)
+            .bind(file.size)
+            .bind(&file.modified_at)
+            .bind(file.size)
+            .bind(&file.modified_at)
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.title.as_ref()))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.original_title.as_ref()))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.season))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode.as_ref()))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode_start).map(i64::from))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode_end).map(i64::from))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.year))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.release_group.as_ref()))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.special_type.as_ref()))
+            .bind(serde_json::to_string(&file.parsed_anime.as_ref().map(|parsed| &parsed.media_info).cloned().unwrap_or_default())?)
+            .bind(&file.content_fingerprint)
+            .bind(&now)
+            .bind(&existing.id)
+            .execute(&mut *transaction)
+            .await
+            {
+                errors.push(format!("无法更新 {}：{error}", file.path));
+            }
+        } else if let Some(moved) = file
+            .content_fingerprint
+            .as_ref()
+            .and_then(|fingerprint| move_candidates.get(fingerprint))
+            .filter(|candidates| candidates.len() == 1)
+            .and_then(|candidates| candidates.first())
+        {
+            let result = sqlx::query(
+                "UPDATE media_files SET library_root_id = ?, path = ?, file_name = ?, extension = ?, media_type = ?, size = ?, modified_at = ?, missing = 0, parsed_title = ?, parsed_original_title = ?, parsed_season = ?, parsed_episode = ?, parsed_episode_start = ?, parsed_episode_end = ?, parsed_year = ?, parsed_release_group = ?, parsed_special_type = ?, parsed_media_info = ?, content_fingerprint = ?, updated_at = ? WHERE id = ? AND missing = 1",
+            )
+            .bind(&root.id)
+            .bind(&file.path)
             .bind(&file.file_name)
             .bind(&file.extension)
             .bind(&file.media_type)
@@ -251,20 +345,25 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.original_title.as_ref()))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.season))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode.as_ref()))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode_start).map(i64::from))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode_end).map(i64::from))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.year))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.release_group.as_ref()))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.special_type.as_ref()))
             .bind(serde_json::to_string(&file.parsed_anime.as_ref().map(|parsed| &parsed.media_info).cloned().unwrap_or_default())?)
+            .bind(&file.content_fingerprint)
             .bind(&now)
-            .bind(&existing.id)
+            .bind(&moved.id)
             .execute(&mut *transaction)
-            .await
-            {
-                errors.push(format!("无法更新 {}：{error}", file.path));
+            .await;
+            match result {
+                Ok(result) if result.rows_affected() == 1 => updated_count += 1,
+                Ok(_) => errors.push(format!("无法重新关联已移动文件 {}", file.path)),
+                Err(error) => errors.push(format!("无法更新已移动文件 {}：{error}", file.path)),
             }
         } else {
             let result = sqlx::query(
-                "INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, content_fingerprint, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(Uuid::new_v4().to_string())
             .bind(&root.id)
@@ -278,10 +377,13 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.original_title.as_ref()))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.season))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode.as_ref()))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode_start).map(i64::from))
+            .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.episode_end).map(i64::from))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.year))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.release_group.as_ref()))
             .bind(file.parsed_anime.as_ref().and_then(|parsed| parsed.special_type.as_ref()))
             .bind(serde_json::to_string(&file.parsed_anime.as_ref().map(|parsed| &parsed.media_info).cloned().unwrap_or_default())?)
+            .bind(&file.content_fingerprint)
             .bind(&now)
             .bind(&now)
             .execute(&mut *transaction)
@@ -300,6 +402,15 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
             }
         }
     }
+
+    // A pre-v0.3 scan represented a moved file as one missing row plus one new row.
+    // Remove only exact, already-linked duplicates from the database; media files are untouched.
+    sqlx::query(
+        "DELETE FROM media_files AS old WHERE old.library_root_id = ? AND old.missing = 1 AND old.work_id IS NOT NULL AND EXISTS (SELECT 1 FROM media_files AS current WHERE current.id != old.id AND current.library_root_id = old.library_root_id AND current.work_id = old.work_id AND current.missing = 0 AND current.file_name = old.file_name COLLATE NOCASE AND current.size = old.size AND COALESCE(current.parsed_season, -1) = COALESCE(old.parsed_season, -1) AND COALESCE(current.parsed_episode_start, -1) = COALESCE(old.parsed_episode_start, -1) AND COALESCE(current.parsed_episode_end, -1) = COALESCE(old.parsed_episode_end, -1))",
+    )
+    .bind(&root.id)
+    .execute(&mut *transaction)
+    .await?;
 
     let missing_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM media_files WHERE library_root_id = ? AND missing = 1",
@@ -444,6 +555,46 @@ mod tests {
             .await
             .expect("read missing flag");
         assert!(missing);
+    }
+
+    #[tokio::test]
+    async fn moving_video_inside_root_preserves_record_and_work_link() {
+        let pool = db::test_pool().await.expect("create database");
+        let temp = tempfile::tempdir().expect("create temp directory");
+        let original = temp.path().join("episode01.mkv");
+        fs::write(&original, b"stable video content").expect("write media file");
+        let root_path = normalize_existing_path(temp.path()).expect("normalize root");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('root', ?, 'video', 1, ?, ?)")
+            .bind(&root_path).bind(&now).bind(&now).execute(&pool).await.expect("root");
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('work', '测试动画', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("work");
+
+        scan_library_root(&pool, "root").await.expect("first scan");
+        let original_id: String = sqlx::query_scalar("SELECT id FROM media_files")
+            .fetch_one(&pool)
+            .await
+            .expect("media id");
+        sqlx::query("UPDATE media_files SET work_id = 'work' WHERE id = ?")
+            .bind(&original_id)
+            .execute(&pool)
+            .await
+            .expect("link work");
+        let moved_directory = temp.path().join("Season 1");
+        fs::create_dir(&moved_directory).expect("create destination");
+        fs::rename(&original, moved_directory.join("episode01.mkv")).expect("move media file");
+
+        let result = scan_library_root(&pool, "root").await.expect("rescan");
+        assert_eq!(result.job.added_count, 0);
+        assert_eq!(result.job.updated_count, 1);
+        let row: (String, Option<String>, bool) =
+            sqlx::query_as("SELECT id, work_id, missing FROM media_files")
+                .fetch_one(&pool)
+                .await
+                .expect("moved row");
+        assert_eq!(row.0, original_id);
+        assert_eq!(row.1.as_deref(), Some("work"));
+        assert!(!row.2);
     }
 
     #[tokio::test]

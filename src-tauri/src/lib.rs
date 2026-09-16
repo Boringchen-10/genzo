@@ -1,3 +1,4 @@
+mod anime_details;
 mod anime_parser;
 mod bangumi;
 mod commands;
@@ -13,6 +14,7 @@ mod metadata_provider;
 mod models;
 mod providers;
 mod scanner;
+mod thumbnail;
 mod window_style;
 
 use tauri::Manager;
@@ -24,7 +26,8 @@ pub fn run() {
         .setup(|app| {
             let state = tauri::async_runtime::block_on(db::initialize(app.handle()))
                 .map_err(|error| format!("Genzo 无法初始化本地数据库。{error}"))?;
-            db::allow_cached_covers(app.handle(), &state.cover_cache_path)?;
+            db::allow_cached_images(app.handle(), &state.cover_cache_path)?;
+            db::allow_cached_images(app.handle(), &state.thumbnail_cache_path)?;
             let metadata_pool = state.pool.clone();
             app.manage(state);
             tauri::async_runtime::spawn_blocking(|| {
@@ -101,6 +104,11 @@ pub fn run() {
             commands::check_in_local_library,
             commands::get_metadata_provider_statuses,
             commands::list_anime_episodes,
+            commands::get_anime_work_structure,
+            commands::refresh_work_metadata,
+            commands::set_media_episode,
+            commands::get_media_thumbnail,
+            commands::get_anime_ranking,
             window_style::window_material_supported,
         ])
         .run(tauri::generate_context!())

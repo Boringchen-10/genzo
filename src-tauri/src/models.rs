@@ -69,6 +69,10 @@ pub struct MediaFile {
     pub last_recognized_at: Option<String>,
     #[sqlx(default)]
     pub recognition_error: Option<String>,
+    #[sqlx(default)]
+    pub content_fingerprint: Option<String>,
+    #[sqlx(default)]
+    pub thumbnail_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -252,6 +256,59 @@ pub struct AnimeEpisodeMetadata {
     pub air_date: Option<String>,
     pub duration: Option<String>,
     pub fetched_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeSeasonOption {
+    pub external_id: String,
+    pub title: String,
+    pub original_title: Option<String>,
+    pub relation: String,
+    pub season_number: Option<u32>,
+    pub cover_url: Option<String>,
+    pub local_work_id: Option<String>,
+    pub current: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeCredit {
+    pub external_id: String,
+    pub name: String,
+    pub role: String,
+    pub image_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeCharacter {
+    pub external_id: String,
+    pub name: String,
+    pub role: String,
+    pub image_url: Option<String>,
+    pub actors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeEpisodeEntry {
+    #[serde(flatten)]
+    pub episode: AnimeEpisodeMetadata,
+    pub local_files: Vec<MediaFile>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeWorkStructure {
+    pub work_id: String,
+    pub bangumi_id: String,
+    pub seasons: Vec<AnimeSeasonOption>,
+    pub episodes: Vec<AnimeEpisodeEntry>,
+    pub unmatched_files: Vec<MediaFile>,
+    pub staff: Vec<AnimeCredit>,
+    pub characters: Vec<AnimeCharacter>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

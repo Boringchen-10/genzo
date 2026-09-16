@@ -78,12 +78,17 @@ async fn replace_tags(
             .bind(Utc::now().to_rfc3339())
             .execute(&mut **transaction)
             .await?;
-        sqlx::query("INSERT INTO work_tags (work_id, tag_id) VALUES (?, ?)")
+        sqlx::query("INSERT INTO work_tags (work_id, tag_id, source) VALUES (?, ?, 'manual')")
             .bind(work_id)
             .bind(tag_id)
             .execute(&mut **transaction)
             .await?;
     }
+    sqlx::query("INSERT INTO work_field_sources (work_id, field_name, provider, updated_at) VALUES (?, 'tags', 'manual', ?) ON CONFLICT(work_id, field_name) DO UPDATE SET provider = 'manual', updated_at = excluded.updated_at")
+        .bind(work_id)
+        .bind(Utc::now().to_rfc3339())
+        .execute(&mut **transaction)
+        .await?;
     sqlx::query("DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM work_tags)")
         .execute(&mut **transaction)
         .await?;
@@ -140,7 +145,7 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
     .ok_or_else(|| AppError::NotFound("作品不存在".to_string()))?;
     let tags = tags_for_work(&state.pool, &id).await?;
     let media_files = sqlx::query_as::<_, MediaFile>(
-        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE work_id = ? ORDER BY parsed_season, parsed_episode_start, file_name COLLATE NOCASE",
+        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path FROM media_files WHERE work_id = ? ORDER BY parsed_season, parsed_episode_start, file_name COLLATE NOCASE",
     )
     .bind(&id)
     .fetch_all(&state.pool)
@@ -308,7 +313,7 @@ pub async fn delete_work(id: String, state: State<'_, AppState>) -> AppResult<()
 #[tauri::command]
 pub async fn list_unassigned_media(state: State<'_, AppState>) -> AppResult<Vec<MediaFile>> {
     Ok(sqlx::query_as::<_, MediaFile>(
-        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE work_id IS NULL ORDER BY parsed_season, parsed_episode_start, file_name COLLATE NOCASE",
+        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path FROM media_files WHERE work_id IS NULL ORDER BY parsed_season, parsed_episode_start, file_name COLLATE NOCASE",
     )
     .fetch_all(&state.pool)
     .await?)
@@ -338,13 +343,18 @@ pub async fn attach_media_file(
     let result = sqlx::query("UPDATE media_files SET work_id = ?, updated_at = ? WHERE id = ?")
         .bind(&work_id)
         .bind(Utc::now().to_rfc3339())
-        .bind(media_file_id)
+        .bind(&media_file_id)
         .execute(&mut *transaction)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("媒体文件不存在".to_string()));
     }
+    sqlx::query("DELETE FROM media_episode_links WHERE media_file_id = ?")
+        .bind(&media_file_id)
+        .execute(&mut *transaction)
+        .await?;
     media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
+    crate::anime_details::rebuild_episode_links(&mut transaction, &work_id).await?;
     transaction.commit().await?;
     Ok(())
 }
@@ -360,14 +370,19 @@ pub async fn detach_media_file(media_file_id: String, state: State<'_, AppState>
             .flatten();
     let result = sqlx::query("UPDATE media_files SET work_id = NULL, updated_at = ? WHERE id = ?")
         .bind(Utc::now().to_rfc3339())
-        .bind(media_file_id)
+        .bind(&media_file_id)
         .execute(&mut *transaction)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("媒体文件不存在".to_string()));
     }
+    sqlx::query("DELETE FROM media_episode_links WHERE media_file_id = ?")
+        .bind(&media_file_id)
+        .execute(&mut *transaction)
+        .await?;
     if let Some(work_id) = work_id {
         media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
+        crate::anime_details::rebuild_episode_links(&mut transaction, &work_id).await?;
     }
     transaction.commit().await?;
     Ok(())
@@ -903,7 +918,7 @@ pub async fn recognize_unmatched_media(
     app: AppHandle,
 ) -> AppResult<RecognitionSummary> {
     let result = metadata::recognize_batch(&state).await?;
-    db::allow_cached_covers(&app, &state.cover_cache_path)?;
+    db::allow_cached_images(&app, &state.cover_cache_path)?;
     Ok(result)
 }
 
@@ -1100,6 +1115,58 @@ pub async fn list_anime_episodes(
     crate::metadata_aggregator::episodes_for_work(&state.pool, &work_id).await
 }
 
+#[tauri::command]
+pub async fn get_anime_work_structure(
+    work_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<AnimeWorkStructure> {
+    crate::anime_details::work_structure(&state.pool, &work_id).await
+}
+
+#[tauri::command]
+pub async fn refresh_work_metadata(
+    work_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<AnimeWorkStructure> {
+    crate::anime_details::refresh_work_metadata(&state, &app, &work_id).await
+}
+
+#[tauri::command]
+pub async fn set_media_episode(
+    media_file_id: String,
+    episode_external_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    crate::anime_details::set_episode_link(
+        &state.pool,
+        &media_file_id,
+        episode_external_id.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn get_media_thumbnail(
+    media_file_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<Option<String>> {
+    crate::anime_details::media_thumbnail(&state, &app, &media_file_id).await
+}
+
+#[tauri::command]
+pub async fn get_anime_ranking(
+    page: u32,
+    page_size: u32,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ExploreSubject>> {
+    let mut result = explore::anime_ranking(&state.pool, page, page_size).await?;
+    explore::prepare_cover_cache(&app, &state, &mut result).await;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1136,6 +1203,13 @@ mod tests {
         .await
         .expect("query banner_path column");
         assert!(banner_column_exists);
+        let anime_structure_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'media_episode_links') AND EXISTS(SELECT 1 FROM pragma_table_info('media_files') WHERE name = 'content_fingerprint') AND EXISTS(SELECT 1 FROM pragma_table_info('media_files') WHERE name = 'thumbnail_path') AND EXISTS(SELECT 1 FROM pragma_table_info('work_tags') WHERE name = 'source')",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query anime structure migration");
+        assert!(anime_structure_ready);
 
         let now = Utc::now().to_rfc3339();
         sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('1', '测试', 'video', ?, ?)")

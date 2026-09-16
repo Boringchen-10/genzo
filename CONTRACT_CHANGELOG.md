@@ -176,3 +176,24 @@ Open Design 可按正式 UI 节奏把 `discoveryList`、`weeklyCalendar`、`meta
 - 探索筛选初始值显示“全部年份 / 全部月份”；月份选项只展示“1 月新番、4 月新番、7 月新番、10 月新番”。
 - “本季”Tab 在年份或月份为“全部”时，应使用当前日期对应的季度调用后端；“动画”全量视图才使用可空年月执行全量筛选。
 - 筛选面板的位置、间距与折叠行为必须以 Open Design 正式设计为准，Codex 不改页面布局和 CSS。
+
+---
+
+## 012 · 2026-09-16 · 动画详情结构、元数据刷新、文件移动与官方排行榜（Codex）
+
+- **变更**：新增 `get_anime_work_structure`、`refresh_work_metadata`、`set_media_episode`、`get_media_thumbnail`、`get_anime_ranking` 五个 Tauri Command，并在 `src/api.ts` 提供同名薄适配。新增 `AnimeWorkStructure`（关联季度、官方分集、本地版本、未匹配文件、制作人员、角色和警告）及相关共享类型。
+- **持久化**：迁移 `0007_anime_file_structure.sql` 为视频保存采样 SHA-256 指纹和缩略图缓存路径，为 `work_tags` 区分 `manual` / `metadata` 来源，并新增 `media_episode_links`。迁移只删除已经存在“同作品、同文件名、同大小、同季集”的当前记录所对应的旧 missing 重复行，不修改用户媒体文件。
+- **移动语义**：扫描到同一内容指纹且旧路径已消失时，更新原 `media_files` 行的路径，保留媒体 ID、作品关联及用户状态；重复扫描保持幂等。
+- **分集语义**：官方 Bangumi 分集为展示和映射基准；整数 `parsed_episode_start` 自动建立 `parsed` 链接，用户可用 `manual` 链接覆盖。多个本地压制版本可以关联同一官方分集，不能按集数误删。
+- **元数据语义**：刷新绕过 30 天聚合缓存，重新读取 Bangumi 详情、官方分集、TMDB/AniList 补源并回填简介与图片。自动刷新只替换 `metadata` 标签，保留 `manual` 标签；常见 AniList 英文类型转换为中文，无法可靠翻译的纯英文标签不写入作品标签。
+- **排行榜来源**：`get_anime_ranking(page, pageSize)` 使用 Bangumi 官方 `POST /v0/search/subjects`，`sort=rank` 且过滤 `rank >= 1`，缓存 12 小时；不抓取网页。已用真实 API 验证排名、关联作品、制作人员和角色返回结构。
+- **视频缩略图限制**：优先读取 Windows 缩略图缓存，再请求 Shell 视频缩略图处理器；返回本地 JPEG 路径或 `null`。真实 MKV/x264 与 MKV/x265 测试在当前机器均收到 `WTS_E_FAILEDEXTRACTION`，所以本契约不承诺所有编码可生成帧图。若要全覆盖，需要另行确认随应用分发 FFmpeg 的体积、GPL/LGPL 配置和许可证方案；不得静默下载。
+- **兼容性**：新增字段均为可空，命令为增量能力；旧媒体在再次扫描时补指纹。迁移已在生产数据库副本（25,660 条 `media_files`）验证从版本 6 升至 7，原生产库未修改。
+- **受影响功能 ID**：DETAIL-002、DETAIL-003、DETAIL-006、DETAIL-007、INBOX-006、MATCH-004、EXPLORE-003、EXPLORE-020、SCAN-001。
+- **变更方**：Codex（Rust、SQLite、迁移、Tauri Command、共享类型与 `src/api.ts`）；未修改 Open Design 页面、组件、CSS、设计 Token、Mock 或 Provider 接口。
+
+### Open Design 接线要求
+
+Open Design 需先在其拥有的 `GenzoDataProvider` 与 Mock Provider 中声明上述方法，再由 Codex 在 `tauriProvider.ts` 逐项委托。详情页应使用 `AnimeWorkStructure.episodes[].localFiles` 渲染“官方分集 → 多个本地版本”，使用 `seasons` 渲染季度/关联作品选择，刷新按钮调用 `refreshWorkMetadata`，并把 `staff` / `characters` 接入已确认区域。探索推荐页的动画排行榜调用 `animeRanking`；视频缩略图为 `null` 时使用设计规定的明确降级，不重复使用作品海报冒充视频帧。
+
+`design/open-design/v1.1.2/BACKEND_CAPABILITY_MATRIX.md` 中 EXPLORE-020 所写“Bangumi 无批量排行接口”已被官方 OpenAPI 与真实调用证伪；该文件归 Open Design 所有，本次未直接修改，下一设计增量应将 EXPLORE-020 更新为后端已实现、前端待接线。
