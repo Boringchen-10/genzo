@@ -514,7 +514,9 @@
     .filter-field { display:grid; gap:8px; }
     .filter-label { color:var(--quiet); font-size:12px; }
     .tag-row { display:flex; flex-wrap:wrap; gap:8px; }
-    .filter-selects { display:flex; flex-wrap:wrap; gap:12px; }
+    /* 季节 / 年份只属于「本季」：靠右放在本季列表标题之下、作品网格之上 */
+    .season-filter { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:flex-end; gap:12px; margin:0 0 16px; }
+    .season-filter[hidden] { display:none; }
     .filter-select { display:grid; gap:6px; }
     .filter-select > span { color:var(--quiet); font-size:12px; }
     .filter-select select { min-height:40px; padding:0 30px 0 12px; border:1px solid var(--line); border-radius:6px; background:rgba(var(--tint),.035); color:var(--text); }
@@ -799,18 +801,22 @@
 
   <main class="explore-page" id="exploreView" aria-hidden="true" aria-labelledby="exploreTitle">
     <header class="explore-topbar"><div class="crumb od-fill"><strong>探索</strong><span>Prototype · 数据源待接入</span></div><label class="search explore-search" aria-label="搜索探索内容"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg><input id="exploreSearchInput" type="search" placeholder="搜索动漫、漫画或作品名"></label><button class="icon-button" id="exploreRefresh" aria-label="刷新探索数据" title="刷新探索数据"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg></button></header>
-    <div class="explore-heading"><div><h1 id="exploreTitle">探索</h1><p>发现本季动画与漫画；内容为设计预览数据。</p></div><div class="source-note"><strong>2026 秋季 · Prototype</strong><span>数据源待开发 Agent 确认</span></div></div>
+    <div class="explore-heading"><div><h1 id="exploreTitle">探索</h1><p>发现本季动画与漫画；内容为设计预览数据。</p></div><div class="source-note"><strong id="exploreSeasonNote">2026 年秋季新番 · Prototype</strong><span>数据源待开发 Agent 确认</span></div></div>
     <div class="explore-filters" role="tablist" aria-label="探索分类"><button class="explore-filter active" role="tab" aria-selected="true" data-explore-filter="推荐">推荐</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="本季">本季</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="动画">动画</button><button class="explore-filter" role="tab" aria-selected="false" data-explore-filter="漫画">漫画</button></div>
     <div id="exploreContent">
       <section class="explore-filter-panel" aria-labelledby="exploreFilterTitle">
-        <div class="filter-head"><h2 id="exploreFilterTitle">筛选</h2><p id="filterSummary">共 14 部作品</p><button class="ghost-button" id="filterReset">重置</button></div>
+        <div class="filter-head"><h2 id="exploreFilterTitle">筛选</h2><p id="filterSummary">共 14 部作品</p><button class="ghost-button" id="filterReset">重置标签</button></div>
         <div class="filter-field"><span class="filter-label">动漫标签</span><div class="tag-row" role="group" aria-label="按标签筛选" id="tagFilterRow"></div></div>
-        <div class="filter-selects">
-          <label class="filter-select"><span>年份</span><select id="yearFilter" aria-label="按年份筛选"></select></label>
-          <label class="filter-select"><span>月份</span><select id="monthFilter" aria-label="按月份筛选"></select></label>
-        </div>
       </section>
-      <section class="discover" aria-labelledby="discoverTitle"><div class="discover-head"><h2 id="discoverTitle">推荐作品</h2><p id="discoverCount">6 部示例作品</p></div><div class="discover-grid" id="discoverGrid"></div></section>
+      <section class="discover" aria-labelledby="discoverTitle">
+        <div class="discover-head"><h2 id="discoverTitle">推荐作品</h2><p id="discoverCount">6 部示例作品</p></div>
+        <div class="season-filter" id="seasonFilter" role="group" aria-label="本季季节与年份筛选" hidden>
+          <label class="filter-select"><span>季节</span><select id="monthFilter" aria-label="按季节筛选"></select></label>
+          <label class="filter-select"><span>年份</span><select id="yearFilter" aria-label="按年份筛选"></select></label>
+          <button class="ghost-button" id="seasonReset">重置</button>
+        </div>
+        <div class="discover-grid" id="discoverGrid"></div>
+      </section>
     </div>
     <section class="explore-state" id="exploreState" hidden><div class="state-message" id="exploreStateMessage"></div></section>
   </main>
@@ -1332,6 +1338,7 @@
     ];
     const discoverGrid = document.getElementById('discoverGrid');
     const exploreContent = document.getElementById('exploreContent');
+    const seasonFilter = document.getElementById('seasonFilter');
     const exploreState = document.getElementById('exploreState');
     const exploreStateMessage = document.getElementById('exploreStateMessage');
     let currentExploreFilter = '推荐';
@@ -1339,7 +1346,21 @@
     let currentYear = '全部';
     let currentMonth = '全部';
     const exploreTags = [...new Set(discoverItems.flatMap(item => item.tags || []))];
-    const exploreYears = [...new Set(discoverItems.map(item => item.year))].sort((a, b) => b - a);
+    /* 季度只提供 1 / 4 / 7 / 10 月四季；年份从 2000 年到明年，新的在前（与正式前端一致）。 */
+    const COUR_MONTHS = [1, 4, 7, 10];
+    const COUR_SEASON = { 1: '冬季', 4: '春季', 7: '夏季', 10: '秋季' };
+    const currentCour = (() => {
+      const month = new Date().getMonth() + 1;
+      let cour = 1;
+      COUR_MONTHS.forEach(value => { if (value <= month) cour = value; });
+      return { year: new Date().getFullYear(), month: cour };
+    })();
+    const courLabel = (year, month) => `${year} 年${COUR_SEASON[month]}新番`;
+    const yearOptions = (() => {
+      const years = [];
+      for (let value = currentCour.year + 1; value >= 2000; value -= 1) years.push(value);
+      return years;
+    })();
     function renderTagFilter() {
       const row = document.getElementById('tagFilterRow');
       row.innerHTML = exploreTags.map(tag => `<button type="button" class="chip${currentExploreTags.includes(tag) ? ' active' : ''}" data-tag="${tag}" aria-pressed="${currentExploreTags.includes(tag) ? 'true' : 'false'}">${tag}</button>`).join('');
@@ -1351,8 +1372,8 @@
       }));
     }
     function renderFilterSelects() {
-      document.getElementById('yearFilter').innerHTML = ['全部', ...exploreYears].map(year => `<option value="${year}">${year === '全部' ? '全部年份' : year + ' 年'}</option>`).join('');
-      document.getElementById('monthFilter').innerHTML = ['全部', ...Array.from({ length: 12 }, (_, i) => i + 1)].map(month => `<option value="${month}">${month === '全部' ? '全部月份' : month + ' 月'}</option>`).join('');
+      document.getElementById('yearFilter').innerHTML = ['全部', ...yearOptions].map(year => `<option value="${year}">${year === '全部' ? '全部年份' : year + ' 年'}</option>`).join('');
+      document.getElementById('monthFilter').innerHTML = ['全部', ...COUR_MONTHS].map(month => `<option value="${month}">${month === '全部' ? '全部季节' : `${COUR_SEASON[month]}（${month} 月）`}</option>`).join('');
       document.getElementById('yearFilter').value = currentYear;
       document.getElementById('monthFilter').value = currentMonth;
     }
@@ -1362,8 +1383,10 @@
       const items = discoverItems.filter(item => {
         const byCategory = filter === '推荐' || filter === '本季' || item.type === filter;
         const byTag = !currentExploreTags.length || (item.tags || []).some(tag => currentExploreTags.includes(tag));
-        const byYear = currentYear === '全部' || item.year === Number(currentYear);
-        const byMonth = currentMonth === '全部' || item.month === Number(currentMonth);
+        /* 季节 / 年份只作用于「本季」标签页；「推荐」是热度榜，不随季节筛选变化。 */
+        const seasonal = filter === '本季';
+        const byYear = !seasonal || currentYear === '全部' || item.year === Number(currentYear);
+        const byMonth = !seasonal || currentMonth === '全部' || item.month === Number(currentMonth);
         const byQuery = !query || `${item.title} ${item.type} ${item.meta} ${(item.tags || []).join(' ')}`.toLowerCase().includes(query);
         return byCategory && byTag && byYear && byMonth && byQuery;
       });
@@ -1376,13 +1399,15 @@
     function setExploreState(state) { if (!state || state === 'normal') { exploreContent.hidden = false; exploreState.hidden = true; return; } exploreContent.hidden = true; exploreState.hidden = false; const messages = { loading:'<span class="skeleton-poster"></span><span class="skeleton-line"></span><p>正在读取探索数据…</p>', empty:'<h2>当前分类暂无作品</h2><p>可以切换季度或媒体类型。正式数据由后端来源决定。</p><button class="action" id="clearExploreState">查看推荐</button>', error:'<h2>探索数据暂时不可用</h2><p>数据源请求失败。请检查网络或继续浏览已经缓存的内容。</p><button class="action" id="clearExploreState">重试</button>', disabled:'<h2>当前处于离线模式</h2><p>刷新功能已禁用；正式应用可继续展示上次成功同步的缓存。</p><button class="action" disabled>刷新探索数据</button>' }; exploreStateMessage.innerHTML = messages[state] || messages.empty; document.getElementById('clearExploreState')?.addEventListener('click', () => setExploreState('normal')); }
     renderTagFilter();
     renderFilterSelects();
+    document.getElementById('exploreSeasonNote').textContent = `${courLabel(currentCour.year, currentCour.month)} · Prototype`;
     renderDiscover();
     setExploreState(new URLSearchParams(location.search).get('exploreState'));
-    document.querySelectorAll('.explore-filter').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.explore-filter').forEach(item => { item.classList.remove('active'); item.setAttribute('aria-selected','false'); }); button.classList.add('active'); button.setAttribute('aria-selected','true'); renderDiscover(button.dataset.exploreFilter); }));
+    document.querySelectorAll('.explore-filter').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.explore-filter').forEach(item => { item.classList.remove('active'); item.setAttribute('aria-selected','false'); }); button.classList.add('active'); button.setAttribute('aria-selected','true'); const next = button.dataset.exploreFilter; seasonFilter.hidden = next !== '本季'; renderDiscover(next); }));
     document.getElementById('exploreSearchInput').addEventListener('input', () => renderDiscover());
     document.getElementById('yearFilter').addEventListener('change', event => { currentYear = event.target.value; renderDiscover(); });
     document.getElementById('monthFilter').addEventListener('change', event => { currentMonth = event.target.value; renderDiscover(); });
-    document.getElementById('filterReset').addEventListener('click', () => { currentExploreTags = []; currentYear = '全部'; currentMonth = '全部'; renderTagFilter(); renderFilterSelects(); renderDiscover(); });
+    document.getElementById('filterReset').addEventListener('click', () => { currentExploreTags = []; renderTagFilter(); renderDiscover(); });
+    document.getElementById('seasonReset').addEventListener('click', () => { currentYear = '全部'; currentMonth = '全部'; renderFilterSelects(); renderDiscover(); });
     document.getElementById('exploreRefresh').addEventListener('click', () => notify('Prototype：刷新需要探索数据接口'));
 
     const previewRows = document.getElementById('previewRows');
