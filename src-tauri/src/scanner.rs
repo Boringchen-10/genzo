@@ -183,12 +183,19 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     .map_err(|error| AppError::System(format!("扫描任务异常结束：{error}")))?;
 
     let mut transaction = pool.begin().await?;
-    // Records are deliberately retained when a root configuration is deleted. Include those
-    // orphaned rows so re-adding the same directory reclaims them instead of violating path UNIQUE.
+    let root_paths: HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>("SELECT id, path FROM library_roots")
+            .fetch_all(&mut *transaction)
+            .await?
+            .into_iter()
+            .collect();
+    // Include every existing row below this directory. A more specific configured root owns
+    // overlapping files; scanning a parent may refresh metadata but must not steal ownership.
     let existing_files = sqlx::query_as::<_, MediaFile>(
-        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE library_root_id = ? OR (library_root_id IS NULL AND substr(path, 1, length(?)) = ? COLLATE NOCASE)",
+        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error FROM media_files WHERE path = ? COLLATE NOCASE OR (substr(path, 1, length(?)) = ? COLLATE NOCASE AND substr(path, length(?) + 1, 1) IN ('\\', '/'))",
     )
-    .bind(&root.id)
+    .bind(&root.path)
+    .bind(&root.path)
     .bind(&root.path)
     .bind(&root.path)
     .fetch_all(&mut *transaction)
@@ -210,18 +217,31 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     for file in &walk_output.files {
         let now = Utc::now().to_rfc3339();
         if let Some(existing) = existing_by_path.get(&file.path.to_lowercase()) {
+            let existing_root_path = existing
+                .library_root_id
+                .as_ref()
+                .and_then(|id| root_paths.get(id));
+            let claim_for_current_root = existing.library_root_id.is_none()
+                || existing.library_root_id.as_deref() == Some(root.id.as_str())
+                || existing_root_path.is_some_and(|owner| is_more_specific_root(&root.path, owner));
+            let target_root_id = if claim_for_current_root {
+                Some(root.id.as_str())
+            } else {
+                existing.library_root_id.as_deref()
+            };
             if existing.size != file.size
                 || existing.modified_at != file.modified_at
                 || existing.missing
                 || existing.media_type != file.media_type
-                || existing.library_root_id.as_deref() != Some(root.id.as_str())
+                || claim_for_current_root
+                    && existing.library_root_id.as_deref() != Some(root.id.as_str())
             {
                 updated_count += 1;
             }
             if let Err(error) = sqlx::query(
                 "UPDATE media_files SET library_root_id = ?, file_name = ?, extension = ?, media_type = ?, size = ?, modified_at = ?, missing = 0, parsed_title = ?, parsed_original_title = ?, parsed_season = ?, parsed_episode = ?, parsed_year = ?, parsed_release_group = ?, parsed_special_type = ?, parsed_media_info = ?, updated_at = ? WHERE id = ?",
             )
-            .bind(&root.id)
+            .bind(target_root_id)
             .bind(&file.file_name)
             .bind(&file.extension)
             .bind(&file.media_type)
@@ -333,6 +353,21 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     })
 }
 
+fn normalized_directory(path: &str) -> String {
+    path.trim_end_matches(['\\', '/'])
+        .replace('/', "\\")
+        .to_lowercase()
+}
+
+fn is_more_specific_root(candidate: &str, owner: &str) -> bool {
+    let candidate = normalized_directory(candidate);
+    let owner = normalized_directory(owner);
+    candidate.len() > owner.len()
+        && candidate
+            .strip_prefix(&owner)
+            .is_some_and(|suffix| suffix.starts_with('\\'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,6 +398,13 @@ mod tests {
             .map(|file| file.file_name.as_str())
             .collect();
         assert_eq!(names, vec!["第1话.mkv", "第2话.mkv", "第10话.mkv"]);
+    }
+
+    #[test]
+    fn only_child_roots_are_more_specific() {
+        assert!(is_more_specific_root("G:\\影音\\动漫", "G:\\影音"));
+        assert!(!is_more_specific_root("G:\\影音", "G:\\影音\\动漫"));
+        assert!(!is_more_specific_root("G:\\影音2", "G:\\影音"));
     }
 
     #[tokio::test]
@@ -436,5 +478,52 @@ mod tests {
                 .expect("read media records");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].1.as_deref(), Some("new-root"));
+    }
+
+    #[tokio::test]
+    async fn child_root_claims_overlap_and_parent_does_not_steal_it_back() {
+        let pool = db::test_pool().await.expect("create database");
+        let temp = tempfile::tempdir().expect("create temp directory");
+        let child = temp.path().join("Anime");
+        fs::create_dir(&child).expect("create child root");
+        fs::write(child.join("episode01.mkv"), b"test").expect("write media file");
+        let parent_path = normalize_existing_path(temp.path()).expect("normalize parent");
+        let child_path = normalize_existing_path(&child).expect("normalize child");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('parent', ?, 'video', 1, ?, ?), ('child', ?, 'video', 1, ?, ?)")
+            .bind(&parent_path)
+            .bind(&now)
+            .bind(&now)
+            .bind(&child_path)
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .expect("insert overlapping roots");
+
+        let parent_scan = scan_library_root(&pool, "parent")
+            .await
+            .expect("scan parent");
+        assert_eq!(parent_scan.job.added_count, 1);
+        let child_scan = scan_library_root(&pool, "child").await.expect("scan child");
+        assert_eq!(child_scan.job.added_count, 0);
+        assert_eq!(child_scan.job.updated_count, 1);
+        let owner_after_child: String =
+            sqlx::query_scalar("SELECT library_root_id FROM media_files")
+                .fetch_one(&pool)
+                .await
+                .expect("owner after child scan");
+        assert_eq!(owner_after_child, "child");
+
+        let parent_rescan = scan_library_root(&pool, "parent")
+            .await
+            .expect("rescan parent");
+        assert_eq!(parent_rescan.job.updated_count, 0);
+        let owner_after_parent: String =
+            sqlx::query_scalar("SELECT library_root_id FROM media_files")
+                .fetch_one(&pool)
+                .await
+                .expect("owner after parent rescan");
+        assert_eq!(owner_after_parent, "child");
     }
 }
