@@ -105,18 +105,20 @@ pub async fn overview(
 ) -> AppResult<ExploreOverview> {
     let now = Utc::now();
     let year = year.unwrap_or_else(|| now.year());
-    let month = month.unwrap_or_else(|| now.month());
-    if !(1900..=2200).contains(&year) || !(1..=12).contains(&month) {
+    let requested_month = month.unwrap_or_else(|| now.month());
+    let month = season_start_month(requested_month);
+    if !(1900..=2200).contains(&year) || month.is_none() {
         return Err(AppError::Validation(
             "探索年份必须在 1900 到 2200 之间，月份必须在 1 到 12 之间".to_string(),
         ));
     }
+    let month = month.expect("validated month has a season bucket");
 
     let dataset = load_bangumi_data(pool).await?;
     let mut seasonal_metadata = dataset
         .value
         .iter()
-        .filter(|item| item_matches_month(item, year, month))
+        .filter(|item| item_matches_season(item, year, month))
         .filter_map(|item| data_item_to_metadata(item, &dataset.fetched_at))
         .collect::<Vec<_>>();
     seasonal_metadata.sort_by(|left, right| {
@@ -138,7 +140,7 @@ pub async fn overview(
             .then(|| "网络更新失败，当前使用本地过期番组索引".to_string()),
     }];
 
-    let calendar = if year == now.year() && month == now.month() {
+    let calendar = if year == now.year() && month == current_season_start(&now) {
         match load_calendar(pool).await {
             Ok(calendar) => {
                 sources.push(ExploreSourceStatus {
@@ -172,7 +174,7 @@ pub async fn overview(
             available: false,
             stale: false,
             fetched_at: None,
-            warning: Some("历史月份不使用实时番组日历，评分将在打开条目详情时获取".to_string()),
+            warning: Some("历史季度不使用实时番组日历，评分将在打开条目详情时获取".to_string()),
         });
         None
     };
@@ -314,23 +316,25 @@ pub async fn discovery_list(
         "recommended" => overview(pool, year, month).await?.trending,
         "seasonal" | "anime" => {
             let target_year = year.unwrap_or_else(|| now.year());
-            let target_month = month.unwrap_or_else(|| now.month());
-            if year.is_some() && !(1900..=2200).contains(&target_year)
-                || month.is_some() && !(1..=12).contains(&target_month)
-            {
+            let requested_month = month.unwrap_or_else(|| now.month());
+            let target_month = season_start_month(requested_month);
+            if year.is_some() && !(1900..=2200).contains(&target_year) || target_month.is_none() {
                 return Err(AppError::Validation("探索年份或月份无效".to_string()));
             }
+            let target_month = target_month.expect("validated month has a season bucket");
             let mut metadata = embedded_index()?
                 .items
                 .iter()
                 .filter(|item| item.item_type != "resource")
                 .filter(|item| {
                     if category == "seasonal" {
-                        item_matches_month(item, target_year, target_month)
+                        item_matches_season(item, target_year, target_month)
                     } else {
                         item_date(item).is_some_and(|date| {
                             year.is_none_or(|_| date.year() == target_year)
-                                && month.is_none_or(|_| date.month() == target_month)
+                                && month.is_none_or(|_| {
+                                    season_start_month(date.month()) == Some(target_month)
+                                })
                         })
                     }
                 })
@@ -382,7 +386,7 @@ pub async fn discovery_list(
 
 pub async fn weekly_calendar(pool: &SqlitePool) -> AppResult<WeeklyCalendar> {
     let now = Utc::now();
-    let quarter_start = ((now.month() - 1) / 3) * 3 + 1;
+    let quarter_start = current_season_start(&now);
     let local_states = load_local_states(pool).await?;
     let mut days = (1..=7)
         .map(|weekday| WeeklyCalendarDay {
@@ -1074,8 +1078,24 @@ async fn load_local_states(pool: &SqlitePool) -> AppResult<HashMap<String, Local
         .collect())
 }
 
-fn item_matches_month(item: &BangumiDataItem, year: i32, month: u32) -> bool {
-    item_date(item).is_some_and(|date| date.year() == year && date.month() == month)
+fn season_start_month(month: u32) -> Option<u32> {
+    match month {
+        1..=3 => Some(1),
+        4..=6 => Some(4),
+        7..=9 => Some(7),
+        10..=12 => Some(10),
+        _ => None,
+    }
+}
+
+fn current_season_start(now: &chrono::DateTime<Utc>) -> u32 {
+    season_start_month(now.month()).expect("calendar month is always valid")
+}
+
+fn item_matches_season(item: &BangumiDataItem, year: i32, season_month: u32) -> bool {
+    item_date(item).is_some_and(|date| {
+        date.year() == year && season_start_month(date.month()) == Some(season_month)
+    })
 }
 
 fn item_date(item: &BangumiDataItem) -> Option<chrono::DateTime<chrono::FixedOffset>> {
@@ -1194,7 +1214,8 @@ fn to_explore_subject(
     let month = metadata
         .air_date
         .as_deref()
-        .and_then(|date| date.get(5..7).and_then(|month| month.parse::<u32>().ok()));
+        .and_then(|date| date.get(5..7).and_then(|month| month.parse::<u32>().ok()))
+        .and_then(season_start_month);
     ExploreSubject {
         provider: BANGUMI_PROVIDER.to_string(),
         external_id: metadata.external_id,
@@ -1290,11 +1311,12 @@ mod tests {
     #[test]
     fn maps_bangumi_data_title_alias_and_schedule() {
         let item = sample_item();
-        assert!(item_matches_month(&item, 2026, 7));
-        assert!(!item_matches_month(&item, 2026, 10));
+        assert!(item_matches_season(&item, 2026, 7));
+        assert!(!item_matches_season(&item, 2026, 10));
         let metadata = data_item_to_metadata(&item, "2026-09-14T00:00:00Z").expect("metadata");
         assert_eq!(metadata.external_id, "558064");
         assert_eq!(metadata.title, "女主角？圣女？不，我是杂役女仆（自豪）！");
+        assert_eq!(metadata.air_date.as_deref(), Some("2026-07-01"));
         assert_eq!(
             metadata.original_title.as_deref(),
             Some("ヒロイン？聖女？いいえ、オールワークスメイドです(誇)！")
@@ -1307,6 +1329,17 @@ mod tests {
             metadata.broadcast.as_deref(),
             Some("R/2026-07-01T13:00:00.000Z/P7D")
         );
+    }
+
+    #[test]
+    fn maps_calendar_months_to_anime_seasons() {
+        assert_eq!(season_start_month(1), Some(1));
+        assert_eq!(season_start_month(2), Some(1));
+        assert_eq!(season_start_month(4), Some(4));
+        assert_eq!(season_start_month(6), Some(4));
+        assert_eq!(season_start_month(9), Some(7));
+        assert_eq!(season_start_month(12), Some(10));
+        assert_eq!(season_start_month(0), None);
     }
 
     #[test]
@@ -1481,6 +1514,28 @@ mod tests {
         assert!(page
             .windows(2)
             .all(|items| items[0].title <= items[1].title));
+    }
+
+    #[tokio::test]
+    async fn seasonal_discovery_groups_february_into_january_season() {
+        let pool = db::test_pool().await.expect("test pool");
+        let january = discovery_list(&pool, "seasonal", "date", &[], Some(2026), Some(1), 1, 100)
+            .await
+            .expect("January season");
+        let february = discovery_list(&pool, "seasonal", "date", &[], Some(2026), Some(2), 1, 100)
+            .await
+            .expect("February maps to January season");
+        assert_eq!(
+            january
+                .iter()
+                .map(|item| &item.external_id)
+                .collect::<Vec<_>>(),
+            february
+                .iter()
+                .map(|item| &item.external_id)
+                .collect::<Vec<_>>()
+        );
+        assert!(january.iter().all(|item| item.month == Some(1)));
     }
 
     #[tokio::test]

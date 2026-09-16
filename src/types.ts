@@ -222,6 +222,7 @@ export interface ExploreSubject {
   coverUrl: string | null;
   bannerUrl?: string | null;
   year: number | null;
+  /** Anime cour start month: 1, 4, 7, or 10. */
   month: number | null;
   airDate: string | null;
   broadcast: string | null;
@@ -254,6 +255,7 @@ export interface ExploreSourceStatus {
 
 export interface ExploreOverview {
   year: number;
+  /** Selected anime cour start month: 1, 4, 7, or 10. */
   month: number;
   seasonal: ExploreSubject[];
   trending: ExploreSubject[];
