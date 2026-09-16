@@ -183,3 +183,18 @@
 - Mock 行为：`mockProvider.ts` 实现同样五个方法，分集 / 关联作品 / 制作人员全部显式标注「示例」；`getMediaThumbnail` **一律返回 `null`**（不伪造视频帧）；`refreshWorkMetadata` 只在内存里追加一个示例刷新标记，**不模拟持久化成功**；排行榜提供 16 条示例条目以验证分页与空状态。
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 视觉验收：未渲染 / 未截图（写入即交付），三尺寸与深浅主题见 `SCREENSHOT_CHECKLIST.md`。
+
+## 正式前端：离线状态与网络图片回退（2026-09-16）
+
+背景：Codex 已提交 `631b8f9 feat(data): connect anime detail provider`，在 `src/data/tauriProvider.ts` 补齐五个委托（仅 +5 行）。此后桌面壳内的动画详情与排行能力**已真实可用**，「尚未接入」状态只在方法缺失时出现。本轮补齐规格中要求但此前缺失的两类状态。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 / 组件 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| FE-DETAIL-005 | 关联作品封面与制作人员 / 角色头像只在 `imageUrl` 为空时用首字占位；**URL 存在但加载失败时显示浏览器破图图标** | 新增 `SafeImage`（`src/components/common.tsx`）：缺失**或加载失败**（`onError`）都回退首字占位，与探索卡片的 `ExploreCover` 回退策略一致 | 规格要求「图片缺失或加载失败时使用稳定占位，不显示破图图标」 | 作品详情 · 关联作品 / 制作人员与角色 | 无（纯渲染） | 否 |
+| FE-DETAIL-004 | 没有任何离线状态；网络断开时只能看到笼统的加载失败 | 新增 `useOffline()`（`navigator.onLine` + `online`/`offline` 事件），详情页提示「网络已断开：刷新元数据与视频缩略图可能失败，本地文件仍可打开」，探索页提示「离线时可能只显示本地缓存或加载失败，不影响本地媒体库」 | 规格要求覆盖 Offline 状态，且离线只做**低干扰提示**，不阻断本地媒体库 | 作品详情 · 元数据识别 / 探索页 | 无（纯前端信号） | 否 |
+| — | 页面内「需 Codex 在 tauriProvider.ts 中补齐委托」「尚未接入」等**已过时**的用户可见文案 | 改为中性的「当前运行环境未提供该能力」 | `tauriProvider.ts` 已由 Codex 接线，旧文案会把已完成的能力说成未完成，属文档/界面与现实不一致 | 作品详情 · 章节与文件 / 元数据识别；探索页 · 动画排行 | 无 | 否 |
+
+- 改动文件：`src/components/common.tsx`、`src/pages/WorkDetailPage.tsx`、`src/pages/ExplorePage.tsx`、`CONTRACT_CHANGELOG.md` 014、本文件、`BACKEND_CAPABILITY_MATRIX.md`、`SCREENSHOT_CHECKLIST.md`。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉验收：未渲染 / 未截图（写入即交付），离线提示与图片回退的观感见 `SCREENSHOT_CHECKLIST.md` 待验行。

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, Inbox, LoaderCircle, X } from "lucide-react";
 
@@ -202,4 +202,44 @@ export function ConfirmDialog({
       </div>
     </Modal>
   );
+}
+
+/**
+ * 网络图片：缺失或加载失败时回退到稳定占位，**不显示浏览器破图图标**。
+ * 用于制作人员 / 角色头像、关联作品封面等由元数据服务返回的图片。
+ */
+export function SafeImage({
+  src,
+  alt = "",
+  fallback,
+}: {
+  src: string | null | undefined;
+  alt?: string;
+  fallback: ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  if (!src || failed) return <>{fallback}</>;
+  return <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />;
+}
+
+/**
+ * 运行环境离线状态（`navigator.onLine` + `online` / `offline` 事件）。
+ *
+ * 只用于**低干扰提示**：离线时网络元数据、缩略图与探索数据可能取不到，
+ * 界面据此说明原因；本地媒体库与本地文件操作不受影响。
+ */
+export function useOffline(): boolean {
+  const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
+  useEffect(() => {
+    const goOnline = () => setOffline(false);
+    const goOffline = () => setOffline(true);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+  return offline;
 }

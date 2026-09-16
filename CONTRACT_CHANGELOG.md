@@ -225,3 +225,22 @@ Open Design 需先在其拥有的 `GenzoDataProvider` 与 Mock Provider 中声�
 2. 补齐后可将上述五个方法改为**必选**（届时 `satisfies GenzoDataProvider` 会强制约束表面），「尚未接入」状态随之消失，前端无需再改。
 3. 字幕与视频的持久化关联未在 012 中声明，已标为 NEEDS_CONFIRMATION（DETAIL-009），请确认是否已有映射表或需要新增。
 4. 「最近 30 日注目动画」仍无数据源，保持 `Future` / NEEDS_CONFIRMATION，**不得用排行榜或本季热度冒充**。
+
+---
+
+## 014 · 2026-09-16 · 前端接线已由 Codex 完成 + 离线与图片回退状态（Open Design）
+
+- **变更**：
+  1. **Codex 完成接线**：`631b8f9 feat(data): connect anime detail provider` 在 `src/data/tauriProvider.ts` 补齐 `getAnimeWorkStructure` / `refreshWorkMetadata` / `setMediaEpisode` / `getMediaThumbnail` / `animeRanking` 五个委托（仅该文件，+5 行）。013 条目的「待 Codex 处理」第 1 项**已完成**；桌面壳内 `getAnimeDetailProvider()` 与 `getAnimeRankingProvider()` 现已返回可用子集。
+  2. **前端补充 UI 状态**：新增 `useOffline()`（`src/components/common.tsx`，订阅 `navigator.onLine` 与 `online` / `offline` 事件），在作品详情与探索页给出**低干扰离线提示**；新增 `SafeImage`，让**关联作品封面与制作人员 / 角色头像在加载失败时回退首字占位**（此前失败会显示浏览器破图）。同时把页面内「需 Codex 补齐委托」这类**已过时的用户可见文案**改为中性的「当前运行环境未提供该能力」。
+- **原因**：落实「前端先完整实现、技术验证结果由用户决定」的流程要求 —— 所有新增区域必须覆盖 Mock / 未接入 / Loading / Empty / Partial / Error / **Offline** / Disabled / 长内容 / **图片失败**，不能只有理想成功态。
+- **字段**：**无新增或变更字段**；未触碰 `src/types.ts`、`src/api.ts`、`src/data/tauriProvider.ts`、`src-tauri/`、SQLite 迁移与 Tauri Command。
+- **兼容性**：**向后兼容**。`useOffline` 只读浏览器状态，`SafeImage` 只是渲染回退；Provider 接口与既有调用点不变。
+- **受影响功能 ID**：DETAIL-002/003/006/007/008、EXPLORE-020、FE-PROVIDER-004、FE-PROVIDER-005（已解除）、FE-DETAIL-001 ~ 005、FE-RANKING-001。
+- **变更方**：Codex（仅 `tauriProvider.ts` 的 5 行委托）；Open Design（`src/components/common.tsx`、`src/pages/WorkDetailPage.tsx`、`src/pages/ExplorePage.tsx` 与本文档、能力矩阵、设计变更记录）。
+
+### 仍待处理
+
+1. **字幕与视频的持久化关联**（DETAIL-009 / NEEDS_CONFIRMATION）：012 未声明字幕映射表，前端因此不渲染字幕关联。
+2. **最近 30 日注目动画**（EXPLORE-021）：仍无可靠数据源，保持 `Future` 且无入口。
+3. **视频缩略图覆盖范围**（DETAIL-008）：MKV/x264 与 MKV/x265 在当前机器返回 `WTS_E_FAILEDEXTRACTION`；前端已按 `null` 合法处理。

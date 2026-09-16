@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type For
 import { AlertTriangle, ArrowLeft, Heart, Info, Library, RefreshCw, Search, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider, getAnimeRankingProvider, getExploreProvider } from "../data";
-import { EmptyState, ErrorState, IconButton, LoadingState } from "../components/common";
+import { EmptyState, ErrorState, IconButton, LoadingState, useOffline } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { useToasts } from "../store";
 import type { ExploreOverview, ExploreSubject, WorkStatus } from "../types";
@@ -69,6 +69,8 @@ function ExploreCard({ subject, onOpen }: { subject: ExploreSubject; onOpen: (su
 
 export function ExplorePage() {
   const provider = useMemo(() => getExploreProvider(), []);
+  /** 离线只作低干扰提示：探索数据来自网络，离线时可能只能读缓存或直接失败。 */
+  const offline = useOffline();
   const toast = useToasts((state) => state.push);
   /** 「全部年份 / 全部月份」时的默认季度：按当前日期取所在季度（1 / 4 / 7 / 10 月）。 */
   const initialCour = useMemo(() => courOf(new Date()), []);
@@ -415,6 +417,16 @@ export function ExplorePage() {
         </div>
       </section>
 
+      {offline ? (
+        <div className="gnz-explore-notice" role="status">
+          <Info size={15} />
+          <div>
+            <strong>当前网络已断开</strong>
+            <p>探索数据来自 Bangumi 网络接口，离线时可能只能显示本地缓存或加载失败；这不影响本地媒体库。</p>
+          </div>
+        </div>
+      ) : null}
+
       {overview?.stale && problems.staleNotices.length ? (
         <div className="gnz-explore-notice" role="status">
           <Info size={15} />
@@ -521,7 +533,7 @@ export function ExplorePage() {
                 </div>
 
                 {rankingProvider === null ? (
-                  <div className="future-empty">排行榜尚未接入（需 Codex 在 tauriProvider.ts 中补齐委托）。</div>
+                  <div className="future-empty">当前运行环境未提供排行榜能力（Provider 未实现该方法）。</div>
                 ) : rankingError && !ranking.length ? (
                   <ErrorState message={rankingError} retry={() => void loadRanking(1)} />
                 ) : rankingLoading && !ranking.length ? (

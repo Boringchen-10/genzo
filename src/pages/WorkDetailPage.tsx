@@ -22,7 +22,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { dataProvider as api, getAnimeDetailProvider, type GenzoAnimeDetailProvider } from "../data";
 import { RecognitionDialog } from "../components/RecognitionDialog";
-import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal } from "../components/common";
+import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, SafeImage, useOffline } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { WorkForm } from "../components/WorkForm";
 import { useToasts } from "../store";
@@ -132,6 +132,8 @@ export function WorkDetailPage() {
   const notesRef = useRef<HTMLTextAreaElement>(null);
   /** 动画详情能力（官方分集 / 刷新元数据 / 手动分集映射 / 视频缩略图）；未接入时为 null。 */
   const detailProvider = useMemo(() => getAnimeDetailProvider(), []);
+  /** 离线只作低干扰提示：网络元数据 / 缩略图可能取不到，本地文件操作不受影响。 */
+  const offline = useOffline();
   const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
   const [structureError, setStructureError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -481,7 +483,7 @@ export function WorkDetailPage() {
               </div>
 
               {detailProvider === null && work.type === "video" ? (
-                <p className="quiet-inline">官方分集结构尚未接入（需 Codex 在 tauriProvider.ts 中补齐委托），下面显示已关联的本地文件。</p>
+                <p className="quiet-inline">当前运行环境未提供官方分集结构（Provider 未实现该方法），下面显示已关联的本地文件。</p>
               ) : null}
               {structureError ? (
                 <p className="gnz-inline-error" role="alert">读取分集结构失败：{structureError}。下面显示已关联的本地文件。</p>
@@ -623,9 +625,10 @@ export function WorkDetailPage() {
                   {structure.seasons.map((season) => (
                     <li className={`related-row ${season.current ? "is-current" : ""}`} key={season.externalId}>
                       <span className="related-cover" aria-hidden="true">
-                        {season.coverUrl
-                          ? <img src={season.coverUrl} alt="" loading="lazy" />
-                          : <span className="related-initial">{season.title.slice(0, 1)}</span>}
+                        <SafeImage
+                          src={season.coverUrl}
+                          fallback={<span className="related-initial">{season.title.slice(0, 1)}</span>}
+                        />
                       </span>
                       <div className="related-copy">
                         <strong title={season.title}>{season.title}</strong>
@@ -658,7 +661,7 @@ export function WorkDetailPage() {
                   {structure.staff.map((credit) => (
                     <div className="credit-card" key={credit.externalId}>
                       <span className="credit-avatar" aria-hidden="true">
-                        {credit.imageUrl ? <img src={credit.imageUrl} alt="" loading="lazy" /> : <span className="credit-initial">{credit.name.slice(0, 1)}</span>}
+                        <SafeImage src={credit.imageUrl} fallback={<span className="credit-initial">{credit.name.slice(0, 1)}</span>} />
                       </span>
                       <strong title={credit.name}>{credit.name}</strong>
                       <small>{credit.role}</small>
@@ -667,7 +670,7 @@ export function WorkDetailPage() {
                   {structure.characters.map((character) => (
                     <div className="credit-card" key={character.externalId}>
                       <span className="credit-avatar" aria-hidden="true">
-                        {character.imageUrl ? <img src={character.imageUrl} alt="" loading="lazy" /> : <span className="credit-initial">{character.name.slice(0, 1)}</span>}
+                        <SafeImage src={character.imageUrl} fallback={<span className="credit-initial">{character.name.slice(0, 1)}</span>} />
                       </span>
                       <strong title={character.name}>{character.name}</strong>
                       <small>{character.role}{character.actors.length ? ` · ${character.actors.join(" / ")}` : ""}</small>
@@ -676,7 +679,7 @@ export function WorkDetailPage() {
                 </div>
               ) : (
                 <div className="future-empty">
-                  {hasStructure ? "当前元数据没有返回制作人员与角色。" : "制作人员与角色需要动画详情结构；补齐 Provider 委托后显示。"}
+                  {hasStructure ? "当前元数据没有返回制作人员与角色。" : "当前运行环境未提供动画详情结构，因此这里没有制作人员与角色数据。"}
                 </div>
               )}
               {hasStructure && structure?.warnings.length ? <p className="quiet-inline credits-note">{structure.warnings.join("；")}</p> : null}
@@ -690,9 +693,10 @@ export function WorkDetailPage() {
               <p className="match-result">{recognitionFile ? "识别结果有误时，可重新搜索并选择正确作品。" : "当前作品没有可用于动画识别的视频文件。"}</p>
               <div className="match-panel-actions">
                 <button type="button" className="button secondary icon-text" disabled={!recognitionFile} onClick={() => recognitionFile && setRecognizingMedia(recognitionFile)}><Sparkles size={15} />{work.metadata ? "重新识别" : "识别作品"}</button>
-                <button type="button" className="button secondary icon-text" disabled={!detailProvider || refreshing} data-tooltip={detailProvider ? "重新读取元数据，失败时保留已有内容" : "需要 Codex 在 tauriProvider.ts 中补齐委托"} onClick={() => void refreshMetadata()}><RefreshCw size={15} />{refreshing ? "刷新中…" : "刷新元数据"}</button>
+                <button type="button" className="button secondary icon-text" disabled={!detailProvider || refreshing} data-tooltip={detailProvider ? "重新读取元数据，失败时保留已有内容" : "当前运行环境未提供该能力"} onClick={() => void refreshMetadata()}><RefreshCw size={15} />{refreshing ? "刷新中…" : "刷新元数据"}</button>
               </div>
-              {detailProvider === null ? <p className="quiet-inline">刷新元数据尚未接入（需 Codex 补齐 Provider 委托）。</p> : null}
+              {detailProvider === null ? <p className="quiet-inline">当前运行环境未提供动画详情能力（Provider 未实现这几个方法）。</p> : null}
+              {detailProvider !== null && offline ? <p className="quiet-inline" role="status">当前网络已断开：刷新元数据与视频缩略图需要联网，可能失败；本地文件仍可正常打开。</p> : null}
             </section>
 
             <section className="metadata-panel detail-metadata-panel" aria-labelledby="metadataTitle">
