@@ -214,3 +214,20 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉验收：未渲染 / 未截图（写入即交付），折叠两行的高度与渐隐观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：「关联作品」改为从左到右的卡片网格（2026-09-17）
+
+背景：关联作品（`AnimeWorkStructure.seasons`，实测单部作品 7+ 条关联条目）原为**竖向行列表**——每条占一整行（48px 封面 + 一行标题 + 一行关系 + 状态），七条即占满一屏，垂直空间浪费明显。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| DETAIL-010 | 关联作品为**竖向行列表**（`.related-row`：横向 48px 封面 + 文字 + 状态，每条独占一行） | 改为**从左到右的响应式卡片网格**（`repeat(auto-fill, minmax(124px, 1fr))`）：2:3 竖版封面在上，标题 / 「关系 · 第 N 季」/ 状态在下；同一行自动排多张，向下换行 | 用户反馈关联作品占位过多，希望改为从左到右排列 | 作品详情 · 关联作品 | 无（纯渲染，复用 `seasons` 现有字段） | 否 |
+| DETAIL-010 | 已入库项渲染为行内按钮「打开本地作品」；未入库为「未入库」文字 | `localWorkId` 存在时**整张卡片即为 `Link`** 跳转本地作品（`aria-label` 说明），状态文案改为「本地已入库」；未入库 / 当前作品仍为静态卡片，状态分别为「未入库」「当前作品」 | 卡片化后行内按钮会破坏网格节奏，整卡可点更符合卡片语义 | 作品详情 · 关联作品 | 无 | 否 |
+
+- 改动文件：`src/pages/WorkDetailPage.tsx`（`related-list` 渲染改为 `related-card` / `related-link` 结构，`Link` 包裹整卡）、`src/v1-1-1.css`（`.related-list` / `.related-card` / `.related-link` / `.related-cover` / `.related-copy` / `.related-state` 重写，删除 `.related-row`）。
+- 语义保持：仍按 `relation` 展示，仅 `seasonNumber !== null` 才写「第 N 季」，剧场版 / OVA 等如实标注；`localWorkId` 为空不显示为已入库。
+- 长标题与长关系文案：标题与副行均单行 `ellipsis` 截断，`title` 属性保留完整文本。
+- 键盘可达：`a.related-link` 有 `:focus-visible` 焦点环；静态卡片无焦点。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉验收：未渲染 / 未截图（写入即交付），卡片列数、封面比例与换行后的观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
