@@ -130,6 +130,11 @@ export function WorkDetailPage() {
   const [aboutClipped, setAboutClipped] = useState(false);
   const aboutRef = useRef<HTMLDivElement>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
+  /** 制作人员与角色默认只显示两行，超出时提供展开/收起。 */
+  const [creditsOpen, setCreditsOpen] = useState(false);
+  const [creditsClipped, setCreditsClipped] = useState(false);
+  const [creditsCollapsedHeight, setCreditsCollapsedHeight] = useState(0);
+  const creditsRef = useRef<HTMLDivElement>(null);
   /** 动画详情能力（官方分集 / 刷新元数据 / 手动分集映射 / 视频缩略图）；未接入时为 null。 */
   const detailProvider = useMemo(() => getAnimeDetailProvider(), []);
   /** 离线只作低干扰提示：网络元数据 / 缩略图可能取不到，本地文件操作不受影响。 */
@@ -150,6 +155,7 @@ export function WorkDetailPage() {
       setNotesDraft(workData.notes);
       setTools(toolData);
       setMapTargets({});
+      setCreditsOpen(false);
       /* 分集结构只对视频类作品请求；失败时保留已关联文件列表，不把整页替换成错误态。 */
       if (detailProvider && workData.type === "video") {
         try {
@@ -192,6 +198,27 @@ export function WorkDetailPage() {
     window.addEventListener("resize", measure);
     return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
   }, [work?.description, work?.tags]);
+
+  useEffect(() => {
+    const node = creditsRef.current;
+    if (!node) return;
+    const measure = () => {
+      const grid = node.querySelector<HTMLElement>(".credits-grid");
+      const cards = grid ? Array.from(grid.querySelectorAll<HTMLElement>(".credit-card")) : [];
+      if (!grid || cards.length < 3) { setCreditsClipped(false); return; }
+      const gridTop = grid.getBoundingClientRect().top;
+      const rows = [...new Set(cards.map((card) => Math.round(card.getBoundingClientRect().top - gridTop)))].sort((a, b) => a - b);
+      if (rows.length < 3) { setCreditsClipped(false); return; }
+      const gap = parseFloat(getComputedStyle(grid).rowGap) || 10;
+      setCreditsClipped(true);
+      setCreditsCollapsedHeight(Math.max((rows[2] ?? 0) - gap, 0));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    window.addEventListener("resize", measure);
+    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, [structure]);
 
   const availableFiles = useMemo(() => {
     const search = attachSearch.trim().toLocaleLowerCase("zh-CN");
@@ -660,26 +687,41 @@ export function WorkDetailPage() {
                 </span>
               </div>
               {hasStructure && structure && (structure.staff.length || structure.characters.length) ? (
-                <div className="credits-grid">
-                  {structure.staff.map((credit) => (
-                    <div className="credit-card" key={credit.externalId}>
-                      <span className="credit-avatar" aria-hidden="true">
-                        <SafeImage src={credit.imageUrl} fallback={<span className="credit-initial">{credit.name.slice(0, 1)}</span>} />
-                      </span>
-                      <strong title={credit.name}>{credit.name}</strong>
-                      <small>{credit.role}</small>
+                <>
+                  <div
+                    className={`credits-body${creditsClipped && !creditsOpen ? " is-clipped" : ""}`}
+                    ref={creditsRef}
+                    style={creditsClipped && !creditsOpen && creditsCollapsedHeight ? { maxHeight: `${creditsCollapsedHeight}px` } : undefined}
+                  >
+                    <div className="credits-grid">
+                      {structure.staff.map((credit) => (
+                        <div className="credit-card" key={credit.externalId}>
+                          <span className="credit-avatar" aria-hidden="true">
+                            <SafeImage src={credit.imageUrl} fallback={<span className="credit-initial">{credit.name.slice(0, 1)}</span>} />
+                          </span>
+                          <strong title={credit.name}>{credit.name}</strong>
+                          <small>{credit.role}</small>
+                        </div>
+                      ))}
+                      {structure.characters.map((character) => (
+                        <div className="credit-card" key={character.externalId}>
+                          <span className="credit-avatar" aria-hidden="true">
+                            <SafeImage src={character.imageUrl} fallback={<span className="credit-initial">{character.name.slice(0, 1)}</span>} />
+                          </span>
+                          <strong title={character.name}>{character.name}</strong>
+                          <small>{character.role}{character.actors.length ? ` · ${character.actors.join(" / ")}` : ""}</small>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                  {structure.characters.map((character) => (
-                    <div className="credit-card" key={character.externalId}>
-                      <span className="credit-avatar" aria-hidden="true">
-                        <SafeImage src={character.imageUrl} fallback={<span className="credit-initial">{character.name.slice(0, 1)}</span>} />
-                      </span>
-                      <strong title={character.name}>{character.name}</strong>
-                      <small>{character.role}{character.actors.length ? ` · ${character.actors.join(" / ")}` : ""}</small>
-                    </div>
-                  ))}
-                </div>
+                    {creditsClipped && !creditsOpen ? <span className="credits-fade" aria-hidden="true" /> : null}
+                  </div>
+                  {creditsClipped ? (
+                    <button type="button" className="credits-toggle" aria-expanded={creditsOpen} onClick={() => setCreditsOpen((open) => !open)}>
+                      {creditsOpen ? "收起" : "展开全部"}
+                      <ChevronRight size={13} className={`credits-toggle-icon${creditsOpen ? " is-open" : ""}`} />
+                    </button>
+                  ) : null}
+                </>
               ) : (
                 <div className="future-empty">
                   {hasStructure ? "当前元数据没有返回制作人员与角色。" : "当前运行环境未提供动画详情结构，因此这里没有制作人员与角色数据。"}

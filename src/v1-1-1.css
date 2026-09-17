@@ -544,6 +544,12 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .related-state { flex: none; color: var(--quiet); font-size: 11px; }
 .related-state.is-current { color: var(--accent); font-weight: 600; }
 
+.credits-body { position: relative; overflow: hidden; }
+.credits-fade { position: absolute; inset: auto 0 0; height: 56px; background: linear-gradient(180deg, transparent, var(--bg) 82%); pointer-events: none; }
+.credits-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 12px; padding: 0; color: var(--accent); background: none; border: 0; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1.6; cursor: pointer; }
+.credits-toggle:hover, .credits-toggle:focus-visible { color: var(--accent-hover); }
+.credits-toggle-icon { transition: transform 180ms ease; }
+.credits-toggle-icon.is-open { transform: rotate(-90deg); }
 .credits-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
 .credit-card { display: grid; gap: 4px; justify-items: start; min-width: 0; padding: 10px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
 .credit-avatar { display: grid; width: 40px; height: 40px; overflow: hidden; place-items: center; background: rgba(var(--tint), .06); border: 1px solid var(--line); border-radius: 50%; }
