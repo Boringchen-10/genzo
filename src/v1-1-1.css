@@ -263,15 +263,21 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 /* Detail */
 .detail-page { position: relative; isolation: isolate; min-height: 100%; overflow: hidden; background: var(--bg); }
-.detail-backdrop { position: absolute; z-index: -2; inset: 0 0 auto; height: 460px; background-color: var(--bg-raised); background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; }
-.detail-backdrop::after { position: absolute; inset: 0; content: ""; background: linear-gradient(180deg, color-mix(in srgb,var(--bg) 38%,transparent), var(--bg) 100%); }
+/* 作品详情顶部氛围层。
+   封面是 2:3 竖版海报，直接 background-size:cover 铺到整条横幅会把它放大成
+   不可辨认的一角（而且旧版 styles.css 的 has-detail-artwork 两层同时生效，
+   叠出「颜色发灰、比例不对」的观感）。这里改成：同一张封面的模糊放大副本
+   作环境色 + 一层渐变遮罩保证正文可读，海报本身仍按 2:3 完整展示。 */
+.detail-backdrop { position: absolute; z-index: -2; inset: 0 0 auto; height: 460px; overflow: hidden; background-color: var(--bg-raised); }
+.detail-backdrop::before { position: absolute; inset: -12% -8%; content: ""; background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; opacity: .55; filter: blur(44px) saturate(.9); }
+.detail-backdrop::after { position: absolute; inset: 0; content: ""; background: linear-gradient(180deg, color-mix(in srgb,var(--bg) 46%,transparent) 0%, color-mix(in srgb,var(--bg) 74%,transparent) 58%, var(--bg) 100%); }
 .detail-inner { position: relative; width: 100%; padding: 24px 34px 72px; }
 .detail-topbar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; min-height: 40px; margin-bottom: 72px; }
 .detail-topbar .icon-button { width: 40px; height: 40px; background: rgba(var(--shade), .58); border-color: var(--line); backdrop-filter: blur(var(--ui-blur)); }
 .detail-topbar strong { color: var(--muted); font-size: 13px; }
 .detail-topbar-fill { flex: 1; }
 .detail-hero { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: 32px; align-items: end; min-height: 330px; padding: 0; border: 0; }
-.detail-cover { width: 220px; aspect-ratio: 2 / 3; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--ui-radius); box-shadow: var(--shadow); }
+.detail-cover { width: 220px; aspect-ratio: 2 / 3; overflow: hidden; background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: var(--ui-radius); box-shadow: var(--shadow); }
 .detail-copy { display: block; min-width: 0; padding: 0 0 8px; }
 .detail-eyebrow { color: var(--accent); font-size: 12px; font-weight: 700; }
 .detail-copy h1 { max-width: 900px; margin: 10px 0 12px; font: 700 clamp(38px,5vw,68px)/1.02 Bahnschrift,"Microsoft YaHei UI",sans-serif; overflow-wrap: anywhere; }

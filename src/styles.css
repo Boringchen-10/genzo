@@ -234,8 +234,6 @@ select { height: 36px; padding: 0 28px 0 10px; }
 
 /* Work detail */
 .detail-page { position: relative; isolation: isolate; overflow: hidden; }
-.detail-page.has-detail-artwork::before { position: absolute; z-index: -2; inset: 0 0 auto; height: 390px; content: ""; background-image: var(--detail-artwork); background-position: center 32%; background-size: cover; opacity: .22; filter: blur(18px) saturate(.75); transform: scale(1.06); }
-.detail-page.has-detail-artwork::after { position: absolute; z-index: -1; inset: 0 0 auto; height: 390px; content: ""; background: color-mix(in srgb, var(--bg) 72%, transparent); }
 .detail-topbar { display: flex; justify-content: space-between; align-items: center; min-height: 40px; margin-bottom: 17px; }
 .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; } .back-link:hover { color: var(--text); }
 .detail-hero { display: grid; grid-template-columns: 205px minmax(0, 1fr); gap: 28px; min-height: 310px; padding-bottom: 25px; border-bottom: 1px solid var(--border); }
