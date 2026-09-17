@@ -458,9 +458,7 @@ export function WorkDetailPage() {
 
   return (
     <div className={`detail-page ${detailBanner ? "has-detail-banner" : work.coverPath ? "has-detail-artwork" : ""}`} style={detailArtwork ? { "--detail-artwork": `url("${detailArtwork}")` } as CSSProperties : undefined}>
-        <div className="detail-backdrop" aria-hidden="true">
-          <div className="detail-backdrop-hero" />
-        </div>
+        <div className="detail-backdrop" aria-hidden="true" />
         <div className="detail-inner">
         <div className="detail-topbar">
           <Link className="icon-button detail-back" to="/library" aria-label="返回媒体库" data-tooltip="返回媒体库"><ArrowLeft size={17} /></Link>

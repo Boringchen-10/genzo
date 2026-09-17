@@ -142,13 +142,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* Home */
 .gnz-home { height: 100%; min-height: 600px; overflow: auto; background: var(--bg); }
 .gnz-home .seanime-banner { height: 552px; min-height: 552px; overflow: hidden; background: var(--bg); border-bottom: 1px solid var(--line); }
-.gnz-home .seanime-banner-image { inset: -6%; opacity: .85; filter: blur(var(--poster-blur)) saturate(1.06) brightness(.9); background-position: center; }
-/* 背景来自真实横版横幅（bannerPath）时：环境层（上面这层）保持柔和并受设置控制，
-   真正的前景交给下面的 .seanime-banner-hero —— 完整等比铺开，不再裁掉一头。 */
-.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: -3%; opacity: .8; filter: blur(var(--poster-blur)) saturate(1.06) brightness(.86); }
-/* 前景横幅：contain 铺开（不裁切、不变形），模糊量只有环境层的 1/4，所以海报是「清晰可见」的。 */
-.gnz-home .seanime-banner-hero { display: none; }
-.gnz-home .seanime-banner.has-banner .seanime-banner-hero { position: absolute; z-index: 1; inset: 0; display: block; background-image: var(--banner-image, none); background-position: center; background-repeat: no-repeat; background-size: contain; filter: blur(calc(var(--poster-blur) * .25)) saturate(1.04) brightness(.94); pointer-events: none; }
+/* 海报背景只有一层：cover 铺满（不留黑边、不出现第二种缩放），
+   模糊量 = 设置里的「玻璃模糊」，拖到 0 背景就是清晰海报。 */
+.gnz-home .seanime-banner-image { inset: -6%; opacity: .85; filter: blur(var(--poster-blur)) saturate(1.06) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
+.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: -1%; opacity: .92; filter: blur(var(--poster-blur)) saturate(1.04) brightness(.92); }
 /* Portrait covers keep their own ratio as a sharp poster; the blurred copy above is only the ambient fill. */
 .gnz-banner-poster { position: absolute; z-index: 3; right: clamp(28px, 4.5vw, 72px); bottom: 0; height: 82%; width: auto; max-width: 32%; object-fit: contain; object-position: right bottom; border-radius: 8px 8px 0 0; box-shadow: 0 26px 54px rgb(0 0 0 / .45); }
 @media (max-width: 1040px) { .gnz-banner-poster { display: none; } }
@@ -274,22 +271,17 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 /* Detail */
 .detail-page { position: relative; isolation: isolate; min-height: 100%; overflow: hidden; background: var(--bg); }
-/* 作品详情顶部氛围层（两层结构）：
-   · 环境层（::before）——同一张图 cover 铺满并柔化，模糊量 = 设置里的「玻璃模糊」；
-   · 前景层（.detail-backdrop-hero）——只在有真实横版横幅时出现，contain 铺开，
-     按图片自身比例完整显示（不裁切、不变形），只做 1/4 的柔化；
-   · ::after 是文字遮罩（左侧 + 顶部 + 底部三层渐变），保证正文可读。
-   竖版封面没有横图时不显示前景层，只保留环境色，避免把 2:3 海报放大成不可辨认的一角。 */
+/* 作品详情顶部氛围层（单层）：
+   · ::before —— 同一张图 cover 铺满并柔化，模糊量 = 设置里的「玻璃模糊」（0 = 完全清晰）；
+   · ::after —— 文字遮罩（左侧 + 顶部 + 底部三层渐变），保证正文可读。
+   这里曾经在前面叠了一层 contain 前景横幅，同一张图出现两种缩放，右侧就会看到一道竖直接缝；
+   现在只保留这一层，不再有叠层。 */
 .detail-backdrop { position: absolute; z-index: -2; inset: 0 0 auto; height: 460px; overflow: hidden; background-color: var(--bg-raised); }
-/* 环境层：始终柔和，模糊量跟随设置里的「玻璃模糊」（0 = 背景完全清晰）。 */
-.detail-backdrop::before { position: absolute; inset: -6% -4%; content: ""; background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; opacity: .6; filter: blur(var(--poster-blur)) saturate(.92); }
-/* 前景横幅：真实横版横幅（bannerPath / bannerUrl）时按自身比例完整铺开，只轻微柔化（环境层的 1/4）。 */
-.detail-backdrop-hero { display: none; }
+/* 环境层：模糊量跟随设置里的「玻璃模糊」（0 = 背景完全清晰）。 */
+.detail-backdrop::before { position: absolute; inset: -6% -4%; content: ""; background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; background-repeat: no-repeat; opacity: .6; filter: blur(var(--poster-blur)) saturate(.92); }
 .detail-backdrop::after { position: absolute; inset: 0; content: ""; background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 66%, transparent) 0, transparent 52%), linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 46%,transparent) 0%, color-mix(in srgb,var(--bg) 74%,transparent) 58%, var(--bg) 100%); }
-/* 有真实横版横幅（bannerPath / bannerUrl）时：环境层柔化 + 前景层完整铺开，
-   文字靠 ::after 的左侧/底部遮罩保证可读。 */
-.detail-page.has-detail-banner .detail-backdrop::before { inset: -3% -2%; opacity: .8; filter: blur(var(--poster-blur)) saturate(1.04) brightness(.88); }
-.detail-page.has-detail-banner .detail-backdrop-hero { position: absolute; inset: 0; display: block; background-image: var(--detail-artwork, none); background-position: center; background-repeat: no-repeat; background-size: contain; filter: blur(calc(var(--poster-blur) * .25)) saturate(1.02) brightness(.94); pointer-events: none; }
+/* 有真实横版横幅（bannerPath / bannerUrl）时：同一层铺满、更清晰，文字靠 ::after 的左侧/底部遮罩保证可读。 */
+.detail-page.has-detail-banner .detail-backdrop::before { inset: -1%; opacity: .9; filter: blur(var(--poster-blur)) saturate(1.03) brightness(.9); }
 .detail-page.has-detail-banner .detail-backdrop::after { background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 52%, transparent) 0, transparent 48%), linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 34%,transparent) 0%, color-mix(in srgb,var(--bg) 66%,transparent) 58%, var(--bg) 100%); }
 .detail-inner { position: relative; width: 100%; padding: 24px 34px 72px; }
 .detail-topbar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; min-height: 40px; margin-bottom: 72px; }
