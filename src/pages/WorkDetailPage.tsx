@@ -668,27 +668,35 @@ export function WorkDetailPage() {
                   <span>来自 Bangumi 关联条目，不保证都是季度</span>
                 </div>
                 <ul className="related-list">
-                  {structure.seasons.map((season) => (
-                    <li className={`related-row ${season.current ? "is-current" : ""}`} key={season.externalId}>
-                      <span className="related-cover" aria-hidden="true">
-                        <SafeImage
-                          src={season.coverUrl}
-                          fallback={<span className="related-initial">{season.title.slice(0, 1)}</span>}
-                        />
-                      </span>
-                      <div className="related-copy">
-                        <strong title={season.title}>{season.title}</strong>
-                        <small>{season.relation}{season.seasonNumber !== null ? ` · 第 ${season.seasonNumber} 季` : " · 不是季度编号"}</small>
-                      </div>
-                      {season.current ? (
-                        <span className="related-state is-current">当前作品</span>
-                      ) : season.localWorkId ? (
-                        <Link className="button compact secondary" to={`/library/${season.localWorkId}`}>打开本地作品</Link>
-                      ) : (
-                        <span className="related-state">未入库</span>
-                      )}
-                    </li>
-                  ))}
+                  {structure.seasons.map((season) => {
+                    const subtitle = `${season.relation}${season.seasonNumber !== null ? ` · 第 ${season.seasonNumber} 季` : " · 不是季度编号"}`;
+                    const body = (
+                      <>
+                        <span className="related-cover" aria-hidden="true">
+                          <SafeImage
+                            src={season.coverUrl}
+                            fallback={<span className="related-initial">{season.title.slice(0, 1)}</span>}
+                          />
+                        </span>
+                        <span className="related-copy">
+                          <strong title={season.title}>{season.title}</strong>
+                          <small title={subtitle}>{subtitle}</small>
+                          <span className={`related-state ${season.current ? "is-current" : ""}`}>
+                            {season.current ? "当前作品" : season.localWorkId ? "本地已入库" : "未入库"}
+                          </span>
+                        </span>
+                      </>
+                    );
+                    return (
+                      <li className={`related-card ${season.current ? "is-current" : ""}`} key={season.externalId}>
+                        {season.localWorkId ? (
+                          <Link className="related-link" to={`/library/${season.localWorkId}`} aria-label={`${season.title}（打开本地作品）`}>{body}</Link>
+                        ) : (
+                          <div className="related-link is-static">{body}</div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             ) : null}

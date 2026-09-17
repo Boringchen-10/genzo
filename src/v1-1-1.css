@@ -532,17 +532,22 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .unmatched-map { flex: 0 1 220px; }
 .unmatched-map select { height: 36px; min-width: 0; }
 
-.related-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.related-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 12px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
-.related-row.is-current { background: rgba(var(--tint), .05); border-color: var(--line-strong); }
-.related-cover { display: grid; flex: none; width: 48px; aspect-ratio: 2 / 3; overflow: hidden; place-items: center; background: rgba(var(--tint), .05); border: 1px solid var(--line); border-radius: 4px; }
+.related-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 16px 14px; margin: 0; padding: 0; list-style: none; }
+.related-card { min-width: 0; }
+.related-link { display: grid; gap: 8px; min-width: 0; color: inherit; text-decoration: none; }
+.related-link.is-static { cursor: default; }
+a.related-link { cursor: pointer; }
+.related-cover { display: grid; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; place-items: center; background: rgba(var(--tint), .05); border: 1px solid var(--line); border-radius: var(--ui-radius); transition: border-color 180ms ease; }
 .related-cover img { width: 100%; height: 100%; object-fit: cover; }
-.related-initial { color: var(--faint); font-size: 16px; font-weight: 700; }
-.related-copy { display: grid; flex: 1 1 auto; gap: 3px; min-width: 0; }
-.related-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.related-copy small { color: var(--quiet); font-size: 11px; }
-.related-state { flex: none; color: var(--quiet); font-size: 11px; }
+.related-initial { color: var(--faint); font-size: 18px; font-weight: 700; }
+.related-copy { display: grid; gap: 3px; min-width: 0; }
+.related-copy strong { overflow: hidden; font-size: 13px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.related-copy small { overflow: hidden; color: var(--quiet); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.related-state { color: var(--quiet); font-size: 11px; }
 .related-state.is-current { color: var(--accent); font-weight: 600; }
+.related-link:hover .related-cover { border-color: var(--line-strong); }
+.related-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--ui-radius); }
+.related-card.is-current .related-cover { border-color: var(--line-strong); background: rgba(var(--tint), .08); }
 
 .credits-body { position: relative; overflow: hidden; }
 .credits-fade { position: absolute; inset: auto 0 0; height: 56px; background: linear-gradient(180deg, transparent, var(--bg) 82%); pointer-events: none; }
