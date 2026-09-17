@@ -246,7 +246,9 @@
 /* ---------- 动画排行（真实后端：按 Bangumi 评分排名，支持分页） ---------- */
 
 .gnz-explore-ranking { margin-top: 26px; }
-.gnz-ranking-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+/* 排行榜：宽窗口下按多列铺开。单列全宽时，行内容只占左侧一小段、右侧整条留空，
+   既拉长了区块高度又留下大片空框；改为自适应多列后，宽窗口用横向空间、高度随之收缩。 */
+.gnz-ranking-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
 .gnz-ranking-row { display: grid; grid-template-columns: 40px 48px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; color: var(--text); text-align: left; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); cursor: pointer; }
 .gnz-ranking-row:hover { background: rgba(var(--tint), .05); border-color: var(--line-strong); }
 .gnz-ranking-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
