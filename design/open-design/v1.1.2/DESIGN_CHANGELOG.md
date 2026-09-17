@@ -250,3 +250,18 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉验收：未渲染 / 未截图（写入即交付），快照比例、等高对齐与详情面板在 1024×640 下的表现见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：「未匹配文件」标记失效记录并禁止关联（2026-09-17）
+
+背景：用户发现某作品的「未匹配文件」里列出的 12 个文件与**已匹配到分集的 12 集完全同名**。只读查询真实库 `%APPDATA%\com.genzo.desktop\genzo.db` 确认是**后端数据问题**：该作品 `media_files` 有 24 行但只有 12 个文件 —— 12 行为旧路径（`G:\影音\…`，`missing = 1`、`library_root_id = NULL`、无 `media_episode_links`）的孤儿记录，另 12 行是文件夹移动后重扫新建并已匹配的孪生行。前端此前**原样渲染** `AnimeWorkStructure.unmatchedFiles`，且对 `missing` 行不显示任何状态、照常提供「关联」入口。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| DETAIL-012 | `missing = 1` 的未匹配行与正常行外观完全一致，仍提供「关联到分集」下拉与「关联」按钮 | 这类行加 `is-stale`（虚线描边、标题降为 `--muted`），右侧显示 **「路径已失效」** 徽标 + tooltip（说明路径不存在、无法关联），并**移除关联控件** | 路径不存在的记录不可映射；原实现会把不存在的文件写进 `media_episode_links`，产生「本地 2 个版本（其中一个缺失）」的幻影数据 | 作品详情 · 未匹配文件 | 无（沿用 `MediaFile.missing`；真正的清理需求已交给 Codex，见 `CODEX_TASK_unmatched-stale-rows.md`） | 否 |
+| DETAIL-012 | 区块标题只显示总数 | 标题右侧在存在失效记录时追加 **「· N 个记录已失效」** | 让用户一眼看出「这些不是待整理的文件，而是失效记录」 | 作品详情 · 未匹配文件 | 无 | 否 |
+
+- 改动文件：`src/pages/WorkDetailPage.tsx`（新增 `unmatchedStaleCount`；未匹配行按 `file.missing` 分支渲染）、`src/v1-1-1.css`（`.unmatched-row.is-stale`、`.unmatched-state`）。
+- 边界说明：**只改前端表现与可操作性，不删任何数据**。根因（孤儿行、跨根扫描不去重、`content_fingerprint` 未落库）属于后端，已写成 `CODEX_TASK_unmatched-stale-rows.md` 交 Codex，未自行修改 Rust/SQLite。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉验收：未渲染 / 未截图（写入即交付），失效行样式见 `SCREENSHOT_CHECKLIST.md` 待验行。
