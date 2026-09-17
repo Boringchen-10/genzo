@@ -68,7 +68,7 @@ const episodeLabel = (episode: AnimeEpisodeEntry): string => {
  * `null` 是合法结果（Windows Shell 对部分 MKV/HEVC 无法提取封面帧），此时渲染中性文件占位 ——
  * **绝不用作品海报冒充视频帧**；缩略图失败不影响打开文件或定位目录。
  */
-function LocalFileThumb({ file, provider }: { file: MediaFile; provider: GenzoAnimeDetailProvider | null }) {
+function LocalFileThumb({ file, provider, className = "local-file-thumb" }: { file: MediaFile; provider: GenzoAnimeDetailProvider | null; className?: string }) {
   const holder = useRef<HTMLSpanElement>(null);
   const requested = useRef(false);
   const [thumb, setThumb] = useState<string | null>(file.thumbnailPath ?? null);
@@ -100,7 +100,7 @@ function LocalFileThumb({ file, provider }: { file: MediaFile; provider: GenzoAn
   }, [file.id, provider, thumb]);
 
   return (
-    <span className="local-file-thumb" ref={holder}>
+    <span className={className} ref={holder}>
       {thumb
         ? <img src={thumb} alt="" loading="lazy" onError={() => setThumb(null)} />
         : <MediaVisual type={file.mediaType} coverPath={null} alt="无视频缩略图" />}
@@ -541,52 +541,82 @@ export function WorkDetailPage() {
                     <EmptyState title="没有分集信息" description={structure?.warnings[0] ?? "这部作品还没有可用的官方分集。"} />
                   ) : (
                     <div className="official-episodes">
-                      {officialEpisodes.map((episode) => (
-                        <article className="official-episode" key={episode.externalId}>
-                          <div className="official-episode-head">
-                            <strong title={episodeLabel(episode)}>{episodeLabel(episode)}</strong>
-                            <span className="official-episode-count">
-                              {episode.localFiles.length ? `本地 ${episode.localFiles.length} 个版本` : "无本地文件"}
-                            </span>
-                          </div>
-                          <div className="official-episode-meta">
-                            {episode.airDate ? <span>放送 {episode.airDate}</span> : null}
-                            {episode.duration ? <span>{episode.duration}</span> : null}
-                            {episode.localFiles.some((item) => item.missing) ? <span className="warning-text">存在缺失文件</span> : null}
-                          </div>
-                          {episode.originalTitle ? <p className="quiet-inline official-episode-original">{episode.originalTitle}</p> : null}
-                          {episode.description ? <p className="official-episode-desc">{episode.description}</p> : null}
-                          {episode.localFiles.length ? (
-                            <ul className="local-version-list">
-                              {episode.localFiles.map((file) => (
-                                <li className="local-version" key={file.id}>
-                                  <LocalFileThumb file={file} provider={detailProvider} />
-                                  <div className="local-version-copy">
-                                    <strong title={file.fileName}>{file.fileName}</strong>
-                                    <small title={file.path}>{file.parsedMediaInfo || "未解析到媒体信息"} · {formatSize(file.size)}</small>
-                                  </div>
-                                  <span className={file.missing ? "warning-text local-version-state" : "available-text local-version-state"}>
-                                    {file.missing ? <><AlertTriangle size={13} />文件缺失</> : "本地可用"}
-                                  </span>
-                                  <div className="file-actions">
+                      {officialEpisodes.map((episode) => {
+                        const snapshotFile = episode.localFiles[0] ?? null;
+                        return (
+                          <article className="official-episode" key={episode.externalId}>
+                            <div className="episode-snapshot">
+                              {snapshotFile ? (
+                                <LocalFileThumb file={snapshotFile} provider={detailProvider} className="episode-snapshot-visual" />
+                              ) : (
+                                <span className="episode-snapshot-visual"><MediaVisual type="video" coverPath={null} alt="无视频快照" /></span>
+                              )}
+                              <span className="episode-snapshot-badge">
+                                {episode.localFiles.length ? `本地 ${episode.localFiles.length} 个版本` : "无本地文件"}
+                              </span>
+                            </div>
+
+                            <div className="official-episode-head">
+                              <strong title={episodeLabel(episode)}>{episodeLabel(episode)}</strong>
+                              <details className="action-menu">
+                                <summary aria-label="集数详情" data-tooltip="集数详情"><MoreHorizontal size={17} /></summary>
+                                <div className="menu-popover episode-detail">
+                                  <p className="episode-detail-head">集数详情</p>
+                                  <dl className="episode-detail-meta">
+                                    {episode.originalTitle ? (<><dt>原名</dt><dd>{episode.originalTitle}</dd></>) : null}
+                                    <dt>放送</dt><dd>{episode.airDate || "未知"}</dd>
+                                    <dt>时长</dt><dd>{episode.duration || "未知"}</dd>
+                                    <dt>本地版本</dt><dd>{episode.localFiles.length ? `${episode.localFiles.length} 个` : "无"}</dd>
+                                  </dl>
+                                  {episode.description
+                                    ? <p className="episode-detail-desc">{episode.description}</p>
+                                    : <p className="quiet-inline">这一集还没有简介。</p>}
+                                  {episode.localFiles.length ? (
+                                    <>
+                                      <p className="episode-detail-head">文件操作</p>
+                                      {episode.localFiles.map((file) => (
+                                        <div className="episode-detail-file" key={file.id}>
+                                          <strong title={file.path}>{file.fileName}</strong>
+                                          <div className="episode-detail-actions">
+                                            {tools.filter((tool) => tool.supportedMediaTypes.includes(file.mediaType)).map((tool) => <button type="button" key={tool.id} onClick={() => void launch(file, tool.id)}><ExternalLink size={15} />使用 {tool.name}</button>)}
+                                            <button type="button" onClick={() => void launch(file, null, true)}><ExternalLink size={15} />系统默认程序</button>
+                                            <button type="button" onClick={() => void reveal(file)}><FolderOpen size={15} />打开所在目录</button>
+                                            <button type="button" disabled={mappingBusy === file.id} onClick={() => void mapEpisode(file.id, null)}><Unlink size={15} />解除分集关联</button>
+                                            <button type="button" onClick={() => void detach(file.id)}><Unlink size={15} />解除作品关联</button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </>
+                                  ) : null}
+                                </div>
+                              </details>
+                            </div>
+
+                            <div className="official-episode-meta">
+                              {episode.airDate ? <span>放送 {episode.airDate}</span> : null}
+                              {episode.duration ? <span>{episode.duration}</span> : null}
+                              {episode.localFiles.some((item) => item.missing) ? <span className="warning-text">存在缺失文件</span> : null}
+                            </div>
+
+                            {episode.localFiles.length ? (
+                              <ul className="episode-file-info">
+                                {episode.localFiles.map((file) => (
+                                  <li className="episode-file-line" key={file.id}>
+                                    <span className="episode-file-name" title={file.path}>{file.fileName}</span>
+                                    <span className="episode-file-meta" title={file.parsedMediaInfo || undefined}>
+                                      {file.parsedMediaInfo || "未解析到媒体信息"} · {formatSize(file.size)}
+                                    </span>
+                                    <span className={file.missing ? "warning-text" : "available-text"}>
+                                      {file.missing ? <><AlertTriangle size={12} />文件缺失</> : "本地可用"}
+                                    </span>
                                     <button type="button" className="button compact primary" disabled={file.missing || busyFile === file.id} onClick={() => void launch(file)}>打开</button>
-                                    <details className="action-menu">
-                                      <summary aria-label="更多操作" data-tooltip="更多操作"><MoreHorizontal size={17} /></summary>
-                                      <div className="menu-popover">
-                                        {tools.filter((tool) => tool.supportedMediaTypes.includes(file.mediaType)).map((tool) => <button type="button" key={tool.id} onClick={() => void launch(file, tool.id)}><ExternalLink size={15} />使用 {tool.name}</button>)}
-                                        <button type="button" onClick={() => void launch(file, null, true)}><ExternalLink size={15} />系统默认程序</button>
-                                        <button type="button" onClick={() => void reveal(file)}><FolderOpen size={15} />打开所在目录</button>
-                                        <button type="button" disabled={mappingBusy === file.id} onClick={() => void mapEpisode(file.id, null)}><Unlink size={15} />解除分集关联</button>
-                                        <button type="button" onClick={() => void detach(file.id)}><Unlink size={15} />解除作品关联</button>
-                                      </div>
-                                    </details>
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </article>
-                      ))}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : <p className="quiet-inline episode-file-empty">还没有关联本地文件。</p>}
+                          </article>
+                        );
+                      })}
                     </div>
                   )}
 

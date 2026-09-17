@@ -501,16 +501,43 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-inline-error { margin: 0 0 14px; color: var(--danger); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 
 .official-episodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.official-episode { display: grid; gap: 8px; min-width: 0; padding: 14px 15px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
-.official-episode-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
-.official-episode-head strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.official-episode-count { flex: none; color: var(--quiet); font-size: 11px; white-space: nowrap; }
-.official-episode-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--quiet); font-size: 11px; }
-.official-episode-original { margin: 0; }
-.official-episode-desc { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.official-episode { display: grid; grid-template-rows: auto auto auto 1fr; align-content: start; min-width: 0; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
 
-.local-version-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.local-version { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px; background: rgba(var(--tint), .035); border: 1px solid var(--line); border-radius: 6px; }
+/* 集数快照：卡片主体。用本地视频帧，取不到帧时用中性占位——绝不用作品海报冒充视频帧。 */
+.episode-snapshot { position: relative; overflow: hidden; aspect-ratio: 16 / 9; background: rgba(var(--tint), .05); border-bottom: 1px solid var(--line); border-radius: calc(var(--ui-radius) - 1px) calc(var(--ui-radius) - 1px) 0 0; }
+.episode-snapshot-visual { display: grid; width: 100%; height: 100%; overflow: hidden; place-items: center; }
+.episode-snapshot-visual img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.episode-snapshot-visual .media-placeholder { gap: 8px; }
+.episode-snapshot-visual .media-placeholder span { display: block; font-size: 11px; }
+.episode-snapshot-visual .media-placeholder svg { width: 26px; height: 26px; }
+.episode-snapshot-badge { position: absolute; z-index: 1; right: 8px; bottom: 8px; padding: 2px 7px; color: var(--muted); background: rgba(var(--shade), .74); border: 1px solid var(--line); border-radius: 4px; font-size: 10px; white-space: nowrap; }
+
+.official-episode-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 12px 14px 0; }
+.official-episode-head strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.official-episode-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 5px 14px 0; color: var(--quiet); font-size: 11px; }
+
+/* 文件信息：置于卡片最下方，小字呈现 */
+.episode-file-info { display: grid; gap: 9px; align-self: end; margin: 12px 0 0; padding: 10px 14px 13px; border-top: 1px solid var(--line); list-style: none; }
+.episode-file-line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto auto; align-items: center; gap: 2px 10px; min-width: 0; }
+.episode-file-name { grid-area: 1 / 1; overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.episode-file-meta { grid-area: 2 / 1; overflow: hidden; color: var(--quiet); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.episode-file-line .available-text, .episode-file-line .warning-text { grid-area: 1 / 2 / 3 / 3; font-size: 10px; white-space: nowrap; }
+.episode-file-line .button { grid-area: 1 / 3 / 3 / 4; }
+.episode-file-empty { align-self: end; margin: 12px 14px 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+
+/* 「集数详情」：放送信息与完整简介收纳于此，卡片主体只留快照、标题与文件信息 */
+.episode-detail { gap: 8px; width: min(320px, calc(100vw - 72px)); max-height: min(360px, calc(100vh - 160px)); overflow-y: auto; padding: 10px; }
+.episode-detail-head { margin: 0; color: var(--text); font-size: 12px; font-weight: 700; }
+.episode-detail > .episode-detail-head ~ .episode-detail-head { padding-top: 9px; border-top: 1px solid var(--line); }
+.episode-detail-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0; }
+.episode-detail-meta dt { color: var(--quiet); font-size: 10px; }
+.episode-detail-meta dd { margin: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.episode-detail-desc { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
+.episode-detail-file { display: grid; gap: 2px; min-width: 0; }
+.episode-detail-file strong { overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.episode-detail-actions { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.episode-detail-actions button { min-height: 30px; }
+
 .local-file-thumb { display: grid; flex: none; width: 64px; aspect-ratio: 16 / 9; overflow: hidden; place-items: center; background: rgba(var(--tint), .05); border: 1px solid var(--line); border-radius: 5px; }
 .local-file-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .local-file-thumb .media-placeholder { display: grid; gap: 0; place-items: center; width: 100%; height: 100%; background: transparent; border: 0; }
@@ -519,8 +546,6 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .local-version-copy { display: grid; flex: 1 1 auto; gap: 3px; min-width: 0; }
 .local-version-copy strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .local-version-copy small { overflow: hidden; color: var(--quiet); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.local-version-state { flex: none; font-size: 10px; }
-.local-version .file-actions { display: flex; flex: none; align-items: center; gap: 6px; margin-left: auto; }
 
 .unmatched-block { display: grid; gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line); }
 .unmatched-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
