@@ -265,3 +265,19 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉验收：未渲染 / 未截图（写入即交付），失效行样式见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：海报顶端淡入页面底色，与标题栏渐变融合（2026-09-17）
+
+背景：自定义标题栏（`.window-titlebar`）是独立的一行、底色为 `var(--bg)`；首页大图 / 详情页背景（`.seanime-banner` / `.detail-backdrop`）从它**下方**才开始，所以标题栏与海报之间是一条**硬边**——用户反馈「我想实现顶部框可以和海报背景图渐变融合」。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| SHELL-005 | 海报顶端直接以画面开始，与上方标题栏形成一条硬边 | 海报的顶层遮罩（`.gnz-home .seanime-banner::after`、`.detail-backdrop::after`）新增 **`linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade))`**：海报顶端由页面底色淡出，标题栏 → 海报连成一条连续渐变（深浅主题各自取色） | 用户要求标题栏与海报背景**渐变融合** | 首页 / 作品详情（两处共用同一处理） | 无（纯 CSS 遮罩层，不改任何数据或布局） | 否 |
+
+- 新 token：`--poster-fade: 120px`（`v1-1-1.css` `:root`），与 `--win-titlebar` 并列，集中管理融合高度；两处引用同一变量，避免散落硬编码。
+- **未改布局**：标题栏仍是独立一行、首页与详情内容仍在标题栏**下方**（沿用 `51f9a49` 的结论，不再做「海报上顶到 y=0 / 标题栏浮层」的方案——那版曾引起重叠问题）。融合通过遮罩渐变实现，因此不会出现内容被遮挡或错位。
+- 渐变从 `var(--bg)` 起、`--poster-fade` 处完全透明，而标题栏底色同为 `var(--bg)`，故 y=标题栏下沿处零对比，视觉上是一条连续过渡。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉验收：未渲染 / 未截图（写入即交付），融合高度与深浅主题观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
+- **待用户确认（备选方案）**：当前实现是「海报在标题栏下方淡入」。若用户想要的是**海报画面直接延伸到标题栏后方**（原型 v1.1.2 的做法：标题栏透明浮在图上），那是另一种改法，需要让首页内容上移 `--win-titlebar` 并给侧栏补 `padding-top`——该方案此前一轮曾因顶部重叠被回退，**需用户明确要求后再做**。
