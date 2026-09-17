@@ -302,3 +302,18 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉验收：未渲染 / 未截图（写入即交付），横幅完整度、背景清晰度与左侧文字对比度见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：修复「简介 / 标签 → 查看详情」首次加载不出现（2026-09-17）
+
+背景：用户反馈「作品详情页的标签简介的点击查看详情消失了，但是自己评分后又会出现」。只读核对 `src/pages/WorkDetailPage.tsx` 的 `aboutClipped` 测量副作用后确认是**前端测量时机 + 测量方式**的问题，与后端数据无关。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| DETAIL-013 | 简介用 `display: -webkit-box` + `-webkit-line-clamp: 3` 裁剪 —— 该布局下首次测量可能量不出「其实已经溢出」，`aboutClipped` 停在 `false`，「查看详情」不出现 | 改为**普通块 + `max-height: calc(3 * 1.7em)` + `overflow: hidden`**（仍裁到 3 行、按行高整数倍取，不露半行）；普通块的 `scrollHeight > clientHeight` 是可靠的溢出判据 | 让裁切与判据都稳定 | 作品详情 · 简介与标签 | 无（纯 CSS） | 否 |
+| DETAIL-013 | 测量副作用依赖 `[work?.description, work?.tags]`，且**只在挂载那一刻测一次**；只有等评分等操作把 `work` 换成新对象（tags 数组引用变化）才重测 —— 所以「评分后才出现」 | 依赖改为 **`[work]`**（作品对象变化即重测）；并在**下一帧、`document.fonts.ready`、120ms 落定、window `load`/`resize`、以及 `.detail-about` 与两个子元素自身的 `ResizeObserver` 回调**上各补测一次；卸载后置 `disposed` 防抖 | 消除「首次布局尚未稳定」的竞态 | 作品详情 · 简介与标签 | 无 | 否 |
+
+- 改动文件：`src/v1-1-1.css`（`.detail-about .detail-description` 的裁切方式）、`src/pages/WorkDetailPage.tsx`（测量副作用重写）。
+- 视觉不变：仍是 3 行裁剪 + 「查看详情」入口 + 弹窗内完整展示；弹窗内 `.about-detail .detail-description` 的 `max-height: none; overflow: visible` 覆盖依旧生效。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉验收：未渲染 / 未截图（写入即交付），首次加载是否出现「查看详情」见 `SCREENSHOT_CHECKLIST.md` 待验行。
