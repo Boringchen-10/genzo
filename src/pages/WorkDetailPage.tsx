@@ -26,7 +26,7 @@ import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal,
 import { MediaVisual } from "../components/MediaVisual";
 import { WorkForm } from "../components/WorkForm";
 import { useToasts } from "../store";
-import type { AnimeEpisodeEntry, AnimeWorkStructure, ExternalTool, MediaFile, WorkDetail, WorkInput } from "../types";
+import type { AnimeCharacter, AnimeCredit, AnimeEpisodeEntry, AnimeWorkStructure, ExternalTool, MediaFile, WorkDetail, WorkInput } from "../types";
 import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, statusLabels } from "../utils";
 import "../work-detail.css";
 
@@ -218,6 +218,22 @@ export function WorkDetailPage() {
     observer.observe(node);
     window.addEventListener("resize", measure);
     return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, [structure]);
+
+  /**
+   * 折叠时只露出两行，所以顺序要有优先级：主要角色 → 制作人员 → 其余角色。
+   * 后端返回的制作人员动辄上百位，若按原标题顺序（制作人员在前）渲染，前两行会全是制作人员，看不到角色。
+   */
+  const orderedCredits = useMemo(() => {
+    type CreditEntry = { kind: "staff"; credit: AnimeCredit } | { kind: "character"; character: AnimeCharacter };
+    if (!structure) return [] as CreditEntry[];
+    const isMainRole = (role: string) => /主角|主要/.test(role);
+    const entries: CreditEntry[] = [
+      ...structure.characters.filter((character) => isMainRole(character.role)).map((character) => ({ kind: "character" as const, character })),
+      ...structure.staff.map((credit) => ({ kind: "staff" as const, credit })),
+      ...structure.characters.filter((character) => !isMainRole(character.role)).map((character) => ({ kind: "character" as const, character })),
+    ];
+    return entries;
   }, [structure]);
 
   const availableFiles = useMemo(() => {
@@ -694,22 +710,21 @@ export function WorkDetailPage() {
                     style={creditsClipped && !creditsOpen && creditsCollapsedHeight ? { maxHeight: `${creditsCollapsedHeight}px` } : undefined}
                   >
                     <div className="credits-grid">
-                      {structure.staff.map((credit) => (
-                        <div className="credit-card" key={credit.externalId}>
+                      {orderedCredits.map((entry) => entry.kind === "staff" ? (
+                        <div className="credit-card" key={entry.credit.externalId}>
                           <span className="credit-avatar" aria-hidden="true">
-                            <SafeImage src={credit.imageUrl} fallback={<span className="credit-initial">{credit.name.slice(0, 1)}</span>} />
+                            <SafeImage src={entry.credit.imageUrl} fallback={<span className="credit-initial">{entry.credit.name.slice(0, 1)}</span>} />
                           </span>
-                          <strong title={credit.name}>{credit.name}</strong>
-                          <small>{credit.role}</small>
+                          <strong title={entry.credit.name}>{entry.credit.name}</strong>
+                          <small>{entry.credit.role}</small>
                         </div>
-                      ))}
-                      {structure.characters.map((character) => (
-                        <div className="credit-card" key={character.externalId}>
+                      ) : (
+                        <div className="credit-card" key={entry.character.externalId}>
                           <span className="credit-avatar" aria-hidden="true">
-                            <SafeImage src={character.imageUrl} fallback={<span className="credit-initial">{character.name.slice(0, 1)}</span>} />
+                            <SafeImage src={entry.character.imageUrl} fallback={<span className="credit-initial">{entry.character.name.slice(0, 1)}</span>} />
                           </span>
-                          <strong title={character.name}>{character.name}</strong>
-                          <small>{character.role}{character.actors.length ? ` · ${character.actors.join(" / ")}` : ""}</small>
+                          <strong title={entry.character.name}>{entry.character.name}</strong>
+                          <small>{entry.character.role}{entry.character.actors.length ? ` · ${entry.character.actors.join(" / ")}` : ""}</small>
                         </div>
                       ))}
                     </div>
