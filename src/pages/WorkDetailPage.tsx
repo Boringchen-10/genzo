@@ -375,6 +375,9 @@ export function WorkDetailPage() {
   const notesDirty = notesDraft !== work.notes;
   /** 是否使用官方分集结构（视频作品 + Provider 已接入 + 结构读取成功）。 */
   const hasStructure = detailProvider !== null && work.type === "video" && structure !== null;
+  /** 顶部背景：优先后端缓存的**横版横幅**（`bannerPath`，TMDB backdrop / AniList banner），没有横图才退回竖版封面。 */
+  const detailBanner = coverUrl(work.bannerPath ?? null);
+  const detailArtwork = detailBanner ?? coverUrl(work.coverPath);
   const officialEpisodes = structure?.episodes ?? [];
   const libraryEpisodeCount = officialEpisodes.filter((episode) => episode.localFiles.length > 0).length;
 
@@ -390,7 +393,7 @@ export function WorkDetailPage() {
   };
 
   return (
-    <div className={`detail-page ${work.coverPath ? "has-detail-artwork" : ""}`} style={work.coverPath ? { "--detail-artwork": `url("${coverUrl(work.coverPath)}")` } as CSSProperties : undefined}>
+    <div className={`detail-page ${detailBanner ? "has-detail-banner" : work.coverPath ? "has-detail-artwork" : ""}`} style={detailArtwork ? { "--detail-artwork": `url("${detailArtwork}")` } as CSSProperties : undefined}>
       <div className="detail-backdrop" aria-hidden="true" />
       <div className="detail-inner">
         <div className="detail-topbar">

@@ -279,10 +279,13 @@ export function ExplorePage() {
   /* 条目详情：与作品详情页共用同一套版面（detail-page / detail-hero / detail-body）。 */
   if (selected) {
     const detailSeason = selected.year !== null ? seasonLabel(selected.year, selected.month ?? 1) : null;
+    /* 顶部背景优先用条目自带的**横版横幅**（Bangumi/AniList banner），没有才退回竖版封面。 */
+    const detailBanner = selected.bannerUrl ?? null;
+    const detailArtwork = detailBanner ?? selected.coverUrl ?? null;
     return (
       <div
-        className={`detail-page gnz-explore-detail-page${selected.coverUrl ? " has-detail-artwork" : ""}`}
-        style={selected.coverUrl ? ({ "--detail-artwork": `url("${selected.coverUrl}")` } as CSSProperties) : undefined}
+        className={`detail-page gnz-explore-detail-page${detailBanner ? " has-detail-banner" : selected.coverUrl ? " has-detail-artwork" : ""}`}
+        style={detailArtwork ? ({ "--detail-artwork": `url("${detailArtwork}")` } as CSSProperties) : undefined}
       >
         <div className="detail-backdrop" aria-hidden="true" />
         <div className="detail-inner">

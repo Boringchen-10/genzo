@@ -67,14 +67,20 @@ function artwork(work: WorkListItem, index: number, previewMode = false) {
 }
 
 /**
- * 首页背景 / 书架占位：优先作品自己的封面；没有封面时轮换内置抽象占位图。
- * 这样切换精选作品时背景会随作品变化，而不是永远停在同一张图上。
+ * 首页横幅背景。优先级：
+ * 1. `Work.bannerPath` —— 后端缓存的**横版横幅**（TMDB backdrop / AniList banner；迁移 0006、契约 009）；
+ * 2. `Work.coverPath` —— 竖版封面（此时用模糊放大作环境色，避免把 2:3 竖图锐利地铺成横条）；
+ * 3. 内置自制抽象占位图。
  */
 const homeBackdrops = ["/design/reference-primary.png", "/design/reference-secondary.png"];
 
+function bannerArtwork(work: WorkListItem | undefined): string | null {
+  return work ? coverUrl(work.bannerPath ?? null) : null;
+}
+
 function workBackdrop(work: WorkListItem | undefined, index: number): string | null {
   if (!work) return null;
-  return coverUrl(work.coverPath) ?? homeBackdrops[index % homeBackdrops.length] ?? null;
+  return bannerArtwork(work) ?? coverUrl(work.coverPath) ?? homeBackdrops[index % homeBackdrops.length] ?? null;
 }
 
 function ShelfArtwork({ work, index, previewMode }: { work: WorkListItem; index: number; previewMode: boolean }) {
@@ -120,6 +126,8 @@ export function HomePage() {
   const carouselWorks = useMemo(() => data?.recentWorks.slice(0, 5) ?? [], [data]);
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
   const featuredArtwork = workBackdrop(featured, featuredIndex);
+  /** 背景是否来自真实横版横幅（决定用清晰横幅还是模糊封面铺底）。 */
+  const featuredHasBanner = Boolean(bannerArtwork(featured));
   const featuredCover = featured ? coverUrl(featured.coverPath) : null;
   const shelfWorks = useMemo(
     () => (shelfFilter === "all" ? works : works.filter((work) => work.type === shelfFilter)),
@@ -142,7 +150,7 @@ export function HomePage() {
 
   return (
     <div className="seanime-home gnz-home">
-      <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
+      <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}${featuredHasBanner ? " has-banner" : ""}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
         {featuredCover ? <img className="gnz-banner-poster" src={featuredCover} alt="" /> : null}
         <div className="seanime-home-toolbar">

@@ -139,6 +139,8 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-home { height: 100%; min-height: 600px; overflow: auto; background: var(--bg); }
 .gnz-home .seanime-banner { height: 552px; min-height: 552px; overflow: hidden; background: var(--bg); border-bottom: 1px solid var(--line); }
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .85; filter: blur(40px) saturate(1.06) brightness(.9); background-position: center; }
+/* 背景来自真实横版横幅（bannerPath）时直接呈现，不再模糊 40px —— 模糊只用于「只有竖版封面」的降级。 */
+.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: -1%; opacity: .96; filter: saturate(1.04) brightness(.92); }
 /* Portrait covers keep their own ratio as a sharp poster; the blurred copy above is only the ambient fill. */
 .gnz-banner-poster { position: absolute; z-index: 3; right: clamp(28px, 4.5vw, 72px); bottom: 0; height: 82%; width: auto; max-width: 32%; object-fit: contain; object-position: right bottom; border-radius: 8px 8px 0 0; box-shadow: 0 26px 54px rgb(0 0 0 / .45); }
 @media (max-width: 1040px) { .gnz-banner-poster { display: none; } }
@@ -271,6 +273,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .detail-backdrop { position: absolute; z-index: -2; inset: 0 0 auto; height: 460px; overflow: hidden; background-color: var(--bg-raised); }
 .detail-backdrop::before { position: absolute; inset: -12% -8%; content: ""; background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; opacity: .55; filter: blur(44px) saturate(.9); }
 .detail-backdrop::after { position: absolute; inset: 0; content: ""; background: linear-gradient(180deg, color-mix(in srgb,var(--bg) 46%,transparent) 0%, color-mix(in srgb,var(--bg) 74%,transparent) 58%, var(--bg) 100%); }
+/* 有真实横版横幅（bannerPath / bannerUrl）时：直接当横幅用，只轻微模糊（去掉压缩噪点），
+   靠遮罩保证正文可读。上面那套「模糊 44px」只用于没有横图、退而使用竖版封面的降级场景。 */
+.detail-page.has-detail-banner .detail-backdrop::before { inset: -4% -2%; opacity: .95; filter: blur(6px) saturate(1.02) brightness(.94); }
+.detail-page.has-detail-banner .detail-backdrop::after { background: linear-gradient(180deg, color-mix(in srgb,var(--bg) 34%,transparent) 0%, color-mix(in srgb,var(--bg) 66%,transparent) 58%, var(--bg) 100%); }
 .detail-inner { position: relative; width: 100%; padding: 24px 34px 72px; }
 .detail-topbar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; min-height: 40px; margin-bottom: 72px; }
 .detail-topbar .icon-button { width: 40px; height: 40px; background: rgba(var(--shade), .58); border-color: var(--line); backdrop-filter: blur(var(--ui-blur)); }
