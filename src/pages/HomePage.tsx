@@ -152,6 +152,7 @@ export function HomePage() {
     <div className="seanime-home gnz-home">
       <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}${featuredHasBanner ? " has-banner" : ""}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
+        <div className="seanime-banner-hero" />
         {featuredCover ? <img className="gnz-banner-poster" src={featuredCover} alt="" /> : null}
         <div className="seanime-home-toolbar">
           <span className="seanime-library-count">{data.totalWorks} 部作品 · 最近同步于今天</span>

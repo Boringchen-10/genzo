@@ -28,6 +28,8 @@
   --poster-fade: 120px;
   --ui-radius: 8px;
   --ui-blur: 24px;
+  /* 海报背景的模糊量：跟随设置里的「玻璃模糊」滑块，可调到 0（背景完全清晰） */
+  --poster-blur: var(--ui-blur);
   --shadow: 0 18px 44px rgb(8 20 18 / .16);
   color: var(--text);
   background: var(--bg);
@@ -140,9 +142,13 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* Home */
 .gnz-home { height: 100%; min-height: 600px; overflow: auto; background: var(--bg); }
 .gnz-home .seanime-banner { height: 552px; min-height: 552px; overflow: hidden; background: var(--bg); border-bottom: 1px solid var(--line); }
-.gnz-home .seanime-banner-image { inset: -6%; opacity: .85; filter: blur(40px) saturate(1.06) brightness(.9); background-position: center; }
-/* 背景来自真实横版横幅（bannerPath）时直接呈现，不再模糊 40px —— 模糊只用于「只有竖版封面」的降级。 */
-.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: -1%; opacity: .96; filter: saturate(1.04) brightness(.92); }
+.gnz-home .seanime-banner-image { inset: -6%; opacity: .85; filter: blur(var(--poster-blur)) saturate(1.06) brightness(.9); background-position: center; }
+/* 背景来自真实横版横幅（bannerPath）时：环境层（上面这层）保持柔和并受设置控制，
+   真正的前景交给下面的 .seanime-banner-hero —— 完整等比铺开，不再裁掉一头。 */
+.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: -3%; opacity: .8; filter: blur(var(--poster-blur)) saturate(1.06) brightness(.86); }
+/* 前景横幅：contain 铺开（不裁切、不变形），模糊量只有环境层的 1/4，所以海报是「清晰可见」的。 */
+.gnz-home .seanime-banner-hero { display: none; }
+.gnz-home .seanime-banner.has-banner .seanime-banner-hero { position: absolute; z-index: 1; inset: 0; display: block; background-image: var(--banner-image, none); background-position: center; background-repeat: no-repeat; background-size: contain; filter: blur(calc(var(--poster-blur) * .25)) saturate(1.04) brightness(.94); pointer-events: none; }
 /* Portrait covers keep their own ratio as a sharp poster; the blurred copy above is only the ambient fill. */
 .gnz-banner-poster { position: absolute; z-index: 3; right: clamp(28px, 4.5vw, 72px); bottom: 0; height: 82%; width: auto; max-width: 32%; object-fit: contain; object-position: right bottom; border-radius: 8px 8px 0 0; box-shadow: 0 26px 54px rgb(0 0 0 / .45); }
 @media (max-width: 1040px) { .gnz-banner-poster { display: none; } }
@@ -268,18 +274,23 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 /* Detail */
 .detail-page { position: relative; isolation: isolate; min-height: 100%; overflow: hidden; background: var(--bg); }
-/* 作品详情顶部氛围层。
-   封面是 2:3 竖版海报，直接 background-size:cover 铺到整条横幅会把它放大成
-   不可辨认的一角（而且旧版 styles.css 的 has-detail-artwork 两层同时生效，
-   叠出「颜色发灰、比例不对」的观感）。这里改成：同一张封面的模糊放大副本
-   作环境色 + 一层渐变遮罩保证正文可读，海报本身仍按 2:3 完整展示。 */
+/* 作品详情顶部氛围层（两层结构）：
+   · 环境层（::before）——同一张图 cover 铺满并柔化，模糊量 = 设置里的「玻璃模糊」；
+   · 前景层（.detail-backdrop-hero）——只在有真实横版横幅时出现，contain 铺开，
+     按图片自身比例完整显示（不裁切、不变形），只做 1/4 的柔化；
+   · ::after 是文字遮罩（左侧 + 顶部 + 底部三层渐变），保证正文可读。
+   竖版封面没有横图时不显示前景层，只保留环境色，避免把 2:3 海报放大成不可辨认的一角。 */
 .detail-backdrop { position: absolute; z-index: -2; inset: 0 0 auto; height: 460px; overflow: hidden; background-color: var(--bg-raised); }
-.detail-backdrop::before { position: absolute; inset: -12% -8%; content: ""; background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; opacity: .55; filter: blur(44px) saturate(.9); }
-.detail-backdrop::after { position: absolute; inset: 0; content: ""; background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 46%,transparent) 0%, color-mix(in srgb,var(--bg) 74%,transparent) 58%, var(--bg) 100%); }
-/* 有真实横版横幅（bannerPath / bannerUrl）时：直接当横幅用，只轻微模糊（去掉压缩噪点），
-   靠遮罩保证正文可读。上面那套「模糊 44px」只用于没有横图、退而使用竖版封面的降级场景。 */
-.detail-page.has-detail-banner .detail-backdrop::before { inset: -4% -2%; opacity: .95; filter: blur(6px) saturate(1.02) brightness(.94); }
-.detail-page.has-detail-banner .detail-backdrop::after { background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 34%,transparent) 0%, color-mix(in srgb,var(--bg) 66%,transparent) 58%, var(--bg) 100%); }
+/* 环境层：始终柔和，模糊量跟随设置里的「玻璃模糊」（0 = 背景完全清晰）。 */
+.detail-backdrop::before { position: absolute; inset: -6% -4%; content: ""; background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; opacity: .6; filter: blur(var(--poster-blur)) saturate(.92); }
+/* 前景横幅：真实横版横幅（bannerPath / bannerUrl）时按自身比例完整铺开，只轻微柔化（环境层的 1/4）。 */
+.detail-backdrop-hero { display: none; }
+.detail-backdrop::after { position: absolute; inset: 0; content: ""; background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 66%, transparent) 0, transparent 52%), linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 46%,transparent) 0%, color-mix(in srgb,var(--bg) 74%,transparent) 58%, var(--bg) 100%); }
+/* 有真实横版横幅（bannerPath / bannerUrl）时：环境层柔化 + 前景层完整铺开，
+   文字靠 ::after 的左侧/底部遮罩保证可读。 */
+.detail-page.has-detail-banner .detail-backdrop::before { inset: -3% -2%; opacity: .8; filter: blur(var(--poster-blur)) saturate(1.04) brightness(.88); }
+.detail-page.has-detail-banner .detail-backdrop-hero { position: absolute; inset: 0; display: block; background-image: var(--detail-artwork, none); background-position: center; background-repeat: no-repeat; background-size: contain; filter: blur(calc(var(--poster-blur) * .25)) saturate(1.02) brightness(.94); pointer-events: none; }
+.detail-page.has-detail-banner .detail-backdrop::after { background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 52%, transparent) 0, transparent 48%), linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 34%,transparent) 0%, color-mix(in srgb,var(--bg) 66%,transparent) 58%, var(--bg) 100%); }
 .detail-inner { position: relative; width: 100%; padding: 24px 34px 72px; }
 .detail-topbar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; min-height: 40px; margin-bottom: 72px; }
 .detail-topbar .icon-button { width: 40px; height: 40px; background: rgba(var(--shade), .58); border-color: var(--line); backdrop-filter: blur(var(--ui-blur)); }

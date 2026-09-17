@@ -116,9 +116,9 @@ export function SettingsPanel() {
         </div>
 
         <div className="setting">
-          <label htmlFor="blurRange">玻璃模糊 <output>{glassBlur}px</output></label>
+          <label htmlFor="blurRange">玻璃与背景模糊 <output>{glassBlur}px</output></label>
           <input id="blurRange" type="range" min="0" max="48" value={glassBlur} onChange={(event) => setGlassBlur(Number(event.target.value))} />
-          <small>控制侧栏、浮层和工具表面的背景模糊强度。</small>
+          <small>控制侧栏、浮层的玻璃模糊，以及首页 / 详情页海报背景的模糊程度（拖到 0 背景完全清晰）。</small>
         </div>
 
         <div className="setting">

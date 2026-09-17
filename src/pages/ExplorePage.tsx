@@ -287,7 +287,9 @@ export function ExplorePage() {
         className={`detail-page gnz-explore-detail-page${detailBanner ? " has-detail-banner" : selected.coverUrl ? " has-detail-artwork" : ""}`}
         style={detailArtwork ? ({ "--detail-artwork": `url("${detailArtwork}")` } as CSSProperties) : undefined}
       >
-        <div className="detail-backdrop" aria-hidden="true" />
+        <div className="detail-backdrop" aria-hidden="true">
+          <div className="detail-backdrop-hero" />
+        </div>
         <div className="detail-inner">
           <div className="detail-topbar">
             <button type="button" className="icon-button detail-back" aria-label="返回探索" data-tooltip="返回探索" onClick={() => setSelected(null)}>
