@@ -145,7 +145,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* 海报背景只有一层：cover 铺满（不留黑边、不出现第二种缩放），
    模糊量 = 设置里的「玻璃模糊」，拖到 0 背景就是清晰海报。 */
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .85; filter: blur(var(--poster-blur)) saturate(1.06) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
-.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: -1%; opacity: .92; filter: blur(var(--poster-blur)) saturate(1.04) brightness(.92); }
+.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: calc(-1 * var(--poster-blur) - 4px); opacity: .92; filter: blur(var(--poster-blur)) saturate(1.04) brightness(.92); }
 /* Portrait covers keep their own ratio as a sharp poster; the blurred copy above is only the ambient fill. */
 .gnz-banner-poster { position: absolute; z-index: 3; right: clamp(28px, 4.5vw, 72px); bottom: 0; height: 82%; width: auto; max-width: 32%; object-fit: contain; object-position: right bottom; border-radius: 8px 8px 0 0; box-shadow: 0 26px 54px rgb(0 0 0 / .45); }
 @media (max-width: 1040px) { .gnz-banner-poster { display: none; } }
@@ -281,7 +281,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .detail-backdrop::before { position: absolute; inset: -6% -4%; content: ""; background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; background-repeat: no-repeat; opacity: .6; filter: blur(var(--poster-blur)) saturate(.92); }
 .detail-backdrop::after { position: absolute; inset: 0; content: ""; background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 66%, transparent) 0, transparent 52%), linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 46%,transparent) 0%, color-mix(in srgb,var(--bg) 74%,transparent) 58%, var(--bg) 100%); }
 /* 有真实横版横幅（bannerPath / bannerUrl）时：同一层铺满、更清晰，文字靠 ::after 的左侧/底部遮罩保证可读。 */
-.detail-page.has-detail-banner .detail-backdrop::before { inset: -1%; opacity: .9; filter: blur(var(--poster-blur)) saturate(1.03) brightness(.9); }
+.detail-page.has-detail-banner .detail-backdrop::before { inset: calc(-1 * var(--poster-blur) - 4px); opacity: .9; filter: blur(var(--poster-blur)) saturate(1.03) brightness(.9); }
 .detail-page.has-detail-banner .detail-backdrop::after { background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 52%, transparent) 0, transparent 48%), linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 34%,transparent) 0%, color-mix(in srgb,var(--bg) 66%,transparent) 58%, var(--bg) 100%); }
 .detail-inner { position: relative; width: 100%; padding: 24px 34px 72px; }
 .detail-topbar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; min-height: 40px; margin-bottom: 72px; }
