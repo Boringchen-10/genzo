@@ -556,6 +556,9 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .unmatched-row .local-version-copy { flex: 1 1 220px; }
 .unmatched-map { flex: 0 1 220px; }
 .unmatched-map select { height: 36px; min-width: 0; }
+.unmatched-row.is-stale { border-style: dashed; }
+.unmatched-row.is-stale .local-version-copy strong { color: var(--muted); }
+.unmatched-state { display: inline-flex; flex: none; align-items: center; gap: 5px; margin-left: auto; font-size: 11px; white-space: nowrap; }
 
 .related-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 16px 14px; margin: 0; padding: 0; list-style: none; }
 .related-card { min-width: 0; }

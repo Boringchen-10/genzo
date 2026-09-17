@@ -423,6 +423,8 @@ export function WorkDetailPage() {
   const detailArtwork = detailBanner ?? coverUrl(work.coverPath);
   const officialEpisodes = structure?.episodes ?? [];
   const libraryEpisodeCount = officialEpisodes.filter((episode) => episode.localFiles.length > 0).length;
+  /** 未匹配列表里**路径已失效**的记录：文件不在磁盘上，无法用于分集关联（区别于真正待映射的文件）。 */
+  const unmatchedStaleCount = (structure?.unmatchedFiles ?? []).filter((file) => file.missing).length;
 
   const toggleLock = async (field: string) => {
     const locked = !work.fieldLocks.includes(field);
@@ -623,36 +625,47 @@ export function WorkDetailPage() {
                   <div className="unmatched-block">
                     <div className="unmatched-head">
                       <h3>未匹配文件</h3>
-                      <span>{structure?.unmatchedFiles.length ?? 0} 个</span>
+                      <span>
+                        {structure?.unmatchedFiles.length ?? 0} 个
+                        {unmatchedStaleCount ? ` · ${unmatchedStaleCount} 个记录已失效` : ""}
+                      </span>
                     </div>
                     {structure?.unmatchedFiles.length ? (
                       <ul className="unmatched-list">
                         {structure.unmatchedFiles.map((file) => (
-                          <li className="unmatched-row" key={file.id}>
+                          <li className={`unmatched-row${file.missing ? " is-stale" : ""}`} key={file.id}>
                             <LocalFileThumb file={file} provider={detailProvider} />
                             <div className="local-version-copy">
                               <strong title={file.fileName}>{file.fileName}</strong>
                               <small title={file.path}>{file.path}</small>
                             </div>
-                            <label className="field unmatched-map">
-                              <span>关联到分集</span>
-                              <select
-                                value={mapTargets[file.id] ?? ""}
-                                onChange={(event) => setMapTargets((targets) => ({ ...targets, [file.id]: event.target.value }))}
-                                disabled={mappingBusy === file.id}
-                              >
-                                <option value="">选择分集…</option>
-                                {officialEpisodes.map((episode) => <option key={episode.externalId} value={episode.externalId}>{episodeLabel(episode)}</option>)}
-                              </select>
-                            </label>
-                            <button
-                              type="button"
-                              className="button compact secondary"
-                              disabled={!mapTargets[file.id] || mappingBusy === file.id}
-                              onClick={() => void mapEpisode(file.id, mapTargets[file.id] ?? null)}
-                            >
-                              {mappingBusy === file.id ? "关联中…" : "关联"}
-                            </button>
+                            {file.missing ? (
+                              <span className="warning-text unmatched-state" data-tooltip="这条记录指向的路径已不存在，文件不在磁盘上，因此不能关联到分集">
+                                <AlertTriangle size={13} />路径已失效
+                              </span>
+                            ) : (
+                              <>
+                                <label className="field unmatched-map">
+                                  <span>关联到分集</span>
+                                  <select
+                                    value={mapTargets[file.id] ?? ""}
+                                    onChange={(event) => setMapTargets((targets) => ({ ...targets, [file.id]: event.target.value }))}
+                                    disabled={mappingBusy === file.id}
+                                  >
+                                    <option value="">选择分集…</option>
+                                    {officialEpisodes.map((episode) => <option key={episode.externalId} value={episode.externalId}>{episodeLabel(episode)}</option>)}
+                                  </select>
+                                </label>
+                                <button
+                                  type="button"
+                                  className="button compact secondary"
+                                  disabled={!mapTargets[file.id] || mappingBusy === file.id}
+                                  onClick={() => void mapEpisode(file.id, mapTargets[file.id] ?? null)}
+                                >
+                                  {mappingBusy === file.id ? "关联中…" : "关联"}
+                                </button>
+                              </>
+                            )}
                           </li>
                         ))}
                       </ul>
