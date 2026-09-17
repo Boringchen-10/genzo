@@ -231,3 +231,22 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉验收：未渲染 / 未截图（写入即交付），卡片列数、封面比例与换行后的观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：集数卡片改为「快照为主 + 详情收纳」（2026-09-17）
+
+背景：官方分集卡片（`.official-episode`）此前把 `episode.description` 直接铺在卡片里。实测单集简介可达 200+ 字，卡片被文字撑满且高度参差，集数快照（文件缩略图 64px）几乎看不见 —— 用户反馈「太臃肿」，希望快照占大头、集数名在快照下方、文件信息以小字置于卡片最下方，并把简介收进「集数详情」。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| DETAIL-011 | 卡片无快照区，仅文件行内有 64px 缩略图 | 卡片顶部新增 **16:9 集数快照**（`.episode-snapshot`），取该集第一个本地视频的帧缩略图；无本地文件时用 `MediaVisual` 中性占位（**继续禁止用作品海报冒充视频帧**）；右下角角标显示「本地 N 个版本 / 无本地文件」 | 用户要求「集数快照占大头」 | 作品详情 · 章节与文件 | 无（复用 `getMediaThumbnail`，懒加载与「每文件仅请求一次」逻辑不变） | 否 |
+| DETAIL-011 | 集数标题在卡片首行，右侧为「本地 N 个版本」计数 | 标题移至**快照下方**（`.official-episode-head`），右侧改为「集数详情」入口（`MoreHorizontal`，`aria-label` / `data-tooltip` = 集数详情）；版本计数改为快照角标 | 用户要求「集数名字放到快照下方」 | 作品详情 · 章节与文件 | 无 | 否 |
+| DETAIL-011 | `episode.description` 直接铺在卡片内；`originalTitle` 单独一行 | 卡片内**不再渲染简介**；简介、原名、放送日期、时长、本地版本数收进「集数详情」面板（`.episode-detail`，最大高度 `min(360px, 100vh - 160px)`，内容区独立滚动）；无简介时显示「这一集还没有简介。」 | 用户要求把详情收进「集数详情（目前的三个点那里）」 | 作品详情 · 章节与文件 | 无（`description` / `originalTitle` / `airDate` / `duration` 字段未变） | 否 |
+| DETAIL-011 | 每个文件行内含 文件名 / 媒体信息 / 状态 / 打开 / 「更多操作」菜单（工具、系统默认程序、打开目录、解除分集关联、解除作品关联） | 卡片最下方改为**小字文件信息**（`.episode-file-info`）：文件名 11px、媒体信息与大小 10px、状态 10px，仅保留主操作「打开」；工具 / 系统默认程序 / 打开所在目录 / 解除分集关联 / 解除作品关联移至「集数详情 → 文件操作」，按文件分组 | 用户要求「文件信息放到集数最下方（小字）」；次要操作收入详情面板，避免卡片出现两处入口 | 作品详情 · 章节与文件 | 无 | 否 |
+
+- 改动文件：`src/pages/WorkDetailPage.tsx`（`LocalFileThumb` 增加可选 `className`；分集卡片重排为 快照 → 标题 +「集数详情」→ 供放送信息 → 底部小字文件信息）、`src/v1-1-1.css`（新增 `.episode-snapshot*` / `.episode-file-*` / `.episode-detail*`；移除 `.official-episode-desc` / `.official-episode-original` / `.official-episode-count` / `.local-version-list` / `.local-version` / `.local-version-state`；`.local-file-thumb` 与 `.local-version-copy` 保留，供「未匹配文件」区块使用）。
+- 等高对齐：卡片用 `grid-template-rows: auto auto auto minmax(0,1fr)` + 文件信息 `align-self: end`，同一行内不同高度的卡片，文件信息都贴卡片底部。
+- 长文本处理：快照角标 `white-space: nowrap`；文件名与媒体信息单行 `ellipsis` 并保留 `title`（完整路径 / 完整媒体信息）；简介在详情面板内**完整换行显示**，不截断。
+- 可访问性：三个入口均为图标按钮，`aria-label` + `data-tooltip` 齐备；`<details>` 原生键盘可达；空状态文案明确。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉验收：未渲染 / 未截图（写入即交付），快照比例、等高对齐与详情面板在 1024×640 下的表现见 `SCREENSHOT_CHECKLIST.md` 待验行。
