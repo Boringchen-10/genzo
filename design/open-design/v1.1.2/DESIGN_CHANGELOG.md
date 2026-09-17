@@ -198,3 +198,19 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉验收：未渲染 / 未截图（写入即交付），离线提示与图片回退的观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：「制作人员与角色」折叠为两行并优先展示主要角色（2026-09-17）
+
+背景：真实作品的 Bangumi 制作人员可达两百余位（本项目实测 222 位制作人员 · 34 位角色）。原实现按「制作人员 → 角色」顺序把卡片全部平铺，整块区域非常长，且前两行全是制作人员。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| DETAIL-007 | 制作人员与角色卡片**全部平铺**，无折叠 | 默认只显示**两行**（按实际栅格行高测量后 `max-height` 裁切，非固定高度），底部渐隐 + **「展开全部 / 收起」** 按钮；内容不足三行时不显示按钮 | 数百张卡片平铺会淹没详情页其它信息 | 作品详情 · 制作人员与角色 | 无（纯渲染） | 否 |
+| DETAIL-007 | 卡片顺序固定为**全部制作人员 → 全部角色**，折叠后两行看不到任何角色 | 顺序改为**主要角色（`role` 含「主角 / 主要」）→ 制作人员 → 其余角色**，使折叠态的两行同时包含主要角色与主要制作人员 | 用户要求两行内看到「最主要的角色和制作人员」；按原标题顺序时 222 位制作人员会挤掉全部角色 | 作品详情 · 制作人员与角色 | 无（复用 `staff` / `characters` 原有返回顺序，仅前端重排） | 否 |
+
+- 改动文件：`src/pages/WorkDetailPage.tsx`（`creditsOpen` / `creditsClipped` / `creditsCollapsedHeight` 状态 + 行高测量副作用 + `orderedCredits` 排序）、`src/v1-1-1.css`（`.credits-body` / `.credits-fade` / `.credits-toggle` / `.credits-toggle-icon`）。
+- 行高测量：取 `.credit-card` 各行的 `getBoundingClientRect().top`，用第三行顶部减去行间距作为两行高度；`ResizeObserver` + `resize` 重新测量，窗口缩放 / 高 DPI 下自愈。
+- 展开态与折叠态使用同一份卡片列表，不做数据裁剪；`aria-expanded` 标记按钮状态，按钮可键盘访问。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉验收：未渲染 / 未截图（写入即交付），折叠两行的高度与渐隐观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
