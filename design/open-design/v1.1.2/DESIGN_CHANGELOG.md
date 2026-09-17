@@ -317,3 +317,19 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉验收：未渲染 / 未截图（写入即交付），首次加载是否出现「查看详情」见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：排行榜改为自适应多列（2026-09-17）
+
+背景：用户反馈「排行榜占位还是太大啦，我希望可以仅占一点」。核对截图确认问题在**列宽**而非行高 —— `.gnz-ranking-list` 是单列网格，`.gnz-ranking-row` 又是 `width: 100%`，而 `.page` 在 v1.1.1 起取消了最大宽度（`.page { max-width: none }` 覆盖了 `styles.css` 里 `.workspace-page { max-width: 1900px }`）。窗口越宽，行越宽：截图（2386px 宽）里每行约 2200px，而行内容（序号 40px + 海报 48px + 间距 + 标题/评分/放送）只占左侧约 450px，右侧整条留空 —— 既拉长了区块高度，又留下一个巨大的空框。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| EXPLORE-022 | `.gnz-ranking-list` 单列、行宽 100%，宽窗口下右侧大片留空 | 改为 **`grid-template-columns: repeat(auto-fill, minmax(440px, 1fr))`** 自适应多列：宽窗口横向铺开多列，列表高度随之收缩；窄窗口（≤约 1000px）仍为单列 | 用户要求排行「仅占一点」；单列全宽既空又高 | 探索 · 推荐（动画排行） | 无（纯 CSS） | 否 |
+
+- 改动文件：`src/explore.css`（`.gnz-ranking-list` 一行；`gap` 6px → 8px 以区分列间距）。
+- 行内布局未改：序号 / 海报 / 标题 / 评分 / 放送 / 入库·收藏·缓存角标不变；`@media (max-width: 760px)` 的窄屏行内折行规则仍生效。
+- 响应式：`auto-fill`（非 `auto-fit`）保证条目少时列宽不被拉大；1024×640 下内容宽约 850px，仍是单列，不受影响。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉验收：未渲染 / 未截图（写入即交付），列数与行高观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
+- 假设：把「占位太大」理解为**单列全宽留下的空框 + 过高的区块**，因此用多列同时收窄行宽、压低高度。若用户想要的是「一条窄的单列列表、右侧留白」，那只需把该行换成 `max-width` 限制，一行即可改回。
