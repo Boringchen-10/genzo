@@ -185,7 +185,9 @@ export function WorkDetailPage() {
   useEffect(() => {
     const node = aboutRef.current;
     if (!node) return;
+    let disposed = false;
     const measure = () => {
+      if (disposed) return;
       const description = node.querySelector<HTMLElement>(".detail-description");
       const tags = node.querySelector<HTMLElement>(".detail-tags");
       const descriptionClipped = description ? description.scrollHeight > description.clientHeight + 1 : false;
@@ -193,11 +195,28 @@ export function WorkDetailPage() {
       setAboutClipped(descriptionClipped || tagsClipped);
     };
     measure();
+    /* 挂载那一刻布局、字体与滚动条都可能还没稳定，只测一次会把「其实已经裁掉」误判成「没有裁掉」，
+       「查看详情」入口就要等一次无关的重渲染才出现。这里在几个稳定时点各补测一次，并观察块与子元素自身的尺寸变化。 */
+    const frame = requestAnimationFrame(measure);
+    const settle = window.setTimeout(measure, 120);
+    if (typeof document !== "undefined" && document.fonts) void document.fonts.ready.then(measure).catch(() => {});
     const observer = new ResizeObserver(measure);
     observer.observe(node);
+    const description = node.querySelector<HTMLElement>(".detail-description");
+    const tags = node.querySelector<HTMLElement>(".detail-tags");
+    if (description) observer.observe(description);
+    if (tags) observer.observe(tags);
+    window.addEventListener("load", measure);
     window.addEventListener("resize", measure);
-    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
-  }, [work?.description, work?.tags]);
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+      observer.disconnect();
+      window.removeEventListener("load", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [work]);
 
   useEffect(() => {
     const node = creditsRef.current;
