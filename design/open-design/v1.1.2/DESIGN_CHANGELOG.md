@@ -452,3 +452,21 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
 - 视觉验收：未渲染 / 未截图（写入即交付），标题行对齐与窄窗口换行见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：待整理改为按媒体源文件夹层级浏览（2026-09-18）
+
+背景：用户反馈「后续会有很多文件会特别杂，希望变成一个大文件夹（媒体源中添加的文件夹），可以点击查看分文件夹，直到看到文件」。改前「待整理」是一张平铺的作品组表格，进入后直接列出所有作品组，没有文件夹层级。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| INBOX-005 | 「待整理」= 平铺的作品组表格（`目录或文件 / 类型 / 内容 / 识别状态 / 操作`），漫画另有一套 `comicContainers` 大类下钻 | 改为**按媒体源文件夹层级浏览**：根层级列出媒体源文件夹 → 点进子文件夹 → 逐级下钻 → 到达文件夹内的**文件行**；新增面包屑（`媒体源 › G:\影音 › 动漫 › …`），点击任一级返回 | 用户要求文件夹层级浏览，避免大库下平铺列表过杂 | 媒体库 · 待整理 | 新增读取 `listUnassignedMedia()`（已有命令）；**未改后端** | 否 |
+| INBOX-005 | 作品组操作（识别 / 查看候选 / 手动整理）只出现在表格行上 | 文件夹本身对应一个作品组时，该级顶部显示作品组条（标题 + 类型 + 文件数 + 状态）并保留同样的操作；文件行提供**打开 / 所在目录**（缺失文件禁用） | 保持既有整理流程不丢失 | 媒体库 · 待整理 | 无 | 否 |
+| INBOX-006 | 待整理只显示作品组聚合，看不到单个文件 | 文件行显示：文件名、`类型 · 大小`、识别状态（未匹配 / 文件缺失）；路径与文件名超出以 `ellipsis` 截断 + `title` 保留全文 | 「直到看到文件」 | 媒体库 · 待整理 | 无 | 否 |
+
+- 改动文件：`src/pages/LibraryPage.tsx`（新增 `inboxPath` / `inboxMedia` 状态、路径工具函数、`inboxBreadcrumb` / `inboxLevel` / `inboxGroupHere` 派生、`openInboxFile` / `revealInboxFile`，渲染改为面包屑 + 文件夹 / 文件行）、`src/v1-1-1.css`（新增 `.inbox-crumbs` / `.inbox-group-row` / `.inbox-tree` / `.inbox-folder` / `.inbox-file` / `.inbox-actions` / `.inbox-empty` 与 ≤1100px 折行规则）。
+- 数据：文件级数据只在进入「待整理」时取一次（`listUnassignedMedia()`），并继续按 `libraryRootId ∈ 已添加媒体源` 过滤——历史孤儿文件不会出现在树里。
+- 性能缺口（已登记 **INBOX-007 / NEW_REQUIRED**）：`list_unassigned_media` 目前无过滤、无分页（后端 `WHERE work_id IS NULL`），大库下会传输全部未整理记录；需要后端提供按媒体源 / 路径过滤与分页的查询。
+- 排序下拉（按识别状态 / 标题 / 文件数量）保留，作用于当前层级。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
+- 视觉验收：未渲染 / 未截图（写入即交付），文件夹 / 文件行与面包屑见 `SCREENSHOT_CHECKLIST.md` 待验行。

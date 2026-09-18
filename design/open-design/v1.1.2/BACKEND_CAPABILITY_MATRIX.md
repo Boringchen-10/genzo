@@ -107,6 +107,8 @@ WebDAV、SMB/NAS、网盘、远程播放、下载到本地、工具一键下载�
 | FE-DETAIL-002 | 作品详情 | 手动分集映射 | EXISTING_VERIFIED（UI 已接入） | 未匹配文件 → `setMediaEpisode(mediaFileId, episodeExternalId)`（`null` 解除映射），成功后重新读取结构；失败显示真实错误，不显示假成功 | 是（后端 `media_episode_links`） | v0.3 P0 |
 | FE-DETAIL-003 | 作品详情 | 视频缩略图懒加载 | EXISTING_VERIFIED（UI 已接入） | `LocalFileThumb` 用 `IntersectionObserver` 只对可见项按需调 `getMediaThumbnail`，每个文件最多一次；`null` → 中性文件占位，**不用作品海报冒充视频帧** | 缓存由后端负责 | v0.3 P1 |
 | FE-RANKING-001 | 探索 | 动画排行展示 | EXISTING_VERIFIED（UI 已接入） | `getAnimeRankingProvider()` + `ExplorePage.tsx` 排行区：分页「加载更多」、loading / 错误 / 空 / `stale` 缓存标记、入库与收藏角标、按钮键盘可达；网络失败**不用本季热度冒充** | 缓存由后端负责 | v0.3 P0 |
+| FE-INBOX-001 | 媒体库 · 待整理 | 按媒体源文件夹层级浏览（媒体源 → 子文件夹 → 文件） | **NEW_REQUIRED（前端已实现，后端待补过滤 / 分页）** | 前端：`src/pages/LibraryPage.tsx` 的 `inboxBreadcrumb` / `inboxLevel` / `inboxGroupHere`，数据用 `listRoots()` + `listUnassignedGroups()` + `listUnassignedMedia()`。后端缺口：`src-tauri/src/grouping.rs:250` 为 `SELECT … FROM media_files WHERE work_id IS NULL ORDER BY path`，**无 library_root / path 过滤、无分页**；大库下前端需一次性接收全部未整理记录 | 否 | v0.3 P1 |
+| FE-INBOX-002 | 媒体库 · 待整理 | 文件级操作：打开 / 打开所在目录 | EXISTING_VERIFIED | `src/api.ts` 的 `launch_media`（`useSystem = true`）与 `open_media_directory`；前端仅复用，不新增后端能力 | 否 | v0.1 P0 |
 
 > 说明：`src/data/` 为前端新增层，只读引用 `src/types.ts` 与 `src/api.ts`；不改动任何 Tauri Command、Rust、SQLite、迁移或 `contracts/`。`src/store.ts` 经只读核对为纯前端偏好与 Toast（zustand + localStorage），归前端所有。
 
