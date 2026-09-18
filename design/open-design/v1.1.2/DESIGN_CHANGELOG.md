@@ -389,3 +389,22 @@
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
 - 过程说明：本条修正落盘时，曾用 PowerShell 文本命令替换 `HomePage.tsx` 的链接，导致该文件编码被破坏（GBK 误读 + BOM）；已 `git restore` 该文件并用编辑器重做替换，最终 `git diff` 仅含两处链接变更。
 - 视觉验收：未渲染 / 未截图（写入即交付），标签顺序与媒体源标签下的观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：修复图标按钮 tooltip 被列表容器裁掉（2026-09-18）
+
+背景：用户反馈「工具页面的按钮详情字体会被挡着」，并附上「测试启动」提示文字的截图（文字上缘被切）。只读核对后确认是**纯 CSS 裁切**问题，与数据无关。
+
+- `styles.css:166` 给 `.tool-list` / `.root-list` / `.file-table` 等列表容器设了 `overflow: hidden`（本意是把行的背景与分隔线裁进 7px 圆角）。图标按钮的 tooltip 是 `[data-tooltip]::after`（`bottom: calc(100% + 7px)`、`z-index: 100`、`white-space: nowrap`），**开在按钮正上方**。
+- 于是第一行按钮的 tooltip 上缘超出容器顶边约 12px → **被裁掉**（用户截图里「测试启动」上缘被切）；最右侧「删除工具」的 tooltip 超出容器右缘 → 同样被裁。
+- 这些列表的行都是**透明背景**（`.root-row, .tool-row { background: transparent }`，无 hover 底色），并不需要靠 `overflow: hidden` 裁任何东西 —— 圆角只作用于容器的 1px 描边，而最后一行已 `border-bottom: 0`。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| TOOLS-001 | 工具行内的「测试启动 / 编辑工具 / 删除工具」图标按钮 tooltip 被 `.tool-list` 的 `overflow: hidden` 裁切（首行上缘、最右列右缘） | 新增作用域规则 **`.tools-page .tool-list { overflow: visible }`**，tooltip 可正常越出容器 | 用户反馈提示文字被挡 | 工具管理 | 无（纯 CSS） | 否 |
+| TOOLS-001 | 同一根因也影响「媒体源」来源行的「删除目录配置」与作品详情分集卡片内的图标按钮 tooltip | 同一条规则同时覆盖 **`.scan-embedded .root-list`** 与 **`.detail-page .file-table`**（同为透明行、同一 `overflow: hidden`、同一 tooltip 机制） | 三处是同一个缺陷，一并修掉，避免下次再报同一问题 | 媒体库 · 媒体源 / 作品详情 · 章节与文件 | 无 | 否 |
+
+- 改动文件：`src/v1-1-1.css`（新增 3 个选择器的 `overflow: visible` 与说明注释，+8 行）。
+- 未改 `.work-list` / `.unassigned-table` / `.history-table`：这些容器内没有图标按钮 tooltip，且行的 hover 底色仍需要圆角裁切。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
+- 视觉验收：未渲染 / 未截图（写入即交付），tooltip 是否完整可读见 `SCREENSHOT_CHECKLIST.md` 待验行。
