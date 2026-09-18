@@ -33,58 +33,39 @@ const YEAR_MIN = 2000;
 /** 动画排行榜每页条数（「加载更多」每次追加一页）。 */
 const RANKING_PAGE_SIZE = 12;
 
-/**
- * 后台封面缓存完成后的有限次复查：最多 3 次、短间隔 2.5s。
- * 后端会后台预取封面，首次返回时可能还没有本地封面，因此需要有限次数地静默重读，
- * 但不能无限轮询。
- */
+/** 后台封面缓存完成后的有限次复查，避免远程图片长期停留在占位状态。 */
 const COVER_REFRESH_MAX = 3;
 const COVER_REFRESH_DELAY = 2500;
 
-/**
- * 封面：只有进入（或即将进入）可视区域才真正附图，避免一次性为整页作品创建大量图片请求。
- * 缺失或加载失败都回退到 Genzo 自制占位封面，不留破图；并通过 `onNeedsCover` 通知父级复查缓存。
- */
+/** 封面在列表数据返回后立即加载；缺失或失败时回退到占位封面。 */
 function ExploreCover({ subject, onNeedsCover }: { subject: ExploreSubject; onNeedsCover?: () => void }) {
-  const nodeRef = useRef<HTMLElement | null>(null);
-  const [visible, setVisible] = useState(false);
   const [failed, setFailed] = useState(false);
-  /* 封面地址变化（例如后台缓存完成后从 null 变成本地文件）时只重置失败标记；
-     可视状态保持不变，已显示的卡片不会闪回占位图。 */
+  /* 地址变化（例如后台缓存完成后从远程 URL 变成本地文件）时重置失败标记。 */
   useEffect(() => { setFailed(false); }, [subject.coverUrl]);
 
+  /*
+   * 封面不再按滚动位置懒加载。探索结果是一个有限的、已返回的数据集，
+   * 用户期望进入页面后整批可见条目都开始加载；后端仍负责限制缓存并发。
+   * 远程地址也需要触发一次有界复查，以便后台缓存完成后替换为本地路径。
+   */
   useEffect(() => {
-    const node = nodeRef.current;
-    if (!node) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      if (!subject.coverUrl) onNeedsCover?.();
-      return;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
-      setVisible(true);
-      if (!subject.coverUrl) onNeedsCover?.();
-      observer.disconnect();
-    }, { rootMargin: "320px 0px" });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [subject.externalId, subject.coverUrl, failed, onNeedsCover]);
+    if (!subject.coverUrl || /^https?:/i.test(subject.coverUrl)) onNeedsCover?.();
+  }, [subject.externalId, subject.coverUrl, onNeedsCover]);
 
   if (subject.coverUrl && !failed) {
     return (
       <img
-        ref={(node) => { nodeRef.current = node; }}
         className="gnz-explore-cover"
-        src={visible ? subject.coverUrl : undefined}
+        src={subject.coverUrl}
         alt=""
+        loading="eager"
         decoding="async"
         onError={() => { setFailed(true); onNeedsCover?.(); }}
       />
     );
   }
   return (
-    <span ref={(node) => { nodeRef.current = node; }} className="gnz-explore-cover is-placeholder">
+    <span className="gnz-explore-cover is-placeholder">
       <MediaVisual type="video" coverPath={null} alt={`${subject.title} 的占位封面`} />
     </span>
   );
@@ -186,9 +167,13 @@ export function ExplorePage() {
   const refresh = useCallback(async () => {
     if (!provider) return;
     try {
-      const seasonal = await provider.exploreOverview(year, month);
+      const seasonalRequest = provider.exploreOverview(year, month);
+      const hotRequest = year === null && month === null
+        ? seasonalRequest
+        : provider.exploreOverview(null, null);
+      const [seasonal, hotOverview] = await Promise.all([seasonalRequest, hotRequest]);
       setOverview(seasonal);
-      setHot(year === null && month === null ? seasonal : await provider.exploreOverview(null, null));
+      setHot(hotOverview);
     } catch {
       /* 静默刷新失败时保留现有列表，避免把已展示的数据整页替换成错误态 */
     }
@@ -222,7 +207,11 @@ export function ExplorePage() {
       coverRefreshTimer.current = null;
       if (!aliveRef.current) return;
       coverRefreshAttempts.current += 1;
-      void refreshRef.current();
+      void refreshRef.current().finally(() => {
+        if (aliveRef.current && coverRefreshAttempts.current < COVER_REFRESH_MAX) {
+          scheduleCoverRefresh();
+        }
+      });
     }, COVER_REFRESH_DELAY);
   }, []);
 
