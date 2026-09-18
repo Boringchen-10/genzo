@@ -77,6 +77,7 @@ pub(crate) struct BangumiDataLinks {
 static BANGUMI_DATA_INDEX: OnceLock<Result<BangumiDataIndex, String>> = OnceLock::new();
 static COVER_CACHE_IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static COVER_CACHE_LIMIT: OnceLock<Arc<Semaphore>> = OnceLock::new();
+static CALENDAR_REFRESH_IN_FLIGHT: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 
 #[derive(Debug, FromRow)]
 struct CacheRow {
@@ -129,8 +130,9 @@ pub async fn overview(
         .filter_map(|item| data_item_to_metadata(item, &dataset.fetched_at))
         .collect::<Vec<_>>();
     seasonal_metadata.sort_by(|left, right| {
-        left.air_date
-            .cmp(&right.air_date)
+        right
+            .air_date
+            .cmp(&left.air_date)
             .then_with(|| left.title.cmp(&right.title))
     });
     let mut seen_seasonal = HashSet::new();
@@ -938,9 +940,33 @@ fn build_index(json: &[u8]) -> Result<BangumiDataIndex, serde_json::Error> {
 async fn load_calendar(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>> {
     let cached =
         load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, CALENDAR_CACHE_KEY).await?;
-    if cached.as_ref().is_some_and(|value| !value.stale) {
-        return Ok(cached.expect("fresh cache checked"));
+    if let Some(cached_value) = cached {
+        if cached_value.stale {
+            schedule_calendar_refresh(pool.clone());
+        }
+        return Ok(cached_value);
     }
+    fetch_calendar_and_cache(pool).await
+}
+
+fn schedule_calendar_refresh(pool: SqlitePool) {
+    let in_flight = CALENDAR_REFRESH_IN_FLIGHT
+        .get_or_init(|| Arc::new(Mutex::new(false)))
+        .clone();
+    tauri::async_runtime::spawn(async move {
+        {
+            let mut running = in_flight.lock().await;
+            if *running {
+                return;
+            }
+            *running = true;
+        }
+        let _ = fetch_calendar_and_cache(&pool).await;
+        *in_flight.lock().await = false;
+    });
+}
+
+async fn fetch_calendar_and_cache(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>> {
     let provider = BangumiProvider::new()?;
     match retry_network(|| provider.calendar()).await {
         Ok(items) => {
@@ -959,7 +985,7 @@ async fn load_calendar(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>
                 stale: false,
             })
         }
-        Err(error) => cached.ok_or(error),
+        Err(error) => Err(error),
     }
 }
 
