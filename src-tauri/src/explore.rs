@@ -104,21 +104,28 @@ pub async fn overview(
     month: Option<u32>,
 ) -> AppResult<ExploreOverview> {
     let now = Utc::now();
-    let year = year.unwrap_or_else(|| now.year());
-    let requested_month = month.unwrap_or_else(|| now.month());
-    let month = season_start_month(requested_month);
-    if !(1900..=2200).contains(&year) || month.is_none() {
+    if year.is_some_and(|value| !(1900..=2200).contains(&value))
+        || month.is_some_and(|value| season_start_month(value).is_none())
+    {
         return Err(AppError::Validation(
             "探索年份必须在 1900 到 2200 之间，月份必须在 1 到 12 之间".to_string(),
         ));
     }
-    let month = month.expect("validated month has a season bucket");
+    let selected_month = month.and_then(season_start_month);
+    let display_year = year.unwrap_or_else(|| now.year());
+    let display_month = selected_month.unwrap_or_else(|| current_season_start(&now));
 
     let dataset = load_bangumi_data(pool).await?;
     let mut seasonal_metadata = dataset
         .value
         .iter()
-        .filter(|item| item_matches_season(item, year, month))
+        .filter(|item| {
+            item_date(item).is_some_and(|date| {
+                year.is_none_or(|value| date.year() == value)
+                    && selected_month
+                        .is_none_or(|value| season_start_month(date.month()) == Some(value))
+            })
+        })
         .filter_map(|item| data_item_to_metadata(item, &dataset.fetched_at))
         .collect::<Vec<_>>();
     seasonal_metadata.sort_by(|left, right| {
@@ -140,7 +147,9 @@ pub async fn overview(
             .then(|| "网络更新失败，当前使用本地过期番组索引".to_string()),
     }];
 
-    let calendar = if year == now.year() && month == current_season_start(&now) {
+    let calendar = if year.is_none_or(|value| value == now.year())
+        && selected_month.is_none_or(|value| value == current_season_start(&now))
+    {
         match load_calendar(pool).await {
             Ok(calendar) => {
                 sources.push(ExploreSourceStatus {
@@ -191,7 +200,11 @@ pub async fn overview(
             }
         }
     }
-    enrich_with_anilist(pool, &mut seasonal_metadata, true).await?;
+    // A broad "all years / all seasons" view must stay local and fast. It may
+    // still use already cached AniList details, but never starts one request
+    // per indexed title while the user is browsing the filter.
+    let allow_network_refresh = year.is_some() && selected_month.is_some();
+    enrich_with_anilist(pool, &mut seasonal_metadata, allow_network_refresh).await?;
 
     let local_states = load_local_states(pool).await?;
     let seasonal = seasonal_metadata
@@ -236,8 +249,8 @@ pub async fn overview(
 
     let stale = sources.iter().any(|source| source.stale);
     Ok(ExploreOverview {
-        year,
-        month,
+        year: display_year,
+        month: display_month,
         seasonal,
         trending,
         available_tags,
@@ -351,25 +364,31 @@ pub async fn discovery_list(
     let mut items = match category {
         "recommended" => overview(pool, year, month).await?.trending,
         "seasonal" | "anime" => {
-            let target_year = year.unwrap_or_else(|| now.year());
-            let requested_month = month.unwrap_or_else(|| now.month());
-            let target_month = season_start_month(requested_month);
-            if year.is_some() && !(1900..=2200).contains(&target_year) || target_month.is_none() {
+            if year.is_some_and(|value| !(1900..=2200).contains(&value))
+                || month.is_some_and(|value| season_start_month(value).is_none())
+            {
                 return Err(AppError::Validation("探索年份或月份无效".to_string()));
             }
-            let target_month = target_month.expect("validated month has a season bucket");
+            let target_year = year;
+            let target_month = month.and_then(season_start_month);
             let mut metadata = embedded_index()?
                 .items
                 .iter()
                 .filter(|item| item.item_type != "resource")
                 .filter(|item| {
                     if category == "seasonal" {
-                        item_matches_season(item, target_year, target_month)
+                        item_date(item).is_some_and(|date| {
+                            date.year() == target_year.unwrap_or_else(|| now.year())
+                                && season_start_month(date.month())
+                                    == Some(
+                                        target_month.unwrap_or_else(|| current_season_start(&now)),
+                                    )
+                        })
                     } else {
                         item_date(item).is_some_and(|date| {
-                            year.is_none_or(|_| date.year() == target_year)
-                                && month.is_none_or(|_| {
-                                    season_start_month(date.month()) == Some(target_month)
+                            target_year.is_none_or(|value| date.year() == value)
+                                && target_month.is_none_or(|value| {
+                                    season_start_month(date.month()) == Some(value)
                                 })
                         })
                     }
@@ -1128,6 +1147,7 @@ fn current_season_start(now: &chrono::DateTime<Utc>) -> u32 {
     season_start_month(now.month()).expect("calendar month is always valid")
 }
 
+#[allow(dead_code)]
 fn item_matches_season(item: &BangumiDataItem, year: i32, season_month: u32) -> bool {
     item_date(item).is_some_and(|date| {
         date.year() == year && season_start_month(date.month()) == Some(season_month)
@@ -1266,7 +1286,7 @@ fn to_explore_subject(
         air_date: metadata.air_date,
         broadcast: metadata.broadcast,
         subject_type: metadata.subject_type,
-        genres: metadata.genres,
+        genres: localized_genres(&metadata.genres),
         score: metadata.score,
         rank: metadata.rank,
         rating_count: metadata.rating_count,
@@ -1282,6 +1302,45 @@ fn to_explore_subject(
         banner_provider: metadata.banner_provider,
         score_provider: metadata.score_provider,
     }
+}
+
+/// 统一探索页标签语言。AniList 通常返回英文标签，而 Bangumi 的标签可能已经是中文。
+fn localized_genres(genres: &[String]) -> Vec<String> {
+    let mut localized = genres
+        .iter()
+        .filter_map(|genre| {
+            let trimmed = genre.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let value = match trimmed.to_ascii_lowercase().as_str() {
+                "action" => "动作",
+                "adventure" => "冒险",
+                "comedy" => "喜剧",
+                "drama" => "剧情",
+                "ecchi" => "卖肉",
+                "fantasy" => "奇幻",
+                "horror" => "恐怖",
+                "mahou shoujo" | "magical girl" => "魔法少女",
+                "mecha" => "机战",
+                "music" => "音乐",
+                "mystery" => "悬疑",
+                "psychological" => "心理",
+                "romance" => "恋爱",
+                "sci-fi" | "science fiction" => "科幻",
+                "slice of life" => "日常",
+                "sports" => "运动",
+                "supernatural" => "超自然",
+                "thriller" => "惊悚",
+                _ if !trimmed.is_ascii() => trimmed,
+                _ => return None,
+            };
+            Some(value.to_string())
+        })
+        .collect::<Vec<_>>();
+    localized.sort();
+    localized.dedup();
+    localized
 }
 
 fn validated_external_id(value: &str) -> AppResult<String> {
@@ -1376,6 +1435,18 @@ mod tests {
         assert_eq!(season_start_month(9), Some(7));
         assert_eq!(season_start_month(12), Some(10));
         assert_eq!(season_start_month(0), None);
+    }
+
+    #[test]
+    fn localizes_explore_genres_for_chinese_ui() {
+        let genres = localized_genres(&[
+            "Action".to_string(),
+            "Fantasy".to_string(),
+            "Slice of Life".to_string(),
+            "悬疑".to_string(),
+            "Unknown English".to_string(),
+        ]);
+        assert_eq!(genres, vec!["动作", "奇幻", "悬疑", "日常"]);
     }
 
     #[test]
