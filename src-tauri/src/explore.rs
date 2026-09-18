@@ -31,6 +31,7 @@ const EMBEDDED_BANGUMI_DATA: &[u8] = include_bytes!("../resources/bangumi-data-0
 const BANGUMI_DATA_PROVIDER: &str = "bangumi-data";
 const BANGUMI_PROVIDER: &str = "bangumi";
 const CALENDAR_CACHE_KEY: &str = "explore:calendar";
+const MAX_BACKGROUND_COVER_FETCHES_PER_RESULT: usize = 48;
 #[cfg(test)]
 const MAX_DATASET_BYTES: usize = 20 * 1024 * 1024;
 const WORK_STATUSES: &[&str] = &["planned", "in_progress", "completed", "paused", "dropped"];
@@ -576,38 +577,52 @@ pub(crate) async fn prepare_cover_cache(
     state: &AppState,
     subjects: &mut [ExploreSubject],
 ) {
+    let mut scheduled = 0usize;
     for subject in subjects {
+        if scheduled >= MAX_BACKGROUND_COVER_FETCHES_PER_RESULT {
+            break;
+        }
         if let Some(remote_url) = subject.cover_url.clone() {
             let destination = state.cover_cache_path.join(format!(
                 "explore-bangumi-{}-poster.jpg",
                 subject.external_id
             ));
-            subject.cover_url = Some(
-                prepare_cached_image(
-                    app,
-                    &remote_url,
-                    normalize_trusted_image_url(&remote_url),
-                    destination,
-                    true,
-                )
-                .await,
-            );
+            let cached = prepare_cached_image(
+                app,
+                &remote_url,
+                normalize_trusted_image_url(&remote_url),
+                destination,
+                true,
+            )
+            .await;
+            if cached.starts_with("http://") || cached.starts_with("https://") {
+                scheduled += 1;
+            }
+            subject.cover_url = Some(cached);
         }
         if let Some(remote_url) = subject.banner_url.clone() {
             let destination = state.cover_cache_path.join(format!(
                 "explore-bangumi-{}-banner.jpg",
                 subject.external_id
             ));
-            subject.banner_url = Some(
-                prepare_cached_image(
-                    app,
-                    &remote_url,
-                    normalize_trusted_image_url(&remote_url),
-                    destination,
-                    false,
-                )
-                .await,
-            );
+            if scheduled >= MAX_BACKGROUND_COVER_FETCHES_PER_RESULT {
+                continue;
+            }
+            let cached = prepare_cached_image(
+                app,
+                &remote_url,
+                normalize_trusted_image_url(&remote_url),
+                destination,
+                false,
+            )
+            .await;
+            if cached.starts_with("http://") || cached.starts_with("https://") {
+                scheduled += 1;
+            }
+            subject.banner_url = Some(cached);
+        }
+        if scheduled >= MAX_BACKGROUND_COVER_FETCHES_PER_RESULT {
+            break;
         }
     }
 }

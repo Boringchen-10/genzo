@@ -3,7 +3,7 @@ use crate::db::{self, AppState};
 use crate::error::{AppError, AppResult};
 use crate::metadata;
 use crate::models::{AnimeEpisodeEntry, AnimeSeasonOption, AnimeWorkStructure, MediaFile};
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -362,7 +362,7 @@ async fn cache_artwork(url: Option<&str>, destination: PathBuf, cover: bool) -> 
 async fn cached_or_fetch<T, F>(
     pool: &SqlitePool,
     key: &str,
-    future: F,
+    _future: F,
 ) -> (Option<T>, Option<String>)
 where
     T: Serialize + DeserializeOwned,
@@ -377,29 +377,17 @@ where
     .ok()
     .flatten();
     if let Some((json, expires_at)) = &cached {
-        if expires_at > &Utc::now().to_rfc3339() {
-            if let Ok(value) = serde_json::from_str(json) {
-                return (Some(value), None);
-            }
+        if let Ok(value) = serde_json::from_str(json) {
+            let warning = (expires_at <= &Utc::now().to_rfc3339())
+                .then(|| "使用已过期的本地动画结构缓存，请点击刷新元数据".to_string());
+            return (Some(value), warning);
         }
     }
-    match future.await {
-        Ok(value) => {
-            let now = Utc::now();
-            let _ = sqlx::query("INSERT INTO metadata_cache (provider, cache_key, response_json, fetched_at, expires_at) VALUES ('bangumi', ?, ?, ?, ?) ON CONFLICT(provider, cache_key) DO UPDATE SET response_json = excluded.response_json, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at")
-                .bind(key)
-                .bind(serde_json::to_string(&value).unwrap_or_else(|_| "[]".to_string()))
-                .bind(now.to_rfc3339())
-                .bind((now + Duration::days(30)).to_rfc3339())
-                .execute(pool)
-                .await;
-            (Some(value), None)
-        }
-        Err(error) => {
-            let stale = cached.and_then(|(json, _)| serde_json::from_str(&json).ok());
-            (stale, Some(error.to_string()))
-        }
-    }
+    let _ = pool;
+    (
+        None,
+        Some("尚未缓存动画扩展结构，请点击刷新元数据".to_string()),
+    )
 }
 
 #[cfg(test)]
