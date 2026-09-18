@@ -77,6 +77,7 @@ pub(crate) struct BangumiDataLinks {
 
 static BANGUMI_DATA_INDEX: OnceLock<Result<BangumiDataIndex, String>> = OnceLock::new();
 static COVER_CACHE_IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static DETAIL_CACHE_IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static COVER_CACHE_LIMIT: OnceLock<Arc<Semaphore>> = OnceLock::new();
 static CALENDAR_REFRESH_IN_FLIGHT: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 
@@ -203,6 +204,7 @@ pub async fn overview(
             }
         }
     }
+    merge_cached_details(pool, &mut seasonal_metadata).await?;
     // A broad "all years / all seasons" view must stay local and fast. It may
     // still use already cached AniList details, but never starts one request
     // per indexed title while the user is browsing the filter.
@@ -582,6 +584,11 @@ pub(crate) async fn prepare_cover_cache(
         if scheduled >= MAX_BACKGROUND_COVER_FETCHES_PER_RESULT {
             break;
         }
+        if subject.cover_url.is_none() {
+            schedule_detail_cache_refresh(&state.pool, &subject.external_id);
+            scheduled += 1;
+            continue;
+        }
         if let Some(remote_url) = subject.cover_url.clone() {
             let destination = state.cover_cache_path.join(format!(
                 "explore-bangumi-{}-poster.jpg",
@@ -625,6 +632,24 @@ pub(crate) async fn prepare_cover_cache(
             break;
         }
     }
+}
+
+/// The embedded bangumi-data index intentionally stays small and often has no
+/// artwork. Warm the detail cache in the background so the next bounded refresh
+/// can expose the cover without requiring the user to open every card.
+fn schedule_detail_cache_refresh(pool: &SqlitePool, external_id: &str) {
+    let in_flight = DETAIL_CACHE_IN_FLIGHT.get_or_init(|| Mutex::new(HashSet::new()));
+    let pool = pool.clone();
+    let external_id = external_id.to_string();
+    tauri::async_runtime::spawn(async move {
+        let mut running = in_flight.lock().await;
+        if !running.insert(external_id.clone()) {
+            return;
+        }
+        drop(running);
+        let _ = load_subject_metadata(&pool, &external_id).await;
+        in_flight.lock().await.remove(&external_id);
+    });
 }
 
 async fn prepare_cached_image(
@@ -1052,6 +1077,21 @@ async fn load_subject_metadata(
             }
         }
     }
+}
+
+async fn merge_cached_details(
+    pool: &SqlitePool,
+    items: &mut [WorkMetadata],
+) -> AppResult<()> {
+    for item in items {
+        let key = format!("detail:{}", item.external_id);
+        if let Some(cached) = load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &key).await? {
+            if let Some(details) = cached.value.into_iter().next() {
+                *item = merge_metadata(item.clone(), details);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
