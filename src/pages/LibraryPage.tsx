@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { dataProvider as api } from "../data";
 import { EmptyState, ErrorState, LoadingState, Modal, PageHeader } from "../components/common";
@@ -9,12 +9,62 @@ import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ScanPage } from "./ScanPage";
 import { usePreferences, useToasts } from "../store";
-import type { LibraryRoot, MediaType, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
+import type { LibraryRoot, MediaFile, MediaType, RecognitionStatus, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, unassignedStatusRank } from "../utils";
 
 type Scope = "all" | "recent" | "favorites" | "missing";
 type SortKey = "title" | "createdAt" | "updatedAt";
 type UnassignedSortKey = "status" | "title" | "fileCount";
+
+/* ---------- 待整理：按媒体源文件夹层级浏览 ---------- */
+/** 统一路径分隔符，去掉尾部斜杠（Windows 路径为主，同时容忍 `/`）。 */
+const normalizePath = (value: string) => value.replace(/[\\/]+/g, "\\").replace(/\\+$/, "");
+const pathBaseName = (value: string) => {
+  const normalized = normalizePath(value);
+  const index = normalized.lastIndexOf("\\");
+  return index < 0 ? normalized : normalized.slice(index + 1);
+};
+const pathDirName = (value: string) => {
+  const normalized = normalizePath(value);
+  const index = normalized.lastIndexOf("\\");
+  return index <= 0 ? normalized : normalized.slice(0, index);
+};
+/** 取 `path` 相对 `parent` 的下一级名称；不在其下（含相等）返回 null。 */
+const pathChildSegment = (parent: string, path: string): string | null => {
+  const normalizedParent = normalizePath(parent);
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath.startsWith(`${normalizedParent}\\`)) return null;
+  const rest = normalizedPath.slice(normalizedParent.length + 1);
+  const index = rest.indexOf("\\");
+  return index < 0 ? rest : rest.slice(0, index);
+};
+
+/** 待整理某一层级里的一行：文件夹或文件。 */
+interface InboxEntry {
+  key: string;
+  name: string;
+  path: string;
+  folder: boolean;
+  fileCount: number;
+  missingCount: number;
+  status: RecognitionStatus;
+  group: UnassignedMediaGroup | null;
+  file: MediaFile | null;
+}
+
+const inboxStatusLabel = (status: RecognitionStatus, missingCount: number, fileCount: number) => {
+  if (fileCount > 0 && missingCount >= fileCount) return "全部缺失";
+  if (status === "candidate_pending") return "等待确认";
+  if (status === "error") return "识别失败";
+  return "未匹配";
+};
+
+const inboxStatusClass = (status: RecognitionStatus, missingCount: number, fileCount: number) => {
+  if (fileCount > 0 && missingCount >= fileCount) return "warning-text";
+  if (status === "error") return "warning-text";
+  if (status === "candidate_pending") return "candidate-text";
+  return "available-text";
+};
 
 export function LibraryPage() {
   const navigate = useNavigate();
@@ -40,6 +90,10 @@ export function LibraryPage() {
   const [recognizingGroup, setRecognizingGroup] = useState<UnassignedMediaGroup | null>(null);
   const [batchRecognizing, setBatchRecognizing] = useState(false);
   const [unassignedLimit, setUnassignedLimit] = useState(100);
+  const [inboxPath, setInboxPath] = useState<string | null>(null);
+  const [inboxMedia, setInboxMedia] = useState<MediaFile[]>([]);
+  const [inboxMediaLoaded, setInboxMediaLoaded] = useState(false);
+  const [inboxMediaLoading, setInboxMediaLoading] = useState(false);
   const view = usePreferences((state) => state.libraryView);
   const setView = usePreferences((state) => state.setLibraryView);
   const toast = useToasts((state) => state.push);
@@ -145,6 +199,153 @@ export function LibraryPage() {
     });
   }, [comicBrowsePath, comicContainers, filteredUnassigned]);
 
+  /* 待整理的文件级数据：只在进入「待整理」时取一次，且只保留属于已添加媒体源的文件。
+     listUnassignedMedia 目前无过滤、无分页（后端为 WHERE work_id IS NULL），大库下会传输全部记录；
+     已登记后端需求（INBOX-007）：提供按媒体源 / 路径过滤与分页的查询。 */
+  useEffect(() => {
+    if (activeSection !== "inbox" || inboxMediaLoaded || inboxMediaLoading) return;
+    let cancelled = false;
+    setInboxMediaLoading(true);
+    api.listUnassignedMedia()
+      .then((files) => { if (!cancelled) { setInboxMedia(files); setInboxMediaLoaded(true); } })
+      .catch((mediaError: unknown) => { if (!cancelled) toast(getErrorMessage(mediaError), "error"); })
+      .finally(() => { if (!cancelled) setInboxMediaLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeSection, inboxMediaLoaded, inboxMediaLoading, toast]);
+
+  const rootIds = useMemo(() => new Set(roots.map((root) => root.id)), [roots]);
+  const scopedFiles = useMemo(
+    () => inboxMedia.filter((file) => file.libraryRootId !== null && rootIds.has(file.libraryRootId)),
+    [inboxMedia, rootIds],
+  );
+
+  /* 面包屑：媒体源根目录 → 逐级子文件夹。 */
+  const inboxBreadcrumb = useMemo(() => {
+    if (inboxPath === null) return [] as { name: string; path: string }[];
+    const target = normalizePath(inboxPath);
+    const root = roots.find((item) => {
+      const rootPath = normalizePath(item.path);
+      return target === rootPath || target.startsWith(`${rootPath}\\`);
+    });
+    if (!root) return [{ name: pathBaseName(target), path: target }];
+    const rootPath = normalizePath(root.path);
+    const rest = target === rootPath ? "" : target.slice(rootPath.length + 1);
+    const crumbs = [{ name: pathBaseName(rootPath) || rootPath, path: rootPath }];
+    let cursor = rootPath;
+    for (const segment of rest ? rest.split("\\") : []) {
+      cursor = `${cursor}\\${segment}`;
+      crumbs.push({ name: segment, path: cursor });
+    }
+    return crumbs;
+  }, [inboxPath, roots]);
+
+  /* 当前层级：根层级 = 媒体源文件夹；进入后 = 子文件夹 + 直接位于该层的文件。 */
+  const inboxLevel = useMemo<InboxEntry[]>(() => {
+    if (inboxPath === null) {
+      return roots
+        .map<InboxEntry>((root) => {
+          const path = normalizePath(root.path);
+          const groups = filteredUnassigned.filter((group) => group.representative.libraryRootId === root.id);
+          return {
+            key: root.id,
+            name: pathBaseName(path) || path,
+            path,
+            folder: true,
+            fileCount: groups.reduce((total, group) => total + group.fileCount, 0),
+            missingCount: groups.reduce((total, group) => total + group.missingCount, 0),
+            status: "unmatched" as RecognitionStatus,
+            group: null,
+            file: null,
+          };
+        })
+        .sort((left, right) => left.name.localeCompare(right.name, "zh-CN", { numeric: true }));
+    }
+
+    const prefix = normalizePath(inboxPath);
+    const folders = new Map<string, InboxEntry>();
+    const files: InboxEntry[] = [];
+
+    const touchFolder = (segment: string, group: UnassignedMediaGroup | null) => {
+      const path = `${prefix}\\${segment}`;
+      const entry = folders.get(segment) ?? {
+        key: path,
+        name: segment,
+        path,
+        folder: true,
+        fileCount: 0,
+        missingCount: 0,
+        status: "unmatched" as RecognitionStatus,
+        group: null,
+        file: null,
+      };
+      if (group) {
+        entry.group = group;
+        entry.status = group.recognitionStatus;
+      }
+      folders.set(segment, entry);
+      return entry;
+    };
+
+    for (const group of filteredUnassigned) {
+      const segment = pathChildSegment(prefix, normalizePath(group.folderPath ?? group.representative.path));
+      if (!segment) continue;
+      const entry = touchFolder(segment, group);
+      entry.fileCount += group.fileCount;
+      entry.missingCount += group.missingCount;
+    }
+
+    for (const file of scopedFiles) {
+      const segment = pathChildSegment(prefix, file.path);
+      if (!segment) continue;
+      if (pathDirName(file.path) === prefix) {
+        files.push({
+          key: file.id,
+          name: file.fileName,
+          path: normalizePath(file.path),
+          folder: false,
+          fileCount: 1,
+          missingCount: file.missing ? 1 : 0,
+          status: file.recognitionStatus,
+          group: null,
+          file,
+        });
+        continue;
+      }
+      const entry = touchFolder(segment, null);
+      if (!entry.group) {
+        entry.fileCount += 1;
+        if (file.missing) entry.missingCount += 1;
+      }
+    }
+
+    return [
+      ...Array.from(folders.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-CN", { numeric: true })),
+      ...files.sort((left, right) => left.name.localeCompare(right.name, "zh-CN", { numeric: true })),
+    ];
+  }, [inboxPath, roots, filteredUnassigned, scopedFiles]);
+
+  /** 当前文件夹本身就是一个作品组时，把识别 / 手动整理操作放在这一级。 */
+  const inboxGroupHere = useMemo(() => {
+    if (inboxPath === null) return null;
+    const prefix = normalizePath(inboxPath);
+    return filteredUnassigned.find((group) => normalizePath(group.folderPath ?? group.representative.path) === prefix) ?? null;
+  }, [inboxPath, filteredUnassigned]);
+
+  const openInboxFile = async (file: MediaFile) => {
+    try {
+      await api.launchMedia(file.id, null, true);
+    } catch (launchError: unknown) {
+      toast(getErrorMessage(launchError), "error");
+    }
+  };
+  const revealInboxFile = async (file: MediaFile) => {
+    try {
+      await api.openMediaDirectory(file.id);
+    } catch (revealError: unknown) {
+      toast(getErrorMessage(revealError), "error");
+    }
+  };
+
   const create = async (input: WorkInput) => {
     setSaving(true);
     try {
@@ -237,44 +438,67 @@ export function LibraryPage() {
         {([['all', '全部'], ['recent', '最近添加'], ['favorites', '收藏'], ['missing', '文件缺失']] as const).map(([value, label]) => (
           <button key={value} type="button" className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>
         ))}
-      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">默认按作品文件夹聚合，不逐个铺开扫描到的文件。字幕会作为视频作品组的附属文件显示。{hiddenGroups > 0 ? <span className="gnz-inbox-hidden">已隐藏 {hiddenGroups} 个不属于任何媒体源的历史作品组（{hiddenFiles} 个文件）：它们来自已移除的目录。把该目录重新添加为媒体源后即可再次显示。</span> : null}</div> : null}
+      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">按「媒体源」的文件夹层级浏览：从媒体源根目录逐级打开子文件夹，直到看到文件。识别与手动整理仍然按作品组进行；字幕会作为视频作品组的附属文件显示。{hiddenGroups > 0 ? <span className="gnz-inbox-hidden">已隐藏 {hiddenGroups} 个不属于任何媒体源的历史作品组（{hiddenFiles} 个文件）：它们来自已移除的目录。把该目录重新添加为媒体源后即可再次显示。</span> : null}</div> : null}
 
       {activeSection === "inbox" && !loading && !error && filteredUnassigned.length > 0 ? (
         <section className="unassigned-section">
           <div className="section-heading">
-            <div><h2>待整理内容</h2><span>{filteredUnassigned.length} 个作品组，共 {unassignedFileCount} 个媒体文件；不同季度与特别篇分别整理。</span></div>
+            <div><h2>待整理内容</h2><span>{inboxPath === null ? `${roots.length} 个媒体源，共 ${unassignedFileCount} 个待整理文件；逐级打开文件夹即可看到文件。` : `${inboxBreadcrumb.map((crumb) => crumb.name).join(" / ")} · ${inboxLevel.filter((entry) => entry.folder).length} 个子文件夹 · ${inboxLevel.filter((entry) => !entry.folder).length} 个文件`}</span></div>
             <select className="unassigned-sort" value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as UnassignedSortKey)} aria-label="待整理内容排序">
               <option value="status">按识别状态</option>
               <option value="title">按标题</option>
               <option value="fileCount">按文件数量</option>
             </select>
           </div>
-          {comicContainers.length > 0 && !comicBrowsePath ? (
-            <div className="comic-folder-nav" aria-label="漫画大类目录">
-              {comicContainers.map((container) => (
-                <button type="button" className="comic-folder-card" key={container.path} onClick={() => setComicBrowsePath(container.path)}>
-                  <FolderTree size={18} />
-                  <span><strong>{container.title}</strong><small>{container.groups.length} 个子目录 · {container.fileCount} 个文件</small></span>
-                  <ChevronDown size={16} className="comic-folder-chevron" />
-                </button>
-              ))}
+
+          <nav className="inbox-crumbs" aria-label="待整理文件夹路径">
+            <button type="button" onClick={() => setInboxPath(null)} disabled={inboxPath === null}>媒体源</button>
+            {inboxBreadcrumb.map((crumb, index) => (
+              <Fragment key={crumb.path}>
+                <ChevronRight size={13} />
+                <button type="button" className={index === inboxBreadcrumb.length - 1 ? "inbox-crumb-current" : ""} onClick={() => setInboxPath(crumb.path)} disabled={index === inboxBreadcrumb.length - 1}>{crumb.name}</button>
+              </Fragment>
+            ))}
+          </nav>
+
+          {inboxGroupHere ? (
+            <div className="inbox-group-row">
+              <div>
+                <strong>{inboxGroupHere.title}</strong>
+                <small>{mediaLabels[inboxGroupHere.mediaType]} · {inboxGroupHere.fileCount} 个文件 · {inboxStatusLabel(inboxGroupHere.recognitionStatus, inboxGroupHere.missingCount, inboxGroupHere.fileCount)}</small>
+              </div>
+              <div className="inbox-actions">
+                {inboxGroupHere.mediaType === "video" ? <button type="button" className="button secondary compact" onClick={() => setRecognizingGroup(inboxGroupHere)} disabled={inboxGroupHere.missingCount >= inboxGroupHere.fileCount}>{inboxGroupHere.recognitionStatus === "candidate_pending" ? "查看候选" : "识别"}</button> : null}
+                <button type="button" className="button secondary compact" onClick={() => setOrganizingGroup(inboxGroupHere)} disabled={inboxGroupHere.missingCount >= inboxGroupHere.fileCount}>手动整理</button>
+              </div>
             </div>
           ) : null}
-          {comicBrowsePath ? <button type="button" className="folder-back-button" onClick={() => setComicBrowsePath(null)}><ChevronDown size={15} />返回漫画大类</button> : null}
-          <div className="unassigned-table">
-            <div className="unassigned-head"><span>目录或文件</span><span>类型</span><span>内容</span><span>识别状态</span><span>操作</span></div>
-            {visibleUnassignedGroups.slice(0, unassignedLimit).map((group) => {
-              const unavailable = group.missingCount >= group.fileCount;
-              return <div className="unassigned-row" key={group.key}>
-                <div className="unassigned-name">{group.folderPath ? <FolderTree size={18} /> : <FileQuestion size={18} />}<div><strong>{group.title}</strong><small>{group.folderPath ?? group.representative.path}</small></div></div>
-                <span>{mediaLabels[group.mediaType]}</span>
-                <span>{group.fileCount} 个 · {formatSize(group.totalSize)}</span>
-                <span className={unavailable || group.recognitionStatus === "error" ? "warning-text" : group.recognitionStatus === "candidate_pending" ? "candidate-text" : "available-text"}>{unavailable ? "全部缺失" : group.missingCount ? `${group.missingCount} 个缺失` : group.recognitionStatus === "candidate_pending" ? "等待确认" : group.recognitionStatus === "error" ? "识别失败" : "未匹配"}</span>
-                <div className="unassigned-actions">{group.mediaType === "video" ? <button type="button" className="button secondary compact" onClick={() => setRecognizingGroup(group)} disabled={unavailable}>{group.recognitionStatus === "candidate_pending" ? "查看候选" : "识别"}</button> : null}<button type="button" className="button secondary compact" onClick={() => setOrganizingGroup(group)} disabled={unavailable}>手动整理</button></div>
+
+          <div className="inbox-tree">
+            <div className="inbox-tree-head"><span>名称</span><span>内容</span><span>识别状态</span><span>操作</span></div>
+            {inboxMediaLoading ? <div className="inbox-empty">正在读取文件列表…</div> : null}
+            {!inboxMediaLoading && inboxLevel.length === 0 ? <div className="inbox-empty">这个文件夹里没有待整理的内容。</div> : null}
+            {inboxLevel.slice(0, unassignedLimit).map((entry) => entry.folder ? (
+              <button type="button" className="inbox-folder" key={entry.key} onClick={() => setInboxPath(entry.path)}>
+                <span className="inbox-name"><FolderTree size={18} /><span><strong>{entry.name}</strong><small title={entry.path}>{entry.path}</small></span></span>
+                <span className="inbox-meta">{entry.fileCount} 个文件{entry.missingCount ? ` · ${entry.missingCount} 个缺失` : ""}</span>
+                <span className={inboxStatusClass(entry.status, entry.missingCount, entry.fileCount)}>{inboxStatusLabel(entry.status, entry.missingCount, entry.fileCount)}</span>
+                <span className="inbox-actions"><ChevronRight size={16} /></span>
+              </button>
+            ) : (
+              <div className="inbox-file" key={entry.key}>
+                <span className="inbox-name"><FileQuestion size={18} /><span><strong>{entry.file?.fileName ?? entry.name}</strong><small title={entry.path}>{entry.path}</small></span></span>
+                <span className="inbox-meta">{entry.file ? `${mediaLabels[entry.file.mediaType]} · ${formatSize(entry.file.size)}` : ""}</span>
+                <span className={entry.missingCount ? "warning-text" : "available-text"}>{entry.missingCount ? "文件缺失" : "未匹配"}</span>
+                <span className="inbox-actions">
+                  <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void openInboxFile(entry.file); }}>打开</button>
+                  <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void revealInboxFile(entry.file); }}>所在目录</button>
+                </span>
               </div>
-            })}
+            ))}
           </div>
-          {visibleUnassigned.length < filteredUnassigned.length ? <button type="button" className="show-more-button" onClick={() => setUnassignedLimit((limit) => limit + 100)}><ChevronDown size={15} />再显示 {Math.min(100, filteredUnassigned.length - visibleUnassigned.length)} 项</button> : null}
+
+          {inboxLevel.length > unassignedLimit ? <button type="button" className="show-more-button" onClick={() => setUnassignedLimit((limit) => limit + 100)}><ChevronDown size={15} />再显示 {Math.min(100, inboxLevel.length - unassignedLimit)} 项</button> : null}
         </section>
       ) : null}
 
