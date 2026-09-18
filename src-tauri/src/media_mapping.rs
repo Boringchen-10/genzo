@@ -1,4 +1,4 @@
-use crate::anime_parser::{normalize_title, parse_file_name};
+use crate::anime_parser::{normalize_title, parse_file_name, parse_media_path};
 use crate::error::AppResult;
 use crate::models::MediaFile;
 use chrono::Utc;
@@ -45,6 +45,12 @@ fn normalized_stem(file: &MediaFile) -> String {
     normalize_title(stem)
 }
 
+fn same_installment(left: &MediaFile, right: &MediaFile) -> bool {
+    let left = parse_media_path(&left.file_name, Path::new(&left.path), None);
+    let right = parse_media_path(&right.file_name, Path::new(&right.path), None);
+    left.season.unwrap_or(1) == right.season.unwrap_or(1) && left.special_type == right.special_type
+}
+
 fn choose_subtitle_matches(files: &[MediaFile]) -> Vec<SubtitleMatch> {
     let videos: Vec<_> = files
         .iter()
@@ -63,23 +69,20 @@ fn choose_subtitle_matches(files: &[MediaFile]) -> Vec<SubtitleMatch> {
             .iter()
             .copied()
             .filter(|video| {
-                subtitle_episode.is_some()
+                same_installment(subtitle, video)
+                    && subtitle_episode.is_some()
                     && normalized_episode(video.parsed_episode.as_deref()) == subtitle_episode
-                    && (subtitle.parsed_season.is_none()
-                        || video.parsed_season.is_none()
-                        || subtitle.parsed_season == video.parsed_season)
             })
             .collect();
 
         let (video, method) = if candidates.len() == 1 {
             (candidates.remove(0), "episode")
-        } else if let Some(video) = videos
-            .iter()
-            .copied()
-            .find(|video| normalized_stem(video) == normalized_stem(subtitle))
-        {
+        } else if let Some(video) = videos.iter().copied().find(|video| {
+            same_installment(subtitle, video) && normalized_stem(video) == normalized_stem(subtitle)
+        }) {
             (video, "file_name")
-        } else if videos.len() == 1 && subtitle_count == 1 {
+        } else if videos.len() == 1 && subtitle_count == 1 && same_installment(subtitle, videos[0])
+        {
             (videos[0], "single_file")
         } else {
             continue;

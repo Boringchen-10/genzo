@@ -602,6 +602,7 @@ export function WorkDetailPage() {
                                             {tools.filter((tool) => tool.supportedMediaTypes.includes(file.mediaType)).map((tool) => <button type="button" key={tool.id} onClick={() => void launch(file, tool.id)}><ExternalLink size={15} />使用 {tool.name}</button>)}
                                             <button type="button" onClick={() => void launch(file, null, true)}><ExternalLink size={15} />系统默认程序</button>
                                             <button type="button" onClick={() => void reveal(file)}><FolderOpen size={15} />打开所在目录</button>
+                                            <button type="button" disabled={file.missing} onClick={() => setRecognizingMedia(file)}><Sparkles size={15} />识别到其他作品</button>
                                             <button type="button" disabled={mappingBusy === file.id} onClick={() => void mapEpisode(file.id, null)}><Unlink size={15} />解除分集关联</button>
                                             <button type="button" onClick={() => void detach(file.id)}><Unlink size={15} />解除作品关联</button>
                                           </div>
@@ -664,6 +665,7 @@ export function WorkDetailPage() {
                               </span>
                             ) : (
                               <>
+                                <button type="button" className="button compact secondary" onClick={() => setRecognizingMedia(file)}>识别到其他作品</button>
                                 <label className="field unmatched-map">
                                   <span>关联到分集</span>
                                   <select
@@ -712,6 +714,7 @@ export function WorkDetailPage() {
                               {compatibleTools.map((tool) => <button type="button" key={tool.id} onClick={() => void launch(file, tool.id)}><ExternalLink size={15} />使用 {tool.name}</button>)}
                               <button type="button" onClick={() => void launch(file, null, true)}><ExternalLink size={15} />系统默认程序</button>
                               <button type="button" onClick={() => void reveal(file)}><FolderOpen size={15} />打开所在目录</button>
+                              {file.mediaType === "video" ? <button type="button" disabled={file.missing} onClick={() => setRecognizingMedia(file)}><Sparkles size={15} />识别到其他作品</button> : null}
                               <button type="button" onClick={() => void detach(file.id)}><Unlink size={15} />解除关联</button>
                             </div>
                           </details>

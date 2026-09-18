@@ -215,7 +215,7 @@ export function LibraryPage() {
       {activeSection === "inbox" && !loading && !error && filteredUnassigned.length > 0 ? (
         <section className="unassigned-section">
           <div className="section-heading">
-            <div><h2>待整理内容</h2><span>{filteredUnassigned.length} 个目录或散文件，共 {unassignedFileCount} 个媒体文件；目录内文件会一起整理。</span></div>
+            <div><h2>待整理内容</h2><span>{filteredUnassigned.length} 个作品组，共 {unassignedFileCount} 个媒体文件；不同季度与特别篇分别整理。</span></div>
             <select className="unassigned-sort" value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as UnassignedSortKey)} aria-label="待整理内容排序">
               <option value="status">按识别状态</option>
               <option value="title">按标题</option>

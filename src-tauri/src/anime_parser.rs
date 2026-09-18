@@ -130,12 +130,27 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
     if text.contains("劇場版") || text.contains("剧场版") || text.contains("映画") {
         parsed.special_type = Some("MOVIE".to_string());
     }
-    let season_re = regex::Regex::new(r"(?i)\bS(\d{1,2})\b|\b(\d{1,2})(?:st|nd|rd|th)\s+season\b")
-        .expect("static regex");
+    let combined = regex::Regex::new(r"(?i)\bS(\d{1,2})E(\d{1,4})\b").expect("static regex");
+    if let Some(caps) = combined.captures(&text) {
+        parsed.season = caps[1].parse().ok();
+        set_episode_range(&mut parsed, caps[2].parse().ok(), None);
+        text = combined.replace_all(&text, " ").to_string();
+    }
+    let chinese_season =
+        regex::Regex::new(r"第([一二三四五六七八九十\d]+)季").expect("static regex");
+    if let Some(caps) = chinese_season.captures(&text) {
+        parsed.season = chinese_season_number(&caps[1]);
+        text = chinese_season.replace_all(&text, " ").to_string();
+    }
+    let season_re = regex::Regex::new(
+        r"(?i)\bS(\d{1,2})\b|\b(\d{1,2})(?:st|nd|rd|th)\s+season\b|\bseason\s*(\d{1,2})\b",
+    )
+    .expect("static regex");
     if let Some(caps) = season_re.captures(&text) {
         parsed.season = caps
             .get(1)
             .or_else(|| caps.get(2))
+            .or_else(|| caps.get(3))
             .and_then(|m| m.as_str().parse().ok());
         text = season_re.replace_all(&text, " ").to_string();
     }
@@ -183,25 +198,74 @@ pub fn parse_folder_name(folder_name: &str) -> ParsedAnime {
     parsed
 }
 
-/// Selects the nearest non-season container in at most three parent levels.
+fn chinese_season_number(value: &str) -> Option<i64> {
+    if let Ok(number) = value.parse() {
+        return Some(number);
+    }
+    let digit = |ch| {
+        "一二三四五六七八九"
+            .chars()
+            .position(|n| n == ch)
+            .map(|n| n as i64 + 1)
+    };
+    if let Some((tens, units)) = value.split_once('十') {
+        let tens = if tens.is_empty() {
+            Some(1)
+        } else {
+            tens.chars().next().and_then(digit)
+        }?;
+        let units = if units.is_empty() {
+            Some(0)
+        } else {
+            units.chars().next().and_then(digit)
+        }?;
+        Some(tens * 10 + units)
+    } else {
+        value.chars().next().and_then(digit)
+    }
+}
+
+/// Keeps the nearest season/special marker while looking past container folders.
 pub fn parse_work_folder(file_path: &Path, library_root: Option<&Path>) -> ParsedAnime {
     let mut fallback = ParsedAnime::default();
-    for directory in file_path.ancestors().skip(1).take(3) {
-        if library_root.is_some_and(|root| directory == root) {
-            break;
-        }
+    let mut season = None;
+    let mut special_type = None;
+    for directory in file_path.ancestors().skip(1) {
         let Some(name) = directory.file_name().and_then(|value| value.to_str()) else {
             continue;
         };
-        let candidate = parse_folder_name(name);
+        let mut candidate = parse_folder_name(name);
+        season = season.or(candidate.season);
+        special_type = special_type.or(candidate.special_type.clone());
+        candidate.season = season;
+        candidate.special_type = special_type.clone();
         if fallback.title.is_none() {
             fallback = candidate.clone();
         }
         if !is_division_folder(name) {
             return candidate;
         }
+        if library_root.is_some_and(|root| directory == root) {
+            break;
+        }
     }
     fallback
+}
+
+pub fn parse_media_path(file_name: &str, path: &Path, library_root: Option<&Path>) -> ParsedAnime {
+    let mut parsed = parse_file_name(file_name);
+    let folder = parse_work_folder(path, library_root);
+    if parsed
+        .title
+        .as_deref()
+        .is_none_or(|title| !title.chars().any(char::is_alphabetic) || is_division_folder(title))
+    {
+        parsed.title = folder.title;
+    }
+    parsed.season = parsed.season.or(folder.season);
+    parsed.special_type = parsed.special_type.or(folder.special_type);
+    parsed.year = parsed.year.or(folder.year);
+    parsed
 }
 
 pub fn preprocess_folder_name(value: &str) -> String {
@@ -438,5 +502,28 @@ mod tests {
         let path = Path::new(r"G:\影音\进击的巨人\Season 2\01.mkv");
         let parsed = parse_work_folder(path, Some(Path::new(r"G:\影音")));
         assert_eq!(parsed.title.as_deref(), Some("进击的巨人"));
+        assert_eq!(parsed.season, Some(2));
+    }
+
+    #[test]
+    fn preserves_installment_markers_from_names_and_folders() {
+        for (name, season) in [
+            ("Show S02E01.mkv", 2),
+            ("Show 第二季 - 01.mkv", 2),
+            ("Show Season 3 - 01.mkv", 3),
+        ] {
+            let parsed = parse_file_name(name);
+            assert_eq!(parsed.season, Some(season), "{name}");
+            assert_eq!(parsed.episode_start, Some(1), "{name}");
+        }
+        for marker in ["OAD", "OVA", "SP"] {
+            let path = format!(r"C:\Anime\Show\{marker}\01.mkv");
+            let parsed = parse_media_path("01.mkv", Path::new(&path), Some(Path::new(r"C:\Anime")));
+            assert_eq!(parsed.title.as_deref(), Some("Show"));
+            assert_eq!(parsed.special_type.as_deref(), Some(marker));
+        }
+        let parsed = parse_file_name("[ReinForce] Kiss×sis - OAD 01 (BDRip 1920x1080).mkv");
+        assert_eq!(parsed.special_type.as_deref(), Some("OAD"));
+        assert_eq!(parsed.episode_start, Some(1));
     }
 }

@@ -14,6 +14,20 @@ use tauri::AppHandle;
 
 const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path";
 
+fn has_mixed_installments(files: &[MediaFile]) -> bool {
+    files
+        .iter()
+        .filter(|file| file.media_type == "video")
+        .map(|file| {
+            let parsed =
+                crate::anime_parser::parse_media_path(&file.file_name, Path::new(&file.path), None);
+            (parsed.season.unwrap_or(1), parsed.special_type)
+        })
+        .collect::<HashSet<_>>()
+        .len()
+        > 1
+}
+
 pub async fn rebuild_episode_links(
     transaction: &mut Transaction<'_, Sqlite>,
     work_id: &str,
@@ -22,6 +36,17 @@ pub async fn rebuild_episode_links(
         .bind(work_id)
         .execute(&mut **transaction)
         .await?;
+    let files = sqlx::query_as::<_, MediaFile>(&format!(
+        "SELECT {MEDIA_COLUMNS} FROM media_files WHERE work_id = ?"
+    ))
+    .bind(work_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    // Episode numbers alone cannot identify episodes in a mixed-season work.
+    // Keep explicit manual mappings, and let the user recognize each group first.
+    if has_mixed_installments(&files) {
+        return Ok(());
+    }
     let manual_media_ids = sqlx::query_scalar::<_, String>(
         "SELECT media_file_id FROM media_episode_links WHERE work_id = ? AND match_method = 'manual'",
     )
@@ -163,20 +188,27 @@ pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<Anime
     if official.is_empty() {
         warnings.push("尚未缓存官方分集，请先刷新作品元数据".to_string());
     }
-    let linked = sqlx::query_as::<_, (String, String)>(
-        "SELECT media_file_id, episode_external_id FROM media_episode_links WHERE work_id = ? AND provider = 'bangumi'",
+    let linked = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT media_file_id, episode_external_id, match_method FROM media_episode_links WHERE work_id = ? AND provider = 'bangumi'",
     )
     .bind(work_id)
     .fetch_all(pool)
-    .await?
-    .into_iter()
-    .collect::<HashMap<_, _>>();
+    .await?;
     let media = sqlx::query_as::<_, MediaFile>(&format!(
         "SELECT {MEDIA_COLUMNS} FROM media_files WHERE work_id = ? ORDER BY parsed_season, parsed_episode_start, file_name COLLATE NOCASE"
     ))
     .bind(work_id)
     .fetch_all(pool)
     .await?;
+    let mixed = has_mixed_installments(&media);
+    if mixed {
+        warnings.push("检测到不同季度或特别篇混在同一作品中，请在文件操作中选择“识别到其他作品”；确认拆分前暂停自动分集关联。".to_string());
+    }
+    let linked = linked
+        .into_iter()
+        .filter(|(_, _, method)| !mixed || method == "manual")
+        .map(|(id, episode, _)| (id, episode))
+        .collect::<HashMap<_, _>>();
     let mut files_by_episode: HashMap<String, Vec<MediaFile>> = HashMap::new();
     let mut unmatched_files = Vec::new();
     for file in media {
@@ -374,6 +406,35 @@ where
 mod tests {
     use super::*;
     use crate::db;
+
+    #[tokio::test]
+    async fn mixed_installments_do_not_share_automatic_episode_links() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('work', 'Show', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, fetched_at) VALUES ('work', 'bangumi', 'ep1', 1, 1, ?)")
+            .bind(&now).execute(&pool).await.unwrap();
+        for (id, name) in [
+            ("tv", "Show - 01.mkv"),
+            ("oad", "Show OAD 01.mkv"),
+            ("s2", "Show S2 - 01.mkv"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, parsed_episode_start, created_at, updated_at) VALUES (?, 'work', ?, ?, 'mkv', 'video', 1, ?, ?)")
+                .bind(id).bind(format!(r"C:\Anime\Show\{name}")).bind(name).bind(&now).bind(&now).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO media_episode_links (media_file_id, work_id, provider, episode_external_id, match_method, confidence, updated_at) VALUES (?, 'work', 'bangumi', 'ep1', ?, 1, ?)")
+                .bind(id).bind(if id == "tv" { "manual" } else { "parsed" }).bind(&now).execute(&pool).await.unwrap();
+        }
+        let mut tx = pool.begin().await.unwrap();
+        rebuild_episode_links(&mut tx, "work").await.unwrap();
+        tx.commit().await.unwrap();
+        let links: Vec<(String, String)> =
+            sqlx::query_as("SELECT media_file_id, match_method FROM media_episode_links")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(links, vec![("tv".into(), "manual".into())]);
+    }
 
     #[tokio::test]
     async fn parsed_mapping_allows_multiple_local_versions_per_episode() {

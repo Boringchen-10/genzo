@@ -1,4 +1,4 @@
-use crate::anime_parser::{normalize_title, parse_file_name};
+use crate::anime_parser::{normalize_title, parse_file_name, parse_media_path};
 use crate::error::AppResult;
 use crate::models::{LibraryRoot, MediaFile, UnassignedMediaGroup};
 use sqlx::SqlitePool;
@@ -25,6 +25,29 @@ fn normalized_key(path: &Path) -> String {
 }
 
 fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
+    let mut identity = container_identity(media, root_path);
+    if media.media_type == "video" || is_subtitle_file(media) {
+        // Use fresh filename/path evidence: older group recognition may have copied
+        // the representative's season into every database row in the folder.
+        let parsed = parse_media_path(
+            &media.file_name,
+            Path::new(&media.path),
+            root_path.map(Path::new),
+        );
+        let season = parsed.season.unwrap_or(1);
+        let special = parsed.special_type.as_deref().unwrap_or_default();
+        identity.key = format!("{}:season:{season}:special:{special}", identity.key);
+        if season > 1 {
+            identity.title = format!("{} · 第 {season} 季", identity.title);
+        }
+        if !special.is_empty() {
+            identity.title = format!("{} · {special}", identity.title);
+        }
+    }
+    identity
+}
+
+fn container_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
     let media_path = Path::new(&media.path);
     if let Some(root_path) = root_path {
         let root = Path::new(root_path);
@@ -87,13 +110,7 @@ fn subtitle_identity(media: &MediaFile, root: &Path) -> GroupIdentity {
     if let Some(title) = parsed.title.filter(|value| !value.trim().is_empty()) {
         let normalized = normalize_title(&title);
         return GroupIdentity {
-            key: format!(
-                "direct-anime:{}:title:{}:season:{:?}:special:{}",
-                normalized_key(root),
-                normalized,
-                parsed.season,
-                parsed.special_type.as_deref().unwrap_or_default()
-            ),
+            key: format!("direct-anime:{}:title:{}", normalized_key(root), normalized),
             folder_path: Some(root.to_string_lossy().to_string()),
             title,
         };
@@ -133,24 +150,15 @@ fn direct_file_identity(media: &MediaFile, root: &Path) -> GroupIdentity {
 
     let root_key = normalized_key(root);
     let parsed_from_name = parse_file_name(&media.file_name);
-    if let Some(parsed_title) = media
-        .parsed_title
+    if let Some(parsed_title) = parsed_from_name
+        .title
         .as_deref()
-        .or(parsed_from_name.title.as_deref())
         .map(str::trim)
         .filter(|title| !title.is_empty())
     {
         let normalized_title = normalize_title(parsed_title);
         return GroupIdentity {
-            key: format!(
-                "direct-anime:{root_key}:title:{normalized_title}:season:{:?}:special:{}",
-                media.parsed_season.or(parsed_from_name.season),
-                media
-                    .parsed_special_type
-                    .as_deref()
-                    .or(parsed_from_name.special_type.as_deref())
-                    .unwrap_or_default()
-            ),
+            key: format!("direct-anime:{root_key}:title:{normalized_title}"),
             folder_path: Some(root.to_string_lossy().to_string()),
             title: parsed_title.to_string(),
         };
@@ -317,6 +325,47 @@ pub async fn unassigned_group_context(
     }))
 }
 
+/// Recognition of an already organized file affects only its season/special group
+/// inside the current work. It must never silently rename other seasons.
+pub async fn recognition_group_context(
+    pool: &SqlitePool,
+    media_file_id: &str,
+) -> AppResult<Option<MediaGroupContext>> {
+    let requested = sqlx::query_as::<_, MediaFile>(&format!(
+        "SELECT {MEDIA_COLUMNS} FROM media_files WHERE id = ?"
+    ))
+    .bind(media_file_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+    let Some(work_id) = &requested.work_id else {
+        return unassigned_group_context(pool, media_file_id).await;
+    };
+    let roots = roots_by_id(pool).await?;
+    let root_for = |file: &MediaFile| {
+        file.library_root_id
+            .as_ref()
+            .and_then(|id| roots.get(id))
+            .map(String::as_str)
+    };
+    let identity = group_identity(&requested, root_for(&requested));
+    let members = sqlx::query_as::<_, MediaFile>(&format!(
+        "SELECT {MEDIA_COLUMNS} FROM media_files WHERE work_id = ? ORDER BY path COLLATE NOCASE"
+    ))
+    .bind(work_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .filter(|file| group_identity(file, root_for(file)) == identity)
+    .collect();
+    Ok(Some(MediaGroupContext {
+        title: identity.title,
+        members,
+    }))
+}
+
 pub async fn unassigned_group_member_ids(
     pool: &SqlitePool,
     representative_id: &str,
@@ -334,6 +383,102 @@ mod tests {
     use super::*;
     use crate::db;
     use chrono::Utc;
+
+    #[tokio::test]
+    async fn separates_mixed_seasons_and_specials_with_their_subtitles() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('root', 'C:\\Anime', 'video', 1, ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.unwrap();
+        for (id, relative, name, extension, kind) in [
+            (
+                "tv1",
+                r"Show\Show S1 - 01.mkv",
+                "Show S1 - 01.mkv",
+                "mkv",
+                "video",
+            ),
+            (
+                "tv1b",
+                r"Show\Show - 01 [1080p].mkv",
+                "Show - 01 [1080p].mkv",
+                "mkv",
+                "video",
+            ),
+            ("tv2", r"Show\Season 2\01.mkv", "01.mkv", "mkv", "video"),
+            (
+                "tv2b",
+                r"Show\Show S02E02.mkv",
+                "Show S02E02.mkv",
+                "mkv",
+                "video",
+            ),
+            (
+                "oad1",
+                r"Show\Show - OAD 01.mkv",
+                "Show - OAD 01.mkv",
+                "mkv",
+                "video",
+            ),
+            ("oad2", r"Show\OAD\02.mkv", "02.mkv", "mkv", "video"),
+            (
+                "oadsub",
+                r"Show\字幕\Show - OAD 01.ass",
+                "Show - OAD 01.ass",
+                "ass",
+                "other",
+            ),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, parsed_season, created_at, updated_at) VALUES (?, 'root', ?, ?, ?, ?, 1, ?, ?)")
+                .bind(id).bind(format!(r"C:\Anime\{relative}")).bind(name).bind(extension).bind(kind).bind(&now).bind(&now).execute(&pool).await.unwrap();
+        }
+        let groups = list_unassigned_groups(&pool).await.unwrap();
+        assert_eq!(groups.len(), 3);
+        assert_eq!(
+            unassigned_group_member_ids(&pool, "tv1")
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            unassigned_group_member_ids(&pool, "tv2")
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        let specials = unassigned_group_member_ids(&pool, "oad1").await.unwrap();
+        assert_eq!(specials.len(), 3);
+        assert!(specials.contains(&"oadsub".to_string()));
+        // Recognition must not change group membership after persisting parsed fields.
+        sqlx::query("UPDATE media_files SET parsed_season = 2 WHERE id = 'tv2'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            unassigned_group_member_ids(&pool, "tv2")
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('work', 'Show', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.unwrap();
+        sqlx::query("UPDATE media_files SET work_id = 'work'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let existing = recognition_group_context(&pool, "oad1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(existing.members.len(), 3);
+        assert!(existing
+            .members
+            .iter()
+            .all(|file| specials.contains(&file.id)));
+    }
 
     #[tokio::test]
     async fn groups_nested_files_by_top_level_work_folder() {
@@ -437,7 +582,7 @@ mod tests {
         assert_eq!(
             groups
                 .iter()
-                .find(|group| group.title == "Movie B")
+                .find(|group| group.title == "Movie B · MOVIE")
                 .map(|group| group.file_count),
             Some(1)
         );

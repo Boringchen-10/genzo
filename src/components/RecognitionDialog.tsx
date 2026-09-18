@@ -55,6 +55,7 @@ export function RecognitionDialog({ media, initialCandidates = [], onClose, onMa
   return (
     <Modal title="识别动漫作品" width="large" onClose={onClose}>
       <div className="recognition-file"><strong>{media.fileName}</strong><small>{media.path}</small></div>
+      {media.workId ? <p className="quiet-inline">同组的季度或特别篇文件将一起匹配。选择其他作品后，这组文件会移入对应详情页。</p> : null}
       <div className="recognition-search">
         <div className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入 Bangumi 搜索关键词" /></div>
         <button type="button" className="button primary icon-text" disabled={busy || !query.trim()} onClick={() => void search(true)}><Search size={16} />搜索</button>
@@ -77,7 +78,7 @@ export function RecognitionDialog({ media, initialCandidates = [], onClose, onMa
           ))}
         </div>
       ) : !busy && !error ? <EmptyState title="尚无候选" description="先按文件名识别，或输入更准确的作品标题搜索。" /> : null}
-      <div className="recognition-footer"><span>确认前不会修改作品信息。取消后文件仍保留在待整理区。</span><div>{onManualCreate ? <button type="button" className="button secondary" disabled={busy} onClick={onManualCreate}>手动整理</button> : null}<button type="button" className="button secondary icon-text" disabled={busy} onClick={() => void cancel()}><X size={15} />取消候选</button></div></div>
+      <div className="recognition-footer"><span>{media.workId ? "确认前保留现有作品关联，本地文件不会移动。" : "季度与特别篇分别整理；取消候选后仍保留在待整理区。"}</span><div>{onManualCreate ? <button type="button" className="button secondary" disabled={busy} onClick={onManualCreate}>手动整理</button> : null}<button type="button" className="button secondary icon-text" disabled={busy} onClick={() => void cancel()}><X size={15} />取消候选</button></div></div>
     </Modal>
   );
 }

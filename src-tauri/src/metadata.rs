@@ -1,6 +1,4 @@
-use crate::anime_parser::{
-    parse_file_name, parse_folder_name, parse_work_folder, score_candidate, ParsedAnime,
-};
+use crate::anime_parser::{parse_folder_name, parse_media_path, score_candidate, ParsedAnime};
 use crate::bangumi::BangumiProvider;
 use crate::db::AppState;
 use crate::error::{AppError, AppResult};
@@ -165,18 +163,7 @@ fn has_descriptive_title(value: Option<&str>) -> bool {
 }
 
 fn parse_with_path_context(media: &MediaFile, library_root: Option<&Path>) -> ParsedAnime {
-    let mut parsed = parse_file_name(&media.file_name);
-    let folder = parse_work_folder(Path::new(&media.path), library_root);
-    if !has_descriptive_title(parsed.title.as_deref()) {
-        parsed.title = folder.title.clone();
-    }
-    if parsed.season.is_none() {
-        parsed.season = folder.season;
-    }
-    if parsed.year.is_none() {
-        parsed.year = folder.year;
-    }
-    parsed
+    parse_media_path(&media.file_name, Path::new(&media.path), library_root)
 }
 
 fn group_query_parse(
@@ -259,7 +246,7 @@ pub async fn recognize_media(
     if media.missing {
         return Err(AppError::Validation("文件已缺失，无法识别".to_string()));
     }
-    let group = grouping::unassigned_group_context(&state.pool, media_file_id).await?;
+    let group = grouping::recognition_group_context(&state.pool, media_file_id).await?;
     let library_root_path: Option<String> = match &media.library_root_id {
         Some(root_id) => {
             sqlx::query_scalar("SELECT path FROM library_roots WHERE id = ?")
@@ -386,6 +373,7 @@ pub async fn recognize_media(
                 .is_some_and(|first| first.confidence - second.confidence < 0.08)
         });
     if !explicit_search
+        && media.work_id.is_none()
         && !ambiguous
         && scored
             .first()
@@ -622,8 +610,11 @@ pub async fn confirm_candidate(
     media_file_id: &str,
     candidate_id: &str,
 ) -> AppResult<String> {
-    let group_member_ids =
-        grouping::unassigned_group_member_ids(&state.pool, media_file_id).await?;
+    let group_member_ids: Vec<String> =
+        grouping::recognition_group_context(&state.pool, media_file_id)
+            .await?
+            .map(|context| context.members.into_iter().map(|file| file.id).collect())
+            .unwrap_or_else(|| vec![media_file_id.to_string()]);
     let row = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE id = ? AND media_file_id = ?")
         .bind(candidate_id).bind(media_file_id).fetch_optional(&state.pool).await?.ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".to_string()))?;
     let mut metadata: WorkMetadata = serde_json::from_str(&row.metadata_json)?;
@@ -691,9 +682,13 @@ pub async fn confirm_candidate(
     .bind(&metadata.external_id)
     .fetch_optional(&mut *transaction)
     .await?;
-    let work_id = existing
-        .or(media_work)
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let work_id = recognition_target_work(
+        &mut transaction,
+        existing,
+        media_work.as_deref(),
+        &group_member_ids,
+    )
+    .await?;
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM works WHERE id = ?)")
         .bind(&work_id)
         .fetch_one(&mut *transaction)
@@ -717,15 +712,10 @@ pub async fn confirm_candidate(
     }
     sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(work_id, provider) DO UPDATE SET external_id = excluded.external_id, updated_at = excluded.updated_at")
         .bind(&work_id).bind(&metadata.provider).bind(&metadata.external_id).bind(&now).bind(&now).execute(&mut *transaction).await?;
-    sqlx::query("UPDATE media_files SET work_id = ?, recognition_status = 'matched', recognition_error = NULL, last_recognized_at = ?, updated_at = ? WHERE id = ?")
-        .bind(&work_id).bind(&now).bind(&now).bind(media_file_id).execute(&mut *transaction).await?;
-    for member_id in group_member_ids {
-        sqlx::query("UPDATE media_files SET work_id = ?, recognition_status = 'matched', recognition_error = NULL, last_recognized_at = ?, updated_at = ? WHERE id = ? AND work_id IS NULL")
-            .bind(&work_id).bind(&now).bind(&now).bind(&member_id).execute(&mut *transaction).await?;
-        sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
-            .bind(member_id)
-            .execute(&mut *transaction)
-            .await?;
+    move_recognition_group(&mut transaction, &group_member_ids, &work_id, &now).await?;
+    if let Some(previous) = media_work.filter(|previous| previous != &work_id) {
+        media_mapping::rebuild_subtitle_links(&mut transaction, &previous).await?;
+        crate::anime_details::rebuild_episode_links(&mut transaction, &previous).await?;
     }
     media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
     crate::anime_details::rebuild_episode_links(&mut transaction, &work_id).await?;
@@ -737,8 +727,58 @@ pub async fn confirm_candidate(
     Ok(work_id)
 }
 
+async fn recognition_target_work(
+    transaction: &mut Transaction<'_, Sqlite>,
+    existing: Option<String>,
+    previous: Option<&str>,
+    member_ids: &[String],
+) -> AppResult<String> {
+    if let Some(existing) = existing {
+        return Ok(existing);
+    }
+    if let Some(previous) = previous {
+        let files: Vec<String> = sqlx::query_scalar("SELECT id FROM media_files WHERE work_id = ?")
+            .bind(previous)
+            .fetch_all(&mut **transaction)
+            .await?;
+        if files.iter().all(|id| member_ids.contains(id)) {
+            return Ok(previous.to_string());
+        }
+    }
+    Ok(Uuid::new_v4().to_string())
+}
+
+async fn move_recognition_group(
+    transaction: &mut Transaction<'_, Sqlite>,
+    member_ids: &[String],
+    work_id: &str,
+    now: &str,
+) -> AppResult<()> {
+    for member_id in member_ids {
+        // Manual episode links belong to the old Bangumi subject too; retaining
+        // them after a deliberate work move would create cross-work mappings.
+        sqlx::query("DELETE FROM media_episode_links WHERE media_file_id = ? AND work_id != ?")
+            .bind(member_id)
+            .bind(work_id)
+            .execute(&mut **transaction)
+            .await?;
+        sqlx::query("DELETE FROM subtitle_links WHERE (subtitle_media_file_id = ? OR video_media_file_id = ?) AND work_id != ?")
+            .bind(member_id).bind(member_id).bind(work_id).execute(&mut **transaction).await?;
+        sqlx::query("UPDATE media_files SET work_id = ?, recognition_status = 'matched', recognition_error = NULL, last_recognized_at = ?, updated_at = ? WHERE id = ?")
+            .bind(work_id).bind(now).bind(now).bind(member_id).execute(&mut **transaction).await?;
+        sqlx::query("DELETE FROM match_candidates WHERE media_file_id = ?")
+            .bind(member_id)
+            .execute(&mut **transaction)
+            .await?;
+    }
+    Ok(())
+}
+
 pub async fn cancel_candidates(pool: &SqlitePool, media_file_id: &str) -> AppResult<()> {
-    let member_ids = grouping::unassigned_group_member_ids(pool, media_file_id).await?;
+    let member_ids: Vec<String> = grouping::recognition_group_context(pool, media_file_id)
+        .await?
+        .map(|context| context.members.into_iter().map(|file| file.id).collect())
+        .unwrap_or_else(|| vec![media_file_id.to_string()]);
     let mut transaction = pool.begin().await?;
     let work_id: Option<String> =
         sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
@@ -814,6 +854,82 @@ mod tests {
         );
     }
     use crate::db;
+
+    #[tokio::test]
+    async fn moving_special_group_preserves_tv_work_and_clears_old_links() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        for (id, title) in [("tv", "Show TV"), ("oad", "Show OAD")] {
+            sqlx::query("INSERT INTO works (id, title, type, notes, favorite, created_at, updated_at) VALUES (?, ?, 'video', '私人笔记', 1, ?, ?)")
+                .bind(id).bind(title).bind(&now).bind(&now).execute(&pool).await.unwrap();
+        }
+        for (id, name) in [
+            ("tv1", "Show - 01.mkv"),
+            ("oad1", "Show OAD 01.mkv"),
+            ("oad2", "Show OAD 02.mkv"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'tv', ?, ?, 'mkv', 'video', ?, ?)")
+                .bind(id).bind(format!(r"C:\Anime\Show\{name}")).bind(name).bind(&now).bind(&now).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, fetched_at) VALUES ('tv', 'bangumi', 'ep1', 1, 1, ?)")
+            .bind(&now).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO media_episode_links (media_file_id, work_id, provider, episode_external_id, match_method, confidence, updated_at) VALUES ('oad1', 'tv', 'bangumi', 'ep1', 'manual', 1, ?)")
+            .bind(&now).execute(&pool).await.unwrap();
+        let group = grouping::recognition_group_context(&pool, "oad1")
+            .await
+            .unwrap()
+            .unwrap();
+        let ids: Vec<_> = group.members.into_iter().map(|file| file.id).collect();
+        assert_eq!(ids.len(), 2);
+        let mut tx = pool.begin().await.unwrap();
+        let new_id = recognition_target_work(&mut tx, None, Some("tv"), &ids)
+            .await
+            .unwrap();
+        assert_ne!(new_id, "tv");
+        assert_eq!(
+            recognition_target_work(&mut tx, Some("oad".into()), Some("tv"), &ids)
+                .await
+                .unwrap(),
+            "oad"
+        );
+        move_recognition_group(&mut tx, &ids, "oad", &now)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let assignments: Vec<(String, String)> =
+            sqlx::query_as("SELECT id, work_id FROM media_files ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            assignments,
+            vec![
+                ("oad1".into(), "oad".into()),
+                ("oad2".into(), "oad".into()),
+                ("tv1".into(), "tv".into())
+            ]
+        );
+        let old_links: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM media_episode_links WHERE media_file_id = 'oad1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(old_links, 0);
+        let original: (String, String, bool) =
+            sqlx::query_as("SELECT title, notes, favorite FROM works WHERE id = 'tv'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(original, ("Show TV".into(), "私人笔记".into(), true));
+        let mut tx = pool.begin().await.unwrap();
+        assert_eq!(
+            recognition_target_work(&mut tx, None, Some("oad"), &ids)
+                .await
+                .unwrap(),
+            "oad"
+        );
+    }
 
     fn media_for_query(path: &str, file_name: &str) -> MediaFile {
         MediaFile {
