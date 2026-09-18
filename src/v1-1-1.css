@@ -235,6 +235,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .scan-embedded .content-section { margin-top: 28px; }
 .library-toolbar { margin-top: 22px; background: transparent; border: 0; }
 .gnz-inbox-note { margin: 18px 0; padding: 12px 14px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; font-size: 12px; line-height: 1.6; }
+.gnz-inbox-hidden { display: block; margin-top: 6px; color: var(--quiet); }
 .unassigned-section { margin-top: 22px; padding: 0; background: transparent; border: 0; }
 .unassigned-table, .work-list, .history-table { overflow: hidden; border: 1px solid var(--line); border-radius: 7px; }
 .unassigned-head, .work-list-head, .history-head { background: var(--surface); }

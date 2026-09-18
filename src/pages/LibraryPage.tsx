@@ -9,7 +9,7 @@ import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ScanPage } from "./ScanPage";
 import { usePreferences, useToasts } from "../store";
-import type { MediaType, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
+import type { LibraryRoot, MediaType, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, unassignedStatusRank } from "../utils";
 
 type Scope = "all" | "recent" | "favorites" | "missing";
@@ -23,6 +23,7 @@ export function LibraryPage() {
   const [activeSection, setActiveSection] = useState<"library" | "sources" | "inbox">(params.get("tab") === "inbox" ? "inbox" : params.get("tab") === "sources" ? "sources" : "library");
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [unassignedGroups, setUnassignedGroups] = useState<UnassignedMediaGroup[]>([]);
+  const [roots, setRoots] = useState<LibraryRoot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -47,12 +48,14 @@ export function LibraryPage() {
     setLoading(true);
     setError("");
     try {
-      const [nextWorks, nextUnassignedGroups] = await Promise.all([
+      const [nextWorks, nextUnassignedGroups, nextRoots] = await Promise.all([
         api.listWorks(),
         api.listUnassignedGroups(),
+        api.listRoots(),
       ]);
       setWorks(nextWorks);
       setUnassignedGroups(nextUnassignedGroups);
+      setRoots(nextRoots);
     } catch (loadError: unknown) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -74,10 +77,29 @@ export function LibraryPage() {
       .sort((left, right) => sort === "title" ? left.title.localeCompare(right.title, "zh-CN", { numeric: true }) : new Date(right[sort]).getTime() - new Date(left[sort]).getTime());
   }, [works, search, mediaType, favoriteOnly, tag, scope, sort]);
 
+  /* 待整理只显示来自「媒体源」中已添加目录的作品组。早先扫描/导入、如今不属于任何已添加目录的
+     记录（libraryRootId 为空，或指向已移除的目录）属于历史数据，先不展示——把对应目录重新添加为
+     媒体源后即可恢复；要真正从库里清除这些历史记录，需要后端提供清理能力（本次未改后端）。 */
+  const { scopedUnassigned, hiddenGroups, hiddenFiles } = useMemo(() => {
+    const rootIds = new Set(roots.map((root) => root.id));
+    const scoped: UnassignedMediaGroup[] = [];
+    let hiddenCount = 0;
+    let hiddenFileCount = 0;
+    for (const group of unassignedGroups) {
+      const rootId = group.representative.libraryRootId;
+      if (rootId !== null && rootIds.has(rootId)) scoped.push(group);
+      else {
+        hiddenCount += 1;
+        hiddenFileCount += group.fileCount;
+      }
+    }
+    return { scopedUnassigned: scoped, hiddenGroups: hiddenCount, hiddenFiles: hiddenFileCount };
+  }, [unassignedGroups, roots]);
+
   const filteredUnassigned = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("zh-CN");
     const recentThreshold = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    return unassignedGroups
+    return scopedUnassigned
       .filter((group) => !normalizedSearch || group.title.toLocaleLowerCase("zh-CN").includes(normalizedSearch) || (group.folderPath ?? group.representative.path).toLocaleLowerCase("zh-CN").includes(normalizedSearch))
       .filter((group) => mediaType === "all" || group.mediaType === mediaType)
       .filter(() => !favoriteOnly && tag === "all")
@@ -87,7 +109,7 @@ export function LibraryPage() {
         if (unassignedSort === "title") return left.title.localeCompare(right.title, "zh-CN", { numeric: true });
         return unassignedStatusRank(left.recognitionStatus, left.missingCount, left.fileCount) - unassignedStatusRank(right.recognitionStatus, right.missingCount, right.fileCount) || left.title.localeCompare(right.title, "zh-CN", { numeric: true });
       });
-  }, [unassignedGroups, search, mediaType, favoriteOnly, tag, scope, unassignedSort]);
+  }, [scopedUnassigned, search, mediaType, favoriteOnly, tag, scope, unassignedSort]);
   const visibleUnassigned = filteredUnassigned.slice(0, unassignedLimit);
   const unassignedFileCount = filteredUnassigned.reduce((total, group) => total + group.fileCount, 0);
   const comicContainers = useMemo(() => {
@@ -174,7 +196,7 @@ export function LibraryPage() {
         title="媒体库"
         description={`${works.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
         actions={activeSection === "inbox"
-          ? <button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button>
+          ? <button type="button" className="button secondary icon-text" disabled={batchRecognizing || !scopedUnassigned.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button>
           : activeSection === "sources"
             ? undefined
             : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
@@ -182,7 +204,7 @@ export function LibraryPage() {
       <div className="gnz-primary-tabs gnz-library-tabs" role="tablist" aria-label="媒体库页面">
         <button type="button" role="tab" aria-selected={activeSection === "library"} className={activeSection === "library" ? "active" : ""} onClick={() => setActiveSection("library")}>媒体库</button>
         <button type="button" role="tab" aria-selected={activeSection === "sources"} className={activeSection === "sources" ? "active" : ""} onClick={() => setActiveSection("sources")}>媒体源</button>
-        <button type="button" role="tab" aria-selected={activeSection === "inbox"} className={activeSection === "inbox" ? "active" : ""} onClick={() => setActiveSection("inbox")}>待整理{unassignedGroups.length ? <span className="tab-count">{unassignedGroups.length}</span> : null}</button>
+        <button type="button" role="tab" aria-selected={activeSection === "inbox"} className={activeSection === "inbox" ? "active" : ""} onClick={() => setActiveSection("inbox")}>待整理{scopedUnassigned.length ? <span className="tab-count">{scopedUnassigned.length}</span> : null}</button>
       </div>
       {activeSection === "sources" ? <ScanPage /> : null}
       {activeSection !== "sources" ? <div className="library-toolbar">
@@ -215,7 +237,7 @@ export function LibraryPage() {
         {([['all', '全部'], ['recent', '最近添加'], ['favorites', '收藏'], ['missing', '文件缺失']] as const).map(([value, label]) => (
           <button key={value} type="button" className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>
         ))}
-      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">默认按作品文件夹聚合，不逐个铺开扫描到的文件。字幕会作为视频作品组的附属文件显示。</div> : null}
+      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">默认按作品文件夹聚合，不逐个铺开扫描到的文件。字幕会作为视频作品组的附属文件显示。{hiddenGroups > 0 ? <span className="gnz-inbox-hidden">已隐藏 {hiddenGroups} 个不属于任何媒体源的历史作品组（{hiddenFiles} 个文件）：它们来自已移除的目录。把该目录重新添加为媒体源后即可再次显示。</span> : null}</div> : null}
 
       {activeSection === "inbox" && !loading && !error && filteredUnassigned.length > 0 ? (
         <section className="unassigned-section">
