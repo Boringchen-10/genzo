@@ -4,7 +4,6 @@ import { HomePage } from "./pages/HomePage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { FavoritesPage } from "./pages/FavoritesPage";
 import { LibraryPage } from "./pages/LibraryPage";
-import { LibrarySourcesPage } from "./pages/LibrarySourcesPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { WorkDetailPage } from "./pages/WorkDetailPage";
 
@@ -16,7 +15,6 @@ const router = createHashRouter([
       { index: true, element: <HomePage /> },
       { path: "explore", element: <ExplorePage /> },
       { path: "library", element: <LibraryPage /> },
-      { path: "library/sources", element: <LibrarySourcesPage /> },
       { path: "library/:id", element: <WorkDetailPage /> },
       { path: "favorites", element: <FavoritesPage /> },
       { path: "tools", element: <ToolsPage /> },

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, ScanSearch, Search, Sparkles, Star } from "lucide-react";
+import { ChevronDown, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { dataProvider as api } from "../data";
 import { EmptyState, ErrorState, LoadingState, Modal, PageHeader } from "../components/common";
@@ -7,6 +7,7 @@ import { MediaVisual } from "../components/MediaVisual";
 import { WorkCard } from "../components/WorkCard";
 import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
+import { ScanPage } from "./ScanPage";
 import { usePreferences, useToasts } from "../store";
 import type { MediaType, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, unassignedStatusRank } from "../utils";
@@ -19,7 +20,7 @@ export function LibraryPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const initialScope = (params.get("scope") as Scope | null) ?? "all";
-  const [activeSection, setActiveSection] = useState<"library" | "inbox">(params.get("tab") === "inbox" ? "inbox" : "library");
+  const [activeSection, setActiveSection] = useState<"library" | "sources" | "inbox">(params.get("tab") === "inbox" ? "inbox" : params.get("tab") === "sources" ? "sources" : "library");
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [unassignedGroups, setUnassignedGroups] = useState<UnassignedMediaGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,13 +173,19 @@ export function LibraryPage() {
       <PageHeader
         title="媒体库"
         description={`${works.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
-        actions={activeSection === "inbox" ? <button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button> : <><button type="button" className="button secondary icon-text" onClick={() => navigate("/library/sources")}><ScanSearch size={17} />媒体源与扫描</button><button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button></>}
+        actions={activeSection === "inbox"
+          ? <button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button>
+          : activeSection === "sources"
+            ? undefined
+            : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
       />
       <div className="gnz-primary-tabs gnz-library-tabs" role="tablist" aria-label="媒体库页面">
         <button type="button" role="tab" aria-selected={activeSection === "library"} className={activeSection === "library" ? "active" : ""} onClick={() => setActiveSection("library")}>媒体库</button>
+        <button type="button" role="tab" aria-selected={activeSection === "sources"} className={activeSection === "sources" ? "active" : ""} onClick={() => setActiveSection("sources")}>媒体源</button>
         <button type="button" role="tab" aria-selected={activeSection === "inbox"} className={activeSection === "inbox" ? "active" : ""} onClick={() => setActiveSection("inbox")}>待整理{unassignedGroups.length ? <span className="tab-count">{unassignedGroups.length}</span> : null}</button>
       </div>
-      <div className="library-toolbar">
+      {activeSection === "sources" ? <ScanPage /> : null}
+      {activeSection !== "sources" ? <div className="library-toolbar">
         <div className="search-box">
           <Search size={17} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索标题或原始标题" aria-label="搜索作品" />
@@ -203,12 +210,12 @@ export function LibraryPage() {
           <button type="button" data-tooltip="海报网格" aria-label="海报网格" className={view === "grid" ? "active" : ""} onClick={() => setView("grid")}><Grid2X2 size={16} /></button>
           <button type="button" data-tooltip="列表" aria-label="列表" className={view === "list" ? "active" : ""} onClick={() => setView("list")}><List size={17} /></button>
         </div>
-      </div>
+      </div> : null}
       {activeSection === "library" ? <div className="scope-tabs" role="tablist" aria-label="媒体库范围">
         {([['all', '全部'], ['recent', '最近添加'], ['favorites', '收藏'], ['missing', '文件缺失']] as const).map(([value, label]) => (
           <button key={value} type="button" className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>
         ))}
-      </div> : <div className="gnz-inbox-note">默认按作品文件夹聚合，不逐个铺开扫描到的文件。字幕会作为视频作品组的附属文件显示。</div>}
+      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">默认按作品文件夹聚合，不逐个铺开扫描到的文件。字幕会作为视频作品组的附属文件显示。</div> : null}
 
       {activeSection === "inbox" && !loading && !error && filteredUnassigned.length > 0 ? (
         <section className="unassigned-section">
