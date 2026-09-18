@@ -408,3 +408,31 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
 - 视觉验收：未渲染 / 未截图（写入即交付），tooltip 是否完整可读见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：待整理只显示来自媒体源的作品组（2026-09-18）
+
+背景：用户反馈「待整理界面实在是太乱了，先把之前的加入的历史记录都清除，然后仅会显示在媒体源中加入的目录」。只读查询真实库确认「乱」的来源是**不属于任何媒体源的历史记录**。
+
+**只读证据（`%APPDATA%\com.genzo.desktop\genzo.db`，read-only）**
+
+| 项 | 值 |
+|---|---|
+| `library_roots`（当前媒体源） | 1 条：`G:\影音\动漫` |
+| `media_files` 中 `work_id IS NULL` | **25,611** 行 |
+| ├ `library_root_id IS NULL`（旧目录遗留，路径形如 `G:\影音\…`） | **25,574** 行 |
+| ├ `library_root_id` 指向已删除的 root | **10** 行 |
+| └ 属于当前媒体源 | **27** 行（3 个顶层目录：亲吻姐姐 24 / 古见 1 / 辉夜大小姐 2） |
+
+即：待整理里 **99.9% 的内容来自已移除的目录**，只有 27 个文件属于现在添加的媒体源。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| LIBRARY-005 | 待整理列表直接使用 `listUnassignedGroups()` 的全量结果（后端 SQL 为 `WHERE work_id IS NULL`，不按媒体源过滤），历史记录全部铺开：253 个作品组 / 25,611 个文件 | 只显示**来自「媒体源」中已添加目录**的作品组（`group.representative.libraryRootId` 必须存在于 `listRoots()` 的 id 集合）；列表说明条追加「已隐藏 N 个不属于任何媒体源的历史作品组（M 个文件）…把该目录重新添加为媒体源后即可再次显示」 | 用户要求「仅会显示在媒体源中加入的目录」 | 媒体库 · 待整理 | 新增读取 `listRoots()`（已有接口，无契约变更）；**不删任何数据** | 否 |
+| LIBRARY-005 | 标签页角标与「批量识别动漫」的可用性判断基于全量 `unassignedGroups` | 同样改为基于过滤后的集合，避免出现「角标 253 但列表只有 3 条」和「对不可见的历史组批量识别」 | 计数与操作必须与可见列表一致 | 媒体库 · 待整理 | 无 | 否 |
+
+- 改动文件：`src/pages/LibraryPage.tsx`（`roots` 状态 + `load()` 并行读取 `listRoots()`、新增 `scopedUnassigned` / `hiddenGroups` / `hiddenFiles` 派生、`filteredUnassigned` 与标签角标、批量识别判断改用该集合、说明条文案）、`src/v1-1-1.css`（新增 `.gnz-inbox-hidden`）。
+- **前端不删除任何记录**：把 `G:\影音` 重新添加为媒体源后，历史组会恢复显示 —— 这是刻意的可恢复语义。
+- **真正“清除”这些记录属于后端**：已写成交接单 `CODEX_TASK_purge-orphan-media-records.md`（建议 `purge_orphan_media_records()`：只删无 root / 指向已删 root 且无 work、episode、subtitle 关联的行，绝不触碰磁盘文件）。前端「清理历史记录」按钮等该命令落地后再加。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
+- 视觉验收：未渲染 / 未截图（写入即交付），过滤后的列表与说明条观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
