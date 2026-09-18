@@ -470,3 +470,22 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
 - 视觉验收：未渲染 / 未截图（写入即交付），文件夹 / 文件行与面包屑见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：探索封面懒加载 / 缓存复查，详情页分集结构不再阻塞首屏（2026-09-18）
+
+背景：后端已把探索全年列表改成本地 bangumi-data，并后台预取封面与元数据；作品详情普通读取也已改为优先本地缓存。前端需要在「封面还没缓存好」和「详情扩展元数据较慢」时仍然先出内容，且不能整页 Loading、不能无限轮询。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| EXPLORE-024 | `ExploreCover` 用 `<img loading="lazy">`，封面地址一到就交给浏览器请求 | 改为 `IntersectionObserver` 驱动：只有卡片进入（或距视口 320px 内）才把 `coverUrl` 赋给 `src`；离开 / 卸载即 `disconnect()`。**卡片尺寸与网格布局不变** | 不为整页 / 全年作品一次性创建大量图片请求 | 探索 | 无 | 否 |
+| EXPLORE-025 | 后端后台缓存完封面后，列表不会自己更新，必须手动刷新才看到封面 | 列表存在**缺失封面或远程封面**时，**短间隔 2.5s、最多 3 次**静默重读当前探索数据（stale-while-revalidate）：不设置 `loading`，不整页闪烁、不回到顶部，分类 Tab / 年份 / 季节 / 标签 / 搜索与滚动位置全部保持；切换筛选时重置复查预算；卸载时清除定时器 | 后台缓存完成后封面应自动出现，但不能无限轮询 | 探索 | 依赖后端在缓存完成后让 `coverUrl` 从 `null` 变为本地地址（已有行为） | 否 |
+| EXPLORE-025 | 封面加载失败只回退占位图 | 失败时回退占位图，并**顺带安排一次有限次数的缓存复查**（远程地址失败 → 本地缓存可能已完成） | 远程封面失败后能自愈 | 探索 | 无 | 否 |
+| DETAIL-014 | `load()` 把 `getAnimeWorkStructure()` 与 `getWork()` 一起 `await`，结构未返回前整页显示「正在读取作品详情」 | 拆成两段：`getWork()` + `listTools()` 一返回就结束首屏 `loading`；结构用独立的 `structureLoading` 加载，区块内显示「正在读取分集结构与制作人员…（本地内容已可查看）」 | 详情页不应因角色 / 制作人员 / 关联作品 / 扩展元数据而长时间停留在整页 Loading | 作品详情 | 无 | 否 |
+| DETAIL-014 | 没有缓存时该区块只回落到本地文件列表，没有说明 | 结构为空且无错误时显示「尚未缓存官方分集与制作人员。点击右上角「刷新元数据」联网更新后即可看到。」 | 明确「未缓存」而不是看起来像没有数据 | 作品详情 | 无 | 否 |
+
+- 改动文件：`src/pages/ExplorePage.tsx`（`ExploreCover` 改 IntersectionObserver 懒加载 + `onNeedsCover`；新增 `COVER_REFRESH_MAX` / `COVER_REFRESH_DELAY`、`needsCoverCache` / `scheduleCoverRefresh`、复查预算与定时器清理）、`src/pages/WorkDetailPage.tsx`（`load()` 拆分、新增 `structureLoading`、结构区块的加载 / 未缓存提示）。
+- 保持不变：卡片尺寸、网格列数、间距、配色、字体与信息架构**未改动**；「刷新元数据」仍调用 `refreshWorkMetadata()`，成功后重新 `getWork()` + `getAnimeWorkStructure()`，失败保留原内容只做局部提示。
+- 缩略图：仍沿用 `getMediaThumbnail()` + `IntersectionObserver` 只请求可见项；`null` 时用中性文件占位，**不用作品海报冒充视频帧**（未改动）。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付），首次出内容、滚动加载、缓存完成后自动补封面、离开页面不再更新等行为见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行，需开发侧在本机跑。

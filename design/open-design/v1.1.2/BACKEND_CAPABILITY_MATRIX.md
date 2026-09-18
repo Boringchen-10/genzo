@@ -122,3 +122,14 @@ WebDAV、SMB/NAS、网盘、远程播放、下载到本地、工具一键下载�
 | EXPLORE-021 | 探索 · 推荐 | 查看「注目动画」（最近 30 日标记） | **FUTURE / NEEDS_CONFIRMATION** | 仍无可靠数据源：Bangumi `GET /calendar`（`src-tauri/src/bangumi.rs::calendar`）只返回当季条目；AniList `get_details_many`（`src-tauri/src/providers/anilist.rs`）只有按 id 查详情，无 trending 查询。界面保留 `Future` 说明、**不提供入口**，也**不用排行榜或本季热度冒充** | v0.4（待确认数据源） |
 
 前端当前处理（2026-09-16 更新）：`src/pages/ExplorePage.tsx` 的「推荐」页已接入 `animeRanking`（真实排行榜，支持分页与 `stale` 缓存提示）；「注目动画」保留 `Future` 说明且无入口。前端通过 `getAnimeRankingProvider()` 访问，未补齐时显示「尚未接入」，**不伪造数据**。
+
+## 探索封面缓存与详情分集结构加载（v1.1.2；2026-09-18）
+
+后端已把探索全年列表改成本地 bangumi-data，并在后台预取封面与元数据；作品详情普通读取已改为优先本地缓存（提交 `e24e915` / `32fecf5`）。前端据此把封面改为懒加载 + 有限次数的缓存复查，并把详情页的分集结构拆成独立加载。
+
+| 功能 ID | 页面 | 用户操作 | 现状与证据 | 需要的后端能力（建议契约） | 建议版本 |
+|---|---|---|---|---|---|
+| EXPLORE-022 | 探索 | 列表封面懒加载与缓存复查 | **EXISTING_VERIFIED（前端已接入）** | 前端：`ExplorePage.tsx` 的 `ExploreCover` 用 `IntersectionObserver`（`rootMargin: 320px`）只在卡片接近视口时附图；`scheduleCoverRefresh` 在列表仍存在缺失 / 远程封面时，**间隔 2.5s、最多 3 次**静默重读 `exploreOverview`，不设置 `loading`。后端依赖：缓存完成后 `coverUrl` 由 `null` 变为本地 asset 地址（`src/api.ts::localAssetUrl`） | v0.3 P1 |
+| EXPLORE-023 | 探索 | 「封面缓存是否仍在进行」的显式信号 | **NEW_REQUIRED（可选优化）** | 现状：前端只能靠「`coverUrl` 为空或仍是 `http(s)`」推断缓存未完成，因此对**永远拿不到封面**的条目也会做满 3 次复查（有界但无谓）。建议契约：`ExploreSubject.coverCached?: boolean`（或 `coverPending?: boolean`），或在 `exploreOverview` 顶层加 `coversPending: number`，让前端据此决定是否复查；均为**新增只读字段**，不改动既有字段 | v0.3（视需要） |
+| DETAIL-015 | 作品详情 | 分集结构 / 关联作品 / 制作人员独立加载 | **EXISTING_VERIFIED（前端已接入）** | 前端：`WorkDetailPage.load()` 先用 `getWork()` + `listTools()` 结束首屏 loading，再单独 `getAnimeWorkStructure()`（独立 `structureLoading`）；无缓存时显示「尚未缓存…点击刷新元数据」。后端依赖：结构读取优先返回本地缓存、不等待网络（提交 `32fecf5`） | v0.3 P1 |
+| DETAIL-016 | 作品详情 | 视频缩略图 | **EXISTING_VERIFIED（UI 已接入；覆盖范围受编解码限制）** | `LocalFileThumb` 用 `IntersectionObserver` 只对可见项调用 `getMediaThumbnail`，每个文件最多一次；`null` → 中性文件占位，**不用作品海报冒充视频帧**。部分 MKV / HEVC 在当前 Windows Shell 下无法提取帧，因此**不得标为「全格式完成」** | v0.3 P1 |
