@@ -485,36 +485,35 @@ export function ExplorePage() {
               <div><h2>{heading.title}</h2><span>{loading ? "正在读取网络数据" : heading.detail}</span></div>
               {searchTerm !== null ? (
                 <button type="button" className="button secondary compact" onClick={clearSearch}>清除搜索</button>
+              ) : tab === "seasonal" ? (
+                /* 季节 / 年份只作用于「本季」：与本季番组标题同一行、靠右；全部时按当前日期所在季节取值。 */
+                <div className="gnz-season-filter" role="group" aria-label="本季的季节与年份筛选">
+                  <label className="gnz-filter-select"><span>季节</span>
+                    <select
+                      value={month === null ? "" : String(month)}
+                      onChange={(event) => setMonth(event.target.value === "" ? null : Number(event.target.value))}
+                      aria-label="按季节筛选"
+                      disabled={!provider}
+                    >
+                      <option value="">全部季节</option>
+                      {COUR_MONTHS.map((value) => <option key={value} value={value}>{courSeason(value)}（{value} 月）</option>)}
+                    </select>
+                  </label>
+                  <label className="gnz-filter-select"><span>年份</span>
+                    <select
+                      value={year === null ? "" : String(year)}
+                      onChange={(event) => setYear(event.target.value === "" ? null : Number(event.target.value))}
+                      aria-label="按年份筛选"
+                      disabled={!provider}
+                    >
+                      <option value="">全部年份</option>
+                      {yearOptions.map((value) => <option key={value} value={value}>{value} 年</option>)}
+                    </select>
+                  </label>
+                  <button type="button" className="button secondary compact" onClick={resetSeasonFilter} disabled={year === null && month === null}>重置</button>
+                </div>
               ) : null}
             </div>
-            {/* 季节 / 年份只作用于「本季」：全部时按当前日期所在季节取值。 */}
-            {tab === "seasonal" && searchTerm === null ? (
-              <div className="gnz-season-filter" role="group" aria-label="本季的季节与年份筛选">
-                <label className="gnz-filter-select"><span>季节</span>
-                  <select
-                    value={month === null ? "" : String(month)}
-                    onChange={(event) => setMonth(event.target.value === "" ? null : Number(event.target.value))}
-                    aria-label="按季节筛选"
-                    disabled={!provider}
-                  >
-                    <option value="">全部季节</option>
-                    {COUR_MONTHS.map((value) => <option key={value} value={value}>{courSeason(value)}（{value} 月）</option>)}
-                  </select>
-                </label>
-                <label className="gnz-filter-select"><span>年份</span>
-                  <select
-                    value={year === null ? "" : String(year)}
-                    onChange={(event) => setYear(event.target.value === "" ? null : Number(event.target.value))}
-                    aria-label="按年份筛选"
-                    disabled={!provider}
-                  >
-                    <option value="">全部年份</option>
-                    {yearOptions.map((value) => <option key={value} value={value}>{value} 年</option>)}
-                  </select>
-                </label>
-                <button type="button" className="button secondary compact" onClick={resetSeasonFilter} disabled={year === null && month === null}>重置</button>
-              </div>
-            ) : null}
             {loading || searching ? (
               <LoadingState label={searching ? "正在搜索 Bangumi 条目" : "正在读取 Bangumi 探索数据"} />
             ) : gridSubjects.length ? (
