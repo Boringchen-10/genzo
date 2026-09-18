@@ -142,6 +142,8 @@ export function WorkDetailPage() {
   const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
   const [structureError, setStructureError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  /** 分集结构（官方分集 / 关联作品 / 制作人员）单独加载：不阻塞本地作品详情的首屏。 */
+  const [structureLoading, setStructureLoading] = useState(false);
   const [mappingBusy, setMappingBusy] = useState<string | null>(null);
   const [mapTargets, setMapTargets] = useState<Record<string, string>>({});
 
@@ -149,28 +151,33 @@ export function WorkDetailPage() {
     setLoading(true);
     setError("");
     setStructureError("");
+    setStructure(null);
+    let workData: WorkDetail | null = null;
     try {
-      const [workData, toolData] = await Promise.all([api.getWork(id), api.listTools()]);
-      setWork(workData);
-      setNotesDraft(workData.notes);
+      /* 本地作品数据（标题 / 简介 / 封面 / 本地文件 / 已有缓存）先出现。 */
+      const [nextWork, toolData] = await Promise.all([api.getWork(id), api.listTools()]);
+      workData = nextWork;
+      setWork(nextWork);
+      setNotesDraft(nextWork.notes);
       setTools(toolData);
       setMapTargets({});
       setCreditsOpen(false);
-      /* 分集结构只对视频类作品请求；失败时保留已关联文件列表，不把整页替换成错误态。 */
-      if (detailProvider && workData.type === "video") {
-        try {
-          setStructure(await detailProvider.getAnimeWorkStructure(id));
-        } catch (structureLoadError: unknown) {
-          setStructure(null);
-          setStructureError(getErrorMessage(structureLoadError));
-        }
-      } else {
-        setStructure(null);
-      }
     } catch (loadError: unknown) {
       setError(getErrorMessage(loadError));
     } finally {
       setLoading(false);
+    }
+    /* 分集结构（官方分集 / 关联作品 / 制作人员 / 角色）单独加载，失败只做区块级提示，
+       不再让整页停留在「正在读取作品详情」。 */
+    if (!workData || !detailProvider || workData.type !== "video") return;
+    setStructureLoading(true);
+    try {
+      setStructure(await detailProvider.getAnimeWorkStructure(id));
+    } catch (structureLoadError: unknown) {
+      setStructure(null);
+      setStructureError(getErrorMessage(structureLoadError));
+    } finally {
+      setStructureLoading(false);
     }
   }, [detailProvider, id]);
   useEffect(() => void load(), [load]);
@@ -374,11 +381,14 @@ export function WorkDetailPage() {
   /** 重新读取分集结构（手动映射成功、关联/解除关联后调用），失败只提示、不清空已有内容。 */
   const reloadStructure = useCallback(async () => {
     if (!detailProvider) return;
+    setStructureLoading(true);
     try {
       setStructure(await detailProvider.getAnimeWorkStructure(id));
       setStructureError("");
     } catch (structureLoadError: unknown) {
       setStructureError(getErrorMessage(structureLoadError));
+    } finally {
+      setStructureLoading(false);
     }
   }, [detailProvider, id]);
 
@@ -409,6 +419,7 @@ export function WorkDetailPage() {
   const refreshMetadata = async () => {
     if (!detailProvider || refreshing) return;
     setRefreshing(true);
+    setStructureLoading(true);
     try {
       await detailProvider.refreshWorkMetadata(id);
       const [workData, structureData] = await Promise.all([
@@ -424,6 +435,7 @@ export function WorkDetailPage() {
       toast(getErrorMessage(refreshError), "error");
     } finally {
       setRefreshing(false);
+      setStructureLoading(false);
     }
   };
 
@@ -554,6 +566,12 @@ export function WorkDetailPage() {
               ) : null}
               {structureError ? (
                 <p className="gnz-inline-error" role="alert">读取分集结构失败：{structureError}。下面显示已关联的本地文件。</p>
+              ) : null}
+              {structureLoading && work.type === "video" ? (
+                <p className="quiet-inline" role="status">正在读取分集结构与制作人员…（本地内容已可查看）</p>
+              ) : null}
+              {detailProvider !== null && work.type === "video" && !structureLoading && !structure && !structureError ? (
+                <p className="quiet-inline">尚未缓存官方分集与制作人员。点击右上角「刷新元数据」联网更新后即可看到。</p>
               ) : null}
 
               {hasStructure ? (

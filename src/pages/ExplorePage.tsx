@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { AlertTriangle, ArrowLeft, Heart, Info, Library, RefreshCw, Search, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider, getAnimeRankingProvider, getExploreProvider } from "../data";
@@ -33,25 +33,68 @@ const YEAR_MIN = 2000;
 /** 动画排行榜每页条数（「加载更多」每次追加一页）。 */
 const RANKING_PAGE_SIZE = 12;
 
-/** 封面：网络封面加载失败或缺失时回退到 Genzo 自制占位封面，不留破图。 */
-function ExploreCover({ subject }: { subject: ExploreSubject }) {
+/**
+ * 后台封面缓存完成后的有限次复查：最多 3 次、短间隔 2.5s。
+ * 后端会后台预取封面，首次返回时可能还没有本地封面，因此需要有限次数地静默重读，
+ * 但不能无限轮询。
+ */
+const COVER_REFRESH_MAX = 3;
+const COVER_REFRESH_DELAY = 2500;
+
+/**
+ * 封面：只有进入（或即将进入）可视区域才真正附图，避免一次性为整页作品创建大量图片请求。
+ * 缺失或加载失败都回退到 Genzo 自制占位封面，不留破图；并通过 `onNeedsCover` 通知父级复查缓存。
+ */
+function ExploreCover({ subject, onNeedsCover }: { subject: ExploreSubject; onNeedsCover?: () => void }) {
+  const nodeRef = useRef<HTMLElement | null>(null);
+  const [visible, setVisible] = useState(false);
   const [failed, setFailed] = useState(false);
-  useEffect(() => { setFailed(false); }, [subject.externalId, subject.coverUrl]);
+  /* 封面地址变化（例如后台缓存完成后从 null 变成本地文件）时只重置失败标记；
+     可视状态保持不变，已显示的卡片不会闪回占位图。 */
+  useEffect(() => { setFailed(false); }, [subject.coverUrl]);
+
+  useEffect(() => {
+    const node = nodeRef.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      if (!subject.coverUrl) onNeedsCover?.();
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      setVisible(true);
+      if (!subject.coverUrl) onNeedsCover?.();
+      observer.disconnect();
+    }, { rootMargin: "320px 0px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [subject.externalId, subject.coverUrl, failed, onNeedsCover]);
+
   if (subject.coverUrl && !failed) {
-    return <img className="gnz-explore-cover" src={subject.coverUrl} alt="" loading="lazy" onError={() => setFailed(true)} />;
+    return (
+      <img
+        ref={(node) => { nodeRef.current = node; }}
+        className="gnz-explore-cover"
+        src={visible ? subject.coverUrl : undefined}
+        alt=""
+        decoding="async"
+        onError={() => { setFailed(true); onNeedsCover?.(); }}
+      />
+    );
   }
   return (
-    <span className="gnz-explore-cover is-placeholder">
+    <span ref={(node) => { nodeRef.current = node; }} className="gnz-explore-cover is-placeholder">
       <MediaVisual type="video" coverPath={null} alt={`${subject.title} 的占位封面`} />
     </span>
   );
 }
 
-function ExploreCard({ subject, onOpen }: { subject: ExploreSubject; onOpen: (subject: ExploreSubject) => void }) {
+function ExploreCard({ subject, onOpen, onNeedsCover }: { subject: ExploreSubject; onOpen: (subject: ExploreSubject) => void; onNeedsCover?: () => void }) {
   return (
     <button type="button" className="gnz-explore-card" onClick={() => onOpen(subject)} aria-label={`查看 ${subject.title} 的条目详情`}>
       <span className="gnz-explore-poster">
-        <ExploreCover subject={subject} />
+        <ExploreCover subject={subject} onNeedsCover={onNeedsCover} />
         {subject.inLibrary ? <span className="gnz-explore-flag"><Library size={12} />入库</span> : null}
         {subject.favorite ? <span className="gnz-explore-flag is-favorite"><Heart size={12} fill="currentColor" />收藏</span> : null}
       </span>
@@ -151,6 +194,47 @@ export function ExplorePage() {
     }
   }, [provider, year, month]);
 
+  /** 列表里是否还有条目没有封面、或封面仍指向远程地址（说明后台缓存可能仍在进行）。 */
+  const needsCoverCache = useCallback(
+    (items: ExploreSubject[]) => items.some((item) => !item.coverUrl || /^https?:/i.test(item.coverUrl)),
+    [],
+  );
+
+  /**
+   * 静默复查缓存：不设置 `loading`，所以不会整页闪烁、不会回到顶部，
+   * 分类 Tab / 年份 / 季节 / 标签 / 搜索状态与滚动位置都保持不变。
+   */
+  const coverRefreshAttempts = useRef(0);
+  const coverRefreshTimer = useRef<number | null>(null);
+  const aliveRef = useRef(true);
+  const refreshRef = useRef(refresh);
+  useEffect(() => { refreshRef.current = refresh; }, [refresh]);
+
+  useEffect(() => () => {
+    aliveRef.current = false;
+    if (coverRefreshTimer.current !== null) window.clearTimeout(coverRefreshTimer.current);
+  }, []);
+
+  const scheduleCoverRefresh = useCallback(() => {
+    if (!aliveRef.current || coverRefreshAttempts.current >= COVER_REFRESH_MAX) return;
+    if (coverRefreshTimer.current !== null) return;
+    coverRefreshTimer.current = window.setTimeout(() => {
+      coverRefreshTimer.current = null;
+      if (!aliveRef.current) return;
+      coverRefreshAttempts.current += 1;
+      void refreshRef.current();
+    }, COVER_REFRESH_DELAY);
+  }, []);
+
+  /** 切换分类 / 季节 / 年份 / 搜索时重置复查预算：新上下文重新开始有限次数的重试。 */
+  useEffect(() => {
+    coverRefreshAttempts.current = 0;
+    if (coverRefreshTimer.current !== null) {
+      window.clearTimeout(coverRefreshTimer.current);
+      coverRefreshTimer.current = null;
+    }
+  }, [year, month, tab, searchTerm]);
+
   /** 动画排行榜：`page === 1` 覆盖，其余追加（「加载更多」）。失败保留已加载的条目。 */
   const loadRanking = useCallback(async (page: number) => {
     if (!rankingProvider) return;
@@ -189,6 +273,13 @@ export function ExplorePage() {
     : tab === "seasonal"
       ? { title: "本季番组", detail: `${courLabel(shownYear, shownMonth)} · 来自 bangumi-data 番组索引` }
       : { title: "本季热度", detail: `${courLabel(hotYear, hotMonth)} · 按 Bangumi 评分人数与收藏人数排序 · 不受年份 / 季节筛选影响` };
+
+  /** 当前列表仍有缺失 / 远程封面时，安排一次有限次数的静默重读；数据加载中不打扰。 */
+  const activeNeedsCover = useMemo(() => needsCoverCache(gridSubjects), [gridSubjects, needsCoverCache]);
+  useEffect(() => {
+    if (loading || !activeNeedsCover) return;
+    scheduleCoverRefresh();
+  }, [loading, activeNeedsCover, scheduleCoverRefresh]);
 
   useEffect(() => {
     if (tag && !filterTags.includes(tag)) setTag(null);
@@ -518,7 +609,7 @@ export function ExplorePage() {
               <LoadingState label={searching ? "正在搜索 Bangumi 条目" : "正在读取 Bangumi 探索数据"} />
             ) : gridSubjects.length ? (
               <div className="gnz-explore-grid">
-                {gridSubjects.map((subject) => <ExploreCard key={subject.externalId} subject={subject} onOpen={(next) => void openDetail(next)} />)}
+                {gridSubjects.map((subject) => <ExploreCard key={subject.externalId} subject={subject} onOpen={(next) => void openDetail(next)} onNeedsCover={scheduleCoverRefresh} />)}
               </div>
             ) : emptyState}
           </section>
