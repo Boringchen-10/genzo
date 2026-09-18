@@ -436,3 +436,19 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
 - 视觉验收：未渲染 / 未截图（写入即交付），过滤后的列表与说明条观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：季节 / 年份筛选与本季番组标题同行并靠右（2026-09-18）
+
+背景：用户反馈「将季节年份的选择对其本季番组 然后放到右侧」。改前「本季」标签页的季节 / 年份 / 重置独占一行，位于「本季番组」标题**下方**，标题与控件分成两行。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| EXPLORE-023 | 「本季」的季节 / 年份 / 重置位于「本季番组」标题行**下方**，独占一行、靠右 | 移入标题行右侧（与「本季番组」同一行、靠右）；标题行 `flex-wrap: wrap`，窄窗口时筛选组整体换到下一行并以 `margin-left: auto` 仍贴右 | 用户要求与「本季番组」对齐并放到右侧 | 探索 · 本季 | 无（纯前端布局） | 否 |
+| EXPLORE-023 | v1.1.2 原型里 `#seasonFilter` 位于 `.discover-head` 之下，独占一行 | 移入 `.discover-head` 内新增的 `.discover-head-right` 组（计数 + 季节 / 年份）；筛选隐藏时计数仍在最右，与改动前一致 | 设计稿与正式前端保持同一构图 | 探索（原型） | 无 | 否 |
+
+- 改动文件（正式前端）：`src/pages/ExplorePage.tsx`（`gnz-season-filter` 从 `<section>` 的独立一行移入 `.section-heading` 的右侧槽位，与「清除搜索」按钮互斥，仍只在 `tab === "seasonal" && searchTerm === null` 时渲染）、`src/explore.css`（`.gnz-season-filter` 去掉 `margin: 0 0 18px`；新增 `.gnz-explore-trending .section-heading { flex-wrap: wrap; gap: 10px 18px }` 与 `.gnz-explore-trending .gnz-season-filter { margin-left: auto }`）。
+- 改动文件（设计稿）：`design/open-design/v1.1.2/prototype/index.html`（`#seasonFilter` 移入新增的 `.discover-head-right`；新增 `.discover-head { flex-wrap: wrap }`、`.discover-head-right { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:flex-end; gap:12px 16px; margin-left:auto }`；`.season-filter` 的 `margin: 0 0 16px` 改为 `0`），并同步 `design-export/index.html` 与 Open Design 项目内 `v1.1.2/` 两份副本。
+- 语义未变：季节 / 年份仍只作用于「本季」（`全部季节` / `全部年份` 时按当前日期所在季节取值）；`aria-label="本季的季节与年份筛选"` 保留；「推荐」页不显示该控件。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
+- 视觉验收：未渲染 / 未截图（写入即交付），标题行对齐与窄窗口换行见 `SCREENSHOT_CHECKLIST.md` 待验行。

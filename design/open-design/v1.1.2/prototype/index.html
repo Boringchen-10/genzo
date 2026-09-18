@@ -514,9 +514,12 @@
     .filter-field { display:grid; gap:8px; }
     .filter-label { color:var(--quiet); font-size:12px; }
     .tag-row { display:flex; flex-wrap:wrap; gap:8px; }
-    /* 季节 / 年份只属于「本季」：靠右放在本季列表标题之下、作品网格之上 */
-    .season-filter { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:flex-end; gap:12px; margin:0 0 16px; }
+    /* 季节 / 年份只属于「本季」：与作品标题同一行、靠右 */
+    .season-filter { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:flex-end; gap:12px; margin:0; }
     .season-filter[hidden] { display:none; }
+    /* 右侧组（计数 + 季节 / 年份）整体贴右；筛选隐藏时计数仍在最右，与改动前一致 */
+    .discover-head { flex-wrap:wrap; }
+    .discover-head-right { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:flex-end; gap:12px 16px; margin-left:auto; }
     .filter-select { display:grid; gap:6px; }
     .filter-select > span { color:var(--quiet); font-size:12px; }
     .filter-select select { min-height:40px; padding:0 30px 0 12px; border:1px solid var(--line); border-radius:6px; background:rgba(var(--tint),.035); color:var(--text); }
@@ -809,11 +812,16 @@
         <div class="filter-field"><span class="filter-label">动漫标签</span><div class="tag-row" role="group" aria-label="按标签筛选" id="tagFilterRow"></div></div>
       </section>
       <section class="discover" aria-labelledby="discoverTitle">
-        <div class="discover-head"><h2 id="discoverTitle">推荐作品</h2><p id="discoverCount">6 部示例作品</p></div>
-        <div class="season-filter" id="seasonFilter" role="group" aria-label="本季季节与年份筛选" hidden>
-          <label class="filter-select"><span>季节</span><select id="monthFilter" aria-label="按季节筛选"></select></label>
-          <label class="filter-select"><span>年份</span><select id="yearFilter" aria-label="按年份筛选"></select></label>
-          <button class="ghost-button" id="seasonReset">重置</button>
+        <div class="discover-head">
+          <h2 id="discoverTitle">推荐作品</h2>
+          <div class="discover-head-right">
+            <p id="discoverCount">6 部示例作品</p>
+            <div class="season-filter" id="seasonFilter" role="group" aria-label="本季季节与年份筛选" hidden>
+              <label class="filter-select"><span>季节</span><select id="monthFilter" aria-label="按季节筛选"></select></label>
+              <label class="filter-select"><span>年份</span><select id="yearFilter" aria-label="按年份筛选"></select></label>
+              <button class="ghost-button" id="seasonReset">重置</button>
+            </div>
+          </div>
         </div>
         <div class="discover-grid" id="discoverGrid"></div>
       </section>
