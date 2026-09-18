@@ -372,3 +372,20 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1630 modules）。
 - 视觉验收：未渲染 / 未截图（写入即交付），首屏作品可见性与新页面观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：媒体源改为媒体库的中间标签页（2026-09-18）
+
+背景：上一版把媒体源与扫描放进独立页面 `/library/sources`（由页头「媒体源与扫描」按钮进入）。用户反馈「这个媒体源我觉得放到 媒体库和待整理中间比较好」，并以截图指出媒体库标签行的位置 —— 即媒体源应与媒体库、待整理**同级**，成为三者中间的标签页，而不是另一个页面。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| LIBRARY-004 | 媒体源为**独立页面** `/library/sources`，入口是媒体库页头的「媒体源与扫描」按钮 | 改为媒体库的**第三个标签页**，顺序为 **媒体库 / 媒体源 / 待整理**；`activeSection` 增加 `"sources"`，并支持 `?tab=sources` 深链（`HomePage` 两处「添加媒体源」改指 `/library?tab=sources`） | 用户要求媒体源放在媒体库与待整理之间；同级标签比跨页跳转更连贯 | 媒体库 · 媒体源 | 无（复用同一 `ScanPage`） | 否 |
+| LIBRARY-004 | `LibrarySourcesPage.tsx`（返回链接 + `PageHeader` + `<ScanPage />`）与其路由 | **删除**该页面与 `library/sources` 路由，并删除只为它存在的 `.sources-back` / `.page-library-sources` 样式 | 标签页已承载同一内容，保留独立页会出现第二个媒体源入口（与此前「消除扫描页重合」的决定一致） | 媒体库 · 媒体源 / 首页 | 无 | 否 |
+| LIBRARY-004 | 媒体库标签页的工具栏（搜索 / 类型 / 标签 / 排序 / 收藏 / 视图）与范围筛选、待整理说明行在**所有标签**下渲染 | **仅在有作品或待整理内容时渲染**：`媒体源` 标签下隐藏工具栏与范围筛选/说明行（媒体源分区自带「扫描全部 / 添加来源」操作） | 搜索与作品筛选对媒体源不适用，避免出现「控件在、点了没用」的误导 | 媒体库 · 媒体源 | 无 | 否 |
+
+- 改动文件：`src/pages/LibraryPage.tsx`（`activeSection` 增加 `"sources"` + 中间标签按钮 + `?tab=sources` 解析 + `<ScanPage />` 分支 + 工具栏条件渲染）、`src/pages/HomePage.tsx`（两处 `/library/sources` → `/library?tab=sources`）、`src/App.tsx`（移除 `library/sources` 路由与导入）、`src/v1-1-1.css`（删除 `.sources-back` 与 `.page-library-sources`）、删除 `src/pages/LibrarySourcesPage.tsx`。
+- 保留：媒体源分区的内容与状态（类型筛选 `全部 / 本地 / WebDAV(Future) / 网盘(Future)`、来源行、扫描/删除、上次扫描统计与错误、**扫描记录**表）不变；`ScanPage` 仍是唯一实现。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
+- 过程说明：本条修正落盘时，曾用 PowerShell 文本命令替换 `HomePage.tsx` 的链接，导致该文件编码被破坏（GBK 误读 + BOM）；已 `git restore` 该文件并用编辑器重做替换，最终 `git diff` 仅含两处链接变更。
+- 视觉验收：未渲染 / 未截图（写入即交付），标签顺序与媒体源标签下的观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
