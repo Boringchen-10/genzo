@@ -382,6 +382,14 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .tools-page .info-band { background: var(--surface); border-color: var(--line); }
 .tool-list { border-top: 1px solid var(--line); }
 .tool-icon { border-radius: 7px; }
+/* These list containers round their corners with overflow: hidden in styles.css,
+   which also clips the tooltips of the icon buttons inside them — the first row's
+   tooltip opens upward past the container's top edge and the right-most one's
+   crosses its right edge, so the text is cut off. The listed rows are transparent
+   (no hover background to clip), so the tooltips can safely escape. */
+.tools-page .tool-list,
+.scan-embedded .root-list,
+.detail-page .file-table { overflow: visible; }
 
 /* Settings drawer and overlays */
 /* The drawer overlays whatever page is open, so the page stays visible behind it.
