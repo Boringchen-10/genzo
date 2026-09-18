@@ -354,3 +354,21 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉验收：未渲染 / 未截图（写入即交付），接缝是否消失、模糊滑块是否生效见 `SCREENSHOT_CHECKLIST.md` 待验行。
+
+## 正式前端：媒体库以作品为主，媒体源与扫描记录移入独立界面（2026-09-18）
+
+背景：用户反馈「可以把下方的移到上方；媒体源和扫描记录放到媒体库新开的界面里面」。只读核对 `src/pages/LibraryPage.tsx`：`activeSection === "library"` 时先渲染 `<ScanPage embedded />`（媒体源列表 + 扫描记录表），再渲染工具栏与作品网格 —— 作品被压到页面最底部，首屏**看不到任何作品**；而「媒体源 / 扫描记录」与「媒体库」这一语义本身也重复。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| LIBRARY-002 | 媒体库标签页顺序为 媒体源 → 扫描记录 → 工具栏 → 范围筛选 → 作品网格/列表 | 改为**作品优先**：标签页 → 工具栏 → 范围筛选 → 作品网格/列表（`<ScanPage embedded />` 从标签页移除） | 用户要求「把下方的移到上方」；作品是媒体库的主要内容，应在首屏可见 | 媒体库 | 无 | 否 |
+| LIBRARY-003 | 媒体源与扫描记录内嵌在媒体库标签页顶部，与「媒体库」语义重叠 | 移入**独立界面** `/library/sources`：页头「媒体源与扫描」+「返回媒体库」链接 + 媒体源分区（含类型筛选、来源列表、扫描/校验）+ 扫描记录表；入口为媒体库页头新增的 **「媒体源与扫描」** 按钮（次要按钮，位于「新建作品」左侧） | 用户要求「媒体源和扫描记录放到媒体库新开的界面里面」 | 媒体库 · 媒体源与扫描 | 无（复用 `listRoots` / `listScanJobs` / `addRoot` / `updateRoot` / `deleteRoot` / `scanRoot`，无新增接口） | 否 |
+| LIBRARY-003 | `ScanPage` 带 `embedded` 参数：`false` 时渲染自己的页头「扫描目录 / 添加目录」；`/scan` 路由为独立页面 | `ScanPage` **只保留内嵌形态**（移除 `embedded` 参数与其独立页头分支），页面外壳由 `/library/sources` 提供；`/scan` 路由移除，`HomePage` 两处 `/scan` 链接改为 `/library/sources` | 避免出现「媒体源」的第二个入口（用户此前已要求消除扫描页与媒体库的重合） | 媒体库 · 媒体源与扫描 / 首页 | 无 | 否 |
+| LIBRARY-003 | 弹窗文案「添加扫描目录」/「删除扫描目录配置？」 | 统一为 **「添加媒体源」/「删除媒体源配置？」**（描述文案不变，仍明确「只删除 Genzo 中的记录，磁盘文件不会被删除/移动/修改」） | 与新的「媒体源」命名保持一致，避免同一个对象两套叫法 | 媒体库 · 媒体源与扫描 | 无 | 否 |
+
+- 改动文件：`src/pages/LibraryPage.tsx`（移除 `ScanPage` 引用与 `<ScanPage embedded />`；页头新增「媒体源与扫描」按钮 `navigate("/library/sources")`）、`src/pages/LibrarySourcesPage.tsx`（新增：返回链接 + `PageHeader` + `<ScanPage />`）、`src/pages/ScanPage.tsx`（移除 `embedded` 参数与独立页头分支，固定渲染 `scan-page scan-embedded`；弹窗文案改为媒体源）、`src/pages/HomePage.tsx`（两处 `/scan` → `/library/sources`）、`src/App.tsx`（新增 `library/sources` 路由，移除 `scan` 路由）、`src/v1-1-1.css`（新增 `.sources-back`、`.page-library-sources` 间距；`.gnz-library-tabs` `margin-bottom` 28px → 4px，因工具栏现在紧接标签页）。
+- 状态覆盖：媒体源分区原有的加载 / 错误 / 空（「尚未添加扫描目录」）/ 扫描中 / 扫描结果与错误列表；新页面在 1024×640 下靠 `.page` 常规留白与 `.page-actions` 换行规则自适应，无新增固定高度。
+- 未新增任何后端接口或字段；`WebDAV` / `网盘` 仍为 `Future` 禁用 + tooltip 不变。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1630 modules）。
+- 视觉验收：未渲染 / 未截图（写入即交付），首屏作品可见性与新页面观感见 `SCREENSHOT_CHECKLIST.md` 待验行。
