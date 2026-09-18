@@ -167,7 +167,7 @@ export function HomePage() {
           <div className="gnz-home-facts"><span>{featured ? mediaLabels[featured.type] : "本地媒体库"}</span><span>{featured ? `${featured.mediaCount} 个文件` : `${data.totalWorks} 部作品`}</span>{featured?.favorite ? <span>已收藏</span> : null}<span>本地高清</span></div>
           <div className="gnz-home-actions">
             {featured ? <Link className="button primary icon-text" to={`/library/${featured.id}`}><Play size={17} fill="currentColor" />继续查看</Link> : <Link className="button primary icon-text" to="/library"><Library size={17}/>打开媒体库</Link>}
-            {featured ? <Link className="button secondary" to={`/library/${featured.id}`}>作品详情</Link> : <Link className="button secondary" to="/scan">添加媒体源</Link>}
+            {featured ? <Link className="button secondary" to={`/library/${featured.id}`}>作品详情</Link> : <Link className="button secondary" to="/library/sources">添加媒体源</Link>}
             {featured?.favorite ? <span className="gnz-bookmarked" title="已收藏"><Bookmark size={17} fill="currentColor"/></span> : null}
           </div>
         </div>
@@ -175,7 +175,7 @@ export function HomePage() {
 
       <div className="gnz-home-switcher">
         <div className="gnz-switcher-head"><div><strong>切换到其他作品</strong><span>精选 · {carouselWorks.length} 部</span></div><div><IconButton tooltip="上一个作品" disabled={!carouselWorks.length} onClick={() => setFeaturedIndex((index) => (index - 1 + carouselWorks.length) % carouselWorks.length)}><ChevronLeft size={16}/></IconButton><IconButton tooltip="下一个作品" disabled={!carouselWorks.length} onClick={() => setFeaturedIndex((index) => (index + 1) % carouselWorks.length)}><ChevronRight size={16}/></IconButton></div></div>
-        {carouselWorks.length ? <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{mediaLabels[work.type]} · 本地</small></span></button>)}</div> : <EmptyState title="媒体库还是空的" description="添加扫描目录，或手动创建第一条作品记录。" action={<Link className="button primary" to="/scan">添加扫描目录</Link>} />}
+        {carouselWorks.length ? <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{mediaLabels[work.type]} · 本地</small></span></button>)}</div> : <EmptyState title="媒体库还是空的" description="添加扫描目录，或手动创建第一条作品记录。" action={<Link className="button primary" to="/library/sources">添加媒体源</Link>} />}
       </div>
       {works.length ? <section className="gnz-home-shelf">
         <div className="section-heading"><div><h2>我的书架</h2><span>{shelfFilter === "all" ? `${data.totalWorks} 部作品` : `${shelfWorks.length} 部作品`}</span></div><Link to="/library">查看全部</Link></div>

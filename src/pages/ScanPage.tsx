@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, FolderOpen, Plus, RefreshCw, ScanSearch, Trash2 } from "lucide-react";
 import { dataProvider as api } from "../data";
-import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, PageHeader } from "../components/common";
+import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal } from "../components/common";
 import { useToasts } from "../store";
 import type { LibraryRoot, RootKind, ScanResult } from "../types";
 import { formatDate, getErrorMessage, rootKindLabels } from "../utils";
 
-export function ScanPage({ embedded = false }: { embedded?: boolean }) {
+export function ScanPage() {
   const toast = useToasts((state) => state.push);
   const [roots, setRoots] = useState<LibraryRoot[]>([]);
   const [jobs, setJobs] = useState<ScanResult[]>([]);
@@ -111,13 +111,9 @@ export function ScanPage({ embedded = false }: { embedded?: boolean }) {
   };
 
   return (
-    <div className={embedded ? "scan-page scan-embedded" : "page workspace-page scan-page"}>
-      {!embedded ? <PageHeader
-        title="扫描目录"
-        description="扫描只读取文件路径、大小和修改时间，不会改动媒体文件"
-        actions={<><button type="button" className="button secondary icon-text" disabled={scanningId !== null || !roots.some((root) => root.enabled)} onClick={() => void scanAll()}><ScanSearch size={17} />扫描全部</button><button type="button" className="button primary icon-text" onClick={() => void chooseDirectory()}><Plus size={17} />添加目录</button></>}
-      /> : <div className="section-heading gnz-source-heading"><div><h2>媒体源</h2><span>管理本地文件夹；WebDAV 与网盘将在后续版本开放。</span></div><div className="page-actions"><button type="button" className="button secondary icon-text" disabled={scanningId !== null || !roots.some((root) => root.enabled)} onClick={() => void scanAll()}><ScanSearch size={17} />扫描全部</button><button type="button" className="button primary icon-text" onClick={() => void chooseDirectory()}><Plus size={17} />添加来源</button></div></div>}
-      {embedded ? <div className="gnz-source-type-tabs"><button type="button" className="active">全部</button><button type="button">本地</button><button type="button" disabled title="Future：WebDAV 后端尚未开放">WebDAV <span>Future</span></button><button type="button" disabled title="Future：网盘后端尚未开放">网盘 <span>Future</span></button></div> : null}
+    <div className="scan-page scan-embedded">
+      <div className="section-heading gnz-source-heading"><div><h2>媒体源</h2><span>管理本地文件夹；WebDAV 与网盘将在后续版本开放。</span></div><div className="page-actions"><button type="button" className="button secondary icon-text" disabled={scanningId !== null || !roots.some((root) => root.enabled)} onClick={() => void scanAll()}><ScanSearch size={17} />扫描全部</button><button type="button" className="button primary icon-text" onClick={() => void chooseDirectory()}><Plus size={17} />添加来源</button></div></div>
+      <div className="gnz-source-type-tabs"><button type="button" className="active">全部</button><button type="button">本地</button><button type="button" disabled title="Future：WebDAV 后端尚未开放">WebDAV <span>Future</span></button><button type="button" disabled title="Future：网盘后端尚未开放">网盘 <span>Future</span></button></div>
       {loading ? <LoadingState label="正在读取扫描目录" /> : null}
       {!loading && error ? <ErrorState message={error} retry={() => void load()} /> : null}
       {!loading && !error && roots.length === 0 ? (
@@ -163,8 +159,8 @@ export function ScanPage({ embedded = false }: { embedded?: boolean }) {
         </section>
       ) : null}
 
-      {showAdd ? <Modal title="添加扫描目录" width="small" onClose={() => setShowAdd(false)}><div className="form-grid"><div className="field span-2"><span>本地目录</span><div className="readonly-path">{selectedPath}</div></div><label className="field span-2"><span>目录类型</span><select value={rootKind} onChange={(e) => setRootKind(e.target.value as RootKind)}>{(Object.keys(rootKindLabels) as RootKind[]).map((kind) => <option key={kind} value={kind}>{rootKindLabels[kind]}</option>)}</select></label><p className="field-hint span-2">自动识别和混合目录会记录无法分类的文件为“其他”；指定类型的目录只导入该类型。</p><div className="form-actions span-2"><button type="button" className="button secondary" onClick={() => setShowAdd(false)}>取消</button><button type="button" className="button primary" disabled={saving} onClick={() => void addRoot()}>{saving ? "正在添加…" : "添加并扫描"}</button></div></div></Modal> : null}
-      {deleting ? <ConfirmDialog title="删除扫描目录配置？" description="这只会删除 Genzo 中的目录配置。磁盘上的文件不会被删除、移动或修改；已经扫描到的文件记录也会保留。" busy={saving} onCancel={() => setDeleting(null)} onConfirm={() => void deleteRoot()} /> : null}
+      {showAdd ? <Modal title="添加媒体源" width="small" onClose={() => setShowAdd(false)}><div className="form-grid"><div className="field span-2"><span>本地目录</span><div className="readonly-path">{selectedPath}</div></div><label className="field span-2"><span>目录类型</span><select value={rootKind} onChange={(e) => setRootKind(e.target.value as RootKind)}>{(Object.keys(rootKindLabels) as RootKind[]).map((kind) => <option key={kind} value={kind}>{rootKindLabels[kind]}</option>)}</select></label><p className="field-hint span-2">自动识别和混合目录会记录无法分类的文件为“其他”；指定类型的目录只导入该类型。</p><div className="form-actions span-2"><button type="button" className="button secondary" onClick={() => setShowAdd(false)}>取消</button><button type="button" className="button primary" disabled={saving} onClick={() => void addRoot()}>{saving ? "正在添加…" : "添加并扫描"}</button></div></div></Modal> : null}
+      {deleting ? <ConfirmDialog title="删除媒体源配置？" description="这只会删除 Genzo 中的目录配置。磁盘上的文件不会被删除、移动或修改；已经扫描到的文件记录也会保留。" busy={saving} onCancel={() => setDeleting(null)} onConfirm={() => void deleteRoot()} /> : null}
     </div>
   );
 }

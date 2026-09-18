@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
+import { ChevronDown, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, ScanSearch, Search, Sparkles, Star } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { dataProvider as api } from "../data";
 import { EmptyState, ErrorState, LoadingState, Modal, PageHeader } from "../components/common";
@@ -7,7 +7,6 @@ import { MediaVisual } from "../components/MediaVisual";
 import { WorkCard } from "../components/WorkCard";
 import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
-import { ScanPage } from "./ScanPage";
 import { usePreferences, useToasts } from "../store";
 import type { MediaType, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, unassignedStatusRank } from "../utils";
@@ -173,13 +172,12 @@ export function LibraryPage() {
       <PageHeader
         title="媒体库"
         description={`${works.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
-        actions={activeSection === "inbox" ? <button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button> : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
+        actions={activeSection === "inbox" ? <button type="button" className="button secondary icon-text" disabled={batchRecognizing || !unassignedGroups.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button> : <><button type="button" className="button secondary icon-text" onClick={() => navigate("/library/sources")}><ScanSearch size={17} />媒体源与扫描</button><button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button></>}
       />
       <div className="gnz-primary-tabs gnz-library-tabs" role="tablist" aria-label="媒体库页面">
         <button type="button" role="tab" aria-selected={activeSection === "library"} className={activeSection === "library" ? "active" : ""} onClick={() => setActiveSection("library")}>媒体库</button>
         <button type="button" role="tab" aria-selected={activeSection === "inbox"} className={activeSection === "inbox" ? "active" : ""} onClick={() => setActiveSection("inbox")}>待整理{unassignedGroups.length ? <span className="tab-count">{unassignedGroups.length}</span> : null}</button>
       </div>
-      {activeSection === "library" ? <ScanPage embedded /> : null}
       <div className="library-toolbar">
         <div className="search-box">
           <Search size={17} />

@@ -218,7 +218,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 /* Library and sources */
 .page-library .page-header { margin-bottom: 6px; }
-.gnz-library-tabs { margin-bottom: 28px; }
+.gnz-library-tabs { margin-bottom: 4px; }
+.page-library-sources .page-header { margin-bottom: 26px; }
+.sources-back { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 8px; padding: 5px 0; color: var(--muted); font-size: 11px; text-decoration: none; }
+.sources-back:hover { color: var(--text); }
 .scan-embedded { margin-bottom: 38px; }
 .gnz-source-heading { align-items: flex-end; margin-bottom: 16px; }
 .gnz-source-heading h2 { font-size: 30px; }
