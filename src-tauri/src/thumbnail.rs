@@ -1,6 +1,47 @@
 use crate::error::{AppError, AppResult};
 use std::path::Path;
 
+/// Only visible cards request extraction. Hold the permit inside the blocking
+/// task: timing out the caller must not allow unlimited stuck Shell handlers.
+pub async fn extract_on_demand(
+    source: std::path::PathBuf,
+    destination: std::path::PathBuf,
+) -> AppResult<Option<bool>> {
+    use std::sync::{Arc, OnceLock};
+    use std::time::Duration;
+    static SLOTS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+    let slots = SLOTS
+        .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(2)))
+        .clone();
+    let Ok(Ok(permit)) = tokio::time::timeout(Duration::from_secs(20), slots.acquire_owned()).await
+    else {
+        return Ok(None);
+    };
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        extract_video_thumbnail(&source, &destination)
+    });
+    match tokio::time::timeout(Duration::from_secs(20), task).await {
+        Ok(Ok(result)) => result.map(Some),
+        Ok(Err(error)) => Err(AppError::System(format!("视频缩略图任务失败：{error}"))),
+        Err(_) => Ok(None),
+    }
+}
+
+fn shell_thumbnail_path(path: &Path) -> std::path::PathBuf {
+    let value = path.to_string_lossy();
+    if value
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(r"\\?\UNC\"))
+    {
+        std::path::PathBuf::from(format!(r"\\{}", &value[8..]))
+    } else if value.starts_with(r"\\?\") && value.as_bytes().get(5) == Some(&b':') {
+        std::path::PathBuf::from(&value[4..])
+    } else {
+        path.to_path_buf()
+    }
+}
+
 #[cfg(windows)]
 pub fn extract_video_thumbnail(source: &Path, destination: &Path) -> AppResult<bool> {
     use std::os::windows::ffi::OsStrExt;
@@ -19,7 +60,8 @@ pub fn extract_video_thumbnail(source: &Path, destination: &Path) -> AppResult<b
     if !source.is_file() {
         return Ok(false);
     }
-    let mut wide = source.as_os_str().encode_wide().collect::<Vec<_>>();
+    let shell_path = shell_thumbnail_path(source);
+    let mut wide = shell_path.as_os_str().encode_wide().collect::<Vec<_>>();
     wide.push(0);
     let initialize = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
     let should_uninitialize = initialize.is_ok();
@@ -197,6 +239,22 @@ pub fn extract_video_thumbnail(_source: &Path, _destination: &Path) -> AppResult
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn converts_extended_paths_only_for_shell_thumbnail_boundary() {
+        assert_eq!(
+            shell_thumbnail_path(Path::new(r"\\?\UNC\server\share\01.mkv")),
+            Path::new(r"\\server\share\01.mkv")
+        );
+        assert_eq!(
+            shell_thumbnail_path(Path::new(r"\\?\R:\Anime\01.mkv")),
+            Path::new(r"R:\Anime\01.mkv")
+        );
+        assert_eq!(
+            shell_thumbnail_path(Path::new(r"R:\Anime\01.mkv")),
+            Path::new(r"R:\Anime\01.mkv")
+        );
+    }
 
     #[test]
     #[ignore = "requires GENZO_THUMBNAIL_TEST_FILE pointing to a local video"]

@@ -111,6 +111,50 @@ mod tests {
     use chrono::Utc;
 
     #[tokio::test]
+    async fn placeholder_migration_removes_only_unlinked_official_duplicates() {
+        let pool = test_pool().await.unwrap();
+        sqlx::query("INSERT INTO works(id,title,type,created_at,updated_at) VALUES ('w','OAD','video','now','now')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO work_external_ids(work_id,provider,external_id,created_at,updated_at) VALUES ('w','bangumi','1','now','now')").execute(&pool).await.unwrap();
+        for number in 0..12 {
+            for (provider, id) in [
+                ("bangumi", format!("official-{number}")),
+                ("local", format!("local/unverified:s1:OAD:{number}")),
+            ] {
+                sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,sort_number,description,fetched_at) VALUES ('w',?,?,?,?, 'local/unverified','now')")
+                    .bind(provider).bind(id).bind(number).bind(number).execute(&pool).await.unwrap();
+            }
+        }
+        sqlx::query("INSERT INTO media_files(id,work_id,path,file_name,extension,media_type,created_at,updated_at) VALUES ('m','w','R:\\OAD\\01.mkv','OAD 01.mkv','mkv','video','now','now')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO media_episode_links(media_file_id,work_id,provider,episode_external_id,match_method,confidence,updated_at) VALUES ('m','w','local','local/unverified:s1:OAD:1','manual',1,'now')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,sort_number,description,fetched_at) VALUES ('w','local','local/unverified:s1:OAD:99',99,99,'local/unverified','now')").execute(&pool).await.unwrap();
+        let migration = include_str!("../migrations/0011_remove_unlinked_episode_placeholders.sql");
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap(); // idempotent repair
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM anime_episodes WHERE work_id='w'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 14); // 12 official + linked local + unmatched local
+        let structure = crate::anime_details::work_structure(&pool, "w")
+            .await
+            .unwrap();
+        assert!(structure
+            .episodes
+            .iter()
+            .any(|ep| ep.episode.provider == "local"
+                && ep.local_files.iter().any(|file| file.id == "m")));
+        assert_eq!(
+            structure
+                .episodes
+                .iter()
+                .filter(|ep| ep.episode.provider == "bangumi")
+                .count(),
+            12
+        );
+    }
+
+    #[tokio::test]
     async fn backfills_existing_work_from_explore_banner_cache() {
         let pool = test_pool().await.expect("test pool");
         let directory = tempfile::tempdir().expect("cache directory");

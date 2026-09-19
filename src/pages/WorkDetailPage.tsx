@@ -72,39 +72,49 @@ const episodeLabel = (episode: AnimeEpisodeEntry): string => {
 function LocalFileThumb({ file, provider, className = "local-file-thumb" }: { file: MediaFile; provider: GenzoAnimeDetailProvider | null; className?: string }) {
   const holder = useRef<HTMLSpanElement>(null);
   const requested = useRef(false);
-  const [thumb, setThumb] = useState<string | null>(file.thumbnailPath ?? null);
+  const cachedThumb = file.thumbnailPath?.includes("__unsupported__") ? null : file.thumbnailPath ?? null;
+  const [thumb, setThumb] = useState<string | null>(cachedThumb);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    setThumb(file.thumbnailPath ?? null);
+    setThumb(cachedThumb);
+    setFailed(false);
     requested.current = false;
-  }, [file.id, file.thumbnailPath]);
+  }, [file.id, cachedThumb]);
 
   useEffect(() => {
     if (thumb || requested.current || !provider) return;
     const node = holder.current;
     if (!node) return;
+    let disposed = false;
+    let completed = false;
     const request = async () => {
       if (requested.current) return;
       requested.current = true;
       try {
-        setThumb(await provider.getMediaThumbnail(file.id));
+        const result = await provider.getMediaThumbnail(file.id);
+        completed = true;
+        if (!disposed) { setThumb(result); setFailed(!result); }
       } catch {
-        setThumb(null);
+        completed = true;
+        if (!disposed) { setThumb(null); setFailed(true); }
       }
     };
-    if (typeof IntersectionObserver === "undefined") { void request(); return; }
+    if (typeof IntersectionObserver === "undefined") { void request(); return () => { disposed = true; if (!completed) requested.current = false; }; }
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) { observer.disconnect(); void request(); }
     }, { rootMargin: "160px" });
     observer.observe(node);
-    return () => observer.disconnect();
-  }, [file.id, provider, thumb]);
+    return () => { disposed = true; if (!completed) requested.current = false; observer.disconnect(); };
+  }, [file.id, provider, thumb, retry]);
 
   return (
     <span className={className} ref={holder}>
       {thumb
-        ? <img src={thumb} alt="" loading="lazy" onError={() => setThumb(null)} />
+        ? <img src={thumb} alt="" loading="lazy" onError={() => { setThumb(null); setFailed(true); }} />
         : <MediaVisual type={file.mediaType} coverPath={null} alt="无视频缩略图" />}
+      {!thumb && failed && provider ? <button type="button" className="thumbnail-retry" aria-label={`重试 ${file.fileName} 的缩略图`} onClick={() => { requested.current = false; setFailed(false); setRetry((value) => value + 1); }}>重试缩略图</button> : null}
     </span>
   );
 }
@@ -583,7 +593,9 @@ export function WorkDetailPage() {
                   ) : (
                     <div className="official-episodes">
                       {officialEpisodes.map((episode) => {
-                        const snapshotFile = episode.localFiles[0] ?? null;
+                        const snapshotFile = episode.localFiles.find((file) => file.thumbnailPath && !file.thumbnailPath.includes("__unsupported__"))
+                          ?? episode.localFiles.find((file) => !file.missing)
+                          ?? episode.localFiles[0] ?? null;
                         return (
                           <article className="official-episode" key={episode.externalId}>
                             <div className="episode-snapshot">

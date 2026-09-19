@@ -192,7 +192,7 @@ pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<Anime
         warnings.push("尚未缓存官方分集，请先刷新作品元数据".to_string());
     }
     let linked = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT media_file_id, episode_external_id, match_method FROM media_episode_links WHERE work_id = ? AND provider = 'bangumi'",
+        "SELECT media_file_id, episode_external_id, match_method FROM media_episode_links WHERE work_id = ? AND provider IN ('bangumi', 'local')",
     )
     .bind(work_id)
     .fetch_all(pool)
@@ -300,53 +300,81 @@ pub async fn media_thumbnail(
     app: &AppHandle,
     media_file_id: &str,
 ) -> AppResult<Option<String>> {
-    let (path, media_type, missing, cached): (String, String, bool, Option<String>) =
+    let result = media_thumbnail_path(state, media_file_id).await?;
+    if let Some(path) = &result {
+        db::allow_cover_file(app, Path::new(path))?;
+    }
+    Ok(result)
+}
+
+async fn media_thumbnail_path(state: &AppState, media_file_id: &str) -> AppResult<Option<String>> {
+    media_thumbnail_with(state, media_file_id, crate::thumbnail::extract_on_demand).await
+}
+
+async fn media_thumbnail_with<F, Fut>(
+    state: &AppState,
+    media_file_id: &str,
+    extract: F,
+) -> AppResult<Option<String>>
+where
+    F: FnOnce(PathBuf, PathBuf) -> Fut,
+    Fut: Future<Output = AppResult<Option<bool>>>,
+{
+    let (path, media_type, missing, cached, modified_at): (String, String, bool, Option<String>, Option<String>) =
         sqlx::query_as(
-            "SELECT path, media_type, missing, thumbnail_path FROM media_files WHERE id = ?",
+            "SELECT path, media_type, missing, thumbnail_path, modified_at FROM media_files WHERE id = ?",
         )
         .bind(media_file_id)
         .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("媒体文件不存在".to_string()))?;
-    let network_source: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media_files m JOIN library_roots r ON r.id=m.library_root_id WHERE m.id=? AND r.source_type IN ('mounted','webdav'))")
-        .bind(media_file_id).fetch_one(&state.pool).await?;
-    if media_type != "video" || missing || network_source || path.starts_with("webdav://") {
+    if media_type != "video" {
         return Ok(None);
     }
-    if let Some(cached) = cached {
-        if cached == "__unsupported__" {
-            return Ok(None);
-        }
-        if Path::new(&cached).is_file() {
-            db::allow_cover_file(app, Path::new(&cached))?;
-            return Ok(Some(cached));
+    // Cached snapshots remain useful when a mount is disconnected or its file
+    // is unavailable. Check app-local cache before testing source availability.
+    if let Some(cached) = cached
+        .as_deref()
+        .filter(|value| *value != "__unsupported__")
+    {
+        if Path::new(cached).is_file() {
+            return Ok(Some(cached.to_string()));
         }
     }
-    let source = PathBuf::from(path);
+    let mounted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media_files m JOIN library_roots r ON r.id=m.library_root_id WHERE m.id=? AND r.source_type='mounted')")
+        .bind(media_file_id).fetch_one(&state.pool).await?;
+    if missing || path.starts_with("webdav://") {
+        return Ok(None);
+    }
+    // A mount failure must not become a permanent negative cache entry.
+    if !mounted && cached.as_deref() == Some("__unsupported__") {
+        return Ok(None);
+    }
+    let source = PathBuf::from(&path);
     let destination = state
         .thumbnail_cache_path
         .join(format!("media-{media_file_id}.jpg"));
-    let source_for_task = source.clone();
-    let destination_for_task = destination.clone();
-    let created = tauri::async_runtime::spawn_blocking(move || {
-        crate::thumbnail::extract_video_thumbnail(&source_for_task, &destination_for_task)
-    })
-    .await
-    .map_err(|error| AppError::System(format!("视频缩略图任务失败：{error}")))??;
+    let Some(created) = extract(source, destination.clone()).await? else {
+        return Ok(None);
+    };
     if !created {
-        sqlx::query("UPDATE media_files SET thumbnail_path = '__unsupported__' WHERE id = ?")
-            .bind(media_file_id)
-            .execute(&state.pool)
-            .await?;
+        if !mounted {
+            sqlx::query("UPDATE media_files SET thumbnail_path = '__unsupported__' WHERE id = ? AND path = ? AND modified_at IS ?")
+                .bind(media_file_id).bind(&path).bind(&modified_at)
+                .execute(&state.pool).await?;
+        }
         return Ok(None);
     }
     let stored = destination.to_string_lossy().to_string();
-    sqlx::query("UPDATE media_files SET thumbnail_path = ? WHERE id = ?")
-        .bind(&stored)
-        .bind(media_file_id)
-        .execute(&state.pool)
-        .await?;
-    db::allow_cover_file(app, &destination)?;
+    sqlx::query(
+        "UPDATE media_files SET thumbnail_path = ? WHERE id = ? AND path = ? AND modified_at IS ?",
+    )
+    .bind(&stored)
+    .bind(media_file_id)
+    .bind(&path)
+    .bind(&modified_at)
+    .execute(&state.pool)
+    .await?;
     Ok(Some(stored))
 }
 
@@ -399,6 +427,52 @@ where
 mod tests {
     use super::*;
     use crate::db;
+
+    #[tokio::test]
+    async fn mounted_thumbnails_retry_and_use_cache_while_offline() {
+        let pool = db::test_pool().await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let state = AppState {
+            pool,
+            database_path: directory.path().join("test.db"),
+            data_directory: directory.path().into(),
+            cover_cache_path: directory.path().join("covers"),
+            thumbnail_cache_path: directory.path().join("thumbnails"),
+        };
+        sqlx::query("INSERT INTO library_roots(id,path,kind,source_type,created_at,updated_at) VALUES ('r','R:\\Anime','video','mounted','now','now')").execute(&state.pool).await.unwrap();
+        let raw = r"\\?\UNC\server\share\01.mkv";
+        sqlx::query("INSERT INTO media_files(id,library_root_id,path,file_name,extension,media_type,thumbnail_path,created_at,updated_at) VALUES ('m','r',?,'01.mkv','mkv','video','__unsupported__','now','now')").bind(raw).execute(&state.pool).await.unwrap();
+        let failed = media_thumbnail_with(&state, "m", |source, _| async move {
+            assert_eq!(source, Path::new(raw)); // original persisted path reaches the boundary
+            Ok(Some(false))
+        })
+        .await
+        .unwrap();
+        assert!(failed.is_none());
+        let image = media_thumbnail_with(&state, "m", |_, destination| async move {
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            image::RgbImage::new(160, 90).save(&destination).unwrap();
+            Ok(Some(true))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        sqlx::query("UPDATE media_files SET missing=1")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        let cached = media_thumbnail_with(&state, "m", |_, _| async {
+            panic!("cached image must not touch the disconnected mount")
+        })
+        .await
+        .unwrap();
+        assert_eq!(cached, Some(image));
+        let stored: String = sqlx::query_scalar("SELECT path FROM media_files WHERE id='m'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        assert_eq!(stored, raw);
+    }
 
     #[tokio::test]
     async fn mixed_installments_do_not_share_automatic_episode_links() {
