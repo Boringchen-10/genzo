@@ -3,7 +3,6 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 #[derive(Clone)]
@@ -33,10 +32,6 @@ pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
     let options = SqliteConnectOptions::from_str(&database_url)?
         .create_if_missing(true)
         .foreign_keys(true)
-        // A scan, thumbnail cache update and manual episode mapping can briefly
-        // overlap. WAL permits readers, and this waits for the single writer
-        // instead of surfacing SQLite's transient "database is locked" error.
-        .busy_timeout(Duration::from_secs(8))
         .journal_mode(SqliteJournalMode::Wal);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)

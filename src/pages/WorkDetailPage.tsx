@@ -59,7 +59,6 @@ const episodeNumber = (episode: AnimeEpisodeEntry): number => episode.episodeNum
 
 /** 有标题时显示「第 N 集 · 标题」，没有标题时只显示「第 N 集」，不虚构标题。 */
 const episodeLabel = (episode: AnimeEpisodeEntry): string => {
-  if (episode.provider === "local") return episode.title;
   const number = episodeNumber(episode);
   return episode.title.trim() ? `第 ${number} 集 · ${episode.title}` : `第 ${number} 集`;
 };
@@ -567,7 +566,6 @@ export function WorkDetailPage() {
               {detailProvider === null && work.type === "video" ? (
                 <p className="quiet-inline">当前运行环境未提供官方分集结构（Provider 未实现该方法），下面显示已关联的文件。</p>
               ) : null}
-              {structure?.warnings.length ? <p className="quiet-inline" role="status">{structure.warnings.join("；")}</p> : null}
               {structureError ? (
                 <p className="gnz-inline-error" role="alert">读取分集结构失败：{structureError}。下面显示已关联的文件。</p>
               ) : null}
@@ -682,10 +680,10 @@ export function WorkDetailPage() {
                               <small title={file.path}>{file.path}</small>
                             </div>
                             {file.missing ? (
-                              <span className="warning-text unmatched-state" data-tooltip="暂时无法访问文件，仍可手动关联分集">
+                              <span className="warning-text unmatched-state" data-tooltip="这条记录指向的路径已不存在，文件不在磁盘上，因此不能关联到分集">
                                 <AlertTriangle size={13} />路径已失效
                               </span>
-                            ) : null}
+                            ) : (
                               <>
                                 <button type="button" className="button compact secondary" onClick={() => setRecognizingMedia(file)}>识别到其他作品</button>
                                 <label className="field unmatched-map">
@@ -708,6 +706,7 @@ export function WorkDetailPage() {
                                   {mappingBusy === file.id ? "关联中…" : "关联"}
                                 </button>
                               </>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -723,11 +722,7 @@ export function WorkDetailPage() {
                     const subtitleCount = work.subtitleLinks.filter((link) => link.videoMediaFileId === file.id).length;
                     return (
                       <article className="file-row detail-file-card" key={file.id}>
-                        <div className="detail-file-visual">
-                          {file.mediaType === "video"
-                            ? <LocalFileThumb file={file} provider={detailProvider} className="detail-file-thumb" />
-                            : <MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" />}
-                        </div>
+                        <div className="detail-file-visual"><MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" /></div>
                         <div className="file-name"><strong title={file.fileName}>{file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.fileName}</strong><small title={file.path}>{file.fileName}</small></div>
                         <div className="episode-card-meta">{mediaLabels[file.mediaType]} · {formatSize(file.size)}{subtitleCount ? ` · ${subtitleCount} 个字幕` : ""}</div>
                         <div className={file.missing ? "warning-text file-availability" : "available-text file-availability"}>{file.missing ? <><AlertTriangle size={13} />文件缺失</> : file.path.startsWith("webdav://") ? "远程文件" : "本地可用"}</div>
@@ -840,6 +835,7 @@ export function WorkDetailPage() {
                   {hasStructure ? "当前元数据没有返回制作人员与角色。" : "当前运行环境未提供动画详情结构，因此这里没有制作人员与角色数据。"}
                 </div>
               )}
+              {hasStructure && structure?.warnings.length ? <p className="quiet-inline credits-note">{structure.warnings.join("；")}</p> : null}
             </section>
           </main>
 

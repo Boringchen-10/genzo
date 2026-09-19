@@ -9,24 +9,9 @@ pub struct TemplateContext<'a> {
     pub title: &'a str,
 }
 
-// ShellExecute and many external players do not accept Win32 extended paths.
-// Keep this conversion at the launcher boundary; never write it back to storage.
-pub fn launch_path(path: &str) -> String {
-    if path
-        .get(..8)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(r"\\?\UNC\"))
-    {
-        format!(r"\\{}", &path[8..])
-    } else if path.starts_with(r"\\?\") && path.as_bytes().get(5) == Some(&b':') {
-        path[4..].to_string()
-    } else {
-        path.to_string()
-    }
-}
-
 pub fn expand_arguments(template: &str, context: &TemplateContext<'_>) -> AppResult<Vec<String>> {
     if template.trim().is_empty() {
-        return Ok(vec![launch_path(context.file)]);
+        return Ok(vec![context.file.to_string()]);
     }
 
     let mut arguments = Vec::new();
@@ -73,8 +58,8 @@ pub fn expand_arguments(template: &str, context: &TemplateContext<'_>) -> AppRes
 
 fn replace_placeholders(value: &str, context: &TemplateContext<'_>) -> String {
     value
-        .replace("{file}", &launch_path(context.file))
-        .replace("{folder}", &launch_path(context.folder))
+        .replace("{file}", context.file)
+        .replace("{folder}", context.folder)
         .replace("{title}", context.title)
 }
 
@@ -83,15 +68,14 @@ pub fn launch_executable(
     arguments: &[String],
     working_directory: Option<&str>,
 ) -> AppResult<()> {
-    let executable_path = launch_path(executable_path);
-    let executable = Path::new(&executable_path);
+    let executable = Path::new(executable_path);
     if !executable.is_file() {
         return Err(AppError::PathNotFound(executable.to_path_buf()));
     }
     let mut command = Command::new(executable);
-    command.args(arguments.iter().map(|argument| launch_path(argument)));
+    command.args(arguments);
     if let Some(directory) = working_directory.filter(|value| !value.trim().is_empty()) {
-        command.current_dir(launch_path(directory));
+        command.current_dir(directory);
     }
     command
         .spawn()
@@ -149,7 +133,7 @@ fn shell_open(path: &Path) -> AppResult<()> {
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
     let operation = HSTRING::from("open");
-    let target = HSTRING::from(launch_path(&path.to_string_lossy()));
+    let target = HSTRING::from(path.as_os_str());
     let result = unsafe {
         ShellExecuteW(
             None,
@@ -188,36 +172,6 @@ pub fn parent_folder(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn launcher_normalizes_extended_paths_without_changing_urls_or_titles() {
-        assert_eq!(
-            launch_path(r"\\?\UNC\server\share\动画\01.mkv"),
-            r"\\server\share\动画\01.mkv"
-        );
-        assert_eq!(launch_path(r"\\?\C:\Anime\01.mkv"), r"C:\Anime\01.mkv");
-        assert_eq!(
-            launch_path("https://host/a%20b.mkv"),
-            "https://host/a%20b.mkv"
-        );
-        let context = TemplateContext {
-            file: r"\\?\UNC\server\share\01.mkv",
-            folder: r"\\?\UNC\server\share",
-            title: r"\\?\C:\title",
-        };
-        assert_eq!(
-            expand_arguments(r#"--file="{file}" "{folder}" "{title}""#, &context).unwrap(),
-            vec![
-                r"--file=\\server\share\01.mkv",
-                r"\\server\share",
-                r"\\?\C:\title"
-            ]
-        );
-        assert_eq!(
-            expand_arguments("", &context).unwrap(),
-            vec![r"\\server\share\01.mkv"]
-        );
-    }
 
     #[test]
     fn expands_template_to_structured_arguments() {

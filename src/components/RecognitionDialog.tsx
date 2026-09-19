@@ -31,8 +31,7 @@ export function RecognitionDialog({ media, initialCandidates = [], onClose, onMa
       const result = await api.recognizeMedia(media.id, manual ? query : null);
       setCandidates(result.candidates);
       if (result.status === "matched") {
-        onChanged?.();
-        if (result.error) setError(result.error); else onClose();
+        onChanged?.(); onClose();
       } else if (result.error) setError(result.error);
       else if (!result.candidates.length) setError("未找到足够相似的候选，请换一个关键词或手动创建作品。");
       onChanged?.();

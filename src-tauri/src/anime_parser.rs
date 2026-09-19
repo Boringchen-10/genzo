@@ -100,17 +100,6 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
         ..Default::default()
     };
     parse_numeric_episode(raw, &mut parsed);
-    let special = regex::Regex::new(
-        r"(?i)(?:^|[^a-z0-9])(NCED|NCOP|OVA|OAD|SP|SPECIAL)(?:[0-9]|[^a-z0-9]|$)",
-    )
-    .expect("static regex");
-    if let Some(caps) = special.captures(raw) {
-        parsed.special_type = Some(caps[1].to_uppercase());
-    }
-    let bracket_episode = regex::Regex::new(r"[\[【](\d{1,3})[\]】]").expect("static regex");
-    if let Some(caps) = bracket_episode.captures(raw) {
-        set_episode_range(&mut parsed, caps[1].parse().ok(), None);
-    }
     let mut text = raw
         .replace(['_', '.'], " ")
         .replace('【', "[")
@@ -241,11 +230,6 @@ pub fn parse_work_folder(file_path: &Path, library_root: Option<&Path>) -> Parse
     let mut fallback = ParsedAnime::default();
     let mut season = None;
     let mut special_type = None;
-    let original = file_path.to_string_lossy();
-    let relative = library_root
-        .and_then(|root| crate::media_path::relative(&original, &root.to_string_lossy()));
-    let normalized = relative.unwrap_or_else(|| crate::media_path::normalized(&original));
-    let file_path = Path::new(&normalized);
     for directory in file_path.ancestors().skip(1) {
         let Some(name) = directory.file_name().and_then(|value| value.to_str()) else {
             continue;
@@ -307,7 +291,7 @@ pub fn preprocess_folder_name(value: &str) -> String {
 
 fn is_division_folder(value: &str) -> bool {
     regex::Regex::new(
-        r"(?i)^(?:season\s*\d{0,2}|s\d{1,2}|第[一二三四五六七八九十\d]+季|vol\.?\s*\d+|bd|dvd|disc\s*\d*|sp|ncop|nced|ova|oad|特别篇|劇場版|剧场版|特典|video|videos|subtitle|subtitles|视频|字幕)$",
+        r"(?i)^(?:season\s*\d{0,2}|s\d{1,2}|第[一二三四五六七八九十\d]+季|vol\.?\s*\d+|bd|dvd|disc\s*\d*|sp|ova|oad|特别篇|劇場版|剧场版|特典|video|videos|subtitle|subtitles|视频|字幕)$",
     )
     .expect("static regex")
     .is_match(value.trim())
@@ -450,44 +434,6 @@ pub fn score_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn mounted_and_webdav_relative_episode_evidence() {
-        for number in 1..=24 {
-            let name = format!("[Group] Show [{number:02}][1080p].mkv");
-            let parsed = parse_media_path(
-                &name,
-                Path::new(&format!(r"\\?\UNC\Server\Share\Show\Season 2\{name}")),
-                Some(Path::new(r"\\server\share\")),
-            );
-            assert_eq!(parsed.episode_start, Some(number));
-            assert_eq!(parsed.season, Some(2));
-            assert_eq!(parsed.special_type, None);
-        }
-        for marker in ["NCED", "NCOP", "OVA", "OAD", "SP"] {
-            for name in [
-                format!("Show [{marker}][01].mkv"),
-                format!("Show {marker}01.mkv"),
-            ] {
-                assert_eq!(parse_file_name(&name).special_type.as_deref(), Some(marker));
-            }
-        }
-        let parsed = parse_media_path(
-            "[02].mkv",
-            Path::new("webdav://root/Show/Season 2/[02].mkv"),
-            Some(Path::new("webdav://root/")),
-        );
-        assert_eq!((parsed.season, parsed.episode_start), (Some(2), Some(2)));
-        let parsed = parse_media_path(
-            "[01].mkv",
-            Path::new(r"R:\OVA\[01].mkv"),
-            Some(Path::new(r"R:\OVA")),
-        );
-        assert_eq!(
-            parsed.special_type, None,
-            "the library root is not episode evidence"
-        );
-    }
     #[test]
     fn parses_release_name() {
         let p = parse_file_name("[字幕组] 进击的巨人 S2 - 01 [1080p].mkv");

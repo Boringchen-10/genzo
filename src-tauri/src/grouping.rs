@@ -24,7 +24,7 @@ fn normalized_key(path: &Path) -> String {
     if path.to_string_lossy().starts_with("webdav:") {
         return path.to_string_lossy().replace('/', "\\");
     }
-    crate::media_path::key(&path.to_string_lossy())
+    path.to_string_lossy().replace('/', "\\").to_lowercase()
 }
 
 fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
@@ -62,8 +62,7 @@ fn container_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdenti
     let media_path = Path::new(&media.path);
     if let Some(root_path) = root_path {
         let root = Path::new(root_path);
-        if let Some(relative) = crate::media_path::relative(&media.path, root_path) {
-            let relative = Path::new(&relative);
+        if let Ok(relative) = media_path.strip_prefix(root) {
             let components: Vec<_> = relative.components().collect();
             if components.len() >= 2 {
                 if is_subtitle_file(media) {
