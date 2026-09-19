@@ -136,6 +136,9 @@ pub async fn list_works(state: State<'_, AppState>) -> AppResult<Vec<WorkListIte
 
 #[tauri::command]
 pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkDetail> {
+    let mut transaction = state.pool.begin().await?;
+    crate::media_reconciliation::reconcile(&mut transaction, Some(&id)).await?;
+    transaction.commit().await?;
     let work = sqlx::query_as::<_, Work>(
         "SELECT id, title, original_title, type, description, cover_path, banner_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at FROM works WHERE id = ?",
     )

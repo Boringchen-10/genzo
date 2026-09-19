@@ -713,6 +713,7 @@ pub async fn confirm_candidate(
     sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(work_id, provider) DO UPDATE SET external_id = excluded.external_id, updated_at = excluded.updated_at")
         .bind(&work_id).bind(&metadata.provider).bind(&metadata.external_id).bind(&now).bind(&now).execute(&mut *transaction).await?;
     move_recognition_group(&mut transaction, &group_member_ids, &work_id, &now).await?;
+    crate::media_reconciliation::reconcile(&mut transaction, Some(&work_id)).await?;
     if let Some(previous) = media_work.filter(|previous| previous != &work_id) {
         media_mapping::rebuild_subtitle_links(&mut transaction, &previous).await?;
         crate::anime_details::rebuild_episode_links(&mut transaction, &previous).await?;

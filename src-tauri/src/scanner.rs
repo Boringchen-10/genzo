@@ -403,14 +403,9 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         }
     }
 
-    // A pre-v0.3 scan represented a moved file as one missing row plus one new row.
-    // Remove only exact, already-linked duplicates from the database; media files are untouched.
-    sqlx::query(
-        "DELETE FROM media_files AS old WHERE old.library_root_id = ? AND old.missing = 1 AND old.work_id IS NOT NULL AND EXISTS (SELECT 1 FROM media_files AS current WHERE current.id != old.id AND current.library_root_id = old.library_root_id AND current.work_id = old.work_id AND current.missing = 0 AND current.file_name = old.file_name COLLATE NOCASE AND current.size = old.size AND COALESCE(current.parsed_season, -1) = COALESCE(old.parsed_season, -1) AND COALESCE(current.parsed_episode_start, -1) = COALESCE(old.parsed_episode_start, -1) AND COALESCE(current.parsed_episode_end, -1) = COALESCE(old.parsed_episode_end, -1))",
-    )
-    .bind(&root.id)
-    .execute(&mut *transaction)
-    .await?;
+    // Handles legacy records with no root or parsed episode, including moves
+    // between scan roots, while preserving episode/subtitle associations.
+    crate::media_reconciliation::reconcile(&mut transaction, None).await?;
 
     let missing_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM media_files WHERE library_root_id = ? AND missing = 1",

@@ -8,6 +8,7 @@ mod explore;
 mod grouping;
 mod launcher;
 mod media_mapping;
+mod media_reconciliation;
 mod metadata;
 mod metadata_aggregator;
 mod metadata_provider;
