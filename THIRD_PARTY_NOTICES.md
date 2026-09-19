@@ -69,6 +69,8 @@ Genzo 使用 AniList 公共 GraphQL API 补全经过校验的国际评分、标�
 
 ## 识别架构参考核对
 
+v0.4 的 WebDAV XML 解析使用 `quick-xml 0.42`（MIT），路径解码使用 `percent-encoding 2`（MIT OR Apache-2.0），与项目 GPLv3 兼容。凭据通过既有 `windows` crate 调用 Windows Credential Manager；HTTP 传输复用 `reqwest`，没有引入或复制 Alist 的源码、商标或网盘专有接口。
+
 - `Rapptz/anitomy-rs` 为 MPL-2.0，但没有适合本项目锁定的稳定 crates.io 发布；本项目改用同为 MPL-2.0、仍在维护的 `anitomy-ng 1.0.10`，没有复制其品牌资产。
 - 用户提供的 `bangumi/api-client-rs` 地址当前不可用，因此保留已经通过真实 API 契约测试的 `reqwest` Bangumi 客户端，不假装使用不存在的 SDK。
 - `jwalk 0.9.0` 已由维护者标记为 deprecated；现有 `walkdir` 扫描器已有重复扫描、缺失标记和目录重加测试，本轮不为依赖清单而替换稳定实现。

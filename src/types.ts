@@ -155,7 +155,22 @@ export interface LibraryRoot {
   lastScannedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  sourceType?: "local" | "mounted" | "webdav";
+  availability?: "unknown" | "online" | "unavailable";
+  displayName?: string | null;
 }
+
+export interface WebdavConnection {
+  name: string;
+  endpoint: string;
+  directory: string;
+  username: string;
+  password: string;
+  kind: RootKind;
+}
+export interface RemoteSource { id: string; name: string; endpoint: string; directory: string }
+export interface RemoteEntry { href: string; name: string; directory: boolean; size: number; modifiedAt: string | null; etag: string | null }
+export interface RemoteCacheEntry { mediaFileId: string; fileName: string; size: number; completed: boolean; pinned: boolean; accessedAt: string }
 
 export interface ScanResult {
   id: string;

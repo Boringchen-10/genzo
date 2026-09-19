@@ -23,6 +23,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { dataProvider as api, getAnimeDetailProvider, type GenzoAnimeDetailProvider } from "../data";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, SafeImage, useOffline } from "../components/common";
+import { RemoteFileActions } from "../components/RemoteStoragePanel";
 import { MediaVisual } from "../components/MediaVisual";
 import { WorkForm } from "../components/WorkForm";
 import { useToasts } from "../store";
@@ -443,7 +444,8 @@ export function WorkDetailPage() {
   if (error || !work) return <div className="page"><ErrorState message={error || "作品不存在"} retry={() => void load()} /></div>;
 
   const sortedFiles = [...work.mediaFiles].sort((left, right) => left.fileName.localeCompare(right.fileName, "zh-CN", { numeric: true }));
-  const firstAvailable = sortedFiles.find((file) => !file.missing);
+  const firstAvailable = sortedFiles.find((file) => !file.missing || file.path.startsWith("webdav://"));
+  const remoteCount = sortedFiles.filter(file => file.path.startsWith("webdav://")).length;
   const isCompleted = work.status === "completed";
   const recognitionFile = sortedFiles.find((file) => file.mediaType === "video" && !file.missing);
   const notesDirty = notesDraft !== work.notes;
@@ -557,15 +559,15 @@ export function WorkDetailPage() {
                 <span className="episode-summary">
                   {hasStructure
                     ? <><strong>{officialEpisodes.length}</strong> 集 · 库中 <strong>{libraryEpisodeCount}</strong> 集</>
-                    : <><strong>{work.mediaFiles.length}</strong> 个本地文件</>}
+                    : <><strong>{work.mediaFiles.length}</strong> 个关联文件</>}
                 </span>
               </div>
 
               {detailProvider === null && work.type === "video" ? (
-                <p className="quiet-inline">当前运行环境未提供官方分集结构（Provider 未实现该方法），下面显示已关联的本地文件。</p>
+                <p className="quiet-inline">当前运行环境未提供官方分集结构（Provider 未实现该方法），下面显示已关联的文件。</p>
               ) : null}
               {structureError ? (
-                <p className="gnz-inline-error" role="alert">读取分集结构失败：{structureError}。下面显示已关联的本地文件。</p>
+                <p className="gnz-inline-error" role="alert">读取分集结构失败：{structureError}。下面显示已关联的文件。</p>
               ) : null}
               {structureLoading && work.type === "video" ? (
                 <p className="quiet-inline" role="status">正在读取分集结构与制作人员…（本地内容已可查看）</p>
@@ -591,7 +593,7 @@ export function WorkDetailPage() {
                                 <span className="episode-snapshot-visual"><MediaVisual type="video" coverPath={null} alt="无视频快照" /></span>
                               )}
                               <span className="episode-snapshot-badge">
-                                {episode.localFiles.length ? `本地 ${episode.localFiles.length} 个版本` : "无本地文件"}
+                                {episode.localFiles.length ? `已关联 ${episode.localFiles.length} 个版本` : "未关联文件"}
                               </span>
                             </div>
 
@@ -605,7 +607,7 @@ export function WorkDetailPage() {
                                     {episode.originalTitle ? (<><dt>原名</dt><dd>{episode.originalTitle}</dd></>) : null}
                                     <dt>放送</dt><dd>{episode.airDate || "未知"}</dd>
                                     <dt>时长</dt><dd>{episode.duration || "未知"}</dd>
-                                    <dt>本地版本</dt><dd>{episode.localFiles.length ? `${episode.localFiles.length} 个` : "无"}</dd>
+                                    <dt>关联版本</dt><dd>{episode.localFiles.length ? `${episode.localFiles.length} 个` : "无"}</dd>
                                   </dl>
                                   {episode.description
                                     ? <p className="episode-detail-desc">{episode.description}</p>
@@ -647,13 +649,13 @@ export function WorkDetailPage() {
                                       {file.parsedMediaInfo || "未解析到媒体信息"} · {formatSize(file.size)}
                                     </span>
                                     <span className={file.missing ? "warning-text" : "available-text"}>
-                                      {file.missing ? <><AlertTriangle size={12} />文件缺失</> : "本地可用"}
+                                      {file.missing ? <><AlertTriangle size={12} />文件缺失</> : file.path.startsWith("webdav://") ? "远程文件" : "本地可用"}
                                     </span>
-                                    <button type="button" className="button compact primary" disabled={file.missing || busyFile === file.id} onClick={() => void launch(file)}>打开</button>
+                                    <RemoteFileActions id={file.id} path={file.path} /><button type="button" className="button compact primary" disabled={(file.missing && !file.path.startsWith("webdav://")) || busyFile === file.id} onClick={() => void launch(file)}>{busyFile === file.id ? "准备中…" : "打开"}</button>
                                   </li>
                                 ))}
                               </ul>
-                            ) : <p className="quiet-inline episode-file-empty">还没有关联本地文件。</p>}
+                            ) : <p className="quiet-inline episode-file-empty">还没有关联文件。</p>}
                           </article>
                         );
                       })}
@@ -708,7 +710,7 @@ export function WorkDetailPage() {
                           </li>
                         ))}
                       </ul>
-                    ) : <p className="quiet-inline">所有本地视频都已匹配到官方分集。</p>}
+                    ) : <p className="quiet-inline">所有关联视频都已匹配到官方分集。</p>}
                   </div>
                 </>
               ) : sortedFiles.length === 0 ? (
@@ -723,9 +725,9 @@ export function WorkDetailPage() {
                         <div className="detail-file-visual"><MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" /></div>
                         <div className="file-name"><strong title={file.fileName}>{file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.fileName}</strong><small title={file.path}>{file.fileName}</small></div>
                         <div className="episode-card-meta">{mediaLabels[file.mediaType]} · {formatSize(file.size)}{subtitleCount ? ` · ${subtitleCount} 个字幕` : ""}</div>
-                        <div className={file.missing ? "warning-text file-availability" : "available-text file-availability"}>{file.missing ? <><AlertTriangle size={13} />文件缺失</> : "本地可用"}</div>
+                        <div className={file.missing ? "warning-text file-availability" : "available-text file-availability"}>{file.missing ? <><AlertTriangle size={13} />文件缺失</> : file.path.startsWith("webdav://") ? "远程文件" : "本地可用"}</div>
                         <div className="file-actions">
-                          <button type="button" className="button compact primary" disabled={file.missing || busyFile === file.id} onClick={() => void launch(file)}>{work.type === "game" ? "启动" : "打开"}</button>
+                          <RemoteFileActions id={file.id} path={file.path} /><button type="button" className="button compact primary" disabled={(file.missing && !file.path.startsWith("webdav://")) || busyFile === file.id} onClick={() => void launch(file)}>{work.type === "game" ? "启动" : "打开"}</button>
                           <details className="action-menu">
                             <summary aria-label="更多打开方式" data-tooltip="更多打开方式"><MoreHorizontal size={17} /></summary>
                             <div className="menu-popover">
@@ -870,10 +872,10 @@ export function WorkDetailPage() {
             </section>
 
             <aside className="detail-aside">
-              <div className="fact"><span>来源</span><strong>本地媒体库</strong></div>
+              <div className="fact"><span>来源</span><strong>{remoteCount ? remoteCount === sortedFiles.length ? "WebDAV" : "本地与 WebDAV" : "本地媒体库"}</strong></div>
               <div className="fact"><span>识别状态</span><strong>{metadataStatusLabels[work.metadataStatus]}</strong></div>
               <div className="fact"><span>创建时间</span><strong>{formatDate(work.createdAt)}</strong></div>
-              <div className="fact"><span>文件状态</span><strong>{work.mediaFiles.some((file) => file.missing) ? "存在缺失文件" : "本地文件已同步"}</strong></div>
+              <div className="fact"><span>文件状态</span><strong>{work.mediaFiles.some((file) => file.missing) ? "存在缺失文件" : remoteCount ? "远程索引已保存" : "本地文件已同步"}</strong></div>
             </aside>
           </aside>
         </div>
@@ -892,7 +894,7 @@ export function WorkDetailPage() {
       ) : null}
       {editOpen ? <Modal title="编辑作品" width="large" onClose={() => setEditOpen(false)}><WorkForm work={work} busy={saving} onCancel={() => setEditOpen(false)} onSubmit={update} /></Modal> : null}
       {attachOpen ? (
-        <Modal title="关联本地文件" width="large" onClose={() => setAttachOpen(false)}>
+        <Modal title="关联媒体文件" width="large" onClose={() => setAttachOpen(false)}>
           <div className="search-box modal-search"><input value={attachSearch} onChange={(event) => setAttachSearch(event.target.value)} placeholder="搜索未归档文件" /></div>
           <div className="attach-list">
             {availableFiles.length ? availableFiles.map((file) => (

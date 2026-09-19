@@ -1,6 +1,6 @@
 [package]
 name = "genzo"
-version = "0.3.0"
+version = "0.4.0"
 description = "Genzo - 你的私人次元媒体库"
 authors = ["Genzo contributors"]
 edition = "2021"
@@ -19,7 +19,9 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "chrono"] }
-tokio = { version = "1", features = ["fs", "macros", "sync", "rt-multi-thread"] }
+tokio = { version = "1", features = ["fs", "macros", "sync", "rt-multi-thread", "net", "io-util", "time"] }
+quick-xml = { version = "0.42", features = ["serialize"] }
+percent-encoding = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde", "clock"] }
 walkdir = "2"
@@ -38,7 +40,7 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 sha2 = "0.10.9"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 tempfile = "3"

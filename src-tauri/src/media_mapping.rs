@@ -46,8 +46,16 @@ fn normalized_stem(file: &MediaFile) -> String {
 }
 
 fn same_installment(left: &MediaFile, right: &MediaFile) -> bool {
-    let left = parse_media_path(&left.file_name, Path::new(&left.path), None);
-    let right = parse_media_path(&right.file_name, Path::new(&right.path), None);
+    let left = parse_media_path(
+        &left.file_name,
+        Path::new(&crate::remote_storage::display_path(&left.path)),
+        None,
+    );
+    let right = parse_media_path(
+        &right.file_name,
+        Path::new(&crate::remote_storage::display_path(&right.path)),
+        None,
+    );
     left.season.unwrap_or(1) == right.season.unwrap_or(1) && left.special_type == right.special_type
 }
 

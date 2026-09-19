@@ -163,7 +163,11 @@ fn has_descriptive_title(value: Option<&str>) -> bool {
 }
 
 fn parse_with_path_context(media: &MediaFile, library_root: Option<&Path>) -> ParsedAnime {
-    parse_media_path(&media.file_name, Path::new(&media.path), library_root)
+    parse_media_path(
+        &media.file_name,
+        Path::new(&crate::remote_storage::display_path(&media.path)),
+        library_root,
+    )
 }
 
 fn group_query_parse(

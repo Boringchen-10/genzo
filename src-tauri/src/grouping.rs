@@ -21,10 +21,21 @@ pub struct MediaGroupContext {
 }
 
 fn normalized_key(path: &Path) -> String {
+    if path.to_string_lossy().starts_with("webdav:") {
+        return path.to_string_lossy().replace('/', "\\");
+    }
     path.to_string_lossy().replace('/', "\\").to_lowercase()
 }
 
 fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
+    let mut decoded_media;
+    let media = if media.path.starts_with("webdav://") {
+        decoded_media = media.clone();
+        decoded_media.path = crate::remote_storage::display_path(&media.path);
+        &decoded_media
+    } else {
+        media
+    };
     let mut identity = container_identity(media, root_path);
     if media.media_type == "video" || is_subtitle_file(media) {
         // Use fresh filename/path evidence: older group recognition may have copied

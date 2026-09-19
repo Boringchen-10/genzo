@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type {
+  WebdavConnection, RemoteSource, RemoteEntry, RemoteCacheEntry,
   AppInfo,
   Dashboard,
   ExternalTool,
@@ -25,6 +26,18 @@ import type {
   WorkInput,
   WorkListItem,
 } from "./types";
+
+export const remoteApi = {
+  listSources: () => call<RemoteSource[]>("list_remote_sources"),
+  browse: (input: WebdavConnection) => call<RemoteEntry[]>("browse_webdav", { input }),
+  add: (input: WebdavConnection) => call<string>("add_webdav_source", { input }),
+  credentials: (id: string, username: string, password: string) => call<void>("update_webdav_credentials", { id, username, password }),
+  sourceType: (id: string, sourceType: "local" | "mounted") => call<void>("set_root_source_type", { id, sourceType }),
+  cache: () => call<RemoteCacheEntry[]>("list_remote_cache"),
+  download: (mediaFileId: string, pinned: boolean) => call<void>("cache_remote_media", { mediaFileId, pinned }),
+  removeCache: (mediaFileId: string) => call<void>("remove_remote_cache", { mediaFileId }),
+  setLimit: (gib: number) => call<void>("set_cache_limit", { gib }),
+};
 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;

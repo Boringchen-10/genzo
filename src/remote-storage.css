@@ -1,0 +1,14 @@
+.remote-storage { min-width: 0; }
+.remote-storage h2, .remote-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.remote-source, .remote-cache-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid var(--border, #ffffff14); min-width:0; }
+.remote-source-info, .remote-cache-row > div:first-child { display:flex; flex-direction:column; gap:5px; min-width:0; flex:1; overflow-wrap:anywhere; }
+.remote-source-info span, .remote-cache-row span { font-size:12px; opacity:.75; }
+.remote-cache-heading { display:flex; align-items:center; flex-wrap:wrap; gap:16px; margin-top:24px; }
+.remote-cache-heading input { width:85px; }
+.remote-browser { max-height:180px; overflow:auto; display:flex; flex-direction:column; gap:6px; padding:12px; border:1px solid var(--border, #ffffff14); border-radius:6px; }
+.remote-browser button { display:flex; gap:8px; align-items:center; text-align:left; padding:6px; overflow-wrap:anywhere; }
+.remote-file-actions { display:inline-flex; align-items:center; flex-wrap:wrap; gap:4px; font-size:12px; }
+.episode-file-line > .remote-file-actions { grid-column:1 / -1; grid-row:3; margin-top:6px; }
+.file-actions:has(.remote-file-actions) { flex-wrap:wrap; }
+.remote-form input { min-width:0; width:100%; }
+@media(max-width:1100px) { .remote-source, .remote-cache-row { align-items:flex-start; flex-direction:column; } }

@@ -116,7 +116,7 @@ export function LibraryPage() {
       setLoading(false);
     }
   }, []);
-  useEffect(() => void load(), [load]);
+  useEffect(() => { void load(); setInboxMediaLoaded(false); }, [load, activeSection]);
 
   const tags = useMemo(() => Array.from(new Set(works.flatMap((work) => work.tags))).sort((a, b) => a.localeCompare(b, "zh-CN")), [works]);
   const filtered = useMemo(() => {
@@ -211,7 +211,7 @@ export function LibraryPage() {
       .catch((mediaError: unknown) => { if (!cancelled) toast(getErrorMessage(mediaError), "error"); })
       .finally(() => { if (!cancelled) setInboxMediaLoading(false); });
     return () => { cancelled = true; };
-  }, [activeSection, inboxMediaLoaded, inboxMediaLoading, toast]);
+  }, [activeSection, inboxMediaLoaded, toast]);
 
   const rootIds = useMemo(() => new Set(roots.map((root) => root.id)), [roots]);
   const scopedFiles = useMemo(
@@ -230,7 +230,7 @@ export function LibraryPage() {
     if (!root) return [{ name: pathBaseName(target), path: target }];
     const rootPath = normalizePath(root.path);
     const rest = target === rootPath ? "" : target.slice(rootPath.length + 1);
-    const crumbs = [{ name: pathBaseName(rootPath) || rootPath, path: rootPath }];
+    const crumbs = [{ name: root.displayName || pathBaseName(rootPath) || rootPath, path: rootPath }];
     let cursor = rootPath;
     for (const segment of rest ? rest.split("\\") : []) {
       cursor = `${cursor}\\${segment}`;
@@ -248,7 +248,7 @@ export function LibraryPage() {
           const groups = filteredUnassigned.filter((group) => group.representative.libraryRootId === root.id);
           return {
             key: root.id,
-            name: pathBaseName(path) || path,
+            name: root.displayName || pathBaseName(path) || path,
             path,
             folder: true,
             fileCount: groups.reduce((total, group) => total + group.fileCount, 0),

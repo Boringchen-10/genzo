@@ -19,8 +19,11 @@ fn has_mixed_installments(files: &[MediaFile]) -> bool {
         .iter()
         .filter(|file| file.media_type == "video")
         .map(|file| {
-            let parsed =
-                crate::anime_parser::parse_media_path(&file.file_name, Path::new(&file.path), None);
+            let parsed = crate::anime_parser::parse_media_path(
+                &file.file_name,
+                Path::new(&crate::remote_storage::display_path(&file.path)),
+                None,
+            );
             (parsed.season.unwrap_or(1), parsed.special_type)
         })
         .collect::<HashSet<_>>()
@@ -305,7 +308,9 @@ pub async fn media_thumbnail(
         .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("媒体文件不存在".to_string()))?;
-    if media_type != "video" || missing {
+    let network_source: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media_files m JOIN library_roots r ON r.id=m.library_root_id WHERE m.id=? AND r.source_type IN ('mounted','webdav'))")
+        .bind(media_file_id).fetch_one(&state.pool).await?;
+    if media_type != "video" || missing || network_source || path.starts_with("webdav://") {
         return Ok(None);
     }
     if let Some(cached) = cached {

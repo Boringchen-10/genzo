@@ -20,7 +20,7 @@ pub enum AppError {
     NotFound(String),
     #[error("无法启动程序：{0}")]
     Launch(String),
-    #[error("元数据服务错误：{0}")]
+    #[error("网络服务错误：{0}")]
     Network(String),
     #[error("系统错误：{0}")]
     System(String),

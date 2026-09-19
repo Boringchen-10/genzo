@@ -426,7 +426,7 @@ pub async fn import_cover(
 #[tauri::command]
 pub async fn list_library_roots(state: State<'_, AppState>) -> AppResult<Vec<LibraryRoot>> {
     Ok(sqlx::query_as::<_, LibraryRoot>(
-        "SELECT id, path, kind, enabled, last_scanned_at, created_at, updated_at FROM library_roots ORDER BY created_at DESC",
+        "SELECT id, path, kind, enabled, last_scanned_at, created_at, updated_at, source_type, availability, (SELECT name FROM remote_sources WHERE remote_sources.id=library_roots.id) AS display_name FROM library_roots ORDER BY created_at DESC",
     )
     .fetch_all(&state.pool)
     .await?)
@@ -469,6 +469,9 @@ pub async fn add_library_root(
         last_scanned_at: None,
         created_at: now.clone(),
         updated_at: now,
+        source_type: "local".into(),
+        availability: "unknown".into(),
+        display_name: None,
     })
 }
 
@@ -498,6 +501,16 @@ pub async fn update_library_root(
 
 #[tauri::command]
 pub async fn delete_library_root(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let remote: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM remote_sources WHERE id = ?)")
+            .bind(&id)
+            .fetch_one(&state.pool)
+            .await?;
+    if remote {
+        return Err(AppError::Validation(
+            "WebDAV 来源请使用停用，以保留文件索引和离线缓存".into(),
+        ));
+    }
     let result = sqlx::query("DELETE FROM library_roots WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
@@ -761,7 +774,8 @@ pub async fn launch_media(
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::NotFound("媒体文件不存在".to_string()))?;
-    if media.missing || !Path::new(&media.path).exists() {
+    let remote = media.path.starts_with("webdav://");
+    if !remote && (media.missing || !Path::new(&media.path).exists()) {
         return Err(AppError::PathNotFound(PathBuf::from(media.path)));
     }
     let title: String = if let Some(work_id) = &media.work_id {
@@ -792,7 +806,34 @@ pub async fn launch_media(
         None
     };
 
-    let path = media.path.clone();
+    let supports_stream = selected_tool.as_ref().is_some_and(|tool| {
+        let name = Path::new(&tool.executable_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+        [
+            "mpv",
+            "vlc",
+            "potplayermini64",
+            "potplayermini",
+            "mpc-be64",
+            "mpc-be",
+            "mpc-hc64",
+            "mpc-hc",
+        ]
+        .contains(&name.as_str())
+    });
+    let path = if remote {
+        crate::remote_transfer::open_path(
+            &state,
+            &media.id,
+            media.media_type == "video" && supports_stream,
+        )
+        .await?
+    } else {
+        media.path.clone()
+    };
     tauri::async_runtime::spawn_blocking(move || {
         if let Some(tool) = selected_tool {
             let folder = launcher::parent_folder(&path);
@@ -822,11 +863,18 @@ pub async fn open_media_directory(
     media_file_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let path: String = sqlx::query_scalar("SELECT path FROM media_files WHERE id = ?")
-        .bind(media_file_id)
+    let mut path: String = sqlx::query_scalar("SELECT path FROM media_files WHERE id = ?")
+        .bind(&media_file_id)
         .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("媒体文件不存在".to_string()))?;
+    if path.starts_with("webdav://") {
+        path = crate::remote_transfer::cached_path(&state, &media_file_id)
+            .await?
+            .ok_or_else(|| AppError::Validation("远程文件尚未下载，请先缓存或保留离线".into()))?
+            .to_string_lossy()
+            .into();
+    }
     tauri::async_runtime::spawn_blocking(move || launcher::open_directory(&path))
         .await
         .map_err(|error| AppError::System(format!("打开目录任务失败：{error}")))?

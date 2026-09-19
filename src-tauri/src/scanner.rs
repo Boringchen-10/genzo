@@ -23,6 +23,7 @@ struct ScannedFile {
     modified_at: Option<String>,
     parsed_anime: Option<ParsedAnime>,
     content_fingerprint: Option<String>,
+    remote: Option<(String, Option<String>)>,
 }
 
 #[derive(Debug, Default)]
@@ -102,7 +103,12 @@ fn fingerprint_file(path: &Path, size: u64) -> std::io::Result<String> {
     Ok(format!("sha256-sampled-v1:{:x}", hasher.finalize()))
 }
 
+#[cfg(test)]
 fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
+    collect_local_files(root, kind, include_hidden, false)
+}
+
+fn collect_local_files(root: &Path, kind: &str, include_hidden: bool, mounted: bool) -> WalkOutput {
     let mut output = WalkOutput::default();
 
     for item in WalkDir::new(root).follow_links(false).into_iter() {
@@ -148,7 +154,7 @@ fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
             .file_name()
             .map(|value| value.to_string_lossy().to_string())
             .unwrap_or_default();
-        let content_fingerprint = if media_type == "video" {
+        let content_fingerprint = if media_type == "video" && !mounted {
             match fingerprint_file(path, metadata.len()) {
                 Ok(value) => Some(value),
                 Err(error) => {
@@ -171,6 +177,7 @@ fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
             modified_at: metadata.modified().ok().and_then(system_time_to_string),
             parsed_anime: (media_type == "video").then(|| parse_file_name(&file_name)),
             content_fingerprint,
+            remote: None,
         });
     }
 
@@ -187,7 +194,7 @@ fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
 
 pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<ScanResult> {
     let root = sqlx::query_as::<_, LibraryRoot>(
-        "SELECT id, path, kind, enabled, last_scanned_at, created_at, updated_at FROM library_roots WHERE id = ?",
+        "SELECT id, path, kind, enabled, last_scanned_at, created_at, updated_at, source_type, availability FROM library_roots WHERE id = ?",
     )
     .bind(root_id)
     .fetch_optional(pool)
@@ -197,6 +204,9 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     if !root.enabled {
         return Err(AppError::Validation("该扫描目录已停用".to_string()));
     }
+
+    let lock = SCAN_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
+    let _guard = lock.lock().await;
 
     let job_id = Uuid::new_v4().to_string();
     let started_at = Utc::now().to_rfc3339();
@@ -217,11 +227,30 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     .is_some_and(|value| value == "true");
     let scan_path = PathBuf::from(&root.path);
     let scan_kind = root.kind.clone();
-    let walk_output = tauri::async_runtime::spawn_blocking(move || {
-        collect_files(&scan_path, &scan_kind, include_hidden)
-    })
-    .await
-    .map_err(|error| AppError::System(format!("扫描任务异常结束：{error}")))?;
+    let walk_output = if root.source_type == "webdav" {
+        match collect_remote_files(pool, &root, include_hidden).await {
+            Ok(files) => WalkOutput {
+                files,
+                errors: vec![],
+            },
+            Err(error) => WalkOutput {
+                files: vec![],
+                errors: vec![error.to_string()],
+            },
+        }
+    } else {
+        let mounted = root.source_type == "mounted";
+        let task = tauri::async_runtime::spawn_blocking(move || {
+            collect_local_files(&scan_path, &scan_kind, include_hidden, mounted)
+        });
+        match tokio::time::timeout(std::time::Duration::from_secs(300), task).await {
+            Ok(Ok(output)) => output,
+            _ => WalkOutput {
+                files: vec![],
+                errors: vec!["目录扫描超时或中断，已保留原有文件状态".into()],
+            },
+        }
+    };
 
     let mut transaction = pool.begin().await?;
     let root_paths: HashMap<String, String> =
@@ -261,11 +290,13 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         .into_iter()
         .map(|file| (file.path.to_lowercase(), file))
         .collect();
-    sqlx::query("UPDATE media_files SET missing = 1, updated_at = ? WHERE library_root_id = ?")
-        .bind(Utc::now().to_rfc3339())
-        .bind(&root.id)
-        .execute(&mut *transaction)
-        .await?;
+    if walk_output.errors.is_empty() {
+        sqlx::query("UPDATE media_files SET missing = 1, updated_at = ? WHERE library_root_id = ?")
+            .bind(Utc::now().to_rfc3339())
+            .bind(&root.id)
+            .execute(&mut *transaction)
+            .await?;
+    }
 
     let mut added_count = 0_i64;
     let mut updated_count = 0_i64;
@@ -403,9 +434,18 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         }
     }
 
+    for file in &walk_output.files {
+        if let Some((href, etag)) = &file.remote {
+            sqlx::query("INSERT INTO remote_files(media_file_id,source_id,href,etag) SELECT id,?,?,? FROM media_files WHERE path = ? ON CONFLICT(media_file_id) DO UPDATE SET href=excluded.href,etag=excluded.etag")
+                .bind(&root.id).bind(href).bind(etag).bind(&file.path).execute(&mut *transaction).await?;
+        }
+    }
+
     // Handles legacy records with no root or parsed episode, including moves
     // between scan roots, while preserving episode/subtitle associations.
-    crate::media_reconciliation::reconcile(&mut transaction, None).await?;
+    if root.source_type == "local" && errors.is_empty() {
+        crate::media_reconciliation::reconcile(&mut transaction, None).await?;
+    }
 
     let missing_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM media_files WHERE library_root_id = ? AND missing = 1",
@@ -420,6 +460,15 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         "completed_with_errors"
     };
     let errors_json = serde_json::to_string(&errors)?;
+    sqlx::query("UPDATE library_roots SET availability = ? WHERE id = ?")
+        .bind(if errors.is_empty() {
+            "online"
+        } else {
+            "unavailable"
+        })
+        .bind(&root.id)
+        .execute(&mut *transaction)
+        .await?;
 
     sqlx::query("UPDATE library_roots SET last_scanned_at = ?, updated_at = ? WHERE id = ?")
         .bind(&finished_at)
@@ -457,6 +506,53 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         },
         errors,
     })
+}
+
+static SCAN_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+async fn collect_remote_files(
+    pool: &SqlitePool,
+    root: &LibraryRoot,
+    hidden: bool,
+) -> AppResult<Vec<ScannedFile>> {
+    let source = crate::remote_storage::source(pool, &root.id).await?;
+    let client = crate::remote_storage::client(&source)?;
+    let directory = client.directory_url(&source.directory)?;
+    let base = crate::webdav::decoded_path(directory.path())?;
+    let entries = crate::remote_storage::collect(pool, root, hidden).await?;
+    let mut files = Vec::new();
+    for entry in entries {
+        let extension = Path::new(&entry.name)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+        let media_type = classify_extension(&extension);
+        let subtitle = matches!(extension.as_str(), "ass" | "ssa" | "srt" | "vtt" | "sub");
+        if media_type == "game"
+            || (!allowed_for_root(&root.kind, media_type) && !(root.kind == "video" && subtitle))
+        {
+            continue;
+        }
+        let decoded = crate::webdav::decoded_path(&entry.href)?;
+        let relative = decoded
+            .strip_prefix(&base)
+            .ok_or_else(|| AppError::Validation("文件超出扫描目录".into()))?;
+        files.push(ScannedFile {
+            path: crate::remote_storage::virtual_path(&root.id, relative),
+            file_name: entry.name.clone(),
+            extension,
+            media_type: media_type.into(),
+            size: entry.size,
+            modified_at: entry.modified_at,
+            parsed_anime: (media_type == "video" || subtitle).then(|| {
+                crate::anime_parser::parse_media_path(&entry.name, Path::new(&decoded), None)
+            }),
+            content_fingerprint: None,
+            remote: Some((entry.href, entry.etag)),
+        });
+    }
+    Ok(files)
 }
 
 fn normalized_directory(path: &str) -> String {
@@ -504,6 +600,37 @@ mod tests {
             .map(|file| file.file_name.as_str())
             .collect();
         assert_eq!(names, vec!["第1话.mkv", "第2话.mkv", "第10话.mkv"]);
+    }
+
+    #[test]
+    fn mounted_scan_does_not_read_video_contents() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("episode01.mkv"), b"fixture").unwrap();
+        let output = collect_local_files(temp.path(), "video", false, true);
+        assert_eq!(output.files.len(), 1);
+        assert!(output.files[0].content_fingerprint.is_none());
+        assert!(output.errors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn disconnected_mount_preserves_existing_files_and_recovers() {
+        let pool = db::test_pool().await.unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("mounted");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("episode01.mkv"), b"fixture").unwrap();
+        sqlx::query("INSERT INTO library_roots(id,path,kind,enabled,created_at,updated_at,source_type) VALUES('offline-mount',?,'video',1,'now','now','mounted')")
+            .bind(normalize_existing_path(&root).unwrap()).execute(&pool).await.unwrap();
+        scan_library_root(&pool, "offline-mount").await.unwrap();
+        // Rename only this test's temporary fixture to simulate an unavailable mount.
+        fs::rename(&root, temp.path().join("disconnected")).unwrap();
+        let failed = scan_library_root(&pool, "offline-mount").await.unwrap();
+        assert!(!failed.errors.is_empty());
+        assert_eq!(failed.job.missing_count, 0);
+        fs::rename(temp.path().join("disconnected"), &root).unwrap();
+        let recovered = scan_library_root(&pool, "offline-mount").await.unwrap();
+        assert!(recovered.errors.is_empty());
+        assert_eq!(recovered.job.added_count, 0);
     }
 
     #[test]

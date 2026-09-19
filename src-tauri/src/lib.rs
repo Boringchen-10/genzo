@@ -2,6 +2,7 @@ mod anime_details;
 mod anime_parser;
 mod bangumi;
 mod commands;
+mod credentials;
 mod db;
 mod error;
 mod explore;
@@ -14,8 +15,13 @@ mod metadata_aggregator;
 mod metadata_provider;
 mod models;
 mod providers;
+mod remote_storage;
+#[cfg(all(test, windows))]
+mod remote_storage_tests;
+mod remote_transfer;
 mod scanner;
 mod thumbnail;
+mod webdav;
 mod window_style;
 
 use tauri::Manager;
@@ -60,6 +66,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            remote_storage::list_remote_sources,
+            remote_storage::browse_webdav,
+            remote_storage::add_webdav_source,
+            remote_storage::update_webdav_credentials,
+            remote_storage::set_root_source_type,
+            remote_transfer::list_remote_cache,
+            remote_transfer::cache_remote_media,
+            remote_transfer::remove_remote_cache,
+            remote_transfer::set_cache_limit,
             commands::list_works,
             commands::get_work,
             commands::create_work,

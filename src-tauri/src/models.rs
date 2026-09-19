@@ -34,6 +34,7 @@ pub struct MediaFile {
     pub id: String,
     pub work_id: Option<String>,
     pub library_root_id: Option<String>,
+    #[serde(serialize_with = "crate::remote_storage::serialize_display_path")]
     pub path: String,
     pub file_name: String,
     pub extension: String,
@@ -438,6 +439,12 @@ pub struct LibraryRoot {
     pub last_scanned_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    #[sqlx(default)]
+    pub source_type: String,
+    #[sqlx(default)]
+    pub availability: String,
+    #[sqlx(default)]
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
