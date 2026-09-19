@@ -17,42 +17,165 @@ static RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
 #[derive(Clone)]
 pub struct BangumiProvider {
     client: Client,
+    pool: Option<sqlx::SqlitePool>,
+    warnings: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl BangumiProvider {
     pub fn new() -> AppResult<Self> {
         let client = Client::builder()
+            .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(12))
             .user_agent("Genzo/0.2.0 (local media library)")
             .build()
             .map_err(|error| AppError::Network(format!("无法初始化 Bangumi 客户端：{error}")))?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            pool: None,
+            warnings: Default::default(),
+        })
+    }
+
+    pub fn with_pool(mut self, pool: &sqlx::SqlitePool) -> Self {
+        self.pool = Some(pool.clone());
+        self
+    }
+
+    pub fn warn(&self, warning: String) {
+        self.warnings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(warning);
+    }
+
+    pub fn has_warnings(&self) -> bool {
+        !self
+            .warnings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
+    }
+
+    pub fn take_warnings(&self) -> Vec<String> {
+        std::mem::take(&mut *self.warnings.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    async fn request(&self, builder: reqwest::RequestBuilder) -> AppResult<Value> {
+        let request = builder.build().map_err(network_error)?;
+        let key = format!(
+            "http:{}:{}:{}",
+            request.method(),
+            request.url(),
+            request
+                .body()
+                .and_then(|b| b.as_bytes())
+                .map(|b| String::from_utf8_lossy(b))
+                .unwrap_or_default()
+        );
+        let cached: Option<String> = if let Some(pool) = &self.pool {
+            sqlx::query_scalar(
+                "SELECT response_json FROM metadata_cache WHERE provider='bangumi' AND cache_key=?",
+            )
+            .bind(&key)
+            .fetch_optional(pool)
+            .await?
+        } else {
+            None
+        };
+        let mut error = AppError::Network("Bangumi 请求失败".into());
+        for attempt in 0..3u32 {
+            let cloned = request
+                .try_clone()
+                .ok_or_else(|| AppError::System("Bangumi 请求无法重试".into()))?;
+            let mut delay = Duration::from_millis(250 * (1 << attempt));
+            let retry;
+            match self.client.execute(cloned).await {
+                Ok(response) => {
+                    let status = response.status();
+                    if status.is_success() {
+                        match response.json::<Value>().await {
+                            Ok(body) => {
+                                if !(body.is_array()
+                                    || body.get("data").is_some_and(Value::is_array)
+                                    || body.get("id").is_some_and(Value::is_number))
+                                {
+                                    error = AppError::Network(
+                                        "Bangumi 返回的数据结构无效，保留旧缓存".into(),
+                                    );
+                                    break;
+                                }
+                                // An empty first episode page must not overwrite useful cached data.
+                                let empty_episodes = request.url().path().ends_with("/episodes")
+                                    && body
+                                        .get("data")
+                                        .and_then(Value::as_array)
+                                        .is_some_and(Vec::is_empty);
+                                if !empty_episodes {
+                                    if let Some(pool) = &self.pool {
+                                        let now = Utc::now();
+                                        sqlx::query("INSERT INTO metadata_cache (provider,cache_key,response_json,fetched_at,expires_at) VALUES ('bangumi',?,?,?,?) ON CONFLICT(provider,cache_key) DO UPDATE SET response_json=excluded.response_json,fetched_at=excluded.fetched_at,expires_at=excluded.expires_at")
+                                            .bind(&key).bind(body.to_string()).bind(now.to_rfc3339())
+                                            .bind((now+chrono::Duration::days(7)).to_rfc3339()).execute(pool).await?;
+                                    }
+                                    return Ok(body);
+                                }
+                                if cached.is_none() {
+                                    self.warn("Bangumi 返回空分集，保留已有分集与手动关联".into());
+                                    return Ok(body);
+                                }
+                                error = AppError::Network("Bangumi 返回空分集，保留旧缓存".into());
+                                break;
+                            }
+                            Err(e) => {
+                                retry = e.is_timeout() || e.is_connect();
+                                error = network_error(e);
+                            }
+                        }
+                    } else {
+                        retry = matches!(status.as_u16(), 408 | 425 | 429 | 500..=599);
+                        if let Some(value) = response
+                            .headers()
+                            .get(reqwest::header::RETRY_AFTER)
+                            .and_then(|v| v.to_str().ok())
+                        {
+                            delay = delay.max(retry_after(value));
+                        }
+                        error = AppError::Network(format!(
+                            "Bangumi 请求失败（HTTP {}）",
+                            status.as_u16()
+                        ));
+                    }
+                }
+                Err(e) => {
+                    retry = e.is_connect() || e.is_timeout();
+                    error = network_error(e);
+                }
+            }
+            // Do not retry earlier than Retry-After; long waits return the cache instead.
+            if !retry || attempt == 2 || delay > Duration::from_secs(30) {
+                break;
+            }
+            tokio::time::sleep(delay).await;
+        }
+        if let Some(value) = cached.and_then(|s| serde_json::from_str::<Value>(&s).ok()) {
+            self.warnings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!("{error}；已使用本地缓存（可能已过期）"));
+            return Ok(value);
+        }
+        Err(error)
     }
 
     pub async fn search(&self, query: &str) -> AppResult<Vec<WorkMetadata>> {
         self.wait().await;
-        let response = self
-            .client
-            .post(format!("{API_ROOT}/search/subjects"))
-            .json(&json!({ "keyword": query, "sort": "match", "filter": { "type": [2] } }))
-            .send()
-            .await
-            .map_err(network_error)?;
-        if response.status().as_u16() == 429 {
-            return Err(AppError::Network(
-                "Bangumi 请求过于频繁，请稍后再试".to_string(),
-            ));
-        }
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Bangumi 搜索失败（HTTP {}）",
-                response.status().as_u16()
-            )));
-        }
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|error| AppError::Network(format!("Bangumi 返回了无法解析的数据：{error}")))?;
+        let body = self
+            .request(
+                self.client
+                    .post(format!("{API_ROOT}/search/subjects"))
+                    .json(&json!({ "keyword": query, "sort": "match", "filter": { "type": [2] } })),
+            )
+            .await?;
         Ok(body
             .get("data")
             .and_then(Value::as_array)
@@ -65,27 +188,18 @@ impl BangumiProvider {
 
     pub async fn ranking(&self, limit: u32, offset: u32) -> AppResult<Vec<WorkMetadata>> {
         self.wait().await;
-        let response = self
-            .client
-            .post(format!("{API_ROOT}/search/subjects"))
-            .query(&[("limit", limit.to_string()), ("offset", offset.to_string())])
-            .json(&json!({
-                "keyword": "",
-                "sort": "rank",
-                "filter": { "type": [2], "rank": [">=1"] }
-            }))
-            .send()
-            .await
-            .map_err(network_error)?;
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Bangumi 动画排行榜读取失败（HTTP {}）",
-                response.status().as_u16()
-            )));
-        }
-        let body: Value = response.json().await.map_err(|error| {
-            AppError::Network(format!("Bangumi 返回了无法解析的排行榜数据：{error}"))
-        })?;
+        let body = self
+            .request(
+                self.client
+                    .post(format!("{API_ROOT}/search/subjects"))
+                    .query(&[("limit", limit.to_string()), ("offset", offset.to_string())])
+                    .json(&json!({
+                        "keyword": "",
+                        "sort": "rank",
+                        "filter": { "type": [2], "rank": [">=1"] }
+                    })),
+            )
+            .await?;
         Ok(body
             .get("data")
             .and_then(Value::as_array)
@@ -97,49 +211,21 @@ impl BangumiProvider {
 
     pub async fn get_details(&self, external_id: &str) -> AppResult<WorkMetadata> {
         self.wait().await;
-        let response = self
-            .client
-            .get(format!("{API_ROOT}/subjects/{external_id}"))
-            .send()
-            .await
-            .map_err(network_error)?;
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Bangumi 详情读取失败（HTTP {}）",
-                response.status().as_u16()
-            )));
-        }
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|error| AppError::Network(format!("Bangumi 返回了无法解析的数据：{error}")))?;
+        let body = self
+            .request(
+                self.client
+                    .get(format!("{API_ROOT}/subjects/{external_id}")),
+            )
+            .await?;
         subject_to_metadata(&body)
             .ok_or_else(|| AppError::Network("Bangumi 详情缺少必要字段".to_string()))
     }
 
     pub async fn calendar(&self) -> AppResult<Vec<WorkMetadata>> {
         self.wait().await;
-        let response = self
-            .client
-            .get("https://api.bgm.tv/calendar")
-            .send()
-            .await
-            .map_err(network_error)?;
-        if response.status().as_u16() == 429 {
-            return Err(AppError::Network(
-                "Bangumi 请求过于频繁，请稍后再试".to_string(),
-            ));
-        }
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Bangumi 番组日历读取失败（HTTP {}）",
-                response.status().as_u16()
-            )));
-        }
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|error| AppError::Network(format!("Bangumi 返回了无法解析的数据：{error}")))?;
+        let body = self
+            .request(self.client.get("https://api.bgm.tv/calendar"))
+            .await?;
         Ok(body
             .as_array()
             .into_iter()
@@ -159,32 +245,14 @@ impl BangumiProvider {
         let mut offset = 0_u32;
         loop {
             self.wait().await;
-            let response = self
-                .client
-                .get(format!("{API_ROOT}/episodes"))
-                .query(&[
+            let body = self
+                .request(self.client.get(format!("{API_ROOT}/episodes")).query(&[
                     ("subject_id", subject_id.to_string()),
                     ("type", "0".to_string()),
                     ("limit", "100".to_string()),
                     ("offset", offset.to_string()),
-                ])
-                .send()
-                .await
-                .map_err(network_error)?;
-            if response.status().as_u16() == 429 {
-                return Err(AppError::Network(
-                    "Bangumi 请求过于频繁，请稍后再试".to_string(),
-                ));
-            }
-            if !response.status().is_success() {
-                return Err(AppError::Network(format!(
-                    "Bangumi 分集读取失败（HTTP {}）",
-                    response.status().as_u16()
-                )));
-            }
-            let body: Value = response.json().await.map_err(|error| {
-                AppError::Network(format!("Bangumi 返回了无法解析的分集数据：{error}"))
-            })?;
+                ]))
+                .await?;
             let data = body
                 .get("data")
                 .and_then(Value::as_array)
@@ -287,21 +355,12 @@ impl BangumiProvider {
         label: &str,
     ) -> AppResult<Value> {
         self.wait().await;
-        let response = self
-            .client
-            .get(format!("{API_ROOT}/subjects/{external_id}/{collection}"))
-            .send()
-            .await
-            .map_err(network_error)?;
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Bangumi {label}读取失败（HTTP {}）",
-                response.status().as_u16()
-            )));
-        }
-        response.json().await.map_err(|error| {
-            AppError::Network(format!("Bangumi 返回了无法解析的{label}数据：{error}"))
-        })
+        let _ = label;
+        self.request(
+            self.client
+                .get(format!("{API_ROOT}/subjects/{external_id}/{collection}")),
+        )
+        .await
     }
 
     async fn wait(&self) {
@@ -310,6 +369,16 @@ impl BangumiProvider {
             .wait()
             .await;
     }
+}
+
+fn retry_after(value: &str) -> Duration {
+    if let Ok(seconds) = value.trim().parse::<u64>() {
+        return Duration::from_secs(seconds);
+    }
+    chrono::DateTime::parse_from_rfc2822(value)
+        .ok()
+        .and_then(|date| (date.with_timezone(&Utc) - Utc::now()).to_std().ok())
+        .unwrap_or_default()
 }
 
 fn collection_items(value: &Value) -> impl Iterator<Item = &Value> {
@@ -540,6 +609,115 @@ fn extract_season(value: &Value) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn fixture(responses: Vec<(u16, &'static str)>) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/episodes", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            for (status, body) in responses {
+                let (mut stream, _) =
+                    tokio::time::timeout(Duration::from_secs(10), listener.accept())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                let mut input = [0; 4096];
+                stream.read(&mut input).await.unwrap();
+                if status == 0 {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    continue;
+                }
+                let response = format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nRetry-After: 0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        (url, task)
+    }
+
+    #[tokio::test]
+    async fn retries_502_and_preserves_stale_episode_cache_and_empty_refresh() {
+        let pool = crate::db::test_pool().await.unwrap();
+        let provider = BangumiProvider::new().unwrap().with_pool(&pool);
+        let (url, task) = fixture(vec![
+            (502, "{}"),
+            (200, r#"{"data":[{"id":1,"sort":1}]}"#),
+            (502, "{}"),
+            (502, "{}"),
+            (502, "{}"),
+            (200, r#"{"data":[]}"#),
+        ])
+        .await;
+        let expected = provider.request(provider.client.get(&url)).await.unwrap();
+        sqlx::query("UPDATE metadata_cache SET expires_at='2000-01-01'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let cached = provider.request(provider.client.get(&url)).await.unwrap();
+        assert_eq!(cached, expected);
+        assert!(provider
+            .take_warnings()
+            .iter()
+            .any(|s| s.contains("502") && s.contains("缓存")));
+        assert_eq!(
+            provider.request(provider.client.get(&url)).await.unwrap(),
+            expected
+        );
+        let expiry: String = sqlx::query_scalar("SELECT expires_at FROM metadata_cache")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(expiry, "2000-01-01", "fallback must not renew stale caches");
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn permanent_errors_are_not_retried() {
+        let provider = BangumiProvider::new().unwrap();
+        let (url, task) = fixture(vec![(404, "{}")]).await;
+        assert!(provider
+            .request(provider.client.get(url))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("404"));
+        task.await.unwrap();
+        assert_eq!(retry_after("2"), Duration::from_secs(2));
+        let future = (Utc::now() + chrono::Duration::seconds(60)).to_rfc2822();
+        assert!(retry_after(&future) >= Duration::from_secs(58));
+    }
+
+    #[tokio::test]
+    async fn transient_statuses_and_timeouts_recover() {
+        let provider = BangumiProvider::new().unwrap();
+        let (url, task) = fixture(vec![
+            (408, "{}"),
+            (425, "{}"),
+            (200, "[]"),
+            (429, "{}"),
+            (200, "[]"),
+            (503, "{}"),
+            (200, "[]"),
+        ])
+        .await;
+        for _ in 0..3 {
+            assert_eq!(
+                provider.request(provider.client.get(&url)).await.unwrap(),
+                json!([])
+            );
+        }
+        task.await.unwrap();
+        let mut provider = BangumiProvider::new().unwrap();
+        provider.client = Client::builder()
+            .timeout(Duration::from_millis(100))
+            .build()
+            .unwrap();
+        let (url, task) = fixture(vec![(0, ""), (200, "[]")]).await;
+        assert_eq!(
+            provider.request(provider.client.get(&url)).await.unwrap(),
+            json!([])
+        );
+        task.await.unwrap();
+    }
     #[test]
     fn maps_subject_json() {
         let value = json!({"id": 123, "name": "Sousou no Frieren", "name_cn": "葬送的芙莉莲", "summary": "简介", "date": "2023-09-29", "platform": "TV", "images": {"large": "https://lain.bgm.tv/pic/cover/l/test.jpg"}, "tags": [{"name": "奇幻"}], "rating": {"rank": 42, "total": 36198, "score": 8.5}, "collection": {"wish": 10, "collect": 20, "doing": 5}});

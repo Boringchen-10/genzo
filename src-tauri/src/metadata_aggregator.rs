@@ -159,18 +159,22 @@ async fn aggregate_internal(
 
     match BangumiProvider::new() {
         Ok(provider) => {
-            match retry_network(|| provider.episodes(&result.metadata.external_id)).await {
+            let provider = provider.with_pool(pool);
+            match provider.episodes(&result.metadata.external_id).await {
                 Ok(episodes) => result.episodes = episodes,
                 Err(error) => result.warnings.push(format!("分集信息未更新：{error}")),
             }
+            result.warnings.extend(provider.take_warnings());
         }
         Err(error) => result.warnings.push(error.to_string()),
     }
 
     result.metadata.source_keys.sort();
     result.metadata.source_keys.dedup();
-    persistent_put(pool, &cache_key, &result).await?;
-    memory_put(cache_key, result.clone()).await;
+    if result.warnings.is_empty() && !result.episodes.is_empty() {
+        persistent_put(pool, &cache_key, &result).await?;
+        memory_put(cache_key, result.clone()).await;
+    }
     Ok(result)
 }
 
@@ -212,17 +216,6 @@ pub async fn persist_for_work(
                 .await?;
         }
     }
-    let existing_episode_ids = sqlx::query_scalar::<_, String>(
-        "SELECT external_id FROM anime_episodes WHERE work_id = ? AND provider = 'bangumi'",
-    )
-    .bind(work_id)
-    .fetch_all(&mut **transaction)
-    .await?;
-    let refreshed_episode_ids = result
-        .episodes
-        .iter()
-        .map(|episode| episode.external_id.as_str())
-        .collect::<std::collections::HashSet<_>>();
     for episode in &result.episodes {
         sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, title, original_title, description, air_date, duration, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(work_id, provider, external_id) DO UPDATE SET episode_number = excluded.episode_number, sort_number = excluded.sort_number, title = excluded.title, original_title = excluded.original_title, description = excluded.description, air_date = excluded.air_date, duration = excluded.duration, fetched_at = excluded.fetched_at")
             .bind(work_id)
@@ -239,15 +232,7 @@ pub async fn persist_for_work(
             .execute(&mut **transaction)
             .await?;
     }
-    for external_id in existing_episode_ids {
-        if !refreshed_episode_ids.contains(external_id.as_str()) {
-            sqlx::query("DELETE FROM anime_episodes WHERE work_id = ? AND provider = 'bangumi' AND external_id = ?")
-                .bind(work_id)
-                .bind(external_id)
-                .execute(&mut **transaction)
-                .await?;
-        }
-    }
+    // Retain older rows: the API may return a partial response during recovery.
     Ok(())
 }
 
@@ -569,6 +554,44 @@ impl TryFrom<EpisodeRow> for AnimeEpisodeMetadata {
 mod tests {
     use super::*;
     use crate::db;
+
+    #[tokio::test]
+    async fn empty_episode_refresh_keeps_cached_episodes_and_manual_links() {
+        let pool = db::test_pool().await.unwrap();
+        sqlx::query("INSERT INTO works(id,title,type,created_at,updated_at) VALUES ('w','Show','video','now','now')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,sort_number,fetched_at) VALUES ('w','bangumi','100',1,1,'now')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO media_files(id,work_id,path,file_name,extension,media_type,created_at,updated_at) VALUES ('m','w','R:\\Show\\[01].mkv','[01].mkv','mkv','video','now','now')").execute(&pool).await.unwrap();
+        crate::anime_details::set_episode_link(&pool, "m", Some("100"))
+            .await
+            .unwrap();
+        let mut result = AggregationResult {
+            metadata: metadata("bangumi", "Show"),
+            records: vec![],
+            episodes: vec![],
+            warnings: vec!["HTTP 502".into()],
+        };
+        let mut tx = pool.begin().await.unwrap();
+        persist_for_work(&mut tx, "w", &result).await.unwrap();
+        tx.commit().await.unwrap();
+        let episodes = episodes_for_work(&pool, "w").await.unwrap();
+        assert_eq!(episodes.len(), 1);
+        let mut changed = episodes[0].clone();
+        changed.external_id = "101".into();
+        result.episodes.push(changed);
+        let mut tx = pool.begin().await.unwrap();
+        persist_for_work(&mut tx, "w", &result).await.unwrap();
+        tx.commit().await.unwrap();
+        let link: String = sqlx::query_scalar(
+            "SELECT episode_external_id FROM media_episode_links WHERE media_file_id='m'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            link, "100",
+            "nonempty refresh also preserves explicitly linked old IDs"
+        );
+    }
 
     fn metadata(provider: &str, title: &str) -> WorkMetadata {
         WorkMetadata {

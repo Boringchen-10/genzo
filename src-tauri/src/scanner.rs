@@ -1,4 +1,4 @@
-use crate::anime_parser::{parse_file_name, ParsedAnime};
+use crate::anime_parser::{parse_media_path, ParsedAnime};
 use crate::error::{AppError, AppResult};
 use crate::models::{LibraryRoot, MediaFile, ScanJob, ScanResult};
 use chrono::{DateTime, Utc};
@@ -36,7 +36,11 @@ pub fn normalize_existing_path(path: &Path) -> AppResult<String> {
     if !path.exists() {
         return Err(AppError::PathNotFound(path.to_path_buf()));
     }
-    let canonical = dunce::canonicalize(path)?;
+    let canonical = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
     Ok(canonical.to_string_lossy().to_string())
 }
 
@@ -146,10 +150,7 @@ fn collect_local_files(root: &Path, kind: &str, include_hidden: bool, mounted: b
         if !include_hidden && is_hidden(path, &metadata) {
             continue;
         }
-        let normalized = dunce::canonicalize(path)
-            .unwrap_or_else(|_| path.to_path_buf())
-            .to_string_lossy()
-            .to_string();
+        let normalized = path.to_string_lossy().to_string();
         let file_name = path
             .file_name()
             .map(|value| value.to_string_lossy().to_string())
@@ -175,7 +176,8 @@ fn collect_local_files(root: &Path, kind: &str, include_hidden: bool, mounted: b
             media_type: media_type.to_string(),
             size: i64::try_from(metadata.len()).unwrap_or(i64::MAX),
             modified_at: metadata.modified().ok().and_then(system_time_to_string),
-            parsed_anime: (media_type == "video").then(|| parse_file_name(&file_name)),
+            parsed_anime: (media_type == "video")
+                .then(|| parse_media_path(&file_name, path, Some(root))),
             content_fingerprint,
             remote: None,
         });
@@ -227,7 +229,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     .is_some_and(|value| value == "true");
     let scan_path = PathBuf::from(&root.path);
     let scan_kind = root.kind.clone();
-    let walk_output = if root.source_type == "webdav" {
+    let mut walk_output = if root.source_type == "webdav" {
         match collect_remote_files(pool, &root, include_hidden).await {
             Ok(files) => WalkOutput {
                 files,
@@ -262,22 +264,27 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     // Include every existing row below this directory. A more specific configured root owns
     // overlapping files; scanning a parent may refresh metadata but must not steal ownership.
     let existing_files = sqlx::query_as::<_, MediaFile>(
-        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path FROM media_files WHERE path = ? COLLATE NOCASE OR (substr(path, 1, length(?)) = ? COLLATE NOCASE AND substr(path, length(?) + 1, 1) IN ('\\', '/'))",
+        "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path FROM media_files",
     )
-    .bind(&root.path)
-    .bind(&root.path)
-    .bind(&root.path)
-    .bind(&root.path)
     .fetch_all(&mut *transaction)
-    .await?;
+    .await?.into_iter().filter(|file| crate::media_path::relative(&file.path, &root.path).is_some()).collect::<Vec<_>>();
+    if matches!(root.source_type.as_str(), "mounted" | "webdav")
+        && walk_output.files.is_empty()
+        && !existing_files.is_empty()
+        && walk_output.errors.is_empty()
+    {
+        walk_output
+            .errors
+            .push("网络目录暂未返回文件，保留现有索引；请连接恢复后重试扫描".into());
+    }
     let scanned_paths = walk_output
         .files
         .iter()
-        .map(|file| file.path.to_lowercase())
+        .map(|file| crate::media_path::key(&file.path))
         .collect::<HashSet<_>>();
     let mut move_candidates: HashMap<String, Vec<MediaFile>> = HashMap::new();
     for file in &existing_files {
-        if !scanned_paths.contains(&file.path.to_lowercase()) {
+        if !scanned_paths.contains(&crate::media_path::key(&file.path)) {
             if let Some(fingerprint) = &file.content_fingerprint {
                 move_candidates
                     .entry(fingerprint.clone())
@@ -288,7 +295,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     }
     let existing_by_path: HashMap<String, MediaFile> = existing_files
         .into_iter()
-        .map(|file| (file.path.to_lowercase(), file))
+        .map(|file| (crate::media_path::key(&file.path), file))
         .collect();
     if walk_output.errors.is_empty() {
         sqlx::query("UPDATE media_files SET missing = 1, updated_at = ? WHERE library_root_id = ?")
@@ -304,7 +311,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
 
     for file in &walk_output.files {
         let now = Utc::now().to_rfc3339();
-        if let Some(existing) = existing_by_path.get(&file.path.to_lowercase()) {
+        if let Some(existing) = existing_by_path.get(&crate::media_path::key(&file.path)) {
             let existing_root_path = existing
                 .library_root_id
                 .as_ref()
@@ -546,7 +553,11 @@ async fn collect_remote_files(
             size: entry.size,
             modified_at: entry.modified_at,
             parsed_anime: (media_type == "video" || subtitle).then(|| {
-                crate::anime_parser::parse_media_path(&entry.name, Path::new(&decoded), None)
+                crate::anime_parser::parse_media_path(
+                    &entry.name,
+                    Path::new(&decoded),
+                    Some(Path::new(&base)),
+                )
             }),
             content_fingerprint: None,
             remote: Some((entry.href, entry.etag)),
@@ -556,9 +567,7 @@ async fn collect_remote_files(
 }
 
 fn normalized_directory(path: &str) -> String {
-    path.trim_end_matches(['\\', '/'])
-        .replace('/', "\\")
-        .to_lowercase()
+    crate::media_path::key(path).replace('/', "\\")
 }
 
 fn is_more_specific_root(candidate: &str, owner: &str) -> bool {
@@ -576,6 +585,41 @@ mod tests {
     use crate::db;
     use chrono::Utc;
     use std::fs;
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn mounted_scan_matches_extended_drive_paths_without_rewriting_database_paths() {
+        let pool = db::test_pool().await.unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("Show").join("Season 2");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("[01].mkv"), b"fixture").unwrap();
+        let root = dunce::canonicalize(temp.path())
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        sqlx::query("INSERT INTO library_roots(id,path,kind,enabled,source_type,created_at,updated_at) VALUES ('r',?,'video',1,'mounted','now','now')").bind(&root).execute(&pool).await.unwrap();
+        scan_library_root(&pool, "r").await.unwrap();
+        let original: String = sqlx::query_scalar("SELECT path FROM media_files")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let extended = format!(r"\\?\{original}");
+        sqlx::query("UPDATE media_files SET path=?")
+            .bind(&extended)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let result = scan_library_root(&pool, "r").await.unwrap();
+        assert_eq!(result.job.added_count, 0);
+        assert_eq!(result.job.missing_count, 0);
+        let row: (String, i64, i64) =
+            sqlx::query_as("SELECT path,parsed_season,parsed_episode_start FROM media_files")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row, (extended, 2, 1));
+    }
 
     #[test]
     fn classifies_supported_extensions_case_insensitively() {

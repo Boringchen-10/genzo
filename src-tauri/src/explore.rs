@@ -3,7 +3,7 @@ use crate::bangumi::BangumiProvider;
 use crate::db::{self, AppState};
 use crate::error::{AppError, AppResult};
 use crate::metadata;
-use crate::metadata_provider::{retry_network, supplemental_match_confidence, MetadataSearchQuery};
+use crate::metadata_provider::{supplemental_match_confidence, MetadataSearchQuery};
 use crate::models::{
     ExploreOverview, ExploreSaveInput, ExploreSourceStatus, ExploreSubject, WeeklyCalendar,
     WeeklyCalendarDay, WorkMetadata,
@@ -280,14 +280,16 @@ pub async fn search(pool: &SqlitePool, query: &str) -> AppResult<Vec<ExploreSubj
     let result = if cached.as_ref().is_some_and(|value| !value.stale) {
         cached.expect("fresh cache checked")
     } else {
-        let provider = BangumiProvider::new()?;
-        match retry_network(|| provider.search(query)).await {
+        let provider = BangumiProvider::new()?.with_pool(pool);
+        match provider.search(query).await {
             Ok(items) => {
-                save_cache(pool, BANGUMI_PROVIDER, &key, &items, Duration::days(7)).await?;
+                if !provider.has_warnings() {
+                    save_cache(pool, BANGUMI_PROVIDER, &key, &items, Duration::days(7)).await?;
+                }
                 Cached {
                     value: items,
                     fetched_at: Utc::now().to_rfc3339(),
-                    stale: false,
+                    stale: provider.has_warnings(),
                 }
             }
             Err(error) => cached.ok_or(error)?,
@@ -317,13 +319,16 @@ pub async fn anime_ranking(
         cached.expect("fresh ranking cache checked")
     } else {
         let offset = (page - 1).saturating_mul(page_size);
-        match BangumiProvider::new()?.ranking(page_size, offset).await {
+        let provider = BangumiProvider::new()?.with_pool(pool);
+        match provider.ranking(page_size, offset).await {
             Ok(items) => {
-                save_cache(pool, BANGUMI_PROVIDER, &key, &items, Duration::hours(12)).await?;
+                if !provider.has_warnings() {
+                    save_cache(pool, BANGUMI_PROVIDER, &key, &items, Duration::hours(12)).await?;
+                }
                 Cached {
                     value: items,
                     fetched_at: Utc::now().to_rfc3339(),
-                    stale: false,
+                    stale: provider.has_warnings(),
                 }
             }
             Err(error) => cached.ok_or(error)?,
@@ -536,7 +541,7 @@ async fn enrich_with_anilist(
     if allow_network_refresh && !refresh_ids.is_empty() {
         let provider = AniListProvider::new()?;
         for chunk in refresh_ids.chunks(50) {
-            match retry_network(|| provider.get_details_many(chunk)).await {
+            match crate::metadata_provider::retry_network(|| provider.get_details_many(chunk)).await {
                 Ok(metadata) => {
                     for item in metadata {
                         save_cache(
@@ -1007,22 +1012,24 @@ fn schedule_calendar_refresh(pool: SqlitePool) {
 }
 
 async fn fetch_calendar_and_cache(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>> {
-    let provider = BangumiProvider::new()?;
-    match retry_network(|| provider.calendar()).await {
+    let provider = BangumiProvider::new()?.with_pool(pool);
+    match provider.calendar().await {
         Ok(items) => {
             let fetched_at = Utc::now().to_rfc3339();
-            save_cache(
-                pool,
-                BANGUMI_PROVIDER,
-                CALENDAR_CACHE_KEY,
-                &items,
-                Duration::hours(6),
-            )
-            .await?;
+            if !provider.has_warnings() {
+                save_cache(
+                    pool,
+                    BANGUMI_PROVIDER,
+                    CALENDAR_CACHE_KEY,
+                    &items,
+                    Duration::hours(6),
+                )
+                .await?;
+            }
             Ok(Cached {
                 value: items,
                 fetched_at,
-                stale: false,
+                stale: provider.has_warnings(),
             })
         }
         Err(error) => Err(error),
@@ -1046,21 +1053,23 @@ async fn load_subject_metadata(
     if cached.as_ref().is_some_and(|value| !value.stale) {
         return Ok(cached.expect("fresh cache checked"));
     }
-    let provider = BangumiProvider::new()?;
-    match retry_network(|| provider.get_details(&external_id)).await {
+    let provider = BangumiProvider::new()?.with_pool(pool);
+    match provider.get_details(&external_id).await {
         Ok(metadata) => {
-            save_cache(
-                pool,
-                BANGUMI_PROVIDER,
-                &key,
-                std::slice::from_ref(&metadata),
-                Duration::days(30),
-            )
-            .await?;
+            if !provider.has_warnings() {
+                save_cache(
+                    pool,
+                    BANGUMI_PROVIDER,
+                    &key,
+                    std::slice::from_ref(&metadata),
+                    Duration::days(30),
+                )
+                .await?;
+            }
             Ok(Cached {
                 fetched_at: metadata.fetched_at.clone(),
                 value: metadata,
-                stale: false,
+                stale: provider.has_warnings(),
             })
         }
         Err(error) => {

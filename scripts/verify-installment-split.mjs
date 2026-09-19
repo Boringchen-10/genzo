@@ -7,7 +7,7 @@ import { chromium } from "playwright-core";
 const now = new Date().toISOString();
 const files = ["[ReinForce] Kiss×sis - 01 (BDRip 1920x1080).mkv", "[ReinForce] Kiss×sis - OAD 01 (BDRip 1920x1080).mkv"].map((fileName, index) => ({
   id: `media-${index}`, workId: "tv", libraryRootId: "root", path: `C:\\Anime\\Kiss×sis\\${fileName}`, fileName,
-  extension: "mkv", mediaType: "video", size: 1800000000, missing: false, modifiedAt: now, createdAt: now, updatedAt: now,
+  extension: "mkv", mediaType: "video", size: 1800000000, missing: index === 0, modifiedAt: now, createdAt: now, updatedAt: now,
   recognitionStatus: "matched", parsedTitle: "Kiss×sis", parsedSeason: null, parsedEpisode: "1", parsedEpisodeStart: 1,
   parsedEpisodeEnd: null, parsedSpecialType: index ? "OAD" : null, parsedMediaInfo: "[]", thumbnailPath: null,
 }));
@@ -24,7 +24,7 @@ const work = {
   metadata: { provider: "bangumi", externalId: "tv-subject", title: "亲吻姐姐 TV", fetchedAt: now },
 };
 const episode = {
-  provider: "bangumi", externalId: "episode-1", episodeNumber: 1, sortNumber: 1, title: "Wonderful Days",
+  provider: "local", externalId: "local/unverified:s1:tv:1", episodeNumber: 1, sortNumber: 1, title: "第 1 集（本地未核实）",
   originalTitle: null, description: "", airDate: "2010-04-05", duration: "00:23:50", fetchedAt: now, localFiles: [],
 };
 const browser = await chromium.launch({
@@ -71,6 +71,13 @@ try {
       }),
     }));
     assert.deepEqual(layout, { overflow: false, outsideRows: false });
+    const offlineRow = page.locator(".unmatched-row.is-stale");
+    await offlineRow.getByRole("combobox").selectOption("local/unverified:s1:tv:1");
+    await offlineRow.getByRole("button", { name: "关联", exact: true }).click();
+    await page.waitForFunction(() => globalThis.__splitCalls.some(call => call.command === "set_media_episode"));
+    const mapping = await page.evaluate(() => globalThis.__splitCalls.find(call => call.command === "set_media_episode"));
+    assert.equal(mapping.args.mediaFileId, "media-0");
+    assert.equal(mapping.args.episodeExternalId, "local/unverified:s1:tv:1");
     await page.screenshot({ path: `${output}/files-${width}.png` });
     await row.getByRole("button", { name: "识别到其他作品", exact: true }).click();
     await page.getByRole("button", { name: "按文件名识别" }).click();
@@ -85,6 +92,26 @@ try {
     console.log(`${width}x${height}: layout, recognition and target-detail navigation passed`);
     await page.close();
   }
+
+  const fallbackPage = await browser.newPage({ viewport: { width: 1024, height: 640 } });
+  await fallbackPage.addInitScript(({ work, files }) => {
+    Object.defineProperty(globalThis, "__TAURI_INTERNALS__", { value: {
+      convertFileSrc: (value) => value === "WORK_COVER" ? "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" : value,
+      invoke: async (command) => {
+        if (command === "get_work") return { ...work, coverPath: "WORK_COVER" };
+        if (command === "list_external_tools") return [];
+        if (command === "get_setting") return "dark";
+        if (command === "get_anime_work_structure") throw new Error("database is locked");
+        if (command === "get_media_thumbnail") return null;
+        return null;
+      },
+    } });
+  }, { work, files });
+  await fallbackPage.goto(`${process.env.GENZO_PREVIEW_URL || "http://127.0.0.1:4177"}/#/library/tv`);
+  await fallbackPage.getByText("读取分集结构失败").waitFor();
+  assert.equal(await fallbackPage.locator(".detail-file-visual img.media-cover").count(), 0, "failed episode loading must not reuse the work cover");
+  assert.equal(await fallbackPage.locator(".detail-file-visual .media-placeholder").count(), files.length);
+  await fallbackPage.close();
 } finally {
   await browser.close();
 }

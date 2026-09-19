@@ -1,3 +1,4 @@
+mod media_path;
 mod anime_details;
 mod anime_parser;
 mod bangumi;

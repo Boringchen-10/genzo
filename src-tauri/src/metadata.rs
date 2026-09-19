@@ -4,7 +4,7 @@ use crate::db::AppState;
 use crate::error::{AppError, AppResult};
 use crate::grouping;
 use crate::media_mapping;
-use crate::metadata_provider::retry_network;
+
 use crate::models::{
     MatchCandidate, MatchCandidateRow, MediaFile, RecognitionResult, RecognitionSummary, Work,
     WorkMetadata,
@@ -113,12 +113,22 @@ async fn search_provider(
                     continue;
                 }
             }
-            match retry_network(|| provider.get_details(&item.external_id)).await {
+            match provider.get_details(&item.external_id).await {
                 Ok(detail) => {
-                    save_cache(pool, &detail_key, std::slice::from_ref(&detail), 30).await?;
+                    if !provider.has_warnings() {
+                        save_cache(pool, &detail_key, std::slice::from_ref(&detail), 30).await?;
+                    }
                     resolved.push(detail);
                 }
-                Err(_) => resolved.push(item),
+                Err(error) => {
+                    let old: Option<String> = sqlx::query_scalar("SELECT response_json FROM metadata_cache WHERE provider='bangumi' AND cache_key=?")
+                        .bind(&detail_key).fetch_optional(pool).await?;
+                    let cached = old
+                        .and_then(|s| serde_json::from_str::<Vec<WorkMetadata>>(&s).ok())
+                        .and_then(|mut v| v.pop());
+                    provider.warn(format!("{error}；使用本地条目信息"));
+                    resolved.push(cached.unwrap_or(item));
+                }
             }
         }
         return Ok(resolved);
@@ -127,8 +137,25 @@ async fn search_provider(
     if let Some(cached) = cached_search(pool, &key).await? {
         return Ok(cached);
     }
-    let results = retry_network(|| provider.search(query)).await?;
-    save_cache(pool, &key, &results, 7).await?;
+    let results = match provider.search(query).await {
+        Ok(results) => results,
+        Err(error) => {
+            let old: Option<String> = sqlx::query_scalar(
+                "SELECT response_json FROM metadata_cache WHERE provider='bangumi' AND cache_key=?",
+            )
+            .bind(&key)
+            .fetch_optional(pool)
+            .await?;
+            if let Some(results) = old.and_then(|s| serde_json::from_str(&s).ok()) {
+                provider.warn(format!("{error}；使用已过期的本地搜索缓存"));
+                return Ok(results);
+            }
+            return Err(error);
+        }
+    };
+    if !provider.has_warnings() {
+        save_cache(pool, &key, &results, 7).await?;
+    }
     Ok(results)
 }
 
@@ -300,7 +327,7 @@ pub async fn recognize_media(
         None,
     )
     .await?;
-    let provider = BangumiProvider::new()?;
+    let provider = BangumiProvider::new()?.with_pool(&state.pool);
     let results = match search_provider(&state.pool, &query, &provider).await {
         Ok(results) => results,
         Err(error) => {
@@ -390,7 +417,10 @@ pub async fn recognize_media(
             status: "matched".to_string(),
             parsed_title: parsed.title,
             candidates: Vec::new(),
-            error: None,
+            error: {
+                let warnings = provider.take_warnings();
+                (!warnings.is_empty()).then(|| warnings.join("；"))
+            },
         });
     }
     let status = if scored
@@ -407,7 +437,10 @@ pub async fn recognize_media(
         status: status.to_string(),
         parsed_title: parsed.title,
         candidates: scored,
-        error: None,
+        error: {
+            let warnings = provider.take_warnings();
+            (!warnings.is_empty()).then(|| warnings.join("；"))
+        },
     })
 }
 
@@ -622,16 +655,17 @@ pub async fn confirm_candidate(
     let row = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE id = ? AND media_file_id = ?")
         .bind(candidate_id).bind(media_file_id).fetch_optional(&state.pool).await?.ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".to_string()))?;
     let mut metadata: WorkMetadata = serde_json::from_str(&row.metadata_json)?;
-    let provider = BangumiProvider::new()?;
+    let provider = BangumiProvider::new()?.with_pool(&state.pool);
     let detail_key = format!("detail:{}", metadata.external_id);
     if let Some(mut cached) = cached_search(&state.pool, &detail_key).await? {
         if let Some(item) = cached.pop() {
             metadata = item;
         }
-    } else if let Ok(details) = retry_network(|| provider.get_details(&metadata.external_id)).await
-    {
+    } else if let Ok(details) = provider.get_details(&metadata.external_id).await {
         metadata = details;
-        save_cache(&state.pool, &detail_key, &[metadata.clone()], 30).await?;
+        if !provider.has_warnings() {
+            save_cache(&state.pool, &detail_key, &[metadata.clone()], 30).await?;
+        }
     }
     let aggregation = crate::metadata_aggregator::aggregate(&state.pool, metadata.clone())
         .await
