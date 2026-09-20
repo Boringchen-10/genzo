@@ -84,6 +84,7 @@ pub fn run() {
             commands::list_unassigned_media,
             commands::list_unassigned_media_groups,
             commands::attach_media_file,
+            commands::attach_media_files,
             commands::detach_media_file,
             commands::import_cover,
             commands::list_library_roots,

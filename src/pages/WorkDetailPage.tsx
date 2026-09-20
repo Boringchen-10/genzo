@@ -26,8 +26,9 @@ import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal,
 import { RemoteFileActions } from "../components/RemoteStoragePanel";
 import { MediaVisual } from "../components/MediaVisual";
 import { WorkForm } from "../components/WorkForm";
+import { MediaFileBrowser } from "../components/MediaFileBrowser";
 import { useToasts } from "../store";
-import type { AnimeCharacter, AnimeCredit, AnimeEpisodeEntry, AnimeWorkStructure, ExternalTool, MediaFile, WorkDetail, WorkInput } from "../types";
+import type { AnimeCharacter, AnimeCredit, AnimeEpisodeEntry, AnimeWorkStructure, ExternalTool, LibraryRoot, MediaFile, WorkDetail, WorkInput } from "../types";
 import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, statusLabels } from "../utils";
 import "../work-detail.css";
 
@@ -135,7 +136,9 @@ export function WorkDetailPage() {
   const [notesSaving, setNotesSaving] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
   const [busyFile, setBusyFile] = useState<string | null>(null);
-  const [attachSearch, setAttachSearch] = useState("");
+  const [attachRoots, setAttachRoots] = useState<LibraryRoot[]>([]);
+  const [attachLoading, setAttachLoading] = useState(false);
+  const [attachError, setAttachError] = useState("");
   const [recognizingMedia, setRecognizingMedia] = useState<MediaFile | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [aboutClipped, setAboutClipped] = useState(false);
@@ -273,17 +276,18 @@ export function WorkDetailPage() {
     return entries;
   }, [structure]);
 
-  const availableFiles = useMemo(() => {
-    const search = attachSearch.trim().toLocaleLowerCase("zh-CN");
-    return unassigned.filter((file) => !search || file.fileName.toLocaleLowerCase("zh-CN").includes(search) || file.path.toLocaleLowerCase("zh-CN").includes(search));
-  }, [attachSearch, unassigned]);
-
   const openAttach = async () => {
     setAttachOpen(true);
+    setAttachLoading(true);
+    setAttachError("");
     try {
-      setUnassigned(await api.listUnassignedMedia());
+      const [files, roots] = await Promise.all([api.listUnassignedMedia(), api.listRoots()]);
+      setUnassigned(files);
+      setAttachRoots(roots);
     } catch (loadError: unknown) {
-      toast(getErrorMessage(loadError), "error");
+      setAttachError(getErrorMessage(loadError));
+    } finally {
+      setAttachLoading(false);
     }
   };
 
@@ -342,15 +346,16 @@ export function WorkDetailPage() {
     }
   };
 
-  const attach = async (mediaFileId: string) => {
-    setBusyFile(mediaFileId);
+  const attach = async (mediaFileIds: string[]) => {
+    setBusyFile("attach-batch");
     try {
-      await api.attachMedia(id, mediaFileId);
-      toast("文件已关联", "success");
-      setUnassigned((files) => files.filter((file) => file.id !== mediaFileId));
+      await api.attachMediaFiles(id, mediaFileIds);
+      toast(`已关联 ${mediaFileIds.length} 个文件`, "success");
+      setUnassigned((files) => files.filter((file) => !mediaFileIds.includes(file.id)));
       await load();
     } catch (attachError: unknown) {
       toast(getErrorMessage(attachError), "error");
+      throw attachError;
     } finally {
       setBusyFile(null);
     }
@@ -907,16 +912,7 @@ export function WorkDetailPage() {
       {editOpen ? <Modal title="编辑作品" width="large" onClose={() => setEditOpen(false)}><WorkForm work={work} busy={saving} onCancel={() => setEditOpen(false)} onSubmit={update} /></Modal> : null}
       {attachOpen ? (
         <Modal title="关联媒体文件" width="large" onClose={() => setAttachOpen(false)}>
-          <div className="search-box modal-search"><input value={attachSearch} onChange={(event) => setAttachSearch(event.target.value)} placeholder="搜索未归档文件" /></div>
-          <div className="attach-list">
-            {availableFiles.length ? availableFiles.map((file) => (
-              <div key={file.id} className="attach-row">
-                <div><strong>{file.fileName}</strong><small>{file.path}</small></div>
-                <span>{mediaLabels[file.mediaType]}</span>
-                <button type="button" className="button compact secondary" disabled={busyFile === file.id} onClick={() => void attach(file.id)}>关联</button>
-              </div>
-            )) : <EmptyState title="没有可关联的文件" description="请先添加并扫描本地目录，或调整搜索条件。" />}
-          </div>
+          {attachLoading ? <LoadingState label="正在读取可关联文件" /> : attachError ? <ErrorState message={attachError} retry={() => void openAttach()} /> : <MediaFileBrowser files={unassigned} roots={attachRoots} busy={busyFile === "attach-batch"} onAttach={attach} />}
         </Modal>
       ) : null}
       {deleteOpen ? <ConfirmDialog title="删除作品记录？" description="这只会删除 Genzo 数据库中的作品记录，并解除文件关联。任何本地媒体文件都不会被删除、移动或修改。" busy={saving} onCancel={() => setDeleteOpen(false)} onConfirm={() => void remove()} /> : null}

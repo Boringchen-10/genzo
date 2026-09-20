@@ -330,6 +330,48 @@ pub async fn list_unassigned_media_groups(
 }
 
 #[tauri::command]
+pub async fn attach_media_files(
+    work_id: String,
+    media_file_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    attach_unassigned_media_in_pool(&state.pool, &work_id, &media_file_ids).await
+}
+
+async fn attach_unassigned_media_in_pool(
+    pool: &SqlitePool,
+    work_id: &str,
+    ids: &[String],
+) -> AppResult<()> {
+    if ids.is_empty() {
+        return Err(AppError::Validation("请选择文件".into()));
+    }
+    let mut transaction = pool.begin().await?;
+    // Start with a write so a concurrent scan cannot invalidate a read snapshot.
+    let exists = sqlx::query("UPDATE works SET updated_at = ? WHERE id = ?")
+        .bind(Utc::now().to_rfc3339())
+        .bind(work_id)
+        .execute(&mut *transaction)
+        .await?;
+    if exists.rows_affected() == 0 {
+        return Err(AppError::NotFound("作品不存在".into()));
+    }
+    for id in ids {
+        let result = sqlx::query("UPDATE media_files SET work_id = ?, recognition_status = 'matched', updated_at = ? WHERE id = ? AND (work_id IS NULL OR work_id = ?)")
+            .bind(work_id).bind(Utc::now().to_rfc3339()).bind(id).bind(work_id).execute(&mut *transaction).await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::Validation(
+                "文件已关联其他作品或已不存在，请刷新后重试".into(),
+            ));
+        }
+    }
+    media_mapping::rebuild_subtitle_links(&mut transaction, work_id).await?;
+    crate::anime_details::rebuild_episode_links(&mut transaction, work_id).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn attach_media_file(
     work_id: String,
     media_file_id: String,
@@ -1291,6 +1333,59 @@ mod tests {
         let items = work_list_items(&pool).await.expect("list works");
         let value = serde_json::to_value(&items[0]).expect("serialize work list item");
         assert_eq!(value["bannerPath"], "C:\\cache\\banner.jpg");
+    }
+
+    #[tokio::test]
+    async fn attaches_batch_to_existing_work_atomically_without_overwriting_records() {
+        let pool = db::test_pool().await.unwrap();
+        sqlx::query("INSERT INTO works (id,title,type,status,notes,created_at,updated_at) VALUES ('w','已有作品','video','completed','保留笔记','now','now'),('other','其他作品','video','planned','','now','now')").execute(&pool).await.unwrap();
+        for (id, owner) in [("a", None), ("b", None), ("owned", Some("other"))] {
+            sqlx::query("INSERT INTO media_files(id,work_id,path,file_name,extension,media_type,created_at,updated_at) VALUES (?,?,?,'01.mkv','mkv','video','now','now')")
+                .bind(id).bind(owner).bind(format!(r"\\?\UNC\server\Anime\{id}\01.mkv")).execute(&pool).await.unwrap();
+        }
+        let error =
+            attach_unassigned_media_in_pool(&pool, "w", &["a".into(), "owned".into()]).await;
+        assert!(error.is_err());
+        let owner: Option<String> =
+            sqlx::query_scalar("SELECT work_id FROM media_files WHERE id='a'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            owner.is_none(),
+            "failed batches must roll back earlier files"
+        );
+        attach_unassigned_media_in_pool(&pool, "w", &["a".into(), "b".into()])
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,sort_number,title,description,fetched_at) VALUES ('w','bangumi','e1',1,1,'第一集','','now')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO media_episode_links(media_file_id,work_id,provider,episode_external_id,match_method,confidence,updated_at) VALUES ('a','w','bangumi','e1','manual',1,'now')").execute(&pool).await.unwrap();
+        attach_unassigned_media_in_pool(&pool, "w", &["a".into(), "b".into()])
+            .await
+            .unwrap();
+        let retained: (String, String) =
+            sqlx::query_as("SELECT status,notes FROM works WHERE id='w'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(retained, ("completed".into(), "保留笔记".into()));
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_files WHERE work_id='w'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 2);
+        let method: String = sqlx::query_scalar(
+            "SELECT match_method FROM media_episode_links WHERE media_file_id='a'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(method, "manual");
+        assert!(
+            attach_unassigned_media_in_pool(&pool, "missing", &["b".into()])
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

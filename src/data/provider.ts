@@ -53,6 +53,7 @@ export interface GenzoDataProvider {
   listUnassignedMedia(): Promise<MediaFile[]>;
   listUnassignedGroups(): Promise<UnassignedMediaGroup[]>;
   attachMedia(workId: string, mediaFileId: string): Promise<void>;
+  attachMediaFiles(workId: string, mediaFileIds: string[]): Promise<void>;
   detachMedia(mediaFileId: string): Promise<void>;
   importCover(sourcePath: string): Promise<string>;
 

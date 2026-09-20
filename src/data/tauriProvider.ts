@@ -16,6 +16,7 @@ export function createTauriProvider(): GenzoDataProvider {
     listUnassignedMedia: api.listUnassignedMedia,
     listUnassignedGroups: api.listUnassignedGroups,
     attachMedia: api.attachMedia,
+    attachMediaFiles: api.attachMediaFiles,
     detachMedia: api.detachMedia,
     importCover: api.importCover,
     listRoots: api.listRoots,

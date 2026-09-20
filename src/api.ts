@@ -107,6 +107,8 @@ export const api = {
   listUnassignedGroups: () => call<UnassignedMediaGroup[]>("list_unassigned_media_groups"),
   attachMedia: (workId: string, mediaFileId: string) =>
     call<void>("attach_media_file", { workId, mediaFileId }),
+  attachMediaFiles: (workId: string, mediaFileIds: string[]) =>
+    call<void>("attach_media_files", { workId, mediaFileIds }),
   detachMedia: (mediaFileId: string) => call<void>("detach_media_file", { mediaFileId }),
   importCover: (sourcePath: string) => call<string>("import_cover", { sourcePath }),
   listRoots: () => call<LibraryRoot[]>("list_library_roots"),

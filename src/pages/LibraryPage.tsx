@@ -11,33 +11,13 @@ import { ScanPage } from "./ScanPage";
 import { usePreferences, useToasts } from "../store";
 import type { LibraryRoot, MediaFile, MediaType, RecognitionStatus, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, unassignedStatusRank } from "../utils";
+import { normalizePath, pathBaseName, pathDirName, pathChildSegment } from "../mediaPaths";
 
 type Scope = "all" | "recent" | "favorites" | "missing";
 type SortKey = "title" | "createdAt" | "updatedAt";
 type UnassignedSortKey = "status" | "title" | "fileCount";
 
 /* ---------- 待整理：按媒体源文件夹层级浏览 ---------- */
-/** 统一路径分隔符，去掉尾部斜杠（Windows 路径为主，同时容忍 `/`）。 */
-const normalizePath = (value: string) => value.replace(/[\\/]+/g, "\\").replace(/\\+$/, "");
-const pathBaseName = (value: string) => {
-  const normalized = normalizePath(value);
-  const index = normalized.lastIndexOf("\\");
-  return index < 0 ? normalized : normalized.slice(index + 1);
-};
-const pathDirName = (value: string) => {
-  const normalized = normalizePath(value);
-  const index = normalized.lastIndexOf("\\");
-  return index <= 0 ? normalized : normalized.slice(0, index);
-};
-/** 取 `path` 相对 `parent` 的下一级名称；不在其下（含相等）返回 null。 */
-const pathChildSegment = (parent: string, path: string): string | null => {
-  const normalizedParent = normalizePath(parent);
-  const normalizedPath = normalizePath(path);
-  if (!normalizedPath.startsWith(`${normalizedParent}\\`)) return null;
-  const rest = normalizedPath.slice(normalizedParent.length + 1);
-  const index = rest.indexOf("\\");
-  return index < 0 ? rest : rest.slice(0, index);
-};
 
 /** 待整理某一层级里的一行：文件夹或文件。 */
 interface InboxEntry {
@@ -87,12 +67,13 @@ export function LibraryPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [organizingGroup, setOrganizingGroup] = useState<UnassignedMediaGroup | null>(null);
   const [saving, setSaving] = useState(false);
+  const [linkingFiles, setLinkingFiles] = useState<MediaFile[] | null>(null);
+  const [workSearch, setWorkSearch] = useState("");
   const [recognizingGroup, setRecognizingGroup] = useState<UnassignedMediaGroup | null>(null);
   const [batchRecognizing, setBatchRecognizing] = useState(false);
   const [unassignedLimit, setUnassignedLimit] = useState(100);
   const [inboxPath, setInboxPath] = useState<string | null>(null);
   const [inboxMedia, setInboxMedia] = useState<MediaFile[]>([]);
-  const [inboxMediaLoaded, setInboxMediaLoaded] = useState(false);
   const [inboxMediaLoading, setInboxMediaLoading] = useState(false);
   const view = usePreferences((state) => state.libraryView);
   const setView = usePreferences((state) => state.setLibraryView);
@@ -116,7 +97,7 @@ export function LibraryPage() {
       setLoading(false);
     }
   }, []);
-  useEffect(() => { void load(); setInboxMediaLoaded(false); }, [load, activeSection]);
+  useEffect(() => { void load(); }, [load, activeSection]);
 
   const tags = useMemo(() => Array.from(new Set(works.flatMap((work) => work.tags))).sort((a, b) => a.localeCompare(b, "zh-CN")), [works]);
   const filtered = useMemo(() => {
@@ -199,19 +180,19 @@ export function LibraryPage() {
     });
   }, [comicBrowsePath, comicContainers, filteredUnassigned]);
 
-  /* 待整理的文件级数据：只在进入「待整理」时取一次，且只保留属于已添加媒体源的文件。
+  /* 进入待整理或作品组刷新后重新取文件列表，避免关联成功后仍显示旧文件。
      listUnassignedMedia 目前无过滤、无分页（后端为 WHERE work_id IS NULL），大库下会传输全部记录；
      已登记后端需求（INBOX-007）：提供按媒体源 / 路径过滤与分页的查询。 */
   useEffect(() => {
-    if (activeSection !== "inbox" || inboxMediaLoaded || inboxMediaLoading) return;
+    if (activeSection !== "inbox") return;
     let cancelled = false;
     setInboxMediaLoading(true);
     api.listUnassignedMedia()
-      .then((files) => { if (!cancelled) { setInboxMedia(files); setInboxMediaLoaded(true); } })
+      .then((files) => { if (!cancelled) setInboxMedia(files); })
       .catch((mediaError: unknown) => { if (!cancelled) toast(getErrorMessage(mediaError), "error"); })
       .finally(() => { if (!cancelled) setInboxMediaLoading(false); });
     return () => { cancelled = true; };
-  }, [activeSection, inboxMediaLoaded, toast]);
+  }, [activeSection, unassignedGroups, toast]);
 
   const rootIds = useMemo(() => new Set(roots.map((root) => root.id)), [roots]);
   const scopedFiles = useMemo(
@@ -225,15 +206,16 @@ export function LibraryPage() {
     const target = normalizePath(inboxPath);
     const root = roots.find((item) => {
       const rootPath = normalizePath(item.path);
-      return target === rootPath || target.startsWith(`${rootPath}\\`);
+      return target === rootPath || pathChildSegment(rootPath, target) !== null;
     });
     if (!root) return [{ name: pathBaseName(target), path: target }];
     const rootPath = normalizePath(root.path);
     const rest = target === rootPath ? "" : target.slice(rootPath.length + 1);
     const crumbs = [{ name: root.displayName || pathBaseName(rootPath) || rootPath, path: rootPath }];
     let cursor = rootPath;
-    for (const segment of rest ? rest.split("\\") : []) {
-      cursor = `${cursor}\\${segment}`;
+    const separator = rootPath.startsWith("webdav://") ? "/" : "\\";
+    for (const segment of rest ? rest.split(separator) : []) {
+      cursor = `${cursor}${separator}${segment}`;
       crumbs.push({ name: segment, path: cursor });
     }
     return crumbs;
@@ -266,7 +248,7 @@ export function LibraryPage() {
     const files: InboxEntry[] = [];
 
     const touchFolder = (segment: string, group: UnassignedMediaGroup | null) => {
-      const path = `${prefix}\\${segment}`;
+      const path = `${prefix}${prefix.startsWith("webdav://") ? "/" : "\\"}${segment}`;
       const entry = folders.get(segment) ?? {
         key: path,
         name: segment,
@@ -287,6 +269,7 @@ export function LibraryPage() {
     };
 
     for (const group of filteredUnassigned) {
+      if (!group.folderPath) continue;
       const segment = pathChildSegment(prefix, normalizePath(group.folderPath ?? group.representative.path));
       if (!segment) continue;
       const entry = touchFolder(segment, group);
@@ -337,6 +320,19 @@ export function LibraryPage() {
     } catch (launchError: unknown) {
       toast(getErrorMessage(launchError), "error");
     }
+  };
+  const currentInboxFiles = inboxPath === null ? [] : scopedFiles.filter(file => pathChildSegment(inboxPath, file.path) !== null);
+  const attachToExisting = async (workId: string) => {
+    if (!linkingFiles) return;
+    setSaving(true);
+    try {
+      await api.attachMediaFiles(workId, linkingFiles.map(file => file.id));
+      setInboxMedia(files => files.filter(file => !linkingFiles.some(selected => selected.id === file.id)));
+      setLinkingFiles(null);
+      toast(`已关联 ${linkingFiles.length} 个文件到已有作品`, "success");
+      await load();
+    } catch (error: unknown) { toast(getErrorMessage(error), "error"); }
+    finally { setSaving(false); }
   };
   const revealInboxFile = async (file: MediaFile) => {
     try {
@@ -461,6 +457,8 @@ export function LibraryPage() {
             ))}
           </nav>
 
+          {currentInboxFiles.length ? <div className="inbox-group-row"><span>当前目录及子目录：{currentInboxFiles.length} 个待整理文件</span><button type="button" className="button secondary compact" disabled={inboxMediaLoading} onClick={() => { setWorkSearch(""); setLinkingFiles(currentInboxFiles); }}>关联已有作品</button></div> : null}
+
           {inboxGroupHere ? (
             <div className="inbox-group-row">
               <div>
@@ -491,6 +489,7 @@ export function LibraryPage() {
                 <span className="inbox-meta">{entry.file ? `${mediaLabels[entry.file.mediaType]} · ${formatSize(entry.file.size)}` : ""}</span>
                 <span className={entry.missingCount ? "warning-text" : "available-text"}>{entry.missingCount ? "文件缺失" : "未匹配"}</span>
                 <span className="inbox-actions">
+                  <button type="button" className="button secondary compact" onClick={() => { if (entry.file) { setWorkSearch(""); setLinkingFiles([entry.file]); } }}>关联作品</button>
                   <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void openInboxFile(entry.file); }}>打开</button>
                   <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void revealInboxFile(entry.file); }}>所在目录</button>
                 </span>
@@ -532,6 +531,12 @@ export function LibraryPage() {
       ) : null}
 
       {showCreate ? <Modal title="新建作品" width="large" onClose={() => setShowCreate(false)}><WorkForm busy={saving} onCancel={() => setShowCreate(false)} onSubmit={create} /></Modal> : null}
+      {linkingFiles ? <Modal title="关联已有作品" width="large" onClose={() => { if (!saving) setLinkingFiles(null); }}>
+        <p className="quiet-inline">将 {linkingFiles.length} 个文件关联到所选作品，不会新建重复作品。个人记录保持不变。</p>
+        <div className="search-box modal-search"><input value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="搜索媒体库中的作品" /></div>
+        <div className="attach-list">{works.filter(work => `${work.title} ${work.originalTitle ?? ""}`.toLowerCase().includes(workSearch.trim().toLowerCase())).map(work => <div className="attach-row" key={work.id}><div><strong>{work.title}</strong><small>{work.originalTitle}</small></div><span>{mediaLabels[work.type]}</span><button type="button" className="button primary compact" disabled={saving} onClick={() => void attachToExisting(work.id)}>关联到此作品</button></div>)}</div>
+        {!works.length ? <p className="quiet-inline">媒体库暂无作品，请先手动创建作品。</p> : null}
+      </Modal> : null}
       {organizingGroup ? (
         <Modal title="整理为作品" width="large" onClose={() => setOrganizingGroup(null)}>
           <WorkForm

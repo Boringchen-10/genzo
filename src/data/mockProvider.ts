@@ -696,6 +696,9 @@ export function createMockProvider(): GenzoDataProvider {
     async attachMedia() {
       /* 设计期：内存演示，不涉及真实关联 */
     },
+    async attachMediaFiles() {
+      return notImplemented("attachMediaFiles");
+    },
     async detachMedia() {
       /* 设计期：内存演示，不涉及真实关联 */
     },
