@@ -1,6 +1,6 @@
 [package]
 name = "genzo"
-version = "0.4.0"
+version = "0.4.1"
 description = "Genzo - 你的私人次元媒体库"
 authors = ["Genzo contributors"]
 edition = "2021"
