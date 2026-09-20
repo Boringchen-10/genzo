@@ -37,6 +37,55 @@ const RANKING_PAGE_SIZE = 12;
 const COVER_REFRESH_MAX = 3;
 const COVER_REFRESH_DELAY = 2500;
 
+/**
+ * 标签的**编辑序**（热门 → 冷门）：常见的 ACGN 类型排在前面，未收录的标签保持后端返回的原序
+ * （后端 `explore.rs` 目前是字母序去重）。同时收录常见的中文 / 日文 / 英文写法，使后端完成标签
+ * 本地化前后顺序都稳定。
+ *
+ * 注意：这是**编辑排序**，不是后端统计值 —— 真正的「按热度」需要后端提供每个标签的计数
+ * （已登记 `EXPLORE-026 / NEW_REQUIRED`，见能力矩阵）。
+ */
+const TAG_PRIORITY = [
+  "恋爱", "爱情", "ラブコメ", "romance",
+  "喜剧", "搞笑", "コメディ", "comedy", "gag", "ギャグ",
+  "动作", "アクション", "action",
+  "热血", "战斗", "バトル", "battle",
+  "奇幻", "ファンタジー", "fantasy",
+  "冒险", "アドベンチャー", "adventure",
+  "科幻", "sf", "sci-fi", "science fiction",
+  "悬疑", "推理", "ミステリー", "mystery",
+  "日常", "slice of life",
+  "治愈", "癒し", "healing",
+  "校园", "学園", "school",
+  "青春", "youth",
+  "剧情", "ドラマ", "drama",
+  "后宫", "ハーレム", "harem",
+  "异世界", "異世界", "isekai",
+  "魔法", "magic",
+  "超能力", "super power",
+  "机战", "ロボット", "mecha", "robot",
+  "运动", "スポーツ", "sports",
+  "音乐", "音楽", "music",
+  "恐怖", "ホラー", "horror",
+  "百合", "yuri",
+  "耽美", "bl",
+  "战争", "戦争", "war",
+  "历史", "歴史", "history",
+  "游戏", "ゲーム", "game",
+  "儿童", "子供",
+  "泡面番", "short",
+  "3d", "cg",
+  "国产", "国创",
+];
+
+const TAG_RANK = new Map(TAG_PRIORITY.map((value, index) => [value.toLowerCase(), index]));
+
+/** 按编辑序重排标签；未收录的标签保持原序（稳定排序）。 */
+const orderTags = (values: string[]) => values
+  .map((value, index) => ({ value, index, rank: TAG_RANK.get(value.trim().toLowerCase()) ?? TAG_PRIORITY.length }))
+  .sort((left, right) => left.rank - right.rank || left.index - right.index)
+  .map((item) => item.value);
+
 /** 封面在列表数据返回后立即加载；缺失或失败时回退到占位封面。 */
 function ExploreCover({ subject, onNeedsCover }: { subject: ExploreSubject; onNeedsCover?: () => void }) {
   const [failed, setFailed] = useState(false);
@@ -111,6 +160,11 @@ export function ExplorePage() {
   const [month, setMonth] = useState<number | null>(null);
   const [tab, setTab] = useState<ExploreTab>("recommended");
   const [tag, setTag] = useState<string | null>(null);
+  /** 标签区默认只显示 3 行，超出时提供「展开全部 / 收起」；裁切高度按实际行高测量。 */
+  const tagsRef = useRef<HTMLDivElement>(null);
+  const [tagsExpanded, setTagsExpanded] = useState(false);
+  const [tagsOverflow, setTagsOverflow] = useState(false);
+  const [tagsClampHeight, setTagsClampHeight] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [searchTerm, setSearchTerm] = useState<string | null>(null);
   const [results, setResults] = useState<ExploreSubject[]>([]);
@@ -251,11 +305,56 @@ export function ExplorePage() {
   const hotMonth = hot?.month ?? initialCour.month;
   const activeList = tab === "seasonal" ? overview?.seasonal ?? [] : hot?.trending ?? [];
   const availableTags = overview?.availableTags ?? [];
-  const hotTags = useMemo(() => Array.from(new Set((hot?.trending ?? []).flatMap((item) => item.genres))).sort((left, right) => left.localeCompare(right, "zh-CN")), [hot]);
+  const hotTags = useMemo(() => Array.from(new Set((hot?.trending ?? []).flatMap((item) => item.genres))), [hot]);
   const visible = useMemo(() => filterByTag(activeList, tag), [activeList, tag]);
-  const filterTags = useMemo(() => searchTerm !== null
-    ? Array.from(new Set(results.flatMap((item) => item.genres))).sort((left, right) => left.localeCompare(right, "zh-CN"))
-    : tab === "seasonal" ? availableTags : hotTags, [searchTerm, results, availableTags, hotTags, tab]);
+  const filterTags = useMemo(() => {
+    const values = searchTerm !== null
+      ? Array.from(new Set(results.flatMap((item) => item.genres)))
+      : tab === "seasonal" ? availableTags : hotTags;
+    /* 显示顺序＝编辑序（热门 → 冷门），未收录的保持后端原序。 */
+    return orderTags(values);
+  }, [searchTerm, results, availableTags, hotTags, tab]);
+
+  /**
+   * 标签默认只显示 3 行：测量第 3 行的**实际底边**作为裁切高度 ——
+   * 不写死行高，长标签换行、系统字体缩放、窗口缩放都能自适应；只有真的超过 3 行才出现展开入口。
+   */
+  const measureTags = useCallback(() => {
+    const node = tagsRef.current;
+    if (!node) return;
+    const chips = Array.from(node.querySelectorAll<HTMLElement>(":scope > button"));
+    if (!chips.length) { setTagsOverflow(false); setTagsClampHeight(null); return; }
+    const top = node.getBoundingClientRect().top;
+    const rowTops: number[] = [];
+    for (const chip of chips) {
+      const rowTop = Math.round(chip.getBoundingClientRect().top - top);
+      if (!rowTops.includes(rowTop)) rowTops.push(rowTop);
+    }
+    rowTops.sort((left, right) => left - right);
+    if (rowTops.length <= 3) { setTagsOverflow(false); setTagsClampHeight(null); return; }
+    const thirdRowTop = rowTops[2] ?? 0;
+    const thirdRowBottom = chips.reduce((max, chip) => {
+      const rect = chip.getBoundingClientRect();
+      return Math.round(rect.top - top) === thirdRowTop ? Math.max(max, rect.bottom - top) : max;
+    }, thirdRowTop);
+    setTagsOverflow(true);
+    setTagsClampHeight(Math.ceil(thirdRowBottom));
+  }, []);
+
+  useEffect(() => {
+    measureTags();
+    const node = tagsRef.current;
+    const observer = node && typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => measureTags()) : null;
+    if (observer && node) observer.observe(node);
+    window.addEventListener("resize", measureTags);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measureTags);
+    };
+  }, [measureTags, filterTags]);
+
+  /** 切换分类 / 搜索时回到收起态，避免把上一个列表的展开状态带过去。 */
+  useEffect(() => { setTagsExpanded(false); }, [tab, searchTerm]);
   const gridSubjects = searchTerm !== null ? filterByTag(results, tag) : visible;
   const heading = searchTerm !== null
     ? { title: "搜索结果", detail: `「${searchTerm}」共 ${gridSubjects.length} 条` }
@@ -551,8 +650,21 @@ export function ExplorePage() {
               <button type="button" className="button secondary compact" onClick={resetTagFilter} disabled={!tag}>重置标签</button>
             </div>
             <div className="gnz-filter-field">
-              <span className="gnz-filter-label" id="explore-tag-label">动漫标签</span>
-              <div className="gnz-filter-chips" role="group" aria-labelledby="explore-tag-label">
+              <div className="gnz-filter-field-head">
+                <span className="gnz-filter-label" id="explore-tag-label">动漫标签</span>
+                {tagsOverflow ? (
+                  <button type="button" className="gnz-filter-more" aria-expanded={tagsExpanded} onClick={() => setTagsExpanded((value) => !value)}>
+                    {tagsExpanded ? "收起" : `展开全部（${filterTags.length} 个）`}
+                  </button>
+                ) : null}
+              </div>
+              <div
+                ref={tagsRef}
+                className={`gnz-filter-chips${tagsOverflow && !tagsExpanded ? " is-clamped" : ""}`}
+                style={tagsOverflow && !tagsExpanded && tagsClampHeight !== null ? { maxHeight: `${tagsClampHeight}px` } : undefined}
+                role="group"
+                aria-labelledby="explore-tag-label"
+              >
                 {filterTags.length ? filterTags.map((value) => (
                   <button key={value} type="button" className={tag === value ? "active" : ""} aria-pressed={tag === value} onClick={() => setTag(tag === value ? null : value)}>{value}</button>
                 )) : <span className="quiet-inline">当前列表还没有可用标签。</span>}

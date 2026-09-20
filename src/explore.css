@@ -161,9 +161,25 @@
 .gnz-filter-head > button { margin-left: auto; }
 
 .gnz-filter-field { display: grid; gap: 8px; }
+.gnz-filter-field-head { display: flex; align-items: baseline; gap: 10px; }
 .gnz-filter-label { color: var(--quiet); font-size: 12px; }
+/* 标签区的「展开全部 / 收起」入口：只在真实超过 3 行时出现 */
+.gnz-filter-more {
+  margin-left: auto;
+  padding: 2px 0;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.gnz-filter-more:hover { text-decoration: underline; }
+.gnz-filter-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 .gnz-filter-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 3 行裁切：高度由脚本按第 3 行实际底边测量后写入 inline style，这里只负责裁剪 */
+.gnz-filter-chips.is-clamped { overflow: hidden; }
 .gnz-filter-chips button {
   flex: none;
   min-height: 36px;
