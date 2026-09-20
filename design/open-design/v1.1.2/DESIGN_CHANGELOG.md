@@ -489,3 +489,19 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` 16/16 通过；`pnpm build`（`tsc -b && vite build`）成功（1629 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付），首次出内容、滚动加载、缓存完成后自动补封面、离开页面不再更新等行为见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行，需开发侧在本机跑。
+
+## 正式前端：探索标签区改为 3 行裁切 + 编辑序排序（2026-09-18）
+
+背景：真实库的 `ExploreOverview.availableTags` 有上百个标签，筛选面板一次性铺开成十几行，过于繁杂；且后端按**字母序**去重（`src-tauri/src/explore.rs` 的 `available_tags.sort()`），热门类型埋在中间。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| EXPLORE-024 | 「动漫标签」把全部标签一次铺开（上百个 → 十几行），面板被撑得很长 | 默认只显示 **3 行**，超出时右侧出现 **「展开全部（N 个）／收起」**（带 `aria-expanded`）；裁切高度按**第 3 行的实际底边**测量后写进 inline `max-height`，不写死行高 —— 长标签换行、系统字体缩放、窗口缩放都能自适应；不足 3 行时不显示入口 | 标签过多导致面板繁杂 | 探索 · 筛选面板 | 无（纯前端） | 否 |
+| EXPLORE-025 | 标签顺序＝后端返回顺序（`available_tags.sort()` 字母序），热门与冷门混在一起 | 显示顺序改为**编辑序（热门 → 冷门）**：`TAG_PRIORITY` 收录常见 ACGN 类型（恋爱 / 喜剧 / 动作 / 热血 / 奇幻 / 冒险 / 科幻 / 悬疑 / 日常 / 治愈 …），并同时收录中文 / 日文 / 英文写法；未收录的标签**保持后端原序**（稳定排序） | 用户要求「从热门到冷门」并给出示例顺序 | 探索 · 筛选面板 | 这是**编辑排序，不是后端统计值**；真正的按热度需要后端提供计数（登记 `EXPLORE-026`） | 否 |
+
+- 改动文件：`src/pages/ExplorePage.tsx`（`TAG_PRIORITY` / `orderTags`；`tagsRef` + `tagsOverflow` / `tagsClampHeight` / `tagsExpanded`；`measureTags` + `ResizeObserver` / `resize` 监听；筛选面板标记改为「标签行 + 裁切容器 + 展开入口」）、`src/explore.css`（`.gnz-filter-field-head`、`.gnz-filter-more`、`.gnz-filter-chips.is-clamped`）。
+- 三个列表（推荐 / 本季 / 搜索结果）的标签区同时生效；切换分类或搜索时**自动回到收起态**，不把上一个列表的展开状态带过去。
+- 组件卸载时 `disconnect()` 观察器并移除 `resize` 监听。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **18/18** 通过；`pnpm build`（`tsc -b && vite build`）成功。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。3 行裁切高度、展开 / 收起与缩放后的重算见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
