@@ -787,7 +787,7 @@ async fn persist_subject(
     aggregation: Option<&crate::metadata_aggregator::AggregationResult>,
 ) -> AppResult<String> {
     let now = Utc::now().to_rfc3339();
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     let existing: Option<String> = sqlx::query_scalar(
         "SELECT work_id FROM work_external_ids WHERE provider = 'bangumi' AND external_id = ?",
     )
@@ -1079,10 +1079,7 @@ async fn load_subject_metadata(
     }
 }
 
-async fn merge_cached_details(
-    pool: &SqlitePool,
-    items: &mut [WorkMetadata],
-) -> AppResult<()> {
+async fn merge_cached_details(pool: &SqlitePool, items: &mut [WorkMetadata]) -> AppResult<()> {
     for item in items {
         let key = format!("detail:{}", item.external_id);
         if let Some(cached) = load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &key).await? {

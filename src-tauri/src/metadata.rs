@@ -672,7 +672,7 @@ pub async fn confirm_candidate(
         None
     };
     let now = Utc::now().to_rfc3339();
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     let media_work: Option<String> =
         sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
             .bind(media_file_id)
@@ -784,7 +784,7 @@ pub async fn cancel_candidates(pool: &SqlitePool, media_file_id: &str) -> AppRes
         .await?
         .map(|context| context.members.into_iter().map(|file| file.id).collect())
         .unwrap_or_else(|| vec![media_file_id.to_string()]);
-    let mut transaction = pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
     let work_id: Option<String> =
         sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
             .bind(media_file_id)

@@ -5,7 +5,9 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("数据库错误：{0}")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
+    #[error("数据库正在处理其他操作，请稍后重试；本次操作未完成")]
+    DatabaseBusy,
     #[error("数据库迁移失败：{0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
     #[error("文件系统错误：{0}")]
@@ -24,6 +26,16 @@ pub enum AppError {
     Network(String),
     #[error("系统错误：{0}")]
     System(String),
+}
+
+impl From<sqlx::Error> for AppError {
+    fn from(error: sqlx::Error) -> Self {
+        if crate::db::is_busy(&error) {
+            Self::DatabaseBusy
+        } else {
+            Self::Database(error)
+        }
+    }
 }
 
 impl Serialize for AppError {

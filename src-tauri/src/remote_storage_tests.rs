@@ -30,7 +30,11 @@ impl Drop for Fixture {
 
 async fn fixture() -> Fixture {
     static TEST_LOCK: std::sync::OnceLock<Arc<tokio::sync::Mutex<()>>> = std::sync::OnceLock::new();
-    let guard = TEST_LOCK.get_or_init(|| Arc::new(tokio::sync::Mutex::new(()))).clone().lock_owned().await;
+    let guard = TEST_LOCK
+        .get_or_init(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+        .lock_owned()
+        .await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let mode = Arc::new(AtomicUsize::new(0));
@@ -232,7 +236,9 @@ async fn streams_ranges_without_exposing_upstream_credentials_or_cookies() {
     assert_eq!(bad.status().as_u16(), 404);
     // A server ignoring Range must fall back to a complete local cache.
     f.mode.store(2, Ordering::SeqCst);
-    let cached = remote_transfer::open_path(&f.state, &id, true).await.unwrap();
+    let cached = remote_transfer::open_path(&f.state, &id, true)
+        .await
+        .unwrap();
     assert!(!cached.starts_with("http"));
     assert_eq!(tokio::fs::read(cached).await.unwrap(), b"0123456789");
 }

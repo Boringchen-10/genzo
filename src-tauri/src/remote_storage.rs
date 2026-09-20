@@ -90,7 +90,7 @@ pub async fn add_webdav_source(
     let id = Uuid::new_v4().to_string();
     credentials::save(&id, &credential)?;
     let result: AppResult<()> = async {
-        let mut tx = state.pool.begin().await?;
+        let (_write_guard, mut tx) = crate::db::begin_write(&state.pool).await?;
         let now = Utc::now().to_rfc3339();
         sqlx::query("INSERT INTO library_roots(id,path,kind,enabled,created_at,updated_at,source_type,availability) VALUES(?,?,?,1,?,?,'webdav','online')")
             .bind(&id).bind(format!("webdav://{id}")).bind(&input.kind).bind(&now).bind(&now).execute(&mut *tx).await?;

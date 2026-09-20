@@ -3,6 +3,8 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 #[derive(Clone)]
@@ -32,7 +34,8 @@ pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
     let options = SqliteConnectOptions::from_str(&database_url)?
         .create_if_missing(true)
         .foreign_keys(true)
-        .journal_mode(SqliteJournalMode::Wal);
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_secs(5));
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)
@@ -48,6 +51,47 @@ pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
         cover_cache_path,
         thumbnail_cache_path,
     })
+}
+
+/// Queue multi-statement writes before acquiring a pool connection, leaving
+/// connections available for readers. SQLite also arbitrates other processes.
+/// Acquire the write reservation before any SELECT to avoid BUSY_SNAPSHOT.
+pub async fn begin_write(
+    pool: &SqlitePool,
+) -> AppResult<(
+    tokio::sync::OwnedSemaphorePermit,
+    sqlx::Transaction<'static, sqlx::Sqlite>,
+)> {
+    static WRITER: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+    let permit = tokio::time::timeout(
+        Duration::from_secs(15),
+        WRITER
+            .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1)))
+            .clone()
+            .acquire_owned(),
+    )
+    .await
+    .map_err(|_| AppError::DatabaseBusy)?
+    .map_err(|_| AppError::DatabaseBusy)?;
+    for attempt in 0..3 {
+        match pool.begin_with("BEGIN IMMEDIATE").await {
+            Ok(transaction) => return Ok((permit, transaction)),
+            Err(error) if is_busy(&error) && attempt < 2 => {
+                // Only retry acquisition: no statements or external effects have run.
+                tokio::time::sleep(Duration::from_millis(100 << attempt)).await;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    unreachable!()
+}
+
+pub fn is_busy(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|error| error.code())
+        .and_then(|code| code.parse::<i32>().ok())
+        .is_some_and(|code| matches!(code & 0xff, 5 | 6))
 }
 
 async fn backfill_cached_banner_paths(pool: &SqlitePool, cache_directory: &Path) -> AppResult<()> {
@@ -109,6 +153,131 @@ pub async fn test_pool() -> AppResult<SqlitePool> {
 mod tests {
     use super::*;
     use chrono::Utc;
+
+    async fn disk_pool() -> (SqlitePool, tempfile::TempDir) {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(directory.path().join("concurrency.db"))
+                    .create_if_missing(true)
+                    .journal_mode(SqliteJournalMode::Wal)
+                    .busy_timeout(Duration::from_millis(20)),
+            )
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE counter(value INTEGER NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO counter VALUES(0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        (pool, directory)
+    }
+
+    #[tokio::test]
+    async fn reproduces_517_and_serializes_read_modify_write_without_blocking_readers() {
+        let (pool, _directory) = disk_pool().await;
+        let mut stale = pool.begin().await.unwrap();
+        let _: i64 = sqlx::query_scalar("SELECT value FROM counter")
+            .fetch_one(&mut *stale)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE counter SET value=1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let error = sqlx::query("UPDATE counter SET value=2")
+            .execute(&mut *stale)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some("517")
+        );
+        stale.rollback().await.unwrap();
+
+        let (guard, mut first) = begin_write(&pool).await.unwrap();
+        sqlx::query("UPDATE counter SET value=value+1")
+            .execute(&mut *first)
+            .await
+            .unwrap();
+        let next_pool = pool.clone();
+        let mut next = tokio::spawn(async move {
+            let (_guard, mut tx) = begin_write(&next_pool).await.unwrap();
+            let value: i64 = sqlx::query_scalar("SELECT value FROM counter")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            sqlx::query("UPDATE counter SET value=?")
+                .bind(value + 1)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+        });
+        assert!(tokio::time::timeout(Duration::from_millis(50), &mut next)
+            .await
+            .is_err());
+        let read: i64 = tokio::time::timeout(
+            Duration::from_secs(1),
+            sqlx::query_scalar("SELECT value FROM counter").fetch_one(&pool),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(read, 1, "reader sees committed data while writer is active");
+        first.commit().await.unwrap();
+        drop(guard);
+        next.await.unwrap();
+        let value: i64 = sqlx::query_scalar("SELECT value FROM counter")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(value, 3);
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn retries_external_writer_and_reports_bounded_contention_without_partial_writes() {
+        let (pool, _directory) = disk_pool().await;
+        let external = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        let next_pool = pool.clone();
+        let mut pending = tokio::spawn(async move {
+            let (_guard, mut tx) = begin_write(&next_pool).await?;
+            sqlx::query("UPDATE counter SET value=1")
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            AppResult::Ok(())
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(80), &mut pending)
+                .await
+                .is_err()
+        );
+        external.rollback().await.unwrap();
+        pending.await.unwrap().unwrap();
+
+        let external = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        let failed = tokio::time::timeout(Duration::from_secs(5), begin_write(&pool))
+            .await
+            .unwrap();
+        assert!(matches!(failed, Err(AppError::DatabaseBusy)));
+        let value: i64 = sqlx::query_scalar("SELECT value FROM counter")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(value, 1);
+        external.rollback().await.unwrap();
+        let (guard, tx) = begin_write(&pool).await.unwrap();
+        tx.rollback().await.unwrap();
+        drop(guard);
+        pool.close().await;
+    }
 
     #[tokio::test]
     async fn placeholder_migration_removes_only_unlinked_official_duplicates() {

@@ -97,7 +97,7 @@ pub async fn set_episode_link(
     media_file_id: &str,
     episode_external_id: Option<&str>,
 ) -> AppResult<()> {
-    let mut transaction = pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
     let work_id: String =
         sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ? AND work_id IS NOT NULL")
             .bind(media_file_id)
@@ -276,7 +276,7 @@ pub async fn refresh_work_metadata(
     )
     .await;
     let now = Utc::now().to_rfc3339();
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     metadata::apply_metadata(
         &mut transaction,
         work_id,

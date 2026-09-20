@@ -219,6 +219,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     .execute(pool)
     .await?;
 
+    let result: AppResult<ScanResult> = async {
     let include_hidden = sqlx::query_scalar::<_, String>(
         "SELECT value FROM app_settings WHERE key = 'scan.include_hidden'",
     )
@@ -252,7 +253,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         }
     };
 
-    let mut transaction = pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
     let root_paths: HashMap<String, String> =
         sqlx::query_as::<_, (String, String)>("SELECT id, path FROM library_roots")
             .fetch_all(&mut *transaction)
@@ -353,7 +354,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
             .execute(&mut *transaction)
             .await
             {
-                errors.push(format!("无法更新 {}：{error}", file.path));
+                return Err(error.into());
             }
         } else if let Some(moved) = file
             .content_fingerprint
@@ -390,7 +391,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
             match result {
                 Ok(result) if result.rows_affected() == 1 => updated_count += 1,
                 Ok(_) => errors.push(format!("无法重新关联已移动文件 {}", file.path)),
-                Err(error) => errors.push(format!("无法更新已移动文件 {}：{error}", file.path)),
+                Err(error) => return Err(error.into()),
             }
         } else {
             let result = sqlx::query(
@@ -429,7 +430,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
                     // Overlapping roots may discover a path already owned by another configured
                     // root. The global path record is authoritative, so this is an idempotent hit.
                 }
-                Err(error) => errors.push(format!("无法写入 {}：{error}", file.path)),
+                Err(error) => return Err(error.into()),
             }
         }
     }
@@ -493,7 +494,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
 
     Ok(ScanResult {
         job: ScanJob {
-            id: job_id,
+            id: job_id.clone(),
             library_root_id: root.id,
             status: status.to_string(),
             discovered_count: i64::try_from(walk_output.files.len()).unwrap_or(i64::MAX),
@@ -506,6 +507,20 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         },
         errors,
     })
+    }.await;
+    if let Err(error) = &result {
+        // The indexing transaction has rolled back before recording its failure.
+        // If another process still owns the database, preserve the original error.
+        let _ = sqlx::query(
+            "UPDATE scan_jobs SET status='failed', errors_json=?, finished_at=? WHERE id=?",
+        )
+        .bind(serde_json::to_string(&vec![error.to_string()])?)
+        .bind(Utc::now().to_rfc3339())
+        .bind(&job_id)
+        .execute(pool)
+        .await;
+    }
+    result
 }
 
 static SCAN_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -576,6 +591,41 @@ mod tests {
     use crate::db;
     use chrono::Utc;
     use std::fs;
+
+    #[tokio::test]
+    async fn database_write_failure_rolls_back_missing_flags_and_marks_job_failed() {
+        let pool = db::test_pool().await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("01.mkv"), b"fixture").unwrap();
+        let path = dunce::canonicalize(directory.path())
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        sqlx::query("INSERT INTO library_roots(id,path,kind,enabled,created_at,updated_at) VALUES('r',?,'video',1,'now','now')").bind(path).execute(&pool).await.unwrap();
+        scan_library_root(&pool, "r").await.unwrap();
+        sqlx::query("CREATE TRIGGER reject_file_update BEFORE UPDATE OF file_name ON media_files BEGIN SELECT RAISE(ABORT, 'injected write failure'); END").execute(&pool).await.unwrap();
+        assert!(scan_library_root(&pool, "r").await.is_err());
+        let missing: bool = sqlx::query_scalar("SELECT missing FROM media_files")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(
+            !missing,
+            "failed write must roll back earlier missing flags"
+        );
+        let failed: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM scan_jobs WHERE status='failed' AND finished_at IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(failed, 1);
+        sqlx::query("DROP TRIGGER reject_file_update")
+            .execute(&pool)
+            .await
+            .unwrap();
+        scan_library_root(&pool, "r").await.unwrap();
+    }
 
     #[test]
     fn classifies_supported_extensions_case_insensitively() {

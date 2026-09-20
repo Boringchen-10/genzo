@@ -136,9 +136,7 @@ pub async fn list_works(state: State<'_, AppState>) -> AppResult<Vec<WorkListIte
 
 #[tauri::command]
 pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkDetail> {
-    let mut transaction = state.pool.begin().await?;
-    crate::media_reconciliation::reconcile(&mut transaction, Some(&id)).await?;
-    transaction.commit().await?;
+    // Browsing must not compete with scans for the SQLite write lock.
     let work = sqlx::query_as::<_, Work>(
         "SELECT id, title, original_title, type, description, cover_path, banner_path, status, favorite, rating, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at FROM works WHERE id = ?",
     )
@@ -179,7 +177,7 @@ pub async fn create_work(
     validate_work(&mut input)?;
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     sqlx::query(
         "INSERT INTO works (id, title, original_title, type, description, cover_path, status, favorite, rating, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
@@ -211,7 +209,7 @@ async fn create_work_from_media_in_pool(
     let media_file_ids = grouping::unassigned_group_member_ids(pool, &media_file_id).await?;
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
-    let mut transaction = pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
     let media_is_unassigned: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM media_files WHERE id = ? AND work_id IS NULL)",
     )
@@ -273,7 +271,7 @@ pub async fn update_work(
     state: State<'_, AppState>,
 ) -> AppResult<WorkDetail> {
     validate_work(&mut input)?;
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     let result = sqlx::query(
         "UPDATE works SET title = ?, original_title = ?, type = ?, description = ?, cover_path = ?, status = ?, favorite = ?, rating = ?, notes = ?, updated_at = ? WHERE id = ?",
     )
@@ -346,7 +344,7 @@ async fn attach_unassigned_media_in_pool(
     if ids.is_empty() {
         return Err(AppError::Validation("请选择文件".into()));
     }
-    let mut transaction = pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
     // Start with a write so a concurrent scan cannot invalidate a read snapshot.
     let exists = sqlx::query("UPDATE works SET updated_at = ? WHERE id = ?")
         .bind(Utc::now().to_rfc3339())
@@ -377,7 +375,7 @@ pub async fn attach_media_file(
     media_file_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     let work_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM works WHERE id = ?)")
         .bind(&work_id)
         .fetch_one(&mut *transaction)
@@ -406,7 +404,7 @@ pub async fn attach_media_file(
 
 #[tauri::command]
 pub async fn detach_media_file(media_file_id: String, state: State<'_, AppState>) -> AppResult<()> {
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     let work_id: Option<String> =
         sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
             .bind(&media_file_id)
@@ -670,7 +668,7 @@ pub async fn create_external_tool(
     validate_tool(&mut input)?;
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     if input.is_default {
         clear_overlapping_defaults(&mut transaction, &input.supported_media_types, None).await?;
     }
@@ -710,7 +708,7 @@ pub async fn update_external_tool(
     state: State<'_, AppState>,
 ) -> AppResult<()> {
     validate_tool(&mut input)?;
-    let mut transaction = state.pool.begin().await?;
+    let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
     if input.is_default {
         clear_overlapping_defaults(&mut transaction, &input.supported_media_types, Some(&id))
             .await?;
