@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { AlertTriangle, ArrowLeft, Heart, Info, Library, RefreshCw, Search, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider, getAnimeRankingProvider, getExploreProvider } from "../data";
+import { createExploreRequests } from "../exploreRequests";
 import { EmptyState, ErrorState, IconButton, LoadingState, useOffline } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { useToasts } from "../store";
@@ -26,6 +27,11 @@ import {
 } from "../explore";
 
 type ExploreTab = "recommended" | "seasonal";
+const overviewRequests = createExploreRequests((year, month) => {
+  const provider = getExploreProvider();
+  if (!provider) return Promise.reject(new Error(EXPLORE_UNAVAILABLE_MESSAGE));
+  return provider.exploreOverview(year, month);
+});
 
 /** 年份筛选的最早年份：本季筛选从 2000 年起都可选（Bangumi 索引里的动画年份范围）。 */
 const YEAR_MIN = 2000;
@@ -86,17 +92,13 @@ const orderTags = (values: string[]) => values
   .sort((left, right) => left.rank - right.rank || left.index - right.index)
   .map((item) => item.value);
 
-/** 封面在列表数据返回后立即加载；缺失或失败时回退到占位封面。 */
+/** 浏览器优先加载可见封面，缺失时显示占位。 */
 function ExploreCover({ subject, onNeedsCover }: { subject: ExploreSubject; onNeedsCover?: () => void }) {
   const [failed, setFailed] = useState(false);
   /* 地址变化（例如后台缓存完成后从远程 URL 变成本地文件）时重置失败标记。 */
   useEffect(() => { setFailed(false); }, [subject.coverUrl]);
 
-  /*
-   * 封面不再按滚动位置懒加载。探索结果是一个有限的、已返回的数据集，
-   * 用户期望进入页面后整批可见条目都开始加载；后端仍负责限制缓存并发。
-   * 远程地址也需要触发一次有界复查，以便后台缓存完成后替换为本地路径。
-   */
+  /* 后台缓存完成后有限次复查本地地址。 */
   useEffect(() => {
     if (!subject.coverUrl || /^https?:/i.test(subject.coverUrl)) onNeedsCover?.();
   }, [subject.externalId, subject.coverUrl, onNeedsCover]);
@@ -107,7 +109,7 @@ function ExploreCover({ subject, onNeedsCover }: { subject: ExploreSubject; onNe
         className="gnz-explore-cover"
         src={subject.coverUrl}
         alt=""
-        loading="eager"
+        loading="lazy"
         decoding="async"
         onError={() => { setFailed(true); onNeedsCover?.(); }}
       />
@@ -147,13 +149,14 @@ export function ExplorePage() {
   const toast = useToasts((state) => state.push);
   /** 「全部年份 / 全部月份」时的默认季度：按当前日期取所在季度（1 / 4 / 7 / 10 月）。 */
   const initialCour = useMemo(() => courOf(new Date()), []);
-  const [overview, setOverview] = useState<ExploreOverview | null>(null);
+  const [overview, setOverview] = useState<ExploreOverview | null>(() => overviewRequests.cached(null, null) ?? null);
   /**
    * 「推荐」标签页的数据：**始终取当前季度**的热度榜（后端只在当前季度返回
    * Bangumi 每日放送热度，历史季度该列表为空），因此它不随年份 / 季度筛选变化。
    */
-  const [hot, setHot] = useState<ExploreOverview | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [hot, setHot] = useState<ExploreOverview | null>(() => overviewRequests.cached(null, null) ?? null);
+  const [loading, setLoading] = useState(() => !overviewRequests.cached(null, null));
+  const loadGeneration = useRef(0);
   const [error, setError] = useState("");
   /** `null` = 全部年份 / 全部月份；请求时传 null，由后端规范化到季度。 */
   const [year, setYear] = useState<number | null>(null);
@@ -189,6 +192,7 @@ export function ExplorePage() {
   const effectiveMonth = month ?? initialCour.month;
 
   const load = useCallback(async (targetYear: number | null, targetMonth: number | null) => {
+    const generation = ++loadGeneration.current;
     if (!provider) {
       setOverview(null);
       setHot(null);
@@ -196,36 +200,40 @@ export function ExplorePage() {
       setError(EXPLORE_UNAVAILABLE_MESSAGE);
       return;
     }
-    setLoading(true);
+    const cached = overviewRequests.cached(targetYear, targetMonth);
+    setOverview(cached ?? null);
+    setLoading(!cached);
     setError("");
     try {
-      const seasonalRequest = provider.exploreOverview(targetYear, targetMonth);
+      const seasonalRequest = overviewRequests.load(targetYear, targetMonth);
       /* 「全部年份 / 全部月份」时两个请求本来就一样，复用同一个 Promise，避免重复调用。 */
       const hotRequest = targetYear === null && targetMonth === null
         ? seasonalRequest
-        : provider.exploreOverview(null, null);
+        : overviewRequests.load(null, null);
       const [seasonal, hotOverview] = await Promise.all([seasonalRequest, hotRequest]);
+      if (generation !== loadGeneration.current) return;
       setOverview(seasonal);
       setHot(hotOverview);
     } catch (loadError: unknown) {
-      setOverview(null);
-      setHot(null);
+      if (generation !== loadGeneration.current) return;
       setError(getErrorMessage(loadError));
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, [provider]);
 
-  useEffect(() => { void load(year, month); }, [load, year, month]);
+  useEffect(() => { void load(year, month); return () => { loadGeneration.current += 1; }; }, [load, year, month]);
 
   const refresh = useCallback(async () => {
     if (!provider) return;
+    const generation = loadGeneration.current;
     try {
-      const seasonalRequest = provider.exploreOverview(year, month);
+      const seasonalRequest = overviewRequests.load(year, month);
       const hotRequest = year === null && month === null
         ? seasonalRequest
-        : provider.exploreOverview(null, null);
+        : overviewRequests.load(null, null);
       const [seasonal, hotOverview] = await Promise.all([seasonalRequest, hotRequest]);
+      if (generation !== loadGeneration.current) return;
       setOverview(seasonal);
       setHot(hotOverview);
     } catch {
@@ -249,10 +257,10 @@ export function ExplorePage() {
   const refreshRef = useRef(refresh);
   useEffect(() => { refreshRef.current = refresh; }, [refresh]);
 
-  useEffect(() => () => {
+  useEffect(() => { aliveRef.current = true; return () => {
     aliveRef.current = false;
     if (coverRefreshTimer.current !== null) window.clearTimeout(coverRefreshTimer.current);
-  }, []);
+  }; }, []);
 
   const scheduleCoverRefresh = useCallback(() => {
     if (!aliveRef.current || coverRefreshAttempts.current >= COVER_REFRESH_MAX) return;
@@ -356,6 +364,8 @@ export function ExplorePage() {
   /** 切换分类 / 搜索时回到收起态，避免把上一个列表的展开状态带过去。 */
   useEffect(() => { setTagsExpanded(false); }, [tab, searchTerm]);
   const gridSubjects = searchTerm !== null ? filterByTag(results, tag) : visible;
+  const [visibleLimit, setVisibleLimit] = useState(48);
+  useEffect(() => { setVisibleLimit(48); }, [year, month, tab, tag, searchTerm]);
   const heading = searchTerm !== null
     ? { title: "搜索结果", detail: `「${searchTerm}」共 ${gridSubjects.length} 条` }
     : tab === "seasonal"
@@ -365,9 +375,9 @@ export function ExplorePage() {
   /** 当前列表仍有缺失 / 远程封面时，安排一次有限次数的静默重读；数据加载中不打扰。 */
   const activeNeedsCover = useMemo(() => needsCoverCache(gridSubjects), [gridSubjects, needsCoverCache]);
   useEffect(() => {
-    if (loading || !activeNeedsCover) return;
+    if (loading || (!activeNeedsCover && !overview?.sources.some(source => source.warning))) return;
     scheduleCoverRefresh();
-  }, [loading, activeNeedsCover, scheduleCoverRefresh]);
+  }, [loading, activeNeedsCover, overview, scheduleCoverRefresh]);
 
   useEffect(() => {
     if (tag && !filterTags.includes(tag)) setTag(null);
@@ -639,7 +649,7 @@ export function ExplorePage() {
 
       {error ? <ErrorState message={error} retry={() => void load(year, month)} /> : null}
 
-      {!error && overview ? (
+      {overview ? (
         <>
           {/* 筛选面板（位置 / 间距 / 结构对齐 Open Design v1.1.2）：只放标签筛选，对「推荐 / 本季」都生效；
               季节与年份属于「本季」自己的界面，见下方本节。 */}
@@ -710,9 +720,14 @@ export function ExplorePage() {
               <LoadingState label={searching ? "正在搜索 Bangumi 条目" : "正在读取 Bangumi 探索数据"} />
             ) : gridSubjects.length ? (
               <div className="gnz-explore-grid">
-                {gridSubjects.map((subject) => <ExploreCard key={subject.externalId} subject={subject} onOpen={(next) => void openDetail(next)} onNeedsCover={scheduleCoverRefresh} />)}
+                {gridSubjects.slice(0, visibleLimit).map((subject) => <ExploreCard key={subject.externalId} subject={subject} onOpen={(next) => void openDetail(next)} onNeedsCover={scheduleCoverRefresh} />)}
               </div>
             ) : emptyState}
+            {!loading && !searching && gridSubjects.length > visibleLimit ? (
+              <button type="button" className="button secondary" onClick={() => setVisibleLimit(limit => limit + 48)}>
+                加载更多作品（已显示 {Math.min(visibleLimit, gridSubjects.length)} / {gridSubjects.length}）
+              </button>
+            ) : null}
           </section>
 
           {tab === "recommended" && searchTerm === null ? (

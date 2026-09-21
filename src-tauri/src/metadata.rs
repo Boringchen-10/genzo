@@ -101,11 +101,48 @@ async fn search_provider(
     pool: &SqlitePool,
     query: &str,
     provider: &BangumiProvider,
+    parsed: &ParsedAnime,
 ) -> AppResult<Vec<WorkMetadata>> {
-    let indexed = crate::explore::lookup_title(query)?;
+    let key = format!(
+        "search:v042:{}:{:?}:{:?}",
+        crate::anime_parser::normalize_title(query),
+        parsed.season,
+        parsed.special_type
+    );
+    if let Some(cached) = cached_search(pool, &key).await? {
+        return Ok(cached);
+    }
+    let mut indexed = crate::explore::lookup_title(query)?;
+    if let Some(season) = parsed.season {
+        let chinese = match season {
+            1 => "一",
+            2 => "二",
+            3 => "三",
+            4 => "四",
+            5 => "五",
+            _ => "",
+        };
+        for suffix in [
+            format!("Season {season}"),
+            format!("S{season}"),
+            format!("第{season}季"),
+            format!("第{chinese}季"),
+            format!("第{season}期"),
+        ] {
+            indexed.extend(crate::explore::lookup_title(&format!("{query} {suffix}"))?);
+        }
+    }
+    if let Some(kind) = &parsed.special_type {
+        indexed.extend(crate::explore::lookup_title(&format!("{query} {kind}"))?);
+    }
+    let mut local_fallback = Vec::new();
     if !indexed.is_empty() {
         let mut resolved = Vec::with_capacity(indexed.len());
+        let mut seen = HashSet::new();
         for item in indexed {
+            if !seen.insert(item.external_id.clone()) {
+                continue;
+            }
             let detail_key = format!("detail:{}", item.external_id);
             if let Some(mut cached) = cached_search(pool, &detail_key).await? {
                 if let Some(detail) = cached.pop() {
@@ -113,23 +150,102 @@ async fn search_provider(
                     continue;
                 }
             }
-            match retry_network(|| provider.get_details(&item.external_id)).await {
-                Ok(detail) => {
-                    save_cache(pool, &detail_key, std::slice::from_ref(&detail), 30).await?;
-                    resolved.push(detail);
-                }
-                Err(_) => resolved.push(item),
-            }
+            // Rank the complete local candidate set first. Only confirmation fetches
+            // the selected subject's details, never every indexed candidate.
+            resolved.push(item);
         }
-        return Ok(resolved);
+        if resolved
+            .iter()
+            .any(|item| score_metadata(parsed, item).0 >= AUTO_MATCH_THRESHOLD)
+        {
+            save_cache(pool, &key, &resolved, 1).await?;
+            return Ok(resolved);
+        }
+        local_fallback = resolved;
     }
-    let key = format!("search:{}", crate::anime_parser::normalize_title(query));
-    if let Some(cached) = cached_search(pool, &key).await? {
-        return Ok(cached);
-    }
-    let results = retry_network(|| provider.search(query)).await?;
+    let network_query = if let Some(season) = parsed.season.filter(|value| *value > 1) {
+        format!("{query} 第{season}季")
+    } else {
+        parsed
+            .special_type
+            .as_ref()
+            .map_or_else(|| query.to_string(), |kind| format!("{query} {kind}"))
+    };
+    let results = match retry_network(|| provider.search(&network_query)).await {
+        Ok(results) => results,
+        Err(error) => {
+            let json: Option<String> = sqlx::query_scalar("SELECT response_json FROM metadata_cache WHERE provider = 'bangumi' AND cache_key = ?")
+                .bind(&key).fetch_optional(pool).await?;
+            if let Some(json) = json {
+                return Ok(serde_json::from_str(&json)?);
+            }
+            if !local_fallback.is_empty() {
+                return Ok(local_fallback);
+            }
+            return Err(error);
+        }
+    };
+    let mut results = results;
+    let mut seen = results
+        .iter()
+        .map(|item| item.external_id.clone())
+        .collect::<HashSet<_>>();
+    results.extend(
+        local_fallback
+            .into_iter()
+            .filter(|item| seen.insert(item.external_id.clone())),
+    );
     save_cache(pool, &key, &results, 7).await?;
     Ok(results)
+}
+
+fn score_metadata(parsed: &ParsedAnime, metadata: &WorkMetadata) -> (f64, Vec<String>) {
+    let mut names = metadata.aliases.clone();
+    names.push(metadata.title.clone());
+    names.extend(metadata.original_title.clone());
+    let parsed_names = names
+        .iter()
+        .map(|name| parse_folder_name(name))
+        .collect::<Vec<_>>();
+    let season = metadata
+        .season
+        .or_else(|| parsed_names.iter().find_map(|name| name.season));
+    let mut aliases = names.clone();
+    aliases.extend(parsed_names.iter().filter_map(|name| name.title.clone()));
+    let mut query = parsed.clone();
+    query.special_type = None;
+    let (mut score, mut reasons) =
+        score_candidate(&query, &metadata.title, &aliases, metadata.year, season);
+    if parsed.season.is_none() && season.is_some_and(|value| value > 1) {
+        score = score.min(0.79);
+        reasons.push("文件未标季数，候选为续作，需确认".into());
+    }
+    if parsed
+        .season
+        .is_some_and(|wanted| season != Some(wanted) && (wanted > 1 || season.is_some()))
+    {
+        score = score.min(0.59);
+        reasons.push("季数不一致或候选季数未确认".into());
+    }
+    if parsed.year.is_some() && metadata.year.is_some() && parsed.year != metadata.year {
+        score = score.min(0.79);
+        reasons.push("年份不一致，需确认".into());
+    }
+    let kind = metadata.subject_type.to_ascii_lowercase();
+    let special_matches = match parsed.special_type.as_deref() {
+        Some("OVA" | "OAD") => matches!(kind.as_str(), "ova" | "oad"),
+        Some("MOVIE") => kind == "movie",
+        Some("SP" | "SPECIAL") => matches!(kind.as_str(), "sp" | "special"),
+        Some(_) => false, // NCOP/NCED are extras, not standalone regular episodes.
+        None => !matches!(kind.as_str(), "ova" | "oad" | "movie" | "sp" | "special"),
+    };
+    if !special_matches {
+        score = score.min(0.79);
+        reasons.push("作品类型或特别篇归属需确认".into());
+    } else if parsed.special_type.is_some() {
+        reasons.push("特别篇类型一致".into());
+    }
+    (score, reasons)
 }
 
 async fn store_parse(
@@ -301,7 +417,7 @@ pub async fn recognize_media(
     )
     .await?;
     let provider = BangumiProvider::new()?;
-    let results = match search_provider(&state.pool, &query, &provider).await {
+    let results = match search_provider(&state.pool, &query, &provider, &parsed).await {
         Ok(results) => results,
         Err(error) => {
             let message = error.to_string();
@@ -332,17 +448,7 @@ pub async fn recognize_media(
     let now = Utc::now().to_rfc3339();
     let mut scored = Vec::new();
     for metadata in results {
-        let mut names = metadata.aliases.clone();
-        if let Some(original) = &metadata.original_title {
-            names.push(original.clone());
-        }
-        let (confidence, reasons) = score_candidate(
-            &parsed,
-            &metadata.title,
-            &names,
-            metadata.year,
-            metadata.season,
-        );
+        let (confidence, reasons) = score_metadata(&parsed, &metadata);
         if confidence < 0.45 {
             continue;
         }
@@ -370,7 +476,16 @@ pub async fn recognize_media(
     }
     scored.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
     let explicit_search = manual_query.is_some();
-    let ambiguous = parsed.season.is_some_and(|season| season > 1)
+    let mixed_types = members
+        .iter()
+        .filter(|file| file.media_type == "video")
+        .map(|file| {
+            parse_media_path(&file.file_name, Path::new(&file.path), library_root).special_type
+        })
+        .collect::<HashSet<_>>()
+        .len()
+        > 1;
+    let ambiguous = mixed_types
         || scored.get(1).is_some_and(|second| {
             scored
                 .first()
@@ -845,6 +960,77 @@ pub async fn set_field_lock(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_second_season_matches_but_unknown_or_conflicting_seasons_do_not() {
+        let mut candidate = crate::explore::lookup_title("葬送的芙莉莲")
+            .unwrap()
+            .remove(0);
+        candidate.title = "示例动画 第二季".into();
+        candidate.original_title = None;
+        candidate.aliases.clear();
+        candidate.season = Some(2);
+        let parsed = parse_folder_name("示例动画 第二季");
+        assert_eq!(parsed.season, Some(2));
+        assert!(score_metadata(&parsed, &candidate).0 >= AUTO_MATCH_THRESHOLD);
+        candidate.title = "示例动画".into();
+        candidate.season = Some(1);
+        assert!(score_metadata(&parsed, &candidate).0 < PENDING_MATCH_THRESHOLD);
+        candidate.season = None;
+        assert!(score_metadata(&parsed, &candidate).0 < AUTO_MATCH_THRESHOLD);
+    }
+
+    #[test]
+    fn exact_oad_requires_matching_type_and_credits_remain_manual() {
+        let mut candidate = crate::explore::lookup_title("葬送的芙莉莲")
+            .unwrap()
+            .remove(0);
+        let mut parsed = ParsedAnime {
+            title: Some(candidate.title.clone()),
+            special_type: Some("OAD".into()),
+            ..Default::default()
+        };
+        candidate.subject_type = "ova".into();
+        assert!(score_metadata(&parsed, &candidate).0 >= AUTO_MATCH_THRESHOLD);
+        candidate.subject_type = "tv".into();
+        assert!(score_metadata(&parsed, &candidate).0 < AUTO_MATCH_THRESHOLD);
+        parsed.special_type = Some("NCED".into());
+        assert!(score_metadata(&parsed, &candidate).0 < AUTO_MATCH_THRESHOLD);
+    }
+
+    #[tokio::test]
+    async fn indexed_recognition_returns_unique_candidates_without_detail_network_requests() {
+        let pool = db::test_pool().await.unwrap();
+        let provider = BangumiProvider::new().unwrap();
+        let parsed = parse_folder_name("葬送的芙莉莲");
+        let results = tokio::time::timeout(
+            StdDuration::from_secs(2),
+            search_provider(&pool, "葬送的芙莉莲", &provider, &parsed),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(
+            results.len(),
+            results
+                .iter()
+                .map(|item| &item.external_id)
+                .collect::<HashSet<_>>()
+                .len()
+        );
+        let second = search_provider(&pool, "葬送的芙莉莲", &provider, &parsed)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), second.len());
+        let details: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM metadata_cache WHERE cache_key LIKE 'detail:%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(details, 0);
+    }
 
     #[test]
     fn localizes_known_anilist_genres_and_drops_unknown_english_values() {

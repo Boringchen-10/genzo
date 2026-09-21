@@ -67,6 +67,7 @@ struct BangumiDataDocument {
 struct BangumiDataIndex {
     items: Vec<BangumiDataItem>,
     titles: HashMap<String, Vec<usize>>,
+    by_bangumi: HashMap<String, usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -80,6 +81,7 @@ static COVER_CACHE_IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new()
 static DETAIL_CACHE_IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static COVER_CACHE_LIMIT: OnceLock<Arc<Semaphore>> = OnceLock::new();
 static CALENDAR_REFRESH_IN_FLIGHT: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
+static ENRICHMENT_IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[derive(Debug, FromRow)]
 struct CacheRow {
@@ -209,7 +211,14 @@ pub async fn overview(
     // still use already cached AniList details, but never starts one request
     // per indexed title while the user is browsing the filter.
     let allow_network_refresh = year.is_some() && selected_month.is_some();
-    enrich_with_anilist(pool, &mut seasonal_metadata, allow_network_refresh).await?;
+    enrich_with_anilist(pool, &mut seasonal_metadata, false).await?;
+    if allow_network_refresh {
+        schedule_enrichment(
+            pool.clone(),
+            seasonal_metadata.clone(),
+            format!("{year:?}:{month:?}"),
+        );
+    }
 
     let local_states = load_local_states(pool).await?;
     let seasonal = seasonal_metadata
@@ -513,13 +522,19 @@ async fn enrich_with_anilist(
     let mut metadata_by_id = HashMap::new();
     let mut refresh_ids = Vec::new();
 
+    let keys = items
+        .iter()
+        .filter_map(|item| linked_ids_for_bangumi(&item.external_id).ok()?.anilist)
+        .map(|id| format!("detail:{id}"))
+        .collect::<Vec<_>>();
+    let mut cached_details = load_cache_batch::<WorkMetadata>(pool, "anilist", &keys).await?;
     for item in items.iter() {
         let Some(anilist_id) = linked_ids_for_bangumi(&item.external_id)?.anilist else {
             continue;
         };
         links.insert(item.external_id.clone(), anilist_id.clone());
         let cache_key = format!("detail:{anilist_id}");
-        match load_cache::<WorkMetadata>(pool, "anilist", &cache_key).await? {
+        match cached_details.remove(&cache_key) {
             Some(cached) => {
                 metadata_by_id.insert(anilist_id.clone(), cached.value);
                 if cached.stale {
@@ -572,6 +587,19 @@ async fn enrich_with_anilist(
         }
     }
     Ok(())
+}
+
+fn schedule_enrichment(pool: SqlitePool, mut items: Vec<WorkMetadata>, key: String) {
+    tauri::async_runtime::spawn(async move {
+        let running = ENRICHMENT_IN_FLIGHT.get_or_init(|| Mutex::new(HashSet::new()));
+        if !running.lock().await.insert(key.clone()) {
+            return;
+        }
+        if let Err(error) = enrich_with_anilist(&pool, &mut items, true).await {
+            eprintln!("探索后台补全失败：{error}");
+        }
+        running.lock().await.remove(&key);
+    });
 }
 
 pub(crate) async fn prepare_cover_cache(
@@ -924,9 +952,9 @@ pub(crate) fn lookup_title(query: &str) -> AppResult<Vec<WorkMetadata>> {
 pub(crate) fn linked_ids_for_bangumi(external_id: &str) -> AppResult<BangumiDataLinks> {
     let index = embedded_index()?;
     let item = index
-        .items
-        .iter()
-        .find(|item| site_id(item, "bangumi").as_deref() == Some(external_id));
+        .by_bangumi
+        .get(external_id)
+        .and_then(|position| index.items.get(*position));
     Ok(
         item.map_or_else(BangumiDataLinks::default, |item| BangumiDataLinks {
             tmdb: site_id(item, "tmdb"),
@@ -962,7 +990,11 @@ fn build_index(json: &[u8]) -> Result<BangumiDataIndex, serde_json::Error> {
             .retain(|site| matches!(site.site.as_str(), "bangumi" | "tmdb" | "aniList" | "mal"));
     }
     let mut titles: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut by_bangumi = HashMap::new();
     for (index, item) in document.items.iter().enumerate() {
+        if let Some(id) = site_id(item, "bangumi") {
+            by_bangumi.insert(id, index);
+        }
         let names = std::iter::once(&item.title).chain(item.title_translate.values().flatten());
         for name in names {
             let normalized = normalize_title(name);
@@ -974,6 +1006,7 @@ fn build_index(json: &[u8]) -> Result<BangumiDataIndex, serde_json::Error> {
     Ok(BangumiDataIndex {
         items: document.items,
         titles,
+        by_bangumi,
     })
 }
 
@@ -986,7 +1019,10 @@ async fn load_calendar(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>
         }
         return Ok(cached_value);
     }
-    fetch_calendar_and_cache(pool).await
+    schedule_calendar_refresh(pool.clone());
+    Err(AppError::Network(
+        "日历正在后台更新，当前展示本地番组索引".to_string(),
+    ))
 }
 
 fn schedule_calendar_refresh(pool: SqlitePool) {
@@ -1080,15 +1116,56 @@ async fn load_subject_metadata(
 }
 
 async fn merge_cached_details(pool: &SqlitePool, items: &mut [WorkMetadata]) -> AppResult<()> {
+    let keys = items
+        .iter()
+        .map(|item| format!("detail:{}", item.external_id))
+        .collect::<Vec<_>>();
+    let mut cached_details =
+        load_cache_batch::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &keys).await?;
     for item in items {
         let key = format!("detail:{}", item.external_id);
-        if let Some(cached) = load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &key).await? {
+        if let Some(cached) = cached_details.remove(&key) {
             if let Some(details) = cached.value.into_iter().next() {
                 *item = merge_metadata(item.clone(), details);
             }
         }
     }
     Ok(())
+}
+
+async fn load_cache_batch<T: DeserializeOwned>(
+    pool: &SqlitePool,
+    provider: &str,
+    keys: &[String],
+) -> AppResult<HashMap<String, Cached<T>>> {
+    let mut result = HashMap::new();
+    let now = Utc::now().to_rfc3339();
+    for chunk in keys.chunks(400) {
+        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT cache_key, response_json, fetched_at, expires_at FROM metadata_cache WHERE provider = ");
+        query.push_bind(provider).push(" AND cache_key IN (");
+        let mut list = query.separated(",");
+        for key in chunk {
+            list.push_bind(key);
+        }
+        list.push_unseparated(")");
+        let rows = query
+            .build_query_as::<(String, String, String, String)>()
+            .fetch_all(pool)
+            .await?;
+        for (key, json, fetched_at, expires_at) in rows {
+            if let Ok(value) = serde_json::from_str(&json) {
+                result.insert(
+                    key,
+                    Cached {
+                        value,
+                        fetched_at,
+                        stale: expires_at <= now,
+                    },
+                );
+            }
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -1433,6 +1510,53 @@ fn validated_external_id(value: &str) -> AppResult<String> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn cold_overview_returns_local_content_without_waiting_for_network() {
+        let pool = db::test_pool().await.unwrap();
+        warm_embedded_index().unwrap();
+        let started = std::time::Instant::now();
+        let result = tokio::time::timeout(StdDuration::from_secs(2), overview(&pool, None, None))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!result.seasonal.is_empty());
+        eprintln!(
+            "cold local overview: {} items in {:?}",
+            result.seasonal.len(),
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_details_preserve_stale_cache_and_ignore_corrupt_entries() {
+        let pool = db::test_pool().await.unwrap();
+        let detail = sample_metadata();
+        let key = format!("detail:{}", detail.external_id);
+        save_cache(
+            &pool,
+            BANGUMI_PROVIDER,
+            &key,
+            &vec![detail.clone()],
+            Duration::days(-1),
+        )
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO metadata_cache (provider, cache_key, response_json, fetched_at, expires_at) VALUES ('bangumi', 'detail:broken', 'invalid', '', '')").execute(&pool).await.unwrap();
+        let result = load_cache_batch::<Vec<WorkMetadata>>(
+            &pool,
+            BANGUMI_PROVIDER,
+            &[key.clone(), "detail:broken".into()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[&key].stale);
+        let mut items = vec![detail];
+        items[0].description.clear();
+        merge_cached_details(&pool, &mut items).await.unwrap();
+        assert_eq!(items[0].description, "简介");
+    }
 
     fn sample_item() -> BangumiDataItem {
         serde_json::from_value(serde_json::json!({
