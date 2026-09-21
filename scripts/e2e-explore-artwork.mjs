@@ -29,7 +29,15 @@ const invoke = (command, args = {}) => page.evaluate(
 const screenshots = path.resolve("artifacts", "screenshots");
 await mkdir(screenshots, { recursive: true });
 
-const first = await invoke("get_explore_overview", { year: 2026, month: 1 });
+// The first response is intentionally local-only; verify background artwork
+// convergence separately instead of requiring network completion on entry.
+let first = await invoke("get_explore_overview", { year: 2026, month: 1 });
+for (let attempt = 0; attempt < 24; attempt += 1) {
+  const covered = first.seasonal.filter((item) => item.coverUrl).length;
+  if (covered >= Math.ceil(first.seasonal.length * 0.75) && first.seasonal.some(item => item.bannerUrl)) break;
+  await page.waitForTimeout(2500);
+  first = await invoke("get_explore_overview", { year: 2026, month: 1 });
+}
 if (first.seasonal.length < 8) throw new Error("January 2026 seasonal data is unexpectedly empty.");
 const firstCovers = first.seasonal.filter((item) => item.coverUrl).length;
 const firstBanners = first.seasonal.filter((item) => item.bannerUrl).length;
@@ -48,9 +56,9 @@ if (localCovers === 0) throw new Error("No prefetched cover reached the local ca
 
 await page.evaluate(() => { globalThis.location.hash = "#/explore"; });
 await page.waitForSelector(".gnz-explore-page");
-await page.locator(".gnz-filter-selects select").nth(0).selectOption("2026");
-await page.locator(".gnz-filter-selects select").nth(1).selectOption("1");
 await page.getByRole("tab", { name: "本季" }).click();
+await page.getByLabel("按年份筛选").selectOption("2026");
+await page.getByLabel("按季节筛选").selectOption("1");
 await page.waitForSelector(".gnz-explore-card img", { timeout: 30_000 });
 await page.waitForFunction(() => {
   const images = [...document.querySelectorAll(".gnz-explore-card img")].slice(0, 8);
