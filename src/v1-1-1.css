@@ -181,11 +181,11 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* Home */
 .gnz-home { height: 100%; min-height: 600px; overflow: auto; background: var(--bg); }
 .gnz-home .seanime-banner { height: clamp(540px, 84vh, 960px); min-height: 540px; overflow: hidden; background: var(--bg); border-bottom: 0; }
+.gnz-home .seanime-banner.has-banner { height: clamp(560px, 68vh, 820px); min-height: 560px; }
 /* 横版横幅只负责环境背景；竖版封面保持原始比例作为清晰主视觉。 */
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .65; filter: blur(max(28px, var(--poster-blur))) saturate(.8) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
-.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: 0 0 auto; height: clamp(300px, 48vh, 560px); opacity: .86; filter: saturate(.96) contrast(1.01); background-position: right top; background-size: 78% auto; background-color: var(--bg); }
-/* 横版横幅完整显示，右侧保留稳定展示区，避免 cover 裁切和低分辨率拉伸。 */
-@media (max-width: 1040px) { .gnz-home .seanime-banner.has-banner .seanime-banner-image { height: clamp(260px, 42vh, 440px); background-size: 72% auto; } }
+.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: 0; opacity: .9; filter: saturate(.96) contrast(1.01); background-position: center top; background-size: 100% auto; background-repeat: no-repeat; background-color: var(--bg); }
+/* 横版图是 Hero 的主视觉，按窗口宽度完整铺开；标题通过底部渐变叠加在画面上。 */
 .gnz-home .seanime-banner::before { z-index: 1; background: rgb(3 8 9 / .14); }
 /* 第 1 层：背景顶端淡出到页面底色，使标题栏与背景之间没有硬边（渐变融合）。
    第 2 层：背景底端同样淡出到页面底色，使背景与下方内容之间没有硬边。
@@ -200,7 +200,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
    选择器带 `.app-frame` 前缀，确保在窄窗口媒体查询（`left`）之后仍生效。 */
 .app-frame.is-home-route .gnz-home { background: transparent; }
 .app-frame.is-home-route .gnz-home .seanime-banner { background: transparent; }
-.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); }
+.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(180deg, transparent 34%, rgb(5 8 10 / .18) 48%, var(--bg) 100%); }
 :root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 .app-frame.is-home-route .gnz-home .seanime-banner-title { left: calc(75px + 44px); }
 /* 没有真实横版横幅时：不再把竖版封面铺成整幅背景（移除首页背景中的大海报），
@@ -218,7 +218,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .app-frame.is-home-route .gnz-home-shelf { background: var(--bg); }
 .app-frame.is-home-route .gnz-home-shelf { padding-left: calc(75px + 44px); }
 .gnz-home .seanime-banner-title { left: 44px; bottom: 60px; width: min(660px, 58vw); max-width: none; color: var(--text); text-shadow: none; }
-.gnz-home .seanime-banner.has-banner .seanime-banner-title { width: min(560px, 38vw); }
+.gnz-home .seanime-banner.has-banner .seanime-banner-title { top: 54%; bottom: auto; width: min(660px, 58vw); }
 .gnz-home .seanime-banner-title > span { color: var(--accent); font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1.4px; }
 .gnz-home .seanime-banner-title h1 { margin-top: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; max-width: min(660px, calc(100vw - 420px)); overflow: hidden; color: var(--text); font-size: clamp(32px, 3.6vw, 56px); line-height: 1.15; white-space: normal; }
 .gnz-home .seanime-banner-title > p { max-width: 620px; margin-top: 17px; color: var(--muted); font-size: 15px; line-height: 1.75; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
