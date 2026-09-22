@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Bookmark, ChevronLeft, ChevronRight, Library, Play, RefreshCw, Settings, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider as api } from "../data";
@@ -96,7 +97,14 @@ export function HomePage() {
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [shelfFilter, setShelfFilter] = useState<ShelfFilter>("all");
+  const [toolsHost, setToolsHost] = useState<HTMLElement | null>(null);
   const openSettings = useUi((state) => state.openSettings);
+
+  /* 顶部工具条由 AppShell 的标题栏承载：这里取到 WindowTitleBar 提供的插槽，
+     再用 portal 把工具栏渲染到窗口控制按钮左侧（布局在样式里，元素本身不属于首页内容流）。 */
+  useLayoutEffect(() => {
+    setToolsHost(document.getElementById("window-titlebar-tools"));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -148,17 +156,21 @@ export function HomePage() {
   if (error) return <div className="seanime-home-state"><ErrorState message={error} retry={() => void load()} /></div>;
   if (!data) return null;
 
+  const homeToolbar = (
+    <div className="seanime-home-toolbar">
+      <span className="seanime-library-count">{data.totalWorks} 部作品 · 最近同步于今天</span>
+      <Link className="icon-button" aria-label="打开媒体库" data-tooltip="打开媒体库" to="/library"><Library size={16} /></Link>
+      <IconButton tooltip="刷新概览" onClick={() => void load()}><RefreshCw size={16} /></IconButton>
+      <IconButton tooltip="打开设置" onClick={openSettings}><Settings size={16} /></IconButton>
+    </div>
+  );
+
   return (
     <div className="seanime-home gnz-home">
+      {toolsHost ? createPortal(homeToolbar, toolsHost) : null}
       <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}${featuredHasBanner ? " has-banner" : ""}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
         {featuredCover ? <img className="gnz-banner-poster" src={featuredCover} alt="" /> : null}
-        <div className="seanime-home-toolbar">
-          <span className="seanime-library-count">{data.totalWorks} 部作品 · 最近同步于今天</span>
-          <Link className="icon-button" aria-label="打开媒体库" data-tooltip="打开媒体库" to="/library"><Library size={19} /></Link>
-          <IconButton tooltip="刷新概览" onClick={() => void load()}><RefreshCw size={19} /></IconButton>
-          <IconButton tooltip="打开设置" onClick={openSettings}><Settings size={19} /></IconButton>
-        </div>
         <div className="gnz-home-copy-mask" />
         <div className="seanime-banner-title">
           <span>CONTINUE YOUR JOURNEY</span>

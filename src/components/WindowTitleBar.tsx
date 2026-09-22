@@ -73,7 +73,7 @@ export function WindowTitleBar() {
   };
 
   const handleTitleMouseDown = (event: MouseEvent<HTMLElement>) => {
-    if (event.button !== 0 || (event.target as HTMLElement).closest(".window-controls")) return;
+    if (event.button !== 0 || (event.target as HTMLElement).closest(".window-controls, .window-tools")) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.detail === 2) {
@@ -103,6 +103,9 @@ export function WindowTitleBar() {
           </span>
         ) : null}
       </div>
+      {/* 首页工具条（作品数 / 媒体库 / 刷新 / 设置）由 HomePage 通过 portal 渲染到这里，
+          位置固定在窗口控制按钮（最小化/最大化/关闭）左侧。 */}
+      <div className="window-tools" id="window-titlebar-tools" />
       <div className="window-controls" aria-label="窗口控制">
         <button
           type="button"

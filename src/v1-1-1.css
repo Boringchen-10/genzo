@@ -101,6 +101,35 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .window-control { width: 46px; height: 39px; color: var(--muted); background: transparent; border: 0; border-radius: 0; }
 .window-control:hover, .window-control:focus-visible { color: var(--text); background: rgba(var(--tint), .07); }
 .window-control-close:hover, .window-control-close:focus-visible { color: #fff; background: #c42b1c; }
+/* 首页顶部工具条挂进标题栏，紧邻窗口控制按钮的左侧。
+   元素由 HomePage 用 portal 渲染进 #window-titlebar-tools，因此这里是标题栏上下文里的紧凑尺寸。 */
+.window-tools { display: flex; align-items: center; flex: 0 0 auto; }
+.window-tools .seanime-home-toolbar { position: static; top: auto; right: auto; height: auto; gap: 6px; padding-right: 10px; }
+.window-tools .seanime-home-toolbar .icon-button {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+  background: rgba(var(--shade), .52);
+  border-color: rgba(var(--tint), .1);
+  border-radius: 7px;
+  backdrop-filter: blur(var(--ui-blur));
+}
+.window-tools .seanime-home-toolbar .icon-button:hover:not(:disabled) { color: var(--text); background: rgba(var(--tint), .12); }
+.window-tools .seanime-library-count {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  margin-right: 2px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: rgba(var(--shade), .52);
+  border: 1px solid rgba(var(--tint), .1);
+  border-radius: 7px;
+  font-size: 11px;
+  white-space: nowrap;
+  backdrop-filter: blur(var(--ui-blur));
+}
+@media (max-width: 900px) { .window-tools .seanime-library-count { display: none; } }
 .detail-actions .button.secondary.is-completed { color: var(--accent); }
 
 .sidebar {
@@ -169,14 +198,11 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .app-frame.is-home-route .gnz-home .seanime-banner { background: transparent; }
 .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); }
 :root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
-.app-frame.is-home-route .gnz-home .seanime-home-toolbar { top: var(--win-titlebar); }
 .app-frame.is-home-route .gnz-home .seanime-banner-title { left: calc(75px + 44px); }
 .app-frame.is-home-route .seanime-home-state { padding: calc(var(--win-titlebar) + 20px) 30px 30px calc(75px + 30px); }
 .app-frame.is-home-route .gnz-home-switcher, .app-frame.is-home-route .gnz-home-shelf { background: var(--bg); }
 .app-frame.is-home-route .gnz-home-switcher, .app-frame.is-home-route .gnz-home-shelf { padding-left: calc(75px + 44px); }
 .gnz-home-copy-mask { position: absolute; z-index: 3; inset: 0 auto 0 0; width: min(760px, 64%); pointer-events: none; }
-.gnz-home .seanime-home-toolbar { top: 0; right: 44px; height: 54px; }
-.gnz-home .seanime-home-toolbar .icon-button, .gnz-home .seanime-library-count { color: var(--muted); background: rgba(var(--shade), .52); border-color: rgba(var(--tint), .1); border-radius: 7px; }
 .gnz-home .seanime-banner-title { left: 44px; bottom: 60px; width: min(660px, 58vw); max-width: none; color: var(--text); text-shadow: none; }
 .gnz-home .seanime-banner-title > span { color: var(--accent); font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1.4px; }
 .gnz-home .seanime-banner-title h1 { margin-top: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); font-size: clamp(32px, 3.6vw, 56px); line-height: 1.15; white-space: normal; }
@@ -468,7 +494,6 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   .sidebar { width: 75px; padding-inline: 11px; }
   .page { padding-inline: 30px; }
   .gnz-home .seanime-banner-title { left: 34px; width: min(610px, 66vw); }
-  .gnz-home .seanime-home-toolbar { right: 30px; }
   .gnz-home-switcher { padding-inline: 34px; }
   .gnz-home-shelf { padding-inline: 34px; }
   .gnz-switcher-items { grid-template-columns: repeat(4,minmax(0,1fr)); }
@@ -485,7 +510,6 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   .gnz-home .seanime-banner-title { left: 28px; bottom: 45px; width: 64vw; }
   .gnz-home .seanime-banner-title h1 { font-size: 43px; }
   .gnz-home .seanime-banner-title > p { font-size: 13px; }
-  .gnz-home .seanime-home-toolbar { right: 24px; }
   .gnz-home-switcher { padding-inline: 28px; }
   .gnz-home-shelf { padding-inline: 28px; }
   .gnz-switcher-items { grid-template-columns: repeat(3,minmax(0,1fr)); }
