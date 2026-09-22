@@ -17,6 +17,9 @@ pub struct ParsedAnime {
     pub release_group: Option<String>,
     pub special_type: Option<String>,
     pub media_info: Vec<String>,
+    /// An ambiguous descending range must not be reinterpreted by a fallback parser.
+    #[serde(skip)]
+    pub(crate) invalid_episode_range: bool,
 }
 
 const TECH_TOKENS: &[&str] = &[
@@ -338,8 +341,12 @@ fn parse_numeric_episode(raw_stem: &str, parsed: &mut ParsedAnime) {
     let numeric = regex::Regex::new(r"^(\d{1,3})$").expect("static regex");
     let prefixed =
         regex::Regex::new(r"(?i)(?:EP|E|第|话|話|集)\s*(\d{1,3})").expect("static regex");
+    // Before season tokens are removed, only inspect standalone/bracketed
+    // ranges. Otherwise "S2 - 01" or "Season 3 - 01" looks like 2-1/3-1.
+    // Unbracketed title ranges are handled after season removal above.
     let range =
-        regex::Regex::new(r"(?:^|\D)(\d{1,3})\s*[-~]\s*(\d{1,3})(?:\D|$)").expect("static regex");
+        regex::Regex::new(r"(?:^|[\[【(])\s*(\d{1,3})\s*[-~]\s*(\d{1,3})(?:\s*[\]】)]|\s*$)")
+            .expect("static regex");
     if let Some(captures) = numeric.captures(raw_stem.trim()) {
         set_episode_range(
             parsed,
@@ -370,9 +377,19 @@ fn parse_numeric_episode(raw_stem: &str, parsed: &mut ParsedAnime) {
 }
 
 fn set_episode_range(parsed: &mut ParsedAnime, start: Option<u32>, end: Option<u32>) {
+    if parsed.invalid_episode_range {
+        return;
+    }
     let Some(start) = start else {
         return;
     };
+    if end.is_some_and(|end| end < start) {
+        parsed.episode = None;
+        parsed.episode_start = None;
+        parsed.episode_end = None;
+        parsed.invalid_episode_range = true;
+        return;
+    }
     parsed.episode_start = Some(start);
     parsed.episode_end = end;
     parsed.episode = Some(match end {
@@ -434,6 +451,42 @@ pub fn score_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn descending_ranges_remain_unverified_instead_of_guessing_or_violating_db_constraints() {
+        for name in [
+            "Example - 12-01.mkv",
+            "Example - 24~13.mkv",
+            "[Group] Example [12-01] [1080p].mkv",
+        ] {
+            let parsed = parse_file_name(name);
+            assert!(parsed.invalid_episode_range, "{name}: {parsed:?}");
+            assert_eq!(parsed.episode_start, None, "{name}");
+            assert_eq!(parsed.episode_end, None, "{name}");
+            assert_eq!(parsed.episode, None, "{name}");
+        }
+        let mut parsed = ParsedAnime::default();
+        set_episode_range(&mut parsed, Some(24), Some(1));
+        set_episode_range(&mut parsed, Some(24), None);
+        assert_eq!(parsed.episode_start, None);
+    }
+
+    #[test]
+    fn episode_range_order_is_safe_for_every_numeric_pair() {
+        for start in [0, 1, 12, 24, 1080, u32::MAX] {
+            for end in [0, 1, 12, 24, 1080, u32::MAX] {
+                let mut parsed = ParsedAnime::default();
+                set_episode_range(&mut parsed, Some(start), Some(end));
+                if end < start {
+                    assert_eq!((parsed.episode_start, parsed.episode_end), (None, None));
+                } else {
+                    assert_eq!(
+                        (parsed.episode_start, parsed.episode_end),
+                        (Some(start), Some(end))
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn parses_release_name() {
         let p = parse_file_name("[字幕组] 进击的巨人 S2 - 01 [1080p].mkv");

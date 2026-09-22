@@ -593,6 +593,42 @@ mod tests {
     use std::fs;
 
     #[tokio::test]
+    async fn reversed_episode_range_does_not_abort_a_multi_work_folder_scan() {
+        let pool = db::test_pool().await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        for series in ["Example", "Another"] {
+            let folder = directory.path().join(series);
+            fs::create_dir(&folder).unwrap();
+            for episode in 1..=24 {
+                fs::write(
+                    folder.join(format!("{series} - {episode:02}.mkv")),
+                    b"fixture",
+                )
+                .unwrap();
+            }
+        }
+        fs::write(
+            directory.path().join("Example/Example - 24-01.mkv"),
+            b"fixture",
+        )
+        .unwrap();
+        sqlx::query("INSERT INTO library_roots(id,path,kind,enabled,created_at,updated_at,source_type) VALUES('range-test',?,'video',1,'now','now','mounted')")
+            .bind(normalize_existing_path(directory.path()).unwrap()).execute(&pool).await.unwrap();
+        for _ in 0..2 {
+            scan_library_root(&pool, "range-test").await.unwrap();
+            let count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM media_files WHERE missing = 0")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 49);
+            let range: (Option<i64>, Option<i64>) = sqlx::query_as("SELECT parsed_episode_start, parsed_episode_end FROM media_files WHERE file_name = 'Example - 24-01.mkv'")
+                .fetch_one(&pool).await.unwrap();
+            assert_eq!(range, (None, None));
+        }
+    }
+
+    #[tokio::test]
     async fn database_write_failure_rolls_back_missing_flags_and_marks_job_failed() {
         let pool = db::test_pool().await.unwrap();
         let directory = tempfile::tempdir().unwrap();
