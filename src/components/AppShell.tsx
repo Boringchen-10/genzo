@@ -71,13 +71,6 @@ export function AppShell() {
     <div className={`app-frame ${location.pathname === "/" ? "is-home-route" : "is-workspace-route"}`}>
       <WindowTitleBar />
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark" aria-hidden="true">G</div>
-          <div>
-            <strong>Genzo</strong>
-            <span>MEDIA LIBRARY</span>
-          </div>
-        </div>
         <nav className="nav-list" aria-label="主导航">
           {navigation.map(({ to, label, icon: Icon, end }) => {
             const opensSettings = to === "/settings";

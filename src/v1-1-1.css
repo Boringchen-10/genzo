@@ -26,6 +26,8 @@
   --win-titlebar: 40px;
   /* 顶部海报与标题栏的渐变融合高度：海报顶端由此淡出到页面底色 */
   --poster-fade: 120px;
+  /* 海报底部的渐变融合高度：海报底端由此淡出到页面底色，避免与下方内容出现硬边 */
+  --poster-fade-bottom: 108px;
   --ui-radius: 8px;
   --ui-blur: 24px;
   /* 顶部栏（含侧栏）的不透明度：0 完全透明、融入首页海报背景；由设置里的「顶部栏透明度」滑块写入 */
@@ -114,9 +116,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   backdrop-filter: blur(calc(var(--ui-blur) * var(--topbar-opacity)));
 }
 .sidebar:hover, .sidebar:focus-within { width: 75px; background: rgba(var(--shade), calc(var(--topbar-opacity) + .05)); box-shadow: none; }
-.brand { width: 52px; height: 49px; margin: 0 3px 24px; gap: 0; }
-.brand-mark { width: 48px; height: 48px; flex-basis: 48px; color: var(--accent); background: var(--surface-strong); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: none; font-size: 20px; }
-.brand div:last-child { display: none; }
+/* 侧栏顶部品牌标志已移除：导航从侧栏顶部起排（见 AppShell）。 */
 .nav-list { width: 53px; gap: 7px; }
 .nav-list a, .sidebar:hover .nav-list a, .sidebar:focus-within .nav-list a {
   display: flex; flex-direction: column; justify-content: center; width: 53px; height: 52px; gap: 3px; padding: 0;
@@ -148,7 +148,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 /* Home */
 .gnz-home { height: 100%; min-height: 600px; overflow: auto; background: var(--bg); }
-.gnz-home .seanime-banner { height: 552px; min-height: 552px; overflow: hidden; background: var(--bg); border-bottom: 1px solid var(--line); }
+.gnz-home .seanime-banner { height: 552px; min-height: 552px; overflow: hidden; background: var(--bg); border-bottom: 0; }
 /* 无横幅时竖版封面只作为柔化的环境背景；清晰原图在右侧按完整比例显示。
    有横幅时继续使用用户选择的模糊量。 */
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .65; filter: blur(max(28px, var(--poster-blur))) saturate(.8) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
@@ -157,17 +157,18 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-banner-poster { position: absolute; z-index: 3; right: clamp(28px, 4.5vw, 72px); top: 76px; bottom: 28px; height: calc(100% - 104px); width: 28%; object-fit: contain; object-position: center; filter: drop-shadow(0 16px 22px rgb(0 0 0 / .3)); }
 @media (max-width: 1040px) { .gnz-banner-poster { display: none; } }
 .gnz-home .seanime-banner::before { z-index: 1; background: rgb(3 8 9 / .14); }
-/* 第 1 层：海报顶端淡出到页面底色，使标题栏与海报之间没有硬边（渐变融合）。 */
-.gnz-home .seanime-banner::after { z-index: 2; background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); box-shadow: none; }
-:root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
+/* 第 1 层：海报顶端淡出到页面底色，使标题栏与海报之间没有硬边（渐变融合）。
+   第 2 层：海报底端同样淡出到页面底色，使海报与下方内容之间没有硬边。 */
+.gnz-home .seanime-banner::after { z-index: 2; background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); box-shadow: none; }
+:root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 /* 首页沉浸式：海报铺到标题栏 / 侧栏之后。
    顶部栏与侧栏透明（顶部栏透明度 0 时完全融入背景），海报不再向顶部淡出到底色，
    顶部工具条与主标题让开标题栏 / 侧栏，书架与切换区保持不透明底色。
    选择器带 `.app-frame` 前缀，确保在窄窗口媒体查询（`padding-inline` / `left`）之后仍生效。 */
 .app-frame.is-home-route .gnz-home { background: transparent; }
 .app-frame.is-home-route .gnz-home .seanime-banner { background: transparent; }
-.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); }
-:root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
+.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); }
+:root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 .app-frame.is-home-route .gnz-home .seanime-home-toolbar { top: var(--win-titlebar); }
 .app-frame.is-home-route .gnz-home .seanime-banner-title { left: calc(75px + 44px); }
 .app-frame.is-home-route .seanime-home-state { padding: calc(var(--win-titlebar) + 20px) 30px 30px calc(75px + 30px); }

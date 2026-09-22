@@ -52,12 +52,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .window-control-close[data-tooltip]::after { right: 5px; left: auto; transform: none; }
 .sidebar { position: relative; z-index: 80; grid-column: 1; grid-row: 2; display: flex; flex-direction: column; width: 68px; min-width: 0; padding: 15px 10px 13px; overflow: hidden; color: #e9edf0; background: #0b1013a8; border-right: 1px solid #ffffff10; transition: width 190ms ease, background-color 190ms ease, box-shadow 190ms ease; backdrop-filter: blur(24px) saturate(1.08); -webkit-backdrop-filter: blur(24px) saturate(1.08); }
 .sidebar:hover, .sidebar:focus-within { width: 232px; background: #0b1013e8; box-shadow: 24px 0 54px rgb(0 0 0 / .34); }
-.brand { display: flex; align-items: center; width: 212px; height: 45px; gap: 14px; margin: 0 1px 28px; }
-.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; color: var(--accent); background: var(--raised); border: 1px solid var(--border-strong); border-radius: 8px; font-size: 20px; font-weight: 800; box-shadow: none; }
-.brand div:last-child { min-width: 0; opacity: 0; transform: translateX(-5px); transition: opacity 140ms ease, transform 160ms ease; }
-.sidebar:hover .brand div:last-child, .sidebar:focus-within .brand div:last-child { opacity: 1; transform: none; }
-.brand strong, .brand span { display: block; } .brand strong { font-size: 18px; line-height: 21px; }
-.brand span { margin-top: 2px; color: #858b91; font-size: 9px; font-weight: 700; letter-spacing: 1.2px; }
+/* 侧栏品牌标志已移除，导航直接从侧栏顶部起排。 */
 .nav-list { display: flex; flex-direction: column; width: 216px; gap: 5px; }
 .nav-list a { position: relative; display: flex; align-items: center; width: 48px; height: 44px; gap: 16px; padding: 0 13px; overflow: hidden; color: #849198; border-radius: 10px; white-space: nowrap; transition: width 170ms ease, color 120ms ease, background-color 120ms ease; }
 .nav-list a:hover { color: #fff; background: #ffffff10; } .nav-list a.active { color: #fff; background: #ffffff16; }
