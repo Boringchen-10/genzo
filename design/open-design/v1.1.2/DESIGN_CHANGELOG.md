@@ -610,3 +610,20 @@
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。海报左半幅是否不再压暗、海报栏是否落在横幅右下角且与左下标题不重叠、窄窗滚动，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
 - 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，其首页结构与本轮正式前端不同）。
+
+## 正式前端：作品详情页顶部栏 / 侧栏与首页一致的沉浸式海报（2026-09-22）
+
+背景：用户要求「视频详情页侧边顶部栏也实现和首页相同的」——进入作品 / 视频详情页（`/library/:id`）时，左侧导航与顶部标题栏应和首页一样真正透明，海报铺到标题栏与侧栏之后，而不是被裁在 `75px` 侧栏右侧、标题栏下方的内容区里。
+
+| 功能 ID | 修改点 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| SHELL-015 | 作品详情页（`/library/:id`）沿用「工作区」路由：`main-content` 只占侧栏右侧 + 标题栏下方，详情背景被裁在内容区内，左导航与顶栏是不透明底板，与首页沉浸式版式不一致 | `AppShell.tsx` 路由分支新增 `is-detail-route`（正则 `/^\\/library\\/[^/]+$/`，与 `is-home-route` / `is-workspace-route` 并列）；`v1-1-1.css` 新增 `.app-frame.is-detail-route` 规则组：主内容区跨满整窗（`grid-column:1/-1; grid-row:1/-1; background:transparent`）、`.detail-page` 透明、背景层高度由 `460px` 扩为 `calc(460px + var(--win-titlebar))`（从窗口 y=0 起铺）、`.detail-inner` 内容让开标题栏与侧栏（`padding: calc(var(--win-titlebar)+24px) 34px 72px calc(75px+34px)`）；背景层 `::after` 去掉顶部「向页面底色淡出」层，仅保留左侧压暗 + 底端淡出到 `--bg`（有横幅时用更轻的一档，与旧 `has-detail-banner` 数值同源） | 用户要求详情页侧栏 + 顶部栏与首页同样透明、海报铺满 | 作品详情 / 视频详情 · 主框架（侧栏 / 标题栏） | 无（纯前端） | 需确认 |
+
+- 标题栏与侧栏底色本就由 **「顶部栏透明度」token** `rgba(var(--shade), var(--topbar-opacity))` 决定（SHELL-008 / SHELL-014）；本次不新增标题栏 / 侧栏样式，只让内容层透出海报，默认 `--topbar-opacity:0` 时与首页一样完全融入海报，两处共用同一套透明机制。
+- 改动文件：`src/components/AppShell.tsx`（抽出 `routeClass` 三元：`/` → `is-home-route`，`/^\/library\/[^/]+$/` → `is-detail-route`，其余 → `is-workspace-route`）、`src/v1-1-1.css`（新增 `.app-frame.is-detail-route` 规则组）。
+- 未改动作品详情页的 DOM 结构、数据请求与交互：本轮只调整承载层（`main-content` 网格占位、背景层高度、内容内边距），`WorkDetailPage.tsx` 及其子区块不变。
+- 未新增后端依赖：背景图仍来自既有 `bannerUrl` / `coverUrl`（Provider 已有能力）。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。详情页侧栏 / 顶部栏是否真正透出海报、正文是否被标题栏遮挡、左侧内边距是否与首页对齐，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，无「详情页沉浸式」路由态）。

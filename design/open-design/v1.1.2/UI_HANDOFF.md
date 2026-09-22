@@ -141,3 +141,13 @@
 
 - 顶部栏（SHELL-014）：`.window-titlebar` 显式关闭 `border` / `box-shadow` / `backdrop-filter`，底色只由「顶部栏透明度」token `rgba(var(--shade), var(--topbar-opacity))` 决定；缺 `backdrop-filter` 的浏览器也不再把标题栏 / 侧栏强制为不透明。
 - 渲染层级（B 级待验）：顶部栏是否真正透明、横幅比例是否随窗口伸缩、海报栏滚动与高亮，见 `SCREENSHOT_CHECKLIST.md`。
+
+## 作品详情页：与首页一致的沉浸式顶栏 / 侧栏（2026-09-22）
+
+| 区域 | 版式 | 交互 | 数据 |
+|---|---|---|---|
+| 主框架（顶栏 / 侧栏） | 进入作品 / 视频详情（`/library/:id`）后，内容层跨满整窗，海报背景从窗口 `y=0` 起铺到标题栏（`40px`）与侧栏（`75px`）之后 | 顶栏 / 侧栏透明度同样受设置「顶部栏透明度」控制（默认 `0`，完全融入海报）；侧栏仍浮在海报之上、可点击 | `--topbar-opacity` |
+| 详情正文 | `.detail-inner` 让开标题栏与侧栏：`padding: calc(var(--win-titlebar) + 24px) 34px 72px calc(75px + 34px)`；顶部返回 / 面包屑栏（`.detail-topbar`）落在标题栏下方 | 与改动前一致，仅整体下移一个标题栏高度 | `WorkDetailPage` |
+
+- 背景层（SHELL-015）：`.detail-backdrop` 高度 = `460px + var(--win-titlebar)`；`::after` 去掉顶部「向页面底色淡出」的层，只保留左侧压暗与底端淡出到 `--bg`，避免标题栏背后重新出现一条底色带。
+- 渲染层级（B 级待验）：顶部栏 / 侧栏是否真正透出海报、正文是否被标题栏遮挡、左侧内边距是否与首页对齐，见 `SCREENSHOT_CHECKLIST.md`。
