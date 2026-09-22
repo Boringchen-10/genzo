@@ -558,7 +558,7 @@ export function LibraryPage() {
           />
         </Modal>
       ) : null}
-      {recognizingGroup ? <RecognitionDialog media={recognizingGroup.representative} onClose={() => setRecognizingGroup(null)} onChanged={() => void load()} onManualCreate={() => { const group = recognizingGroup; setRecognizingGroup(null); setOrganizingGroup(group); }} onMatched={(workId) => { setRecognizingGroup(null); void load(); navigate(`/library/${workId}`); }} /> : null}
+      {recognizingGroup ? <RecognitionDialog media={recognizingGroup.representative} onClose={() => setRecognizingGroup(null)} onChanged={() => void load()} onManualCreate={() => { const group = recognizingGroup; setRecognizingGroup(null); setOrganizingGroup(group); }} onMatched={() => { setRecognizingGroup(null); void load(); }} /> : null}
     </div>
   );
 }
