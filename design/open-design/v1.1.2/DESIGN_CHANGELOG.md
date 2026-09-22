@@ -627,3 +627,20 @@
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。详情页侧栏 / 顶部栏是否真正透出海报、正文是否被标题栏遮挡、左侧内边距是否与首页对齐，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
 - 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，无「详情页沉浸式」路由态）。
+
+## 正式前端：详情页背景去掉横向（侧边）暗角，与首页对齐（2026-09-22）
+
+背景：SHELL-015 让作品详情页进入了沉浸式版式（主内容区跨满整窗、标题栏与侧栏走「顶部栏透明度」token），但背景层 `::after` 仍保留了一层 `linear-gradient(90deg, …)` 横向暗角 —— 窗口左半幅被压掉 64%（有无横幅两档）到底色，于是**侧栏背后**始终盖着一层 `--bg`，看上去仍像一条不透明的深色侧边栏。首页已在 HOME-012 去掉侧边暗角（左半幅保持原图亮度），两处不一致；用户再次反馈「视频详情页侧边…和首页相同」即指此处。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| SHELL-016 | 详情页背景层 `::after` 含 `linear-gradient(90deg, color-mix(in srgb, var(--bg) 64%, transparent) 0, transparent 50%)`（有横幅时为 48% / 46%），把窗口左半幅整体压暗 | 删除该 `90deg` 横向暗角层（`.app-frame.is-detail-route` 的两条 `::after` 规则）：只保留 `linear-gradient(180deg, transparent 0, … var(--bg) 100%)` 的底端淡出到页面底色；左半幅（侧栏背后）保持原图亮度，与首页 HOME-012 处理一致 | 详情页侧栏背后不应再压一层底色，侧栏 / 顶部栏应与首页同一观感 | 作品详情 / 视频详情 · 顶部海报背景 | 无（纯前端） | 需确认 |
+
+- 改动文件：`src/v1-1-1.css`（`.app-frame.is-detail-route .detail-backdrop::after` 与 `.app-frame.is-detail-route .detail-page.has-detail-banner .detail-backdrop::after` 各删除一层 `90deg` 渐变；注释同步说明与首页 HOME-012 同源）。
+- 保留：顶端不再向底色淡出（SHELL-015）；底端淡出到 `var(--bg)` 的竖向渐变（无横幅 34%、有横幅 30%，与旧值一致）。
+- 标题栏与侧栏的透明度仍只由「顶部栏透明度」token 控制（SHELL-008 / SHELL-014 / SHELL-015），本次不改标题栏 / 侧栏样式。
+- 非详情路由的默认 `.detail-backdrop::after` 基础规则（探索条目详情等）未改动。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。详情页侧栏背后是否可见完整海报、左半幅是否不再压暗，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，无「详情页沉浸式」路由态）。
