@@ -505,3 +505,20 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **18/18** 通过；`pnpm build`（`tsc -b && vite build`）成功。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。3 行裁切高度、展开 / 收起与缩放后的重算见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+
+## 正式前端：分集卡片只展示「最正确」的一个本地版本（2026-09-22）
+
+背景：一集可能关联多个本地版本（1080p / 4K / 不同字幕组 / 不同编码，含 NCED / NCOP 等），旧实现把 `episode.localFiles` **全部平铺**到卡片外层的文件信息区，卡片被撑得很高、重复且嘈杂。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| DETAIL-015 | 分集卡片外层把该集**全部** `localFiles` 逐条列出（文件名 + 媒体信息 + 大小 + 状态 + 打开按钮），一集 3 个版本就 3 行 | 卡片外层只显示**一个**「最正确」的版本；`pickPrimaryFile()` 的择优顺序：**未缺失 → 分辨率更高 → 已解析媒体信息 → 文件更大**。多于一个版本时在文件信息区末尾补一行小字「另有 N 个版本，点右上角「⋯」切换」 | 卡片应聚焦最正确版本，避免多版本平铺 | 作品详情 · 章节与文件 · 分集卡片 | 无（纯前端） | 否 |
+| DETAIL-016 | 「⋯」集数详情面板标题为「文件操作」，仅按文件列出操作按钮，无法指定卡片展示哪个版本 | 面板改为「本地版本（N）」：每个版本一行，**点行内选择区即把该版本设为卡片版本**（`aria-pressed`，当前版本标「卡片展示中」，其余标「设为卡片版本」），下方仍保留该版本原有的全部操作（使用工具 / 系统默认程序 / 打开所在目录 / 识别到其他作品 / 解除分集关联 / 解除作品关联） | 多版本改由「⋯」面板切换 | 作品详情 · 集数详情面板 | 无（纯前端） | 否 |
+| DETAIL-017 | 卡片与快照的版本选择之间没有联动 | 卡片外层文件信息与快照缩略图都优先取当前选中的版本；选中的版本若已有 `thumbnailPath` 则用作快照，否则沿用既有的「有缩略图 → 未缺失 → 第一个」回退链。切集 / 换作品时选择自然失效并回到默认择优版本 | 选中版本应与卡片展示一致 | 作品详情 · 分集卡片 · 快照 | 无（纯前端） | 否 |
+
+- 改动文件：`src/pages/WorkDetailPage.tsx`（新增 `mediaResolutionScore()` / `pickPrimaryFile()`、`versionChoice` 状态；分集卡片文件信息区只渲染 `primaryFile`；「集数详情」面板改为可选择的「本地版本」列表）、`src/v1-1-1.css`（`.episode-version-more`；`.episode-detail-file` / `.is-active`、`.episode-version-select` / `-name` / `-tag` / `-state`；移除旧的 `.episode-detail-file strong` 规则）。
+- **语义不变**：同一分集的多个本地版本**绝不去重、不合并、不删除**；只是默认只展示最优的一个，其余版本在面板里完整保留、可独立操作。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步：其示例分集结构与正式前端的 Provider `localFiles` 结构不同，本改动为正式前端专属。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。卡片只显示一个版本、多版本在「⋯」面板切换、选中后卡片与快照同步，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
