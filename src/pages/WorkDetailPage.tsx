@@ -66,6 +66,35 @@ const episodeLabel = (episode: AnimeEpisodeEntry): string => {
   return episode.title.trim() ? `第 ${number} 集 · ${episode.title}` : `第 ${number} 集`;
 };
 
+/** 从「1080p · HEVC · FLAC」这类解析文本里取分辨率数值用于排序，越大越清晰；识别不到返回 0。 */
+const mediaResolutionScore = (file: MediaFile): number => {
+  const info = file.parsedMediaInfo ?? "";
+  if (/\b8k\b|4320p/i.test(info)) return 4320;
+  if (/\b4k\b|2160p/i.test(info)) return 2160;
+  if (/\b1440p\b|\b2k\b/i.test(info)) return 1440;
+  const match = info.match(/(\d{3,4})\s*p/i);
+  return match ? Number(match[1]) : 0;
+};
+
+/**
+ * 一集可能关联多个本地版本（不同清晰度 / 字幕组 / 编码），它们**绝不去重或合并**。
+ * 卡片外层只呈现「最正确」的那一个：优先可用（未缺失），其次清晰度更高，再次已解析媒体信息、文件更大。
+ * 其余版本仍然完整保留，由卡片上的「⋯」详情面板切换。
+ */
+const pickPrimaryFile = (files: MediaFile[]): MediaFile | null => {
+  if (!files.length) return null;
+  const [best] = [...files].sort((left, right) => {
+    const missing = Number(left.missing) - Number(right.missing);
+    if (missing !== 0) return missing;
+    const resolution = mediaResolutionScore(right) - mediaResolutionScore(left);
+    if (resolution !== 0) return resolution;
+    const parsed = Number(Boolean(right.parsedMediaInfo)) - Number(Boolean(left.parsedMediaInfo));
+    if (parsed !== 0) return parsed;
+    return right.size - left.size;
+  });
+  return best ?? null;
+};
+
 /**
  * 本地视频缩略图：只有滚动到可见范围才按需向 Provider 请求，每个文件最多请求一次。
  *
@@ -162,6 +191,8 @@ export function WorkDetailPage() {
   const [structureLoading, setStructureLoading] = useState(false);
   const [mappingBusy, setMappingBusy] = useState<string | null>(null);
   const [mapTargets, setMapTargets] = useState<Record<string, string>>({});
+  /** 每个分集在卡片外层展示哪个本地版本（externalId → mediaFile.id）；未指定时用 pickPrimaryFile 的默认「最正确」版本。 */
+  const [versionChoice, setVersionChoice] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -617,7 +648,10 @@ export function WorkDetailPage() {
                   ) : (
                     <div className="official-episodes">
                       {officialEpisodes.map((episode) => {
-                        const snapshotFile = episode.localFiles.find((file) => file.thumbnailPath && !file.thumbnailPath.includes("__unsupported__"))
+                        const primaryFile = episode.localFiles.find((file) => file.id === versionChoice[episode.externalId])
+                          ?? pickPrimaryFile(episode.localFiles);
+                        const snapshotFile = (primaryFile?.thumbnailPath && !primaryFile.thumbnailPath.includes("__unsupported__") ? primaryFile : null)
+                          ?? episode.localFiles.find((file) => file.thumbnailPath && !file.thumbnailPath.includes("__unsupported__"))
                           ?? episode.localFiles.find((file) => !file.missing)
                           ?? episode.localFiles[0] ?? null;
                         return (
@@ -650,20 +684,33 @@ export function WorkDetailPage() {
                                     : <p className="quiet-inline">这一集还没有简介。</p>}
                                   {episode.localFiles.length ? (
                                     <>
-                                      <p className="episode-detail-head">文件操作</p>
-                                      {episode.localFiles.map((file) => (
-                                        <div className="episode-detail-file" key={file.id}>
-                                          <strong title={file.path}>{file.fileName}</strong>
-                                          <div className="episode-detail-actions">
-                                            {tools.filter((tool) => tool.supportedMediaTypes.includes(file.mediaType)).map((tool) => <button type="button" key={tool.id} onClick={() => void launch(file, tool.id)}><ExternalLink size={15} />使用 {tool.name}</button>)}
-                                            <button type="button" onClick={() => void launch(file, null, true)}><ExternalLink size={15} />系统默认程序</button>
-                                            <button type="button" onClick={() => void reveal(file)}><FolderOpen size={15} />打开所在目录</button>
-                                            <button type="button" disabled={file.missing} onClick={() => setRecognizingMedia(file)}><Sparkles size={15} />识别到其他作品</button>
-                                            <button type="button" disabled={mappingBusy === file.id} onClick={() => void mapEpisode(file.id, null)}><Unlink size={15} />解除分集关联</button>
-                                            <button type="button" onClick={() => void detach(file.id)}><Unlink size={15} />解除作品关联</button>
+                                      <p className="episode-detail-head">本地版本（{episode.localFiles.length}）</p>
+                                      {episode.localFiles.map((file) => {
+                                        const active = primaryFile?.id === file.id;
+                                        return (
+                                          <div className={`episode-detail-file${active ? " is-active" : ""}`} key={file.id}>
+                                            <button
+                                              type="button"
+                                              className="episode-version-select"
+                                              aria-pressed={active}
+                                              title={file.path}
+                                              onClick={() => setVersionChoice((choices) => ({ ...choices, [episode.externalId]: file.id }))}
+                                            >
+                                              <span className="episode-version-name">{file.fileName}</span>
+                                              <span className="episode-version-tag">{file.parsedMediaInfo || "未解析媒体信息"} · {formatSize(file.size)}</span>
+                                              <span className="episode-version-state">{active ? <><Check size={13} />卡片展示中</> : "设为卡片版本"}</span>
+                                            </button>
+                                            <div className="episode-detail-actions">
+                                              {tools.filter((tool) => tool.supportedMediaTypes.includes(file.mediaType)).map((tool) => <button type="button" key={tool.id} onClick={() => void launch(file, tool.id)}><ExternalLink size={15} />使用 {tool.name}</button>)}
+                                              <button type="button" onClick={() => void launch(file, null, true)}><ExternalLink size={15} />系统默认程序</button>
+                                              <button type="button" onClick={() => void reveal(file)}><FolderOpen size={15} />打开所在目录</button>
+                                              <button type="button" disabled={file.missing} onClick={() => setRecognizingMedia(file)}><Sparkles size={15} />识别到其他作品</button>
+                                              <button type="button" disabled={mappingBusy === file.id} onClick={() => void mapEpisode(file.id, null)}><Unlink size={15} />解除分集关联</button>
+                                              <button type="button" onClick={() => void detach(file.id)}><Unlink size={15} />解除作品关联</button>
+                                            </div>
                                           </div>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </>
                                   ) : null}
                                 </div>
@@ -676,20 +723,21 @@ export function WorkDetailPage() {
                               {episode.localFiles.some((item) => item.missing) ? <span className="warning-text">存在缺失文件</span> : null}
                             </div>
 
-                            {episode.localFiles.length ? (
+                            {primaryFile ? (
                               <ul className="episode-file-info">
-                                {episode.localFiles.map((file) => (
-                                  <li className="episode-file-line" key={file.id}>
-                                    <span className="episode-file-name" title={file.path}>{file.fileName}</span>
-                                    <span className="episode-file-meta" title={file.parsedMediaInfo || undefined}>
-                                      {file.parsedMediaInfo || "未解析到媒体信息"} · {formatSize(file.size)}
-                                    </span>
-                                    <span className={file.missing ? "warning-text" : "available-text"}>
-                                      {file.missing ? <><AlertTriangle size={12} />文件缺失</> : file.path.startsWith("webdav://") ? "远程文件" : "本地可用"}
-                                    </span>
-                                    <RemoteFileActions id={file.id} path={file.path} /><button type="button" className="button compact primary" disabled={(file.missing && !file.path.startsWith("webdav://")) || busyFile === file.id} onClick={() => void launch(file)}>{busyFile === file.id ? "准备中…" : "打开"}</button>
-                                  </li>
-                                ))}
+                                <li className="episode-file-line" key={primaryFile.id}>
+                                  <span className="episode-file-name" title={primaryFile.path}>{primaryFile.fileName}</span>
+                                  <span className="episode-file-meta" title={primaryFile.parsedMediaInfo || undefined}>
+                                    {primaryFile.parsedMediaInfo || "未解析到媒体信息"} · {formatSize(primaryFile.size)}
+                                  </span>
+                                  <span className={primaryFile.missing ? "warning-text" : "available-text"}>
+                                    {primaryFile.missing ? <><AlertTriangle size={12} />文件缺失</> : primaryFile.path.startsWith("webdav://") ? "远程文件" : "本地可用"}
+                                  </span>
+                                  <RemoteFileActions id={primaryFile.id} path={primaryFile.path} /><button type="button" className="button compact primary" disabled={(primaryFile.missing && !primaryFile.path.startsWith("webdav://")) || busyFile === primaryFile.id} onClick={() => void launch(primaryFile)}>{busyFile === primaryFile.id ? "准备中…" : "打开"}</button>
+                                </li>
+                                {episode.localFiles.length > 1 ? (
+                                  <li className="episode-version-more">另有 {episode.localFiles.length - 1} 个版本，点右上角「⋯」切换</li>
+                                ) : null}
                               </ul>
                             ) : <p className="quiet-inline episode-file-empty">还没有关联文件。</p>}
                           </article>

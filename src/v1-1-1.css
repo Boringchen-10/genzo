@@ -541,8 +541,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .episode-file-line .available-text, .episode-file-line .warning-text { grid-area: 1 / 2 / 3 / 3; font-size: 10px; white-space: nowrap; }
 .episode-file-line .button { grid-area: 1 / 3 / 3 / 4; }
 .episode-file-empty { align-self: end; margin: 12px 14px 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.episode-version-more { color: var(--quiet); font-size: 10px; line-height: 1.5; }
 
-/* 「集数详情」：放送信息与完整简介收纳于此，卡片主体只留快照、标题与文件信息 */
+/* 「集数详情」：放送信息与完整简介收纳于此，卡片主体只留快照、标题与最正确的那个版本。
+   多版本在面板内切换：当前版本写入卡片外层，其余版本仍在此处完整保留、可操作。 */
 .episode-detail { gap: 8px; width: min(320px, calc(100vw - 72px)); max-height: min(360px, calc(100vh - 160px)); overflow-y: auto; padding: 10px; }
 .episode-detail-head { margin: 0; color: var(--text); font-size: 12px; font-weight: 700; }
 .episode-detail > .episode-detail-head ~ .episode-detail-head { padding-top: 9px; border-top: 1px solid var(--line); }
@@ -550,8 +552,13 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .episode-detail-meta dt { color: var(--quiet); font-size: 10px; }
 .episode-detail-meta dd { margin: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .episode-detail-desc { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
-.episode-detail-file { display: grid; gap: 2px; min-width: 0; }
-.episode-detail-file strong { overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.episode-detail-file { display: grid; gap: 4px; min-width: 0; padding: 6px; border: 1px solid transparent; border-radius: 6px; }
+.episode-detail-file.is-active { background: rgba(var(--tint), .05); border-color: var(--line); }
+.episode-version-select { display: grid; gap: 2px; width: 100%; padding: 0; color: inherit; text-align: left; background: none; border: 0; font-family: inherit; cursor: pointer; }
+.episode-version-name { overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.episode-version-tag { overflow: hidden; color: var(--quiet); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.episode-version-state { display: inline-flex; align-items: center; gap: 4px; color: var(--faint); font-size: 10px; }
+.episode-detail-file.is-active .episode-version-state { color: var(--accent); font-weight: 600; }
 .episode-detail-actions { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .episode-detail-actions button { min-height: 30px; }
 
