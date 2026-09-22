@@ -541,3 +541,20 @@
 - 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。首页海报是否落到顶部栏 / 侧栏之后、拖动「顶部栏透明度」是否即时生效、深色 / 浅色下的文字对比度，见 `SCREENSHOT_CHECKLIST.md` 的 B / C 级待验行。
+
+## 正式前端：海报底部渐变融合，移除侧栏顶部品牌标志（2026-09-22）
+
+背景：用户反馈两点——① 首页海报底部与下方内容之间是一条硬边（`.gnz-home .seanime-banner` 的 `border-bottom: 1px solid var(--line)`，且 `::after` 只有顶端淡出与底部压暗、没有向页面底色过渡）；② 侧栏顶部那块「G」品牌标志已不再需要，希望移除并把导航整体上提。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| SHELL-011 | 首页海报底部为硬边：横幅带 `border-bottom: 1px solid var(--line)`；`::after` 只有顶部淡出（`--poster-fade`）与底部压暗，没有向页面底色的过渡 | 新增 token `--poster-fade-bottom: 108px`；海报 `::after` 增加一层 `linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom))`，底端淡出到页面底色；移除 `border-bottom` 硬线（深色 / 浅色与首页沉浸式两组规则均已覆盖） | 海报与下方内容之间不应出现硬边 | 首页 · 横幅海报 | 无 | 否 |
+| SHELL-012 | 侧栏顶部为品牌标志（`.brand`：`G` 方块 + `Genzo` / `MEDIA LIBRARY` 文本），占 49px 高 + 24px 下边距 | 移除 `.brand` 结构（`AppShell.tsx`），导航自侧栏顶部起排；清理 `.brand` / `.brand-mark` 的失效样式（`v1-1-1.css`、`styles.css`） | 用户要求移除侧栏顶部标志并把其余内容上提 | 全局框架 · 左侧导航 | 无 | 否 |
+
+- 改动文件：`src/components/AppShell.tsx`（删除 `.brand` 标记）、`src/v1-1-1.css`（新增 `--poster-fade-bottom`；`::after` 增加底部淡出层共 4 处规则；移除 `.seanime-banner` 的 `border-bottom`；移除 `.brand` 覆盖样式）、`src/styles.css`（移除已无引用的 `.brand` / `.brand-mark` 基础样式）。
+- 顶部 `--poster-fade`（120px）行为不变；底部 `--poster-fade-bottom`（108px）刻意略小于顶部，避免淡化标题与操作按钮所在区域。
+- 标题与按钮位于 `.seanime-banner-title`（`bottom: 60px`，`z-index: 4`），仍在 `::after`（`z-index: 2`）之上，可读性不受影响。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。海报底边是否已无硬边、侧栏导航是否已上提，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，其侧栏与海报底部结构不同）。

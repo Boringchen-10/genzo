@@ -52,6 +52,14 @@
 
 > 注：本节取代上文 v1.1.1 表格中「标题栏底色 `rgba(var(--shade),.58)` + blur(18px)」的旧值——该值经 `SHELL-004` 已改为透明，本轮进一步改为可调 token（默认 `0`）。
 
+## 正式前端新增：海报底部渐变融合与侧栏品牌移除（2026-09-22）
+
+| 项 | 值 | 用途 |
+|---|---|---|
+| `--poster-fade-bottom` | `108px` | 海报底端淡出到页面底色：`linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom))`；与顶部 `--poster-fade`（`120px`）对称，略小于顶部以免淡化标题区 |
+| 海报底部硬线 | 移除 `.gnz-home .seanime-banner` 的 `border-bottom` | 由底部渐变取代 1px 硬边 |
+| 侧栏品牌标志 | 移除 `.brand`（`G` 方块 + `Genzo` / `MEDIA LIBRARY` 文本）；`.nav-list` 自侧栏顶部起排 | 侧栏只保留一级导航，导航整体上提 |
+
 ## 字体与图标
 
 - 标题：`Bahnschrift SemiCondensed`；正文：`Segoe UI Variable Text` / `Microsoft YaHei UI`；系统字体，无 Web Font / CDN。
