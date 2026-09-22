@@ -203,6 +203,17 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); }
 :root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 .app-frame.is-home-route .gnz-home .seanime-banner-title { left: calc(75px + 44px); }
+/* 没有真实横版横幅时：不再把竖版封面铺成整幅背景（移除首页背景中的大海报），
+   页头改为中性表面并收成紧凑高度；左下标题、右下「切换到其他作品」位置保持不变。 */
+.app-frame.is-home-route .gnz-home .seanime-banner.no-artwork { height: clamp(340px, 46vh, 520px); min-height: 340px; background: var(--bg); }
+.gnz-home .seanime-banner.no-artwork .seanime-banner-image { background: none; }
+.gnz-home .seanime-banner.no-artwork .seanime-banner-image::before { content: none; }
+.gnz-home .seanime-banner.no-artwork::before { background: none; }
+.app-frame.is-home-route .gnz-home .seanime-banner.no-artwork::after,
+:root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner.no-artwork::after { background: none; box-shadow: none; }
+.gnz-home .seanime-banner.no-artwork .seanime-banner-title { bottom: 34px; }
+.gnz-home .seanime-banner.no-artwork .seanime-banner-title h1 { -webkit-line-clamp: 2; }
+.gnz-home .seanime-banner.no-artwork .gnz-home-switcher { bottom: 34px; }
 .app-frame.is-home-route .seanime-home-state { padding: calc(var(--win-titlebar) + 20px) 30px 30px calc(75px + 30px); }
 .app-frame.is-home-route .gnz-home-shelf { background: var(--bg); }
 .app-frame.is-home-route .gnz-home-shelf { padding-left: calc(75px + 44px); }

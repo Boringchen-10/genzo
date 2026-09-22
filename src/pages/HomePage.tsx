@@ -68,10 +68,10 @@ function artwork(work: WorkListItem, index: number, previewMode = false) {
 }
 
 /**
- * 首页横幅背景。优先级：
- * 1. `Work.bannerPath` —— 后端缓存的**横版横幅**（TMDB backdrop / AniList banner；迁移 0006、契约 009）；
- * 2. `Work.coverPath` —— 竖版封面（此时用模糊放大作环境色，避免把 2:3 竖图锐利地铺成横条）；
- * 3. 内置自制抽象占位图。
+ * 首页横幅背景：只使用后端缓存的**横版横幅**（`Work.bannerPath`，迁移 0006 / 契约 009）。
+ * 不再回退到竖版封面 —— 2:3 竖图铺进宽横幅会被放大到只剩中间一块，看上去就是
+ * 「首页背景里一张大海报」；没有横版横幅时改走无海报的中性页头（`.seanime-banner.no-artwork`）。
+ * 主题预览（`?preview=theme`）没有真实数据，保留内置自制占位图。
  */
 const homeBackdrops = ["/design/reference-primary.png", "/design/reference-secondary.png"];
 
@@ -79,9 +79,9 @@ function bannerArtwork(work: WorkListItem | undefined): string | null {
   return work ? coverUrl(work.bannerPath ?? null) : null;
 }
 
-function workBackdrop(work: WorkListItem | undefined, index: number): string | null {
+function workBackdrop(work: WorkListItem | undefined, index: number, previewMode = false): string | null {
   if (!work) return null;
-  return bannerArtwork(work) ?? coverUrl(work.coverPath) ?? homeBackdrops[index % homeBackdrops.length] ?? null;
+  return bannerArtwork(work) ?? (previewMode ? homeBackdrops[index % homeBackdrops.length] ?? null : null);
 }
 
 function ShelfArtwork({ work, index, previewMode }: { work: WorkListItem; index: number; previewMode: boolean }) {
@@ -133,7 +133,7 @@ export function HomePage() {
 
   const carouselWorks = useMemo(() => data?.recentWorks.slice(0, 5) ?? [], [data]);
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
-  const featuredArtwork = workBackdrop(featured, featuredIndex);
+  const featuredArtwork = workBackdrop(featured, featuredIndex, previewMode);
   /** 背景是否来自真实横版横幅（决定用清晰横幅还是模糊封面铺底）。 */
   const featuredHasBanner = Boolean(bannerArtwork(featured));
   const shelfWorks = useMemo(
