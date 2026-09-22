@@ -84,7 +84,8 @@ pub fn launch_executable(
 }
 
 pub fn launch_game(path: &str) -> AppResult<()> {
-    let file = Path::new(path);
+    let shell_path = shell_compatible_path(path);
+    let file = Path::new(&shell_path);
     if !file.is_file() {
         return Err(AppError::PathNotFound(file.to_path_buf()));
     }
@@ -95,7 +96,7 @@ pub fn launch_game(path: &str) -> AppResult<()> {
         .to_ascii_lowercase()
         .as_str()
     {
-        "exe" => launch_executable(path, &[], file.parent().and_then(Path::to_str)),
+        "exe" => launch_executable(&shell_path, &[], file.parent().and_then(Path::to_str)),
         "lnk" | "bat" | "cmd" => shell_open(file),
         _ => Err(AppError::Validation(
             "该文件不是受支持的游戏启动项".to_string(),
@@ -104,7 +105,8 @@ pub fn launch_game(path: &str) -> AppResult<()> {
 }
 
 pub fn open_with_system(path: &str) -> AppResult<()> {
-    let file = Path::new(path);
+    let shell_path = shell_compatible_path(path);
+    let file = Path::new(&shell_path);
     if !file.exists() {
         return Err(AppError::PathNotFound(file.to_path_buf()));
     }
@@ -112,7 +114,8 @@ pub fn open_with_system(path: &str) -> AppResult<()> {
 }
 
 pub fn open_directory(path: &str) -> AppResult<()> {
-    let file = Path::new(path);
+    let shell_path = shell_compatible_path(path);
+    let file = Path::new(&shell_path);
     if !file.exists() {
         return Err(AppError::PathNotFound(file.to_path_buf()));
     }
@@ -124,6 +127,19 @@ pub fn open_directory(path: &str) -> AppResult<()> {
             .ok_or_else(|| AppError::Validation("无法确定文件所在目录".to_string()))?
     };
     shell_open(&directory)
+}
+
+/// Windows file APIs accept extended paths (`\\?\UNC\...`), but Explorer and
+/// ShellExecute expect the ordinary UNC form. Keep the extended form in the
+/// index for scanning, and normalize only at the external application boundary.
+fn shell_compatible_path(path: &str) -> String {
+    if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{unc}");
+    }
+    if let Some(local) = path.strip_prefix(r"\\?\") {
+        return local.to_string();
+    }
+    path.to_string()
 }
 
 #[cfg(windows)]
@@ -217,5 +233,14 @@ mod tests {
             title: "title",
         };
         assert!(expand_arguments("\"{file}", &context).is_err());
+    }
+
+    #[test]
+    fn converts_extended_unc_paths_for_windows_shell() {
+        assert_eq!(
+            shell_compatible_path(r"\\?\UNC\RaiDrive-Administrator\夸克\电影\file.mkv"),
+            r"\\RaiDrive-Administrator\夸克\电影\file.mkv"
+        );
+        assert_eq!(shell_compatible_path(r"\\?\C:\Anime\file.mkv"), r"C:\Anime\file.mkv");
     }
 }
