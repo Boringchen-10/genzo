@@ -766,6 +766,11 @@ async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candi
     };
     let now = Utc::now().to_rfc3339();
     let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
+    let candidate_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM match_candidates WHERE id = ? AND media_file_id = ?)")
+        .bind(candidate_id).bind(media_file_id).fetch_one(&mut *transaction).await?;
+    if !candidate_exists {
+        return Err(AppError::NotFound("候选作品不存在或已失效".into()));
+    }
     let media_work: Option<String> =
         sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = ?")
             .bind(media_file_id)
@@ -794,7 +799,8 @@ async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candi
         sqlx::query("INSERT INTO works (id, title, original_title, type, description, cover_path, banner_path, status, favorite, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at) VALUES (?, ?, ?, 'video', ?, ?, ?, 'planned', 0, '', ?, ?, 'matched', ?, ?)")
             .bind(&work_id).bind(&metadata.title).bind(&metadata.original_title).bind(&metadata.description).bind(&cover_path).bind(&banner_path).bind(&now).bind(&now).bind(metadata.year).bind(&now).execute(&mut *transaction).await?;
     }
-    apply_metadata(
+    if enrich || !exists {
+        apply_metadata(
         &mut transaction,
         &work_id,
         &metadata,
@@ -802,7 +808,8 @@ async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candi
         banner_path,
         &now,
     )
-    .await?;
+        .await?;
+    }
     if let Some(aggregation) = &aggregation {
         crate::metadata_aggregator::persist_for_work(&mut transaction, &work_id, aggregation)
             .await?;
