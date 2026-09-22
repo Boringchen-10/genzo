@@ -11,7 +11,6 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use uuid::Uuid;
-use walkdir::WalkDir;
 
 #[derive(Debug)]
 struct ScannedFile {
@@ -103,84 +102,164 @@ fn fingerprint_file(path: &Path, size: u64) -> std::io::Result<String> {
     Ok(format!("sha256-sampled-v1:{:x}", hasher.finalize()))
 }
 
-#[cfg(test)]
-fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
-    collect_local_files(root, kind, include_hidden, false)
+type FingerprintCache = HashMap<String, (i64, Option<String>, Option<String>)>;
+
+enum WalkEvent {
+    Directory(PathBuf),
+    File(Box<ScannedFile>),
+    Error(String),
+    Progress,
+    Finished,
 }
 
-fn collect_local_files(root: &Path, kind: &str, include_hidden: bool, mounted: bool) -> WalkOutput {
-    let mut output = WalkOutput::default();
+fn is_network_location(path: &Path) -> bool {
+    let value = path.to_string_lossy().replace('/', "\\");
+    let lower = value.to_ascii_lowercase();
+    if lower.starts_with("\\\\?\\unc\\")
+        || (lower.starts_with("\\\\") && !lower.starts_with("\\\\?\\"))
+    {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        let drive = value.strip_prefix("\\\\?\\").unwrap_or(&value);
+        if drive.as_bytes().get(1) == Some(&b':') {
+            let root: Vec<u16> = format!("{}\\", &drive[..2])
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+            // DRIVE_REMOTE is 4. Query the drive type once, not once per file.
+            return unsafe {
+                windows::Win32::Storage::FileSystem::GetDriveTypeW(windows::core::PCWSTR(
+                    root.as_ptr(),
+                )) == 4
+            };
+        }
+    }
+    false
+}
 
-    for item in WalkDir::new(root).follow_links(false).into_iter() {
+fn visit_directory(
+    root: &Path,
+    kind: &str,
+    include_hidden: bool,
+    mounted: bool,
+    known: &FingerprintCache,
+    emit: &mut impl FnMut(WalkEvent) -> bool,
+) {
+    // DirEntry metadata is cached by Windows enumeration. Avoid opening every
+    // remote file again for canonicalization, hashing, or thumbnails.
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) => {
+            emit(WalkEvent::Error(format!(
+                "无法读取目录 {}：{error}",
+                root.display()
+            )));
+            return;
+        }
+    };
+    for item in entries {
+        if !emit(WalkEvent::Progress) {
+            return;
+        }
         let entry = match item {
             Ok(entry) => entry,
             Err(error) => {
-                output.errors.push(error.to_string());
+                if !emit(WalkEvent::Error(format!(
+                    "无法枚举 {}：{error}",
+                    root.display()
+                ))) {
+                    return;
+                }
                 continue;
             }
         };
-        if !entry.file_type().is_file() {
+        let path = entry.path();
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                if !emit(WalkEvent::Error(format!(
+                    "无法读取 {}：{error}",
+                    path.display()
+                ))) {
+                    return;
+                }
+                continue;
+            }
+        };
+        if !include_hidden && is_hidden(&path, &metadata) {
             continue;
         }
-
-        let path = entry.path();
+        // Do not follow symlinks/junctions into another tree or create cycles.
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() {
+            if !emit(WalkEvent::Directory(path)) {
+                return;
+            }
+            continue;
+        }
+        if !metadata.is_file() {
+            continue;
+        }
         let extension = path
             .extension()
-            .and_then(|value| value.to_str())
+            .and_then(|v| v.to_str())
             .unwrap_or_default()
             .to_ascii_lowercase();
         let media_type = classify_extension(&extension);
         if !allowed_for_root(kind, media_type) {
             continue;
         }
-
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                output
-                    .errors
-                    .push(format!("无法读取 {}：{error}", path.display()));
-                continue;
-            }
-        };
-        if !include_hidden && is_hidden(path, &metadata) {
-            continue;
-        }
-        let normalized = dunce::canonicalize(path)
-            .unwrap_or_else(|_| path.to_path_buf())
-            .to_string_lossy()
-            .to_string();
-        let file_name = path
-            .file_name()
-            .map(|value| value.to_string_lossy().to_string())
-            .unwrap_or_default();
+        let normalized = path.to_string_lossy().to_string();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        let size = i64::try_from(metadata.len()).unwrap_or(i64::MAX);
+        let modified_at = metadata.modified().ok().and_then(system_time_to_string);
+        let saved = known
+            .get(&normalized.to_lowercase())
+            .filter(|(bytes, modified, _)| {
+                modified_at.is_some() && *bytes == size && *modified == modified_at
+            });
         let content_fingerprint = if media_type == "video" && !mounted {
-            match fingerprint_file(path, metadata.len()) {
-                Ok(value) => Some(value),
-                Err(error) => {
-                    output.errors.push(format!(
-                        "无法生成 {} 的移动识别指纹：{error}",
-                        path.display()
-                    ));
-                    None
+            if let Some((_, _, Some(fingerprint))) = saved {
+                Some(fingerprint.clone())
+            } else {
+                match fingerprint_file(&path, metadata.len()) {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        if !emit(WalkEvent::Error(format!(
+                            "无法生成 {} 的移动识别指纹：{error}",
+                            path.display()
+                        ))) {
+                            return;
+                        }
+                        None
+                    }
                 }
             }
         } else {
             None
         };
-        output.files.push(ScannedFile {
+        let file = ScannedFile {
             path: normalized,
             file_name: file_name.clone(),
             extension,
             media_type: media_type.to_string(),
-            size: i64::try_from(metadata.len()).unwrap_or(i64::MAX),
-            modified_at: metadata.modified().ok().and_then(system_time_to_string),
+            size,
+            modified_at,
             parsed_anime: (media_type == "video").then(|| parse_file_name(&file_name)),
             content_fingerprint,
             remote: None,
-        });
+        };
+        if !emit(WalkEvent::File(Box::new(file))) {
+            return;
+        }
     }
+}
 
+fn sort_scanned_files(output: &mut WalkOutput) {
     output.files.sort_by(|left, right| {
         let by_name = natord::compare_ignore_case(&left.file_name, &right.file_name);
         if by_name == Ordering::Equal {
@@ -189,6 +268,124 @@ fn collect_local_files(root: &Path, kind: &str, include_hidden: bool, mounted: b
             by_name
         }
     });
+}
+
+#[cfg(test)]
+fn collect_files(root: &Path, kind: &str, include_hidden: bool) -> WalkOutput {
+    collect_local_files(root, kind, include_hidden, false)
+}
+
+#[cfg(test)]
+fn collect_local_files(root: &Path, kind: &str, include_hidden: bool, mounted: bool) -> WalkOutput {
+    let mut output = WalkOutput::default();
+    let mut pending = std::collections::VecDeque::from([root.to_path_buf()]);
+    while let Some(directory) = pending.pop_front() {
+        visit_directory(
+            &directory,
+            kind,
+            include_hidden,
+            mounted,
+            &HashMap::new(),
+            &mut |event| {
+                match event {
+                    WalkEvent::Directory(path) => pending.push_back(path),
+                    WalkEvent::File(file) => output.files.push(*file),
+                    WalkEvent::Error(error) => output.errors.push(error),
+                    _ => {}
+                }
+                true
+            },
+        );
+    }
+    sort_scanned_files(&mut output);
+    output
+}
+
+async fn receive_directory(
+    receiver: &mut tokio::sync::mpsc::Receiver<WalkEvent>,
+    directory: &Path,
+    pending: &mut std::collections::VecDeque<PathBuf>,
+    output: &mut WalkOutput,
+    idle_timeout: std::time::Duration,
+) {
+    loop {
+        match tokio::time::timeout(idle_timeout, receiver.recv()).await {
+            Ok(Some(WalkEvent::File(file))) => output.files.push(*file),
+            Ok(Some(WalkEvent::Directory(path))) => pending.push_back(path),
+            Ok(Some(WalkEvent::Error(error))) => output.errors.push(error),
+            Ok(Some(WalkEvent::Progress)) => {}
+            Ok(Some(WalkEvent::Finished)) => return,
+            Ok(None) => {
+                output.errors.push(format!(
+                    "目录扫描中断：{}；已保留本轮发现的文件",
+                    directory.display()
+                ));
+                return;
+            }
+            Err(_) => {
+                output.errors.push(format!(
+                    "目录连续 {} 秒无响应：{}；已保留本轮发现的文件并继续其他目录",
+                    idle_timeout.as_secs(),
+                    directory.display()
+                ));
+                return;
+            }
+        }
+    }
+}
+
+async fn collect_local_tree(
+    root: PathBuf,
+    kind: String,
+    include_hidden: bool,
+    mounted: bool,
+    known: FingerprintCache,
+) -> WalkOutput {
+    use std::sync::{Arc, OnceLock};
+    // A blocked Windows network call cannot be force-cancelled safely. Bound
+    // abandoned workers across scans; they release slots when the OS returns.
+    static WORKERS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+    let slots = WORKERS.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(4)));
+    let known = Arc::new(known);
+    let mut output = WalkOutput::default();
+    let mut pending = std::collections::VecDeque::from([root]);
+    while let Some(directory) = pending.pop_front() {
+        let Ok(permit) = slots.clone().try_acquire_owned() else {
+            output.errors.push(format!(
+                "网络目录仍有 4 个读取未返回，暂停剩余 {} 个目录；已保留扫描结果，请恢复连接后重试",
+                pending.len() + 1
+            ));
+            break;
+        };
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(128);
+        let task_directory = directory.clone();
+        let task_kind = kind.clone();
+        let task_known = known.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let _permit = permit;
+            visit_directory(
+                &task_directory,
+                &task_kind,
+                include_hidden,
+                mounted,
+                &task_known,
+                &mut |event| sender.blocking_send(event).is_ok(),
+            );
+            let _ = sender.blocking_send(WalkEvent::Finished);
+        });
+        receive_directory(
+            &mut receiver,
+            &directory,
+            &mut pending,
+            &mut output,
+            std::time::Duration::from_secs(30),
+        )
+        .await;
+        // Closing the receiver cooperatively stops a timed-out worker as soon
+        // as its current OS operation returns; it cannot continue traversing.
+        drop(receiver);
+    }
+    sort_scanned_files(&mut output);
     output
 }
 
@@ -228,6 +425,8 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     .is_some_and(|value| value == "true");
     let scan_path = PathBuf::from(&root.path);
     let scan_kind = root.kind.clone();
+    let mounted_source = root.source_type == "mounted"
+        || (root.source_type != "webdav" && is_network_location(&scan_path));
     let walk_output = if root.source_type == "webdav" {
         match collect_remote_files(pool, &root, include_hidden).await {
             Ok(files) => WalkOutput {
@@ -240,17 +439,13 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
             },
         }
     } else {
-        let mounted = root.source_type == "mounted";
-        let task = tauri::async_runtime::spawn_blocking(move || {
-            collect_local_files(&scan_path, &scan_kind, include_hidden, mounted)
-        });
-        match tokio::time::timeout(std::time::Duration::from_secs(300), task).await {
-            Ok(Ok(output)) => output,
-            _ => WalkOutput {
-                files: vec![],
-                errors: vec!["目录扫描超时或中断，已保留原有文件状态".into()],
-            },
-        }
+        let known: FingerprintCache = if mounted_source { HashMap::new() } else {
+            sqlx::query_as::<_, (String, i64, Option<String>, Option<String>)>(
+                "SELECT path, size, modified_at, content_fingerprint FROM media_files WHERE library_root_id = ?")
+                .bind(&root.id).fetch_all(pool).await?.into_iter()
+                .map(|(path, size, modified, fingerprint)| (path.to_lowercase(), (size, modified, fingerprint))).collect()
+        };
+        collect_local_tree(scan_path, scan_kind, include_hidden, mounted_source, known).await
     };
 
     let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
@@ -444,7 +639,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
 
     // Handles legacy records with no root or parsed episode, including moves
     // between scan roots, while preserving episode/subtitle associations.
-    if root.source_type == "local" && errors.is_empty() {
+    if root.source_type == "local" && !mounted_source && errors.is_empty() {
         crate::media_reconciliation::reconcile(&mut transaction, None).await?;
     }
 
@@ -591,6 +786,143 @@ mod tests {
     use crate::db;
     use chrono::Utc;
     use std::fs;
+
+    #[test]
+    fn detects_unc_mounts_without_requiring_source_toggle() {
+        assert!(is_network_location(Path::new(r"\\server\share\Anime")));
+        assert!(is_network_location(Path::new(
+            r"\\?\UNC\RaiDrive-Administrator\cloud\Anime"
+        )));
+        assert!(is_network_location(Path::new("//server/share/Anime")));
+    }
+
+    #[tokio::test]
+    async fn directory_timeout_retains_files_and_pending_siblings() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("01.mkv"), b"fixture").unwrap();
+        let file = collect_local_files(temp.path(), "video", false, true)
+            .files
+            .remove(0);
+        let sibling = temp.path().join("sibling");
+        fs::create_dir(&sibling).unwrap();
+        fs::write(sibling.join("02.mkv"), b"fixture").unwrap();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
+        sender.send(WalkEvent::File(Box::new(file))).await.unwrap();
+        sender
+            .send(WalkEvent::Directory(sibling.clone()))
+            .await
+            .unwrap();
+        let mut output = WalkOutput::default();
+        let mut pending = std::collections::VecDeque::new();
+        receive_directory(
+            &mut receiver,
+            temp.path(),
+            &mut pending,
+            &mut output,
+            std::time::Duration::from_millis(20),
+        )
+        .await;
+        assert_eq!(output.files.len(), 1);
+        assert_eq!(output.errors.len(), 1);
+        assert!(output.errors[0].contains(&temp.path().display().to_string()));
+        assert_eq!(pending.pop_front(), Some(sibling.clone()));
+        let recovered =
+            collect_local_tree(sibling, "video".into(), false, true, HashMap::new()).await;
+        assert_eq!(recovered.files.len(), 1);
+        assert!(recovered.errors.is_empty());
+        drop(receiver);
+        assert!(sender.send(WalkEvent::Progress).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn ongoing_progress_has_no_total_scan_deadline() {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
+        let producer = tokio::spawn(async move {
+            for _ in 0..8 {
+                sender.send(WalkEvent::Progress).await.unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            }
+            sender.send(WalkEvent::Finished).await.unwrap();
+        });
+        let mut output = WalkOutput::default();
+        receive_directory(
+            &mut receiver,
+            Path::new("fixture"),
+            &mut std::collections::VecDeque::new(),
+            &mut output,
+            std::time::Duration::from_millis(200),
+        )
+        .await;
+        producer.await.unwrap();
+        assert!(output.errors.is_empty());
+    }
+
+    #[test]
+    fn unchanged_local_file_reuses_fingerprint_and_hidden_trees_are_skipped() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("01.mkv");
+        fs::write(&path, b"fixture").unwrap();
+        fs::create_dir(temp.path().join(".hidden")).unwrap();
+        fs::write(temp.path().join(".hidden/02.mkv"), b"fixture").unwrap();
+        let metadata = fs::metadata(&path).unwrap();
+        let known = HashMap::from([(
+            path.to_string_lossy().to_lowercase(),
+            (
+                metadata.len() as i64,
+                metadata.modified().ok().and_then(system_time_to_string),
+                Some("cached-fingerprint".into()),
+            ),
+        )]);
+        let mut files = Vec::new();
+        visit_directory(temp.path(), "video", false, false, &known, &mut |event| {
+            match event {
+                WalkEvent::File(file) => files.push(file),
+                WalkEvent::Directory(_) => panic!("hidden directory must not be traversed"),
+                _ => {}
+            }
+            true
+        });
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            files[0].content_fingerprint.as_deref(),
+            Some("cached-fingerprint")
+        );
+    }
+
+    #[tokio::test]
+    async fn scans_all_nested_work_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        for index in 0..100 {
+            let folder = temp.path().join(format!("Series {index}/Season 2"));
+            fs::create_dir_all(&folder).unwrap();
+            for episode in 1..=12 {
+                fs::write(
+                    folder.join(format!("Series S2 - {episode:02}.mkv")),
+                    b"fixture",
+                )
+                .unwrap();
+            }
+        }
+        let started = std::time::Instant::now();
+        let output = collect_local_tree(
+            temp.path().to_path_buf(),
+            "video".into(),
+            false,
+            true,
+            HashMap::new(),
+        )
+        .await;
+        assert!(output.errors.is_empty(), "{:?}", output.errors);
+        assert_eq!(output.files.len(), 1200);
+        assert!(output
+            .files
+            .iter()
+            .all(|file| file.content_fingerprint.is_none()));
+        eprintln!(
+            "enumerated 100 nested works / 1200 videos in {:?}",
+            started.elapsed()
+        );
+    }
 
     #[tokio::test]
     async fn reversed_episode_range_does_not_abort_a_multi_work_folder_scan() {

@@ -3,6 +3,13 @@ use serde::Serialize;
 use std::path::Path;
 use strsim::jaro_winkler;
 
+macro_rules! cached_regex {
+    ($pattern:expr $(,)?) => {{
+        static REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        REGEX.get_or_init(|| regex::Regex::new($pattern).expect("static regex"))
+    }};
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ParsedAnime {
@@ -133,22 +140,20 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
     if text.contains("劇場版") || text.contains("剧场版") || text.contains("映画") {
         parsed.special_type = Some("MOVIE".to_string());
     }
-    let combined = regex::Regex::new(r"(?i)\bS(\d{1,2})E(\d{1,4})\b").expect("static regex");
+    let combined = cached_regex!(r"(?i)\bS(\d{1,2})E(\d{1,4})\b");
     if let Some(caps) = combined.captures(&text) {
         parsed.season = caps[1].parse().ok();
         set_episode_range(&mut parsed, caps[2].parse().ok(), None);
         text = combined.replace_all(&text, " ").to_string();
     }
-    let chinese_season =
-        regex::Regex::new(r"第([一二三四五六七八九十\d]+)季").expect("static regex");
+    let chinese_season = cached_regex!(r"第([一二三四五六七八九十\d]+)季");
     if let Some(caps) = chinese_season.captures(&text) {
         parsed.season = chinese_season_number(&caps[1]);
         text = chinese_season.replace_all(&text, " ").to_string();
     }
-    let season_re = regex::Regex::new(
-        r"(?i)\bS(\d{1,2})\b|\b(\d{1,2})(?:st|nd|rd|th)\s+season\b|\bseason\s*(\d{1,2})\b",
-    )
-    .expect("static regex");
+    let season_re = cached_regex!(
+        r"(?i)\bS(\d{1,2})\b|\b(\d{1,2})(?:st|nd|rd|th)\s+season\b|\bseason\s*(\d{1,2})\b"
+    );
     if let Some(caps) = season_re.captures(&text) {
         parsed.season = caps
             .get(1)
@@ -157,15 +162,12 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
             .and_then(|m| m.as_str().parse().ok());
         text = season_re.replace_all(&text, " ").to_string();
     }
-    let collection_count_re = regex::Regex::new(
-        r"(?i)(?:全\s*\d{1,4}\s*[集话]|\d{1,4}\s*[集话]\s*(?:全|完)|complete\s*series)",
-    )
-    .expect("static regex");
+    let collection_count_re = cached_regex!(
+        r"(?i)(?:全\s*\d{1,4}\s*[集话]|\d{1,4}\s*[集话]\s*(?:全|完)|complete\s*series)"
+    );
     text = collection_count_re.replace_all(&text, " ").to_string();
-    let episode_re = regex::Regex::new(
-        r"(?i)(?:^|\s|[-])(?:EP?|#)?\s*(\d{1,4})(?:\s*[-~]\s*(\d{1,4}))?(?:\s|$)",
-    )
-    .expect("static regex");
+    let episode_re =
+        cached_regex!(r"(?i)(?:^|\s|[-])(?:EP?|#)?\s*(\d{1,4})(?:\s*[-~]\s*(\d{1,4}))?(?:\s|$)");
     if let Some(caps) = episode_re.captures_iter(&text).last() {
         set_episode_range(
             &mut parsed,
@@ -176,10 +178,7 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
             text.replace_range(range.start()..range.end(), " ");
         }
     }
-    text = regex::Regex::new(r"\s+")
-        .expect("static regex")
-        .replace_all(&text, " ")
-        .to_string();
+    text = cached_regex!(r"\s+").replace_all(&text, " ").to_string();
     let anitomy = anitomy_elements(raw);
     merge_anitomy(&mut parsed, &anitomy, false);
     let title = clean_token(text.trim().trim_matches('-').trim());
@@ -272,14 +271,12 @@ pub fn parse_media_path(file_name: &str, path: &Path, library_root: Option<&Path
 }
 
 pub fn preprocess_folder_name(value: &str) -> String {
-    let bracketed =
-        regex::Regex::new(r"\[[^\]]*\]|【[^】]*】|\([^)]*\)|（[^）]*）").expect("static regex");
-    let suffix = regex::Regex::new(
-        r"(?i)(?:全\s*\d{1,4}\s*[集话]|\d{1,4}\s*[集话]\s*(?:全|完)|全集|高清|超清|1080p|2160p|4k|内嵌字幕|蓝光|bdrip)\s*$",
-    )
-    .expect("static regex");
-    let separators = regex::Regex::new(r"[\s._\-—–]+$").expect("static regex");
-    let spaces = regex::Regex::new(r"\s+").expect("static regex");
+    let bracketed = cached_regex!(r"\[[^\]]*\]|【[^】]*】|\([^)]*\)|（[^）]*）");
+    let suffix = cached_regex!(
+        r"(?i)(?:全\s*\d{1,4}\s*[集话]|\d{1,4}\s*[集话]\s*(?:全|完)|全集|高清|超清|1080p|2160p|4k|内嵌字幕|蓝光|bdrip)\s*$"
+    );
+    let separators = cached_regex!(r"[\s._\-—–]+$");
+    let spaces = cached_regex!(r"\s+");
     let mut cleaned = bracketed.replace_all(value, " ").to_string();
     loop {
         let next = suffix.replace(&cleaned, "").to_string();
@@ -293,10 +290,7 @@ pub fn preprocess_folder_name(value: &str) -> String {
 }
 
 fn is_division_folder(value: &str) -> bool {
-    regex::Regex::new(
-        r"(?i)^(?:season\s*\d{0,2}|s\d{1,2}|第[一二三四五六七八九十\d]+季|vol\.?\s*\d+|bd|dvd|disc\s*\d*|sp|ova|oad|特别篇|劇場版|剧场版|特典|video|videos|subtitle|subtitles|视频|字幕)$",
-    )
-    .expect("static regex")
+    cached_regex!(r"(?i)^(?:season\s*\d{0,2}|s\d{1,2}|第[一二三四五六七八九十\d]+季|vol\.?\s*\d+|bd|dvd|disc\s*\d*|sp|ova|oad|特别篇|劇場版|剧场版|特典|video|videos|subtitle|subtitles|视频|字幕)$")
     .is_match(value.trim())
 }
 
@@ -338,15 +332,12 @@ fn merge_anitomy(parsed: &mut ParsedAnime, elements: &[anitomy_ng::Element], pre
 }
 
 fn parse_numeric_episode(raw_stem: &str, parsed: &mut ParsedAnime) {
-    let numeric = regex::Regex::new(r"^(\d{1,3})$").expect("static regex");
-    let prefixed =
-        regex::Regex::new(r"(?i)(?:EP|E|第|话|話|集)\s*(\d{1,3})").expect("static regex");
+    let numeric = cached_regex!(r"^(\d{1,3})$");
+    let prefixed = cached_regex!(r"(?i)(?:EP|E|第|话|話|集)\s*(\d{1,3})");
     // Before season tokens are removed, only inspect standalone/bracketed
     // ranges. Otherwise "S2 - 01" or "Season 3 - 01" looks like 2-1/3-1.
     // Unbracketed title ranges are handled after season removal above.
-    let range =
-        regex::Regex::new(r"(?:^|[\[【(])\s*(\d{1,3})\s*[-~]\s*(\d{1,3})(?:\s*[\]】)]|\s*$)")
-            .expect("static regex");
+    let range = cached_regex!(r"(?:^|[\[【(])\s*(\d{1,3})\s*[-~]\s*(\d{1,3})(?:\s*[\]】)]|\s*$)");
     if let Some(captures) = numeric.captures(raw_stem.trim()) {
         set_episode_range(
             parsed,
