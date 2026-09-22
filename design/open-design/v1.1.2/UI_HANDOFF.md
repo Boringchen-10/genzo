@@ -135,9 +135,9 @@
 
 | 区域 | 版式 | 交互 | 数据 |
 |---|---|---|---|
-| 横幅海报 | 整幅铺满窗口（延伸到顶部栏 / 侧栏之后），高度 `clamp(540px,84vh,960px)`（矮屏 `clamp(500px,84vh,620px)`）随窗口高度伸缩 | 海报**只有一层**：有横幅用清晰横幅铺底、无横幅用**柔化竖版封面**作环境色；**没有**右侧竖版大封面 | `workBackdrop(featured)` / `bannerArtwork(featured)` |
+| 横幅海报 | 整幅铺满窗口（延伸到顶部栏 / 侧栏之后），高度 `clamp(540px,84vh,960px)`（矮屏 `clamp(500px,84vh,620px)`）随窗口高度伸缩 | 海报**只有一层**：有横幅用清晰横幅铺底、无横幅用**柔化竖版封面**作环境色；**没有**右侧竖版大封面；`::after` **不再有横向（侧边）暗角**，只有顶端 / 底端淡出到页面底色 + 底部压暗 | `workBackdrop(featured)` / `bannerArtwork(featured)` |
 | 简介文案 | 左下角 `CONTINUE YOUR JOURNEY` + 标题 + 两行简介 + 操作按钮 | **不再**在简介下方展示 `gnz-home-facts` 信息行（类型 / 状态 / 文件数等仍在书架卡片与详情页保留） | `featured.title` / `featured.description` |
-| 切换到其他作品 | 单行横向滚动的 **2:3 竖版海报栏**（每张宽 `150px`，标题 / 类型在下方） | 点海报切换精选；当前项 `--accent` 高亮 + 悬停上移；「上一个 / 下一个」按钮仍在标题行；窄窗滚动而**不再隐藏**条目 | `data.recentWorks.slice(0,5)` |
+| 切换到其他作品 | 压在横幅**右下角**的 **2:3 竖版海报栏**（每张宽 `104px`，≤1060px `92px`；标题 / 类型在下方；与左下角标题同一基线） | 点海报切换精选；当前项 `--accent` 高亮 + 悬停上移；**无**标题行、**无**上一个 / 下一个箭头；窄窗横向滚动而**不再隐藏**条目；空库时不渲染 | `data.recentWorks.slice(0,5)` |
 
 - 顶部栏（SHELL-014）：`.window-titlebar` 显式关闭 `border` / `box-shadow` / `backdrop-filter`，底色只由「顶部栏透明度」token `rgba(var(--shade), var(--topbar-opacity))` 决定；缺 `backdrop-filter` 的浏览器也不再把标题栏 / 侧栏强制为不透明。
 - 渲染层级（B 级待验）：顶部栏是否真正透明、横幅比例是否随窗口伸缩、海报栏滚动与高亮，见 `SCREENSHOT_CHECKLIST.md`。

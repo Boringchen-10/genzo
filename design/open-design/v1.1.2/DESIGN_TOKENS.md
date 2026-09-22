@@ -60,6 +60,13 @@
 | 海报底部硬线 | 移除 `.gnz-home .seanime-banner` 的 `border-bottom` | 由底部渐变取代 1px 硬边 |
 | 侧栏品牌标志 | 移除 `.brand`（`G` 方块 + `Genzo` / `MEDIA LIBRARY` 文本）；`.nav-list` 自侧栏顶部起排 | 侧栏只保留一级导航，导航整体上提 |
 
+## 正式前端新增：移除海报侧边暗角（2026-09-22）
+
+| 项 | 值 | 用途 |
+|---|---|---|
+| 海报侧边暗角层 | **移除** `.gnz-home .seanime-banner::after` 中的 `linear-gradient(90deg, …)` 层（深色 `rgb(5 10 11 / .84) → 透明`，浅色 `rgb(243 246 245 / .8) → 透明`，含 `.app-frame.is-home-route` 变体） | 海报左半幅保持原图亮度，不再整块压暗 |
+| 保留的 `::after` 层 | 顶端淡出 `linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade))` + 底端淡出 `linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom))` + 底部压暗 `linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%)`（浅色 `rgb(243 246 245 / .2)`） | 顶部 / 底部与页面底色渐变融合；保证左下标题与右下海报栏的对比度 |
+
 ## 字体与图标
 
 - 标题：`Bahnschrift SemiCondensed`；正文：`Segoe UI Variable Text` / `Microsoft YaHei UI`；系统字体，无 Web Font / CDN。

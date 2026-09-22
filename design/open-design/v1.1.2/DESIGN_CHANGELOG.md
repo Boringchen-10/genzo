@@ -593,3 +593,20 @@
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。顶部栏是否真正透明、横幅比例是否随窗口伸缩、海报栏滚动与高亮，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
 - 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，其首页横幅 / 底部栏结构与正式前端不同）。
+
+## 正式前端：去掉海报侧边暗角，「切换到其他作品」移入横幅右下角（2026-09-22）
+
+背景：用户对照「动漫共和国」首页截图（整幅海报 + 右下角小海报栏）反馈两点——① 海报**侧边**（横向）的暗角渐变可以去掉；② 「切换到其他作品」的位置与效果应与参考站一致：不再单独占一行，而是压在横幅**右下角**、与左下标题同一基线的竖版海报栏。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| HOME-012 | 首页横幅 `::after` 含一层 `linear-gradient(90deg, rgb(5 10 11 / .84) …, transparent 66%)`（浅色 `rgb(243 246 245 / .8) …, transparent 56%`）把左半幅整体压暗，形成侧边暗角；另有一个无背景、实际不可见的 `.gnz-home-copy-mask` 空壳 | 删除深 / 浅两套 `90deg` 侧边暗角层（含 `.app-frame.is-home-route` 变体）：只保留顶端淡出 `--poster-fade`、底端淡出 `--poster-fade-bottom` 与底部压暗层；左半幅保持原图亮度。一并移除空壳 `.gnz-home-copy-mask`（元素 + 规则） | 用户要求去掉海报侧边的渐变效果 | 首页 · 横幅海报 | 无（纯前端） | 否 |
+| HOME-013 | 「切换到其他作品」是横幅**下方**的独立区块（`.gnz-home-switcher` 带 `padding` 与 `background: var(--bg)`），含「切换到其他作品 + 精选 · N 部」标题行与「上一个 / 下一个」箭头按钮；海报宽 `150px` | 把海报栏移入横幅、绝对定位到**右下角**（`right: 44px; bottom: 60px`，与左下标题同基线），去掉标题行与箭头按钮；海报缩为 `104px` 宽（≤1060px `92px`）、2:3、标题 / 类型在下方，仍单行横向滚动、当前项 `--accent` 描边高亮、悬停上移 | 位置与效果对齐参考站：海报栏压在横幅右下角 | 首页 · 切换到其他作品 | 无 | 否 |
+
+- 改动文件：`src/pages/HomePage.tsx`（`.gnz-home-switcher` 标记移入 `.seanime-banner`；删除 `.gnz-switcher-head` 标题行与箭头按钮、删除 `.gnz-home-copy-mask`；导入去掉 `ChevronLeft` / `ChevronRight` / `EmptyState`）、`src/v1-1-1.css`（删除 `90deg` 侧边暗角层与 `.gnz-home-copy-mask` / `.gnz-switcher-head` 规则；`.gnz-home-switcher` 改绝对定位右下角；`.gnz-switcher-items` 尺寸与间距收紧；各断点的 `padding` 覆盖改为 `right` / `bottom`）。
+- 交互未变：点击某张海报仍切换精选（`setFeaturedIndex`），数据源仍是 `carouselWorks`（`data.recentWorks.slice(0,5)`）。
+- 空库行为：`carouselWorks` 为空时不再渲染海报栏（原先的 `EmptyState` 兜底移除）；空库引导仍由横幅内的「打开媒体库 / 添加媒体源」按钮与「我的书架」区块承担。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。海报左半幅是否不再压暗、海报栏是否落在横幅右下角且与左下标题不重叠、窄窗滚动，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，其首页结构与本轮正式前端不同）。
