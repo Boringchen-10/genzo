@@ -30,6 +30,7 @@ export function AppShell() {
   const accentHue = usePreferences((state) => state.accentHue);
   const glassBlur = usePreferences((state) => state.glassBlur);
   const cornerRadius = usePreferences((state) => state.cornerRadius);
+  const topbarOpacity = usePreferences((state) => state.topbarOpacity);
   const messages = useToasts((state) => state.messages);
   const dismiss = useToasts((state) => state.dismiss);
   const settingsOpen = useUi((state) => state.settingsOpen);
@@ -48,11 +49,12 @@ export function AppShell() {
       root.style.setProperty("--accent-soft", `hsl(${accentHue} ${dark ? 48 : 66}% ${dark ? 62 : 30}% / .12)`);
       root.style.setProperty("--ui-blur", `${glassBlur}px`);
       root.style.setProperty("--ui-radius", `${cornerRadius}px`);
+      root.style.setProperty("--topbar-opacity", String(Math.min(1, Math.max(0, topbarOpacity / 100))));
     };
     apply();
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
-  }, [theme, accentHue, glassBlur, cornerRadius]);
+  }, [theme, accentHue, glassBlur, cornerRadius, topbarOpacity]);
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, left: 0 });

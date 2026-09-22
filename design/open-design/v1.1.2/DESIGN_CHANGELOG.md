@@ -522,3 +522,22 @@
 - 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步：其示例分集结构与正式前端的 Provider `localFiles` 结构不同，本改动为正式前端专属。
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。卡片只显示一个版本、多版本在「⋯」面板切换、选中后卡片与快照同步，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+
+## 正式前端：顶部栏 / 侧栏完全透明，新增「顶部栏透明度」设置（2026-09-22）
+
+背景：用户给出「动漫共和国」首页截图作参考——首页海报整幅铺满窗口，顶部栏与左侧导航完全透明、直接融入海报背景。改前正式前端只有标题栏在**首页**会显示海报顶部的横向裁剪条（`styles.css` 的 `.has-window-backdrop .is-home-route .window-titlebar` 用 `linear-gradient` + `--genzo-backdrop`，与下方横幅缩放不同，交界处出现接缝），而**侧栏**是不透明的 `color-mix(bg 86%)`；此外首页海报只位于 `.main-content`（标题栏下方、侧栏右侧），无法落到顶部栏与侧栏之后。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| SHELL-008 | 首页标题栏显示海报顶部的横向裁剪条（与横幅不同缩放，出现接缝）；侧栏为 86% 不透明底色 | 标题栏与侧栏**默认完全透明**，填充只由新 token `--topbar-opacity`（默认 `0`）控制；两者同源，无模糊、无分隔线（透明度为 0 时侧栏右边框也隐去） | 参照「动漫共和国」：顶部栏与侧栏融入海报背景 | 全局框架 · 标题栏 · 左侧导航 | 无（纯前端） | 否 |
+| SHELL-009 | 首页海报只铺在标题栏下方、侧栏右侧 | 首页主内容**铺满整个窗口**（`grid-column: 1 / -1; grid-row: 1 / -1`），横幅海报自然延伸到顶部栏与侧栏之后；顶部工具条与主标题让开标题栏 / 侧栏；书架与「切换到其他作品」保持不透明底色，滚动时盖住海报 | 海报需落在顶部栏 / 侧栏之后，透明才有意义 | 首页 | 无 | 否 |
+| SHELL-010 | 设置里没有顶部栏 / 侧栏透明度控件 | 设置「主题」面板新增 **「顶部栏透明度」** 滑块（`0–100%`，默认 `0`）：0 完全透明融入背景，调高更易读；数值写入 `--topbar-opacity`，同时作用于标题栏与侧栏 | 用户要求可在设置里调节 | 设置 · 主题 | 无 | 否 |
+
+- 改动文件：`src/store.ts`（新增 `topbarOpacity` 偏好，默认 `0`；`setTopbarOpacity`；`resetAppearance` 一并复位）、`src/components/AppShell.tsx`（读取偏好并写入 `--topbar-opacity = clamp(0, 1, 值 / 100)`）、`src/components/SettingsPanel.tsx`（新增滑块 `#topbarRange` 与说明）、`src/v1-1-1.css`（`:root` 新增 `--topbar-opacity: 0`；`.window-titlebar` / `.sidebar` 背景改用 `rgba(var(--shade), var(--topbar-opacity))`，侧栏边框与背景模糊同步联动；首页沉浸式规则）。
+- **非首页不变**：其它路由下顶层框架背后就是 `--bg`，`rgba(shade, 0)` 与改前的 `var(--bg)` 视觉一致；只有首页因海报铺满而体现透明。
+- 透明度为 `0` 时，标题栏 / 侧栏**无模糊、无描边**（`backdrop-filter: blur(calc(var(--ui-blur) * var(--topbar-opacity)))`、`border-right-color: rgba(var(--tint), calc(var(--topbar-opacity) * .14))`），完全融入海报；调高后模糊与描边同步回来。
+- 可访问性：标题栏 / 侧栏文字色仍用 `var(--text)` / `var(--muted)`；海报左侧本就带 `::after` 的横向暗角遮罩，导航文字对比度不依赖顶层框架底色；海报过亮时可在设置里调高透明度。
+- 与原型的关系：`design/open-design/v1.1.2/prototype/index.html` 的标题栏已是透明，但侧栏为 `rgba(var(--shade), .72)`（半透明）——本轮按用户新参考改为**默认 0（完全透明）**并新增可调 token，原型**未同步**（原型是静态演示，不承载偏好设置）。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。首页海报是否落到顶部栏 / 侧栏之后、拖动「顶部栏透明度」是否即时生效、深色 / 浅色下的文字对比度，见 `SCREENSHOT_CHECKLIST.md` 的 B / C 级待验行。

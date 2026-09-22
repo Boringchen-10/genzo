@@ -22,10 +22,12 @@ export function SettingsPanel() {
   const accentHue = usePreferences((state) => state.accentHue);
   const glassBlur = usePreferences((state) => state.glassBlur);
   const cornerRadius = usePreferences((state) => state.cornerRadius);
+  const topbarOpacity = usePreferences((state) => state.topbarOpacity);
   const setTheme = usePreferences((state) => state.setTheme);
   const setAccentHue = usePreferences((state) => state.setAccentHue);
   const setGlassBlur = usePreferences((state) => state.setGlassBlur);
   const setCornerRadius = usePreferences((state) => state.setCornerRadius);
+  const setTopbarOpacity = usePreferences((state) => state.setTopbarOpacity);
   const resetAppearance = usePreferences((state) => state.resetAppearance);
   const toast = useToasts((state) => state.push);
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -125,6 +127,12 @@ export function SettingsPanel() {
           <label htmlFor="radiusRange">圆角大小 <output>{cornerRadius}px</output></label>
           <input id="radiusRange" type="range" min="0" max="24" value={cornerRadius} onChange={(event) => setCornerRadius(Number(event.target.value))} />
           <small>0 为直角，数值越大越圆润。</small>
+        </div>
+
+        <div className="setting">
+          <label htmlFor="topbarRange">顶部栏透明度 <output>{topbarOpacity}%</output></label>
+          <input id="topbarRange" type="range" min="0" max="100" value={topbarOpacity} onChange={(event) => setTopbarOpacity(Number(event.target.value))} />
+          <small>0% 完全透明，让顶部栏与侧栏融入首页海报背景；调高更易读。</small>
         </div>
 
         <button type="button" className="button secondary icon-text settings-reset" onClick={reset}><RotateCcw size={15} />恢复默认</button>

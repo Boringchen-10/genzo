@@ -28,6 +28,8 @@
   --poster-fade: 120px;
   --ui-radius: 8px;
   --ui-blur: 24px;
+  /* 顶部栏（含侧栏）的不透明度：0 完全透明、融入首页海报背景；由设置里的「顶部栏透明度」滑块写入 */
+  --topbar-opacity: 0;
   /* 海报背景的模糊量：跟随设置里的「玻璃模糊」滑块，可调到 0（背景完全清晰） */
   --poster-blur: var(--ui-blur);
   --shadow: 0 18px 44px rgb(8 20 18 / .16);
@@ -76,19 +78,22 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   z-index: 300;
   height: var(--win-titlebar);
   color: var(--text);
-  /* kept transparent so the bar merges with the page / home backdrop behind it;
-     no fill, no blur, no divider (matches Genzo UI Design v1.1.2) */
-  background: transparent;
+  /* 默认透明，让标题栏融入首页海报背景；填充只来自设置里的「顶部栏透明度」token。
+     无模糊、无分隔线（matches Genzo UI Design v1.1.2）。 */
+  background: rgba(var(--shade), var(--topbar-opacity));
   border: 0;
   box-shadow: none;
 }
-:root.dark .window-titlebar { background: transparent; }
+:root.dark .window-titlebar { background: rgba(var(--shade), var(--topbar-opacity)); }
 .is-home-route .window-titlebar {
   color: var(--text);
-  background: transparent;
+  background: rgba(var(--shade), var(--topbar-opacity));
   background-image: none;
 }
-:root:not(.dark) .is-home-route .window-titlebar { color: var(--text); background: transparent; }
+:root:not(.dark) .is-home-route .window-titlebar { color: var(--text); background: rgba(var(--shade), var(--topbar-opacity)); }
+/* 与 styles.css 的 `.has-window-backdrop .is-home-route .window-titlebar` 同分，
+   但本文件后加载：让首页有海报时标题栏同样只受透明度 token 控制，不再显示海报裁剪条。 */
+.app-frame.is-home-route .window-titlebar { background: rgba(var(--shade), var(--topbar-opacity)); background-image: none; }
 .window-identity { min-width: 90px; padding-left: 14px; gap: 7px; font-size: 12px; font-weight: 650; }
 .window-identity img { display: none; }
 .window-control { width: 46px; height: 39px; color: var(--muted); background: transparent; border: 0; border-radius: 0; }
@@ -102,12 +107,13 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   width: 75px;
   padding: 20px 11px 14px;
   color: var(--muted);
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  border-right: 1px solid var(--line);
+  /* 默认与标题栏同源：透明度由「顶部栏透明度」控制，0 时完全融入海报背景 */
+  background: rgba(var(--shade), var(--topbar-opacity));
+  border-right: 1px solid rgba(var(--tint), calc(var(--topbar-opacity) * .14));
   box-shadow: none;
-  backdrop-filter: blur(var(--ui-blur));
+  backdrop-filter: blur(calc(var(--ui-blur) * var(--topbar-opacity)));
 }
-.sidebar:hover, .sidebar:focus-within { width: 75px; background: color-mix(in srgb, var(--bg) 88%, transparent); box-shadow: none; }
+.sidebar:hover, .sidebar:focus-within { width: 75px; background: rgba(var(--shade), calc(var(--topbar-opacity) + .05)); box-shadow: none; }
 .brand { width: 52px; height: 49px; margin: 0 3px 24px; gap: 0; }
 .brand-mark { width: 48px; height: 48px; flex-basis: 48px; color: var(--accent); background: var(--surface-strong); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: none; font-size: 20px; }
 .brand div:last-child { display: none; }
@@ -123,7 +129,8 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .nav-list a.active::before { left: -12px; width: 3px; height: 27px; background: var(--accent); }
 .sidebar-foot { display: none; }
 .main-content { grid-row: 2; background: var(--bg); }
-.is-home-route .main-content { background: var(--bg); }
+/* 首页沉浸式：主内容铺满整个窗口（含标题栏与侧栏下方），海报自然延伸到顶部栏 / 侧栏之后 */
+.is-home-route .main-content { grid-column: 1 / -1; grid-row: 1 / -1; background: transparent; }
 
 .page { max-width: none; padding: 34px 44px 64px; }
 .page-header { min-height: 108px; margin-bottom: 20px; align-items: flex-start; }
@@ -153,6 +160,19 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* 第 1 层：海报顶端淡出到页面底色，使标题栏与海报之间没有硬边（渐变融合）。 */
 .gnz-home .seanime-banner::after { z-index: 2; background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); box-shadow: none; }
 :root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
+/* 首页沉浸式：海报铺到标题栏 / 侧栏之后。
+   顶部栏与侧栏透明（顶部栏透明度 0 时完全融入背景），海报不再向顶部淡出到底色，
+   顶部工具条与主标题让开标题栏 / 侧栏，书架与切换区保持不透明底色。
+   选择器带 `.app-frame` 前缀，确保在窄窗口媒体查询（`padding-inline` / `left`）之后仍生效。 */
+.app-frame.is-home-route .gnz-home { background: transparent; }
+.app-frame.is-home-route .gnz-home .seanime-banner { background: transparent; }
+.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); }
+:root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
+.app-frame.is-home-route .gnz-home .seanime-home-toolbar { top: var(--win-titlebar); }
+.app-frame.is-home-route .gnz-home .seanime-banner-title { left: calc(75px + 44px); }
+.app-frame.is-home-route .seanime-home-state { padding: calc(var(--win-titlebar) + 20px) 30px 30px calc(75px + 30px); }
+.app-frame.is-home-route .gnz-home-switcher, .app-frame.is-home-route .gnz-home-shelf { background: var(--bg); }
+.app-frame.is-home-route .gnz-home-switcher, .app-frame.is-home-route .gnz-home-shelf { padding-left: calc(75px + 44px); }
 .gnz-home-copy-mask { position: absolute; z-index: 3; inset: 0 auto 0 0; width: min(760px, 64%); pointer-events: none; }
 .gnz-home .seanime-home-toolbar { top: 0; right: 44px; height: 54px; }
 .gnz-home .seanime-home-toolbar .icon-button, .gnz-home .seanime-library-count { color: var(--muted); background: rgba(var(--shade), .52); border-color: rgba(var(--tint), .1); border-radius: 7px; }

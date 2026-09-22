@@ -40,6 +40,18 @@
 | 焦点环 | `outline: 2px solid var(--accent); outline-offset: 2px` | 键盘可见性 |
 | Future 徽标 | `1px solid var(--line-strong)`，字号 10.5px，`opacity` 由所在控件 `.gnz-future` 控制 | 标记未实现能力 |
 
+## 正式前端新增：顶部栏 / 侧栏透明度（2026-09-22）
+
+| 项 | 值 | 用途 |
+|---|---|---|
+| `--topbar-opacity` | `0`（默认，无单位 `0–1`；由设置里的「顶部栏透明度」滑块 0–100% 写入） | 标题栏与侧栏的背景不透明度；`0` = 完全透明、融入首页海报背景 |
+| 标题栏底色 | `rgba(var(--shade), var(--topbar-opacity))` | 由该 token 单一控制；**不再**在首页显示海报裁剪条 |
+| 侧栏底色 | `rgba(var(--shade), var(--topbar-opacity))` | 与标题栏同源；悬停 / 聚焦时 `+ .05`（上限 1） |
+| 侧栏右边框 | `rgba(var(--tint), calc(var(--topbar-opacity) * .14))` | 透明度为 0 时边框一并隐去，完全融入背景 |
+| 侧栏 / 标题栏模糊 | `blur(calc(var(--ui-blur) * var(--topbar-opacity)))` | 透明度为 0 时无模糊；调高后模糊随 `--ui-blur` 同步 |
+
+> 注：本节取代上文 v1.1.1 表格中「标题栏底色 `rgba(var(--shade),.58)` + blur(18px)」的旧值——该值经 `SHELL-004` 已改为透明，本轮进一步改为可调 token（默认 `0`）。
+
 ## 字体与图标
 
 - 标题：`Bahnschrift SemiCondensed`；正文：`Segoe UI Variable Text` / `Microsoft YaHei UI`；系统字体，无 Web Font / CDN。
