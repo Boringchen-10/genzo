@@ -187,47 +187,44 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: calc(-1 * var(--poster-blur) - 4px); opacity: .92; filter: blur(var(--poster-blur)) saturate(1.04) brightness(.92); }
 .gnz-home .seanime-banner::before { z-index: 1; background: rgb(3 8 9 / .14); }
 /* 第 1 层：海报顶端淡出到页面底色，使标题栏与海报之间没有硬边（渐变融合）。
-   第 2 层：海报底端同样淡出到页面底色，使海报与下方内容之间没有硬边。 */
-.gnz-home .seanime-banner::after { z-index: 2; background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); box-shadow: none; }
-:root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
+   第 2 层：海报底端同样淡出到页面底色，使海报与下方内容之间没有硬边。
+   第 3 层：底部压暗，保证左下标题与右下海报栏的对比度——海报**不再有横向（侧边）暗角**，
+   左半幅保持原图亮度，避免压暗整块画面。 */
+.gnz-home .seanime-banner::after { z-index: 2; background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); box-shadow: none; }
+:root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 /* 首页沉浸式：海报铺到标题栏 / 侧栏之后。
    顶部栏与侧栏透明（顶部栏透明度 0 时完全融入背景），海报不再向顶部淡出到底色，
-   顶部工具条与主标题让开标题栏 / 侧栏，书架与切换区保持不透明底色。
-   选择器带 `.app-frame` 前缀，确保在窄窗口媒体查询（`padding-inline` / `left`）之后仍生效。 */
+   顶部工具条与主标题让开标题栏 / 侧栏；书架保持不透明底色、滚动时盖住海报，
+   「切换到其他作品」海报栏压在横幅右下角（随海报一起滚动，不再占独立区块）。
+   选择器带 `.app-frame` 前缀，确保在窄窗口媒体查询（`left`）之后仍生效。 */
 .app-frame.is-home-route .gnz-home { background: transparent; }
 .app-frame.is-home-route .gnz-home .seanime-banner { background: transparent; }
-.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(5 10 11 / .84) 0%, rgb(5 10 11 / .58) 34%, transparent 66%), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); }
-:root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(90deg, rgb(243 246 245 / .8) 0%, rgb(243 246 245 / .44) 30%, transparent 56%), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
+.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); }
+:root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 .app-frame.is-home-route .gnz-home .seanime-banner-title { left: calc(75px + 44px); }
 .app-frame.is-home-route .seanime-home-state { padding: calc(var(--win-titlebar) + 20px) 30px 30px calc(75px + 30px); }
-.app-frame.is-home-route .gnz-home-switcher, .app-frame.is-home-route .gnz-home-shelf { background: var(--bg); }
-.app-frame.is-home-route .gnz-home-switcher, .app-frame.is-home-route .gnz-home-shelf { padding-left: calc(75px + 44px); }
-.gnz-home-copy-mask { position: absolute; z-index: 3; inset: 0 auto 0 0; width: min(760px, 64%); pointer-events: none; }
+.app-frame.is-home-route .gnz-home-shelf { background: var(--bg); }
+.app-frame.is-home-route .gnz-home-shelf { padding-left: calc(75px + 44px); }
 .gnz-home .seanime-banner-title { left: 44px; bottom: 60px; width: min(660px, 58vw); max-width: none; color: var(--text); text-shadow: none; }
 .gnz-home .seanime-banner-title > span { color: var(--accent); font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1.4px; }
 .gnz-home .seanime-banner-title h1 { margin-top: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); font-size: clamp(32px, 3.6vw, 56px); line-height: 1.15; white-space: normal; }
 .gnz-home .seanime-banner-title > p { max-width: 620px; margin-top: 17px; color: var(--muted); font-size: 15px; line-height: 1.75; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .gnz-home-actions { display: flex; align-items: center; gap: 10px; margin-top: 27px; }
 .gnz-bookmarked { display: grid; place-items: center; width: 42px; height: 42px; color: var(--accent); }
-.gnz-home-switcher { padding: 28px 44px 26px; background: var(--bg); }
-.gnz-switcher-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.gnz-switcher-head > div:first-child strong, .gnz-switcher-head > div:first-child span { display: block; }
-.gnz-switcher-head strong { font-size: 13px; }
-.gnz-switcher-head span { margin-top: 4px; color: var(--quiet); font-size: 10px; }
-.gnz-switcher-head > div:last-child { display: flex; gap: 7px; }
-.gnz-switcher-head .icon-button { width: 34px; height: 34px; }
-/* 「切换到其他作品」＝ 竖版海报栏（对齐动漫共和国的海报排布）：
-   海报 2:3 占据卡片主体，标题与类型信息压在海报下方；窗口变窄时横向滚动，不再隐藏条目。 */
-.gnz-switcher-items { display: flex; gap: 16px; margin: 0 -6px; padding: 2px 6px 8px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+/* 「切换到其他作品」＝ 压在横幅右下角的竖版海报栏（对齐动漫共和国的位置与效果）：
+   不再单独占一行、不再有标题行与上一个 / 下一个箭头；海报 2:3 + 标题 / 类型在下方，
+   与左下角标题同一基线；窗口变窄时横向滚动，不再隐藏条目。 */
+.gnz-home-switcher { position: absolute; z-index: 4; right: 44px; bottom: 60px; max-width: min(480px, 36vw); }
+.gnz-switcher-items { display: flex; gap: 12px; margin: 0; padding: 6px 4px 8px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
 .gnz-switcher-items::-webkit-scrollbar { display: none; }
-.gnz-switcher-items > button { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; width: 150px; min-width: 0; padding: 0; color: var(--text); background: transparent; border: 0; border-radius: 0; text-align: left; cursor: pointer; scroll-snap-align: start; }
+.gnz-switcher-items > button { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 104px; min-width: 0; padding: 0; color: var(--text); background: transparent; border: 0; border-radius: 0; text-align: left; cursor: pointer; scroll-snap-align: end; }
 .gnz-switcher-items button > span:last-child { min-width: 0; }
 .gnz-switcher-items strong, .gnz-switcher-items small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gnz-switcher-items strong { font-size: 12px; }
-.gnz-switcher-items small { margin-top: 4px; color: var(--quiet); font-size: 10px; }
-.gnz-switcher-thumb { position: relative; width: 100%; height: auto; aspect-ratio: 2 / 3; overflow: hidden; background: var(--subtle); border-radius: var(--ui-radius); outline: 2px solid transparent; outline-offset: 2px; transform: translateZ(0); transition: outline-color 180ms ease, transform 180ms ease; }
+.gnz-switcher-items small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.gnz-switcher-thumb { position: relative; width: 100%; height: auto; aspect-ratio: 2 / 3; overflow: hidden; background: var(--subtle); border-radius: var(--ui-radius); outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 12px 26px rgb(0 0 0 / .45); transform: translateZ(0); transition: outline-color 180ms ease, transform 180ms ease; }
 .gnz-switcher-thumb img, .gnz-switcher-thumb .media-placeholder { width: 100%; height: 100%; object-fit: cover; }
-.gnz-switcher-items button:hover .gnz-switcher-thumb { transform: translateY(-2px); }
+.gnz-switcher-items button:hover .gnz-switcher-thumb { transform: translateY(-3px); }
 .gnz-switcher-items button.active .gnz-switcher-thumb { outline-color: var(--accent); }
 .gnz-switcher-items button.active strong { color: var(--accent); }
 .gnz-home-shelf { padding: 10px 44px 70px; }
@@ -491,12 +488,20 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   .settings-drawer { background: var(--bg); }
 }
 
+/* 海报栏压在横幅右下、标题在左下：窗口越窄越要让出横向空间，
+   逐级收窄标题与海报栏，保证两者不重叠（首页沉浸式标题左移让开侧栏，需单独覆盖）。 */
+@media (max-width: 1360px) {
+  .gnz-home .seanime-banner-title { width: min(560px, 50vw); }
+  .gnz-home-switcher { max-width: min(400px, 32vw); }
+  .gnz-switcher-items > button { width: 92px; }
+}
+
 @media (max-width: 1180px) {
   .app-frame { grid-template-columns: 75px minmax(0,1fr); }
   .sidebar { width: 75px; padding-inline: 11px; }
   .page { padding-inline: 30px; }
-  .gnz-home .seanime-banner-title { left: 34px; width: min(610px, 66vw); }
-  .gnz-home-switcher { padding-inline: 34px; }
+  .gnz-home .seanime-banner-title { left: 34px; width: min(560px, 52vw); }
+  .gnz-home-switcher { right: 34px; }
   .gnz-home-shelf { padding-inline: 34px; }
   .gnz-trending-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
   .gnz-trending-card:nth-child(5) { display: none; }
@@ -507,10 +512,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   .page { padding: 28px 24px 50px; }
   .page-header { min-height: 94px; }
   .page-header h1 { font-size: 34px; }
-  .gnz-home .seanime-banner-title { left: 28px; bottom: 45px; width: 64vw; }
+  .gnz-home .seanime-banner-title { left: 28px; bottom: 45px; width: min(520px, 54vw); }
   .gnz-home .seanime-banner-title h1 { font-size: 43px; }
   .gnz-home .seanime-banner-title > p { font-size: 13px; }
-  .gnz-home-switcher { padding-inline: 28px; }
+  .gnz-home-switcher { right: 28px; }
   .gnz-home-shelf { padding-inline: 28px; }
   .gnz-source-heading { align-items: flex-start; }
   .gnz-source-heading .page-actions { max-width: 270px; }
@@ -527,8 +532,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 @media (max-height: 700px) {
   .gnz-home .seanime-banner { height: clamp(500px, 84vh, 620px); min-height: 500px; }
-  .gnz-home-switcher { padding-top: 16px; }
-  .gnz-switcher-head { margin-bottom: 8px; }
+  .gnz-home-switcher { bottom: 34px; }
   .gnz-home .seanime-banner-title { bottom: 34px; }
   .gnz-home .seanime-banner-title h1 { font-size: 42px; }
   .gnz-home .seanime-banner-title > p { margin-top: 10px; }

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { Bookmark, ChevronLeft, ChevronRight, Library, Play, RefreshCw, Settings, Star } from "lucide-react";
+import { Bookmark, Library, Play, RefreshCw, Settings, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider as api } from "../data";
-import { EmptyState, ErrorState, IconButton, LoadingState } from "../components/common";
+import { ErrorState, IconButton, LoadingState } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { useUi } from "../store";
 import type { Dashboard, MediaType, WorkListItem } from "../types";
@@ -169,7 +169,6 @@ export function HomePage() {
       {toolsHost ? createPortal(homeToolbar, toolsHost) : null}
       <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}${featuredHasBanner ? " has-banner" : ""}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
-        <div className="gnz-home-copy-mask" />
         <div className="seanime-banner-title">
           <span>CONTINUE YOUR JOURNEY</span>
           <h1>{featured?.title ?? "你的本地媒体，都在这里"}</h1>
@@ -180,11 +179,9 @@ export function HomePage() {
             {featured?.favorite ? <span className="gnz-bookmarked" title="已收藏"><Bookmark size={17} fill="currentColor"/></span> : null}
           </div>
         </div>
-      </div>
-
-      <div className="gnz-home-switcher">
-        <div className="gnz-switcher-head"><div><strong>切换到其他作品</strong><span>精选 · {carouselWorks.length} 部</span></div><div><IconButton tooltip="上一个作品" disabled={!carouselWorks.length} onClick={() => setFeaturedIndex((index) => (index - 1 + carouselWorks.length) % carouselWorks.length)}><ChevronLeft size={16}/></IconButton><IconButton tooltip="下一个作品" disabled={!carouselWorks.length} onClick={() => setFeaturedIndex((index) => (index + 1) % carouselWorks.length)}><ChevronRight size={16}/></IconButton></div></div>
-        {carouselWorks.length ? <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{mediaLabels[work.type]} · 本地</small></span></button>)}</div> : <EmptyState title="媒体库还是空的" description="添加扫描目录，或手动创建第一条作品记录。" action={<Link className="button primary" to="/library?tab=sources">添加媒体源</Link>} />}
+        {carouselWorks.length ? <div className="gnz-home-switcher" role="group" aria-label="切换到其他作品">
+          <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} aria-pressed={featuredIndex === index} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{mediaLabels[work.type]} · 本地</small></span></button>)}</div>
+        </div> : null}
       </div>
       {works.length ? <section className="gnz-home-shelf">
         <div className="section-heading"><div><h2>我的书架</h2><span>{shelfFilter === "all" ? `${data.totalWorks} 部作品` : `${shelfWorks.length} 部作品`}</span></div><Link to="/library">查看全部</Link></div>
