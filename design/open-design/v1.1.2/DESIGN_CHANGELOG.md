@@ -573,3 +573,23 @@
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。工具条是否落在窗口按钮左侧、窗口拖动 / 双击最大化的命中区是否仍正确，见 `SCREENSHOT_CHECKLIST.md` 的 B / C 级待验行。
 - 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，无自定义标题栏窗口按钮区）。
+
+## 正式前端：首页改版为「动漫共和国」海报版式（2026-09-22）
+
+背景：用户给出「动漫共和国」首页截图作参考，要求首页照此收敛——① 去掉海报右侧的竖版大海报；② 比例参照该站（整幅海报横幅 + 下方竖版海报栏）；③ 底部「切换到其他作品」栏改成同款竖版海报排布；④ 顶部栏并未真正透明；⑤ 去掉海报简介下方的信息行。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| HOME-009 | 横幅右侧叠一张按自身比例显示的竖版大封面 `.gnz-banner-poster`（`width: 28%` / `object-fit: contain`，≤1040px 隐藏）；简介下方另有一行 `gnz-home-facts` 信息（类型 / 状态 / 文件数等） | 移除 `.gnz-banner-poster` 与整行 `gnz-home-facts`（`HomePage.tsx` 去掉 `featuredCover` 变量、海报 `<img>` 与信息行；`v1-1-1.css` 移除对应规则）；海报只留一层——有横幅时用清晰横幅铺底，无横幅时用**柔化竖版封面**作环境色 | 参照「动漫共和国」：不要右侧竖版大图，简介下方信息行也不要 | 首页 · 横幅海报 | 无（纯前端） | 否 |
+| HOME-010 | 横幅高度写死 `552px`（矮屏另有 `531px` 覆盖），与窗口高度无关，比例偏离参考站 | 横幅高度改为 `clamp(540px, 84vh, 960px)`（矮屏 `clamp(500px, 84vh, 620px)`），随窗口高度伸缩，接近参考站的全幅海报比例 | 比例参照「动漫共和国」 | 首页 · 横幅海报 | 无 | 否 |
+| HOME-011 | 「切换到其他作品」为 5 列的**横排小卡**（`repeat(5,1fr)`，64×43 缩略图 + 右侧文字）；≤1180px / ≤1060px 分别隐藏第 5 / 4、5 张 | 改为**竖向 2:3 海报栏**：单行横向滚动（`overflow-x: auto` + `scroll-snap`），每张宽 `150px`、海报 `aspect-ratio: 2/3`，标题 / 类型压在海报下方；当前项用 `--accent` 描边高亮，悬停轻微上移；窄窗改为滚动而不再隐藏条目 | 栏位改成参考站的竖版海报排布 | 首页 · 切换到其他作品 | 无 | 否 |
+| SHELL-014 | 首页标题栏仍带 `backdrop-filter` 与 `border`/`box-shadow`，即使底色透明也会留下一条模糊「毛玻璃色带」和阴影——看起来并未真正透明；且 `@supports not (backdrop-filter)` 回退会把标题栏 / 侧栏强制为不透明 `var(--bg)` | `.window-titlebar` 显式 `border: 0; box-shadow: none; backdrop-filter: none`，底色只由 `rgba(var(--shade), var(--topbar-opacity))` 决定；`@supports` 回退不再改透明度（只去掉模糊）；补齐与 `.has-window-backdrop .is-home-route` 同分规则，确保首页有海报时也仅受透明度 token 控制 | 顶部栏应**真正**透明（上一轮只改了底色，模糊 / 阴影仍在） | 全局 · 标题栏 | 无 | 否 |
+
+- 改动文件：`src/pages/HomePage.tsx`（删除 `featuredCover`、`.gnz-banner-poster` `<img>`、`gnz-home-facts` 信息行）、`src/v1-1-1.css`（横幅高度改 `clamp()`；删除 `.gnz-banner-poster` / `.gnz-home-facts` 规则与各断点隐藏规则；`.gnz-switcher-items` 改横向滚动海报栏及高亮 / 悬停样式；`.window-titlebar` 显式关闭 `border` / `box-shadow` / `backdrop-filter`；`@supports` 回退不再强制不透明底色）。
+- 海报只用**一层**：`.seanime-banner-image` 有横幅时清晰铺底、无横幅时柔化竖版封面；不再有第二层清晰竖版海报。
+- 不移除任何本地数据：`gnz-home-facts` 只是展示行；作品类型 / 状态等信息仍保留在「我的书架」卡片与作品详情页。
+- 「切换到其他作品」数据源（`carouselWorks`）与交互（上一个 / 下一个、点击切换）未变，仅呈现形式改变；`EmptyState` 空库兜底保留。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。顶部栏是否真正透明、横幅比例是否随窗口伸缩、海报栏滚动与高亮，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，其首页横幅 / 底部栏结构与正式前端不同）。
