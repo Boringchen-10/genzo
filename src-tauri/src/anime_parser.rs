@@ -442,9 +442,13 @@ pub fn score_candidate(
     } else {
         vec![format!("标题相似度 {:.0}%", best * 100.0)]
     };
-    let mut score = if title_exact { 1.0 } else { best * 0.60 };
+    // An exact alias can produce a 100% similarity reason even when the
+    // provider's display title differs. Treat that as a high confidence
+    // match instead of the old 80-point ceiling, while leaving room for
+    // season/year/type evidence to rank candidates.
+    let mut score = if title_exact { 0.90 } else if best >= 0.98 { 0.80 } else { best * 0.60 };
     if alias_exact {
-        score += 0.20;
+        score += 0.10;
         reasons.push("别名完全匹配".to_string());
     }
     if query.year.is_some() && query.year == year {
@@ -538,6 +542,14 @@ mod tests {
         let (s, reasons) = score_candidate(&q, "Show", &[], None, Some(2));
         assert!(s > 0.8);
         assert!(reasons.iter().any(|r| r.contains("季度")));
+    }
+
+    #[test]
+    fn high_similarity_alias_scores_above_old_eighty_point_cap() {
+        let query = parse_file_name("迷宫饭 01.mkv");
+        let (score, reasons) = score_candidate(&query, "Dungeon Meshi", &["迷宫饭".into()], None, None);
+        assert!(reasons.iter().any(|reason| reason.contains("100%")));
+        assert!(score >= 0.90);
     }
     #[test]
     fn preserves_digits_colons_and_hyphens() {

@@ -46,12 +46,17 @@ fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
             root_path.map(Path::new),
         );
         let season = parsed.season.unwrap_or(1);
-        let special = parsed.special_type.as_deref().unwrap_or_default();
-        identity.key = format!("{}:season:{season}:special:{special}", identity.key);
+        let special = parsed.special_type.clone().or_else(|| {
+            media.path.split(['\\', '/']).find_map(|segment| {
+                (segment.contains("特别篇") || segment.contains("特別篇"))
+                    .then_some("SPECIAL".to_string())
+            })
+        });
+        identity.key = format!("{}:season:{season}:special:{}", identity.key, special.as_deref().unwrap_or_default());
         if season > 1 {
             identity.title = format!("{} · 第 {season} 季", identity.title);
         }
-        if !special.is_empty() {
+        if let Some(special) = special.as_deref().filter(|value| !value.is_empty()) {
             identity.title = format!("{} · {special}", identity.title);
         }
     }
@@ -79,7 +84,16 @@ fn container_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdenti
                 if matches!(media.media_type.as_str(), "novel" | "other") {
                     return file_identity(media);
                 }
-                let folder = root.join(components[0].as_os_str());
+                // Keep season/special subfolders as separate recognition
+                // groups. A collection such as `作品/第一季`, `作品/第二季`
+                // and `作品/特别篇` must not collapse into one representative
+                // file selected by size or filename order.
+                let base_folder = root.join(components[0].as_os_str());
+                // The top-level work folder is the canonical group path;
+                // the season/special marker is carried by the identity suffix
+                // below so files named `S02E01` and files under `Season 2`
+                // resolve to the same group.
+                let folder = base_folder;
                 return GroupIdentity {
                     key: format!("folder:{}", normalized_key(&folder)),
                     folder_path: Some(folder.to_string_lossy().to_string()),
@@ -509,6 +523,19 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].title, "Work A");
         assert_eq!(groups[0].file_count, 2);
+    }
+
+    #[tokio::test]
+    async fn splits_chinese_season_subfolders_into_recognition_groups() {
+        let pool = db::test_pool().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id,path,kind,enabled,created_at,updated_at) VALUES ('root','C:\\Anime','video',1,?,?)").bind(&now).bind(&now).execute(&pool).await.unwrap();
+        for (id, path) in [("s1", "C:\\Anime\\Show\\第一季\\01.mkv"), ("s2", "C:\\Anime\\Show\\第二季\\01.mkv"), ("sp", "C:\\Anime\\Show\\特别篇\\01.mkv")] {
+            sqlx::query("INSERT INTO media_files (id,library_root_id,path,file_name,extension,media_type,created_at,updated_at) VALUES (?,'root',?,'01.mkv','mkv','video',?,?)").bind(id).bind(path).bind(&now).bind(&now).execute(&pool).await.unwrap();
+        }
+        let groups = list_unassigned_groups(&pool).await.unwrap();
+        assert_eq!(groups.len(), 3);
+        assert!(groups.iter().all(|group| group.file_count == 1));
     }
 
     #[tokio::test]
