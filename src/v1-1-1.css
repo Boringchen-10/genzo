@@ -184,8 +184,8 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-home .seanime-banner.has-banner { height: clamp(560px, 68vh, 820px); min-height: 560px; }
 /* 横版横幅只负责环境背景；竖版封面保持原始比例作为清晰主视觉。 */
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .65; filter: blur(max(28px, var(--poster-blur))) saturate(.8) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
-.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: 0; opacity: .9; filter: saturate(.96) contrast(1.01); background-position: center top; background-size: 100% auto; background-repeat: no-repeat; background-color: var(--bg); }
-/* 横版图是 Hero 的主视觉，按窗口宽度完整铺开；标题通过底部渐变叠加在画面上。 */
+.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: 0; opacity: .92; filter: saturate(.96) contrast(1.01); background-position: center center; background-size: cover; background-repeat: no-repeat; background-color: var(--bg); }
+/* 横版图铺满整个 Hero，底部用渐变承接标题和书架；允许裁掉少量边缘，避免出现空黑区域。 */
 .gnz-home .seanime-banner::before { z-index: 1; background: rgb(3 8 9 / .14); }
 /* 第 1 层：背景顶端淡出到页面底色，使标题栏与背景之间没有硬边（渐变融合）。
    第 2 层：背景底端同样淡出到页面底色，使背景与下方内容之间没有硬边。
@@ -200,7 +200,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
    选择器带 `.app-frame` 前缀，确保在窄窗口媒体查询（`left`）之后仍生效。 */
 .app-frame.is-home-route .gnz-home { background: transparent; }
 .app-frame.is-home-route .gnz-home .seanime-banner { background: transparent; }
-.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(180deg, transparent 34%, rgb(5 8 10 / .18) 48%, var(--bg) 100%); }
+.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(180deg, transparent 18%, rgb(5 8 10 / .08) 40%, color-mix(in srgb, var(--bg) 82%, transparent) 70%, var(--bg) 100%); }
 :root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 .app-frame.is-home-route .gnz-home .seanime-banner-title { left: calc(75px + 44px); }
 /* 没有真实横版横幅时：不再把竖版封面铺成整幅背景（移除首页背景中的大海报），
