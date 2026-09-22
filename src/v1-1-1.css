@@ -218,7 +218,6 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .app-frame.is-home-route .gnz-home-shelf { background: var(--bg); }
 .app-frame.is-home-route .gnz-home-shelf { padding-left: calc(75px + 44px); }
 .gnz-home .seanime-banner-title { left: 44px; bottom: 60px; width: min(660px, 58vw); max-width: none; color: var(--text); text-shadow: none; }
-.gnz-home .seanime-banner.has-banner .seanime-banner-title { top: 54%; bottom: auto; width: min(660px, 58vw); }
 .gnz-home .seanime-banner-title > span { color: var(--accent); font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1.4px; }
 .gnz-home .seanime-banner-title h1 { margin-top: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; max-width: min(660px, calc(100vw - 420px)); overflow: hidden; color: var(--text); font-size: clamp(32px, 3.6vw, 56px); line-height: 1.15; white-space: normal; }
 .gnz-home .seanime-banner-title > p { max-width: 620px; margin-top: 17px; color: var(--muted); font-size: 15px; line-height: 1.75; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
