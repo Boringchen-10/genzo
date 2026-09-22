@@ -80,11 +80,14 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   z-index: 300;
   height: var(--win-titlebar);
   color: var(--text);
-  /* 默认透明，让标题栏融入首页海报背景；填充只来自设置里的「顶部栏透明度」token。
-     无模糊、无分隔线（matches Genzo UI Design v1.1.2）。 */
+  /* 默认完全透明，让标题栏融入首页海报背景；填充只来自设置里的「顶部栏透明度」token。
+     彻底关闭 styles.css 继承来的 backdrop-filter / 投影 / 描边，否则即使底色透明，
+     也会留下一条模糊的“毛玻璃色带”和一道阴影。 */
   background: rgba(var(--shade), var(--topbar-opacity));
   border: 0;
   box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 :root.dark .window-titlebar { background: rgba(var(--shade), var(--topbar-opacity)); }
 .is-home-route .window-titlebar {
@@ -177,14 +180,11 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 /* Home */
 .gnz-home { height: 100%; min-height: 600px; overflow: auto; background: var(--bg); }
-.gnz-home .seanime-banner { height: 552px; min-height: 552px; overflow: hidden; background: var(--bg); border-bottom: 0; }
-/* 无横幅时竖版封面只作为柔化的环境背景；清晰原图在右侧按完整比例显示。
-   有横幅时继续使用用户选择的模糊量。 */
+.gnz-home .seanime-banner { height: clamp(540px, 84vh, 960px); min-height: 540px; overflow: hidden; background: var(--bg); border-bottom: 0; }
+/* 海报只保留一层：横版横幅清晰铺底，没有横幅时竖版封面作柔化环境色。
+   右侧那张竖版大图已移除（参考动漫共和国的全幅海报版式），因此不再需要第二层清晰海报。 */
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .65; filter: blur(max(28px, var(--poster-blur))) saturate(.8) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
 .gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: calc(-1 * var(--poster-blur) - 4px); opacity: .92; filter: blur(var(--poster-blur)) saturate(1.04) brightness(.92); }
-/* Portrait covers keep their own ratio as a sharp poster; the blurred copy above is only the ambient fill. */
-.gnz-banner-poster { position: absolute; z-index: 3; right: clamp(28px, 4.5vw, 72px); top: 76px; bottom: 28px; height: calc(100% - 104px); width: 28%; object-fit: contain; object-position: center; filter: drop-shadow(0 16px 22px rgb(0 0 0 / .3)); }
-@media (max-width: 1040px) { .gnz-banner-poster { display: none; } }
 .gnz-home .seanime-banner::before { z-index: 1; background: rgb(3 8 9 / .14); }
 /* 第 1 层：海报顶端淡出到页面底色，使标题栏与海报之间没有硬边（渐变融合）。
    第 2 层：海报底端同样淡出到页面底色，使海报与下方内容之间没有硬边。 */
@@ -207,28 +207,29 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-home .seanime-banner-title > span { color: var(--accent); font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1.4px; }
 .gnz-home .seanime-banner-title h1 { margin-top: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); font-size: clamp(32px, 3.6vw, 56px); line-height: 1.15; white-space: normal; }
 .gnz-home .seanime-banner-title > p { max-width: 620px; margin-top: 17px; color: var(--muted); font-size: 15px; line-height: 1.75; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.gnz-home-facts { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 20px; color: var(--muted); font-size: 12px; }
-:root:not(.dark) .gnz-home-facts { color: #29413a; font-weight: 600; }
-.gnz-home-facts span::before { content: ""; display: inline-block; width: 5px; height: 5px; margin: 0 8px 2px 0; background: var(--accent); border-radius: 50%; }
 .gnz-home-actions { display: flex; align-items: center; gap: 10px; margin-top: 27px; }
 .gnz-bookmarked { display: grid; place-items: center; width: 42px; height: 42px; color: var(--accent); }
-.gnz-home-switcher { min-height: 176px; padding: 31px 44px 22px; background: var(--bg); }
-.gnz-switcher-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+.gnz-home-switcher { padding: 28px 44px 26px; background: var(--bg); }
+.gnz-switcher-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .gnz-switcher-head > div:first-child strong, .gnz-switcher-head > div:first-child span { display: block; }
 .gnz-switcher-head strong { font-size: 13px; }
 .gnz-switcher-head span { margin-top: 4px; color: var(--quiet); font-size: 10px; }
 .gnz-switcher-head > div:last-child { display: flex; gap: 7px; }
 .gnz-switcher-head .icon-button { width: 34px; height: 34px; }
-.gnz-switcher-items { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-.gnz-switcher-items button { display: grid; grid-template-columns: 64px minmax(0,1fr); align-items: center; gap: 10px; min-width: 0; height: 59px; padding: 7px; color: var(--text); background: var(--surface); border: 1px solid transparent; border-radius: 7px; text-align: left; cursor: pointer; }
-.gnz-switcher-items button:hover { border-color: var(--line); background: var(--hover); }
-.gnz-switcher-items button.active { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); background: var(--accent-soft); }
-.gnz-switcher-thumb { width: 64px; height: 43px; overflow: hidden; border-radius: 6px; }
-.gnz-switcher-thumb img, .gnz-switcher-thumb .media-placeholder { width: 100%; height: 100%; object-fit: cover; }
+/* 「切换到其他作品」＝ 竖版海报栏（对齐动漫共和国的海报排布）：
+   海报 2:3 占据卡片主体，标题与类型信息压在海报下方；窗口变窄时横向滚动，不再隐藏条目。 */
+.gnz-switcher-items { display: flex; gap: 16px; margin: 0 -6px; padding: 2px 6px 8px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+.gnz-switcher-items::-webkit-scrollbar { display: none; }
+.gnz-switcher-items > button { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; width: 150px; min-width: 0; padding: 0; color: var(--text); background: transparent; border: 0; border-radius: 0; text-align: left; cursor: pointer; scroll-snap-align: start; }
 .gnz-switcher-items button > span:last-child { min-width: 0; }
 .gnz-switcher-items strong, .gnz-switcher-items small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gnz-switcher-items strong { font-size: 11px; }
-.gnz-switcher-items small { margin-top: 4px; color: var(--quiet); font-size: 9px; }
+.gnz-switcher-items strong { font-size: 12px; }
+.gnz-switcher-items small { margin-top: 4px; color: var(--quiet); font-size: 10px; }
+.gnz-switcher-thumb { position: relative; width: 100%; height: auto; aspect-ratio: 2 / 3; overflow: hidden; background: var(--subtle); border-radius: var(--ui-radius); outline: 2px solid transparent; outline-offset: 2px; transform: translateZ(0); transition: outline-color 180ms ease, transform 180ms ease; }
+.gnz-switcher-thumb img, .gnz-switcher-thumb .media-placeholder { width: 100%; height: 100%; object-fit: cover; }
+.gnz-switcher-items button:hover .gnz-switcher-thumb { transform: translateY(-2px); }
+.gnz-switcher-items button.active .gnz-switcher-thumb { outline-color: var(--accent); }
+.gnz-switcher-items button.active strong { color: var(--accent); }
 .gnz-home-shelf { padding: 10px 44px 70px; }
 .gnz-home-shelf .section-heading { align-items: flex-end; margin: 12px 0 17px; }
 .gnz-home-shelf .section-heading h2 { font-size: 27px; }
@@ -485,7 +486,8 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 @supports not ((backdrop-filter: blur(1px))) {
   .window-titlebar, .sidebar, .drawer-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .window-titlebar, .sidebar { background: var(--bg); }
+  /* 不要回退成不透明底色：透明/毛玻璃由「顶部栏透明度」等 token 决定，
+     缺少 backdrop-filter 只意味着没有模糊，不应改变透明度设定。 */
   .settings-drawer { background: var(--bg); }
 }
 
@@ -496,8 +498,6 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   .gnz-home .seanime-banner-title { left: 34px; width: min(610px, 66vw); }
   .gnz-home-switcher { padding-inline: 34px; }
   .gnz-home-shelf { padding-inline: 34px; }
-  .gnz-switcher-items { grid-template-columns: repeat(4,minmax(0,1fr)); }
-  .gnz-switcher-items button:nth-child(5) { display: none; }
   .gnz-trending-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
   .gnz-trending-card:nth-child(5) { display: none; }
   .root-row { grid-template-columns: minmax(220px,1fr) 110px 100px 150px; }
@@ -512,8 +512,6 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   .gnz-home .seanime-banner-title > p { font-size: 13px; }
   .gnz-home-switcher { padding-inline: 28px; }
   .gnz-home-shelf { padding-inline: 28px; }
-  .gnz-switcher-items { grid-template-columns: repeat(3,minmax(0,1fr)); }
-  .gnz-switcher-items button:nth-child(4), .gnz-switcher-items button:nth-child(5) { display: none; }
   .gnz-source-heading { align-items: flex-start; }
   .gnz-source-heading .page-actions { max-width: 270px; }
   .root-row { grid-template-columns: minmax(210px,1fr) 108px 145px; }
@@ -528,13 +526,12 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 }
 
 @media (max-height: 700px) {
-  .gnz-home .seanime-banner { height: 531px; min-height: 531px; }
-  .gnz-home-switcher { min-height: 140px; padding-top: 14px; }
+  .gnz-home .seanime-banner { height: clamp(500px, 84vh, 620px); min-height: 500px; }
+  .gnz-home-switcher { padding-top: 16px; }
   .gnz-switcher-head { margin-bottom: 8px; }
   .gnz-home .seanime-banner-title { bottom: 34px; }
   .gnz-home .seanime-banner-title h1 { font-size: 42px; }
   .gnz-home .seanime-banner-title > p { margin-top: 10px; }
-  .gnz-home-facts { margin-top: 12px; }
   .gnz-home-actions { margin-top: 18px; }
   .modal { max-height: calc(100vh - 40px); }
 }

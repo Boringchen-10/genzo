@@ -136,7 +136,6 @@ export function HomePage() {
   const featuredArtwork = workBackdrop(featured, featuredIndex);
   /** 背景是否来自真实横版横幅（决定用清晰横幅还是模糊封面铺底）。 */
   const featuredHasBanner = Boolean(bannerArtwork(featured));
-  const featuredCover = featured ? coverUrl(featured.coverPath) : null;
   const shelfWorks = useMemo(
     () => (shelfFilter === "all" ? works : works.filter((work) => work.type === shelfFilter)),
     [works, shelfFilter],
@@ -170,13 +169,11 @@ export function HomePage() {
       {toolsHost ? createPortal(homeToolbar, toolsHost) : null}
       <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}${featuredHasBanner ? " has-banner" : ""}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
-        {featuredCover ? <img className="gnz-banner-poster" src={featuredCover} alt="" /> : null}
         <div className="gnz-home-copy-mask" />
         <div className="seanime-banner-title">
           <span>CONTINUE YOUR JOURNEY</span>
           <h1>{featured?.title ?? "你的本地媒体，都在这里"}</h1>
           <p>{featured?.description || "从作品组识别到本地播放，Genzo 让动画、漫画、小说和游戏保持清晰有序。"}</p>
-          <div className="gnz-home-facts"><span>{featured ? mediaLabels[featured.type] : "本地媒体库"}</span><span>{featured ? `${featured.mediaCount} 个文件` : `${data.totalWorks} 部作品`}</span>{featured?.favorite ? <span>已收藏</span> : null}<span>本地高清</span></div>
           <div className="gnz-home-actions">
             {featured ? <Link className="button primary icon-text" to={`/library/${featured.id}`}><Play size={17} fill="currentColor" />继续查看</Link> : <Link className="button primary icon-text" to="/library"><Library size={17}/>打开媒体库</Link>}
             {featured ? <Link className="button secondary" to={`/library/${featured.id}`}>作品详情</Link> : <Link className="button secondary" to="/library?tab=sources">添加媒体源</Link>}
