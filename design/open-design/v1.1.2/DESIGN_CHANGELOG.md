@@ -659,3 +659,20 @@
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。首页横幅右侧是否已无竖版大封面、背景是否仍随作品切换，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
 - 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，其首页不含该竖版封面）。
+
+## 正式前端：首页无横版横幅时不再用竖版封面当背景（2026-09-22）
+
+背景：HOME-014 移除了叠在横幅上的那张**清晰**竖版封面，但仍保留了「无横版横幅 → 用柔化竖版封面作环境背景」这一层（`v1-1-1.css:185` `.gnz-home .seanime-banner-image`，`background-size: cover` + `blur(max(28px, …))`）。没有横幅的作品（本机真实库里 4 部作品有 1 部没有 `banner_path`）仍会在首页铺出一整幅被放大的竖版封面 —— 用户再次反馈「不需要首页背景中这个大的海报」，指的就是这一层。本轮把它去掉：首页横幅**只认横版横幅**，没有就不再有海报背景。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| HOME-015 | `workBackdrop()` = `bannerArtwork(work) ?? coverUrl(work.coverPath)`，无横幅时回退到 2:3 竖版封面；`.gnz-home .seanime-banner-image` 以 `cover` 铺满整幅横幅（仅 28px 模糊），于是首页背景是一张被放大的竖版海报 | `workBackdrop()` 只在**横版横幅**（`Work.bannerPath`）存在时返回图片，否则返回 `null`（仅主题预览 `?preview=theme` 保留内置自制占位图）；横幅随之落到 `.seanime-banner.no-artwork`：高度收为 `clamp(340px, 46vh, 520px)`、背景 `var(--bg)`、去掉背景图 / 装饰层 / 压暗层，左下标题与右下「切换到其他作品」仍压在同一基线上（`bottom: 34px`） | 用户要求首页背景不要再出现这张大的海报；竖版封面本就不该铺进宽横幅（与 HOME-009 / HOME-014 结论一致） | 首页 · 横幅海报 | 无（纯前端；不需要新的横幅数据，缺横幅时改为中性页头） | 需确认 |
+
+- 改动文件：`src/pages/HomePage.tsx`（`workBackdrop()` 去掉 `coverUrl(work.coverPath)` 回退；补注释说明「不再回退竖版封面」）、`src/v1-1-1.css`（新增 `.gnz-home .seanime-banner.no-artwork` 规则组：高度、`background: var(--bg)`、清空背景图 / `::before` / `::after` 压暗与浅色变体、`--poster-fade` 不再需要、标题与海报栏 `bottom` 由 60px 收到 34px）。
+- 未修改数据与交互：`featuredArtwork` / `--banner-image` / `--genzo-backdrop` / `has-window-backdrop`、「切换到其他作品」栏（`carouselWorks` + `setFeaturedIndex`）、书架与空库引导均不变；有横版横幅的作品观感与改动前完全一致。
+- 副作用（刻意）：没有横幅的作品，首页顶部环境色（`--genzo-backdrop` 的 25% 模糊底纹）也一并消失，标题栏 / 侧栏背后回到纯底色 —— 这是「首页背景不再出现海报」的必然结果。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。需在 `pnpm tauri dev` 下反复切换「切换到其他作品」确认：有横幅的作品仍显示横版横幅、没有横幅的作品首页为中性页头且**不再出现任何竖版大海报**，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+- 待用户决断：若用户的意思是「首页连横版横幅背景也不要」，下一轮可把 `.seanime-banner.has-banner` 的背景层一并去掉（本轮未做，因为横版横幅渲染为右下短幅条带，与截图中整幅竖版大图不是同一层）。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，无「无横幅」态）。
