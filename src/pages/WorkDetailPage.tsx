@@ -20,6 +20,8 @@ import {
   Unlock,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { dataProvider as api, getAnimeDetailProvider, type GenzoAnimeDetailProvider } from "../data";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, SafeImage, useOffline } from "../components/common";
@@ -195,6 +197,23 @@ export function WorkDetailPage() {
     }
   }, [detailProvider, id]);
   useEffect(() => void load(), [load]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    const subscription = listen<string>("work-metadata-updated", async ({ payload }) => {
+      if (payload !== id || disposed) return;
+      try {
+        const next = await api.getWork(id);
+        if (!disposed) setWork(next);
+        if (detailProvider) {
+          const nextStructure = await detailProvider.getAnimeWorkStructure(id);
+          if (!disposed) setStructure(nextStructure);
+        }
+      } catch { /* Local matching remains valid; metadata can be refreshed later. */ }
+    });
+    return () => { disposed = true; void subscription.then(unlisten => unlisten()); };
+  }, [detailProvider, id]);
 
   useEffect(() => {
     const node = notesRef.current;

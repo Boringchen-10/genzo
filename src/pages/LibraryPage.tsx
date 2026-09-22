@@ -34,7 +34,7 @@ interface InboxEntry {
 
 const inboxStatusLabel = (status: RecognitionStatus, missingCount: number, fileCount: number) => {
   if (fileCount > 0 && missingCount >= fileCount) return "全部缺失";
-  if (status === "candidate_pending") return "等待确认";
+  if (status === "candidate_pending") return "待确认";
   if (status === "error") return "识别失败";
   return "未匹配";
 };
@@ -43,7 +43,7 @@ const inboxStatusClass = (status: RecognitionStatus, missingCount: number, fileC
   if (fileCount > 0 && missingCount >= fileCount) return "warning-text";
   if (status === "error") return "warning-text";
   if (status === "candidate_pending") return "candidate-text";
-  return "available-text";
+  return "quiet-inline";
 };
 
 export function LibraryPage() {
@@ -223,6 +223,12 @@ export function LibraryPage() {
 
   /* 当前层级：根层级 = 媒体源文件夹；进入后 = 子文件夹 + 直接位于该层的文件。 */
   const inboxLevel = useMemo<InboxEntry[]>(() => {
+    const compare = (left: InboxEntry, right: InboxEntry) => {
+      const primary = unassignedSort === "status"
+        ? unassignedStatusRank(left.status, left.missingCount, left.fileCount) - unassignedStatusRank(right.status, right.missingCount, right.fileCount)
+        : unassignedSort === "fileCount" ? right.fileCount - left.fileCount : 0;
+      return primary || left.name.localeCompare(right.name, "zh-CN", { numeric: true });
+    };
     if (inboxPath === null) {
       return roots
         .map<InboxEntry>((root) => {
@@ -235,12 +241,12 @@ export function LibraryPage() {
             folder: true,
             fileCount: groups.reduce((total, group) => total + group.fileCount, 0),
             missingCount: groups.reduce((total, group) => total + group.missingCount, 0),
-            status: "unmatched" as RecognitionStatus,
+            status: groups.find(group => group.recognitionStatus === "candidate_pending")?.recognitionStatus ?? groups.find(group => group.recognitionStatus === "error")?.recognitionStatus ?? "unmatched",
             group: null,
             file: null,
           };
         })
-        .sort((left, right) => left.name.localeCompare(right.name, "zh-CN", { numeric: true }));
+        .sort(compare);
     }
 
     const prefix = normalizePath(inboxPath);
@@ -261,8 +267,10 @@ export function LibraryPage() {
         file: null,
       };
       if (group) {
-        entry.group = group;
-        entry.status = group.recognitionStatus;
+        if (!entry.group || unassignedStatusRank(group.recognitionStatus, group.missingCount, group.fileCount) < unassignedStatusRank(entry.status, entry.missingCount, entry.fileCount)) {
+          entry.group = group;
+          entry.status = group.recognitionStatus;
+        }
       }
       folders.set(segment, entry);
       return entry;
@@ -301,11 +309,8 @@ export function LibraryPage() {
       }
     }
 
-    return [
-      ...Array.from(folders.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-CN", { numeric: true })),
-      ...files.sort((left, right) => left.name.localeCompare(right.name, "zh-CN", { numeric: true })),
-    ];
-  }, [inboxPath, roots, filteredUnassigned, scopedFiles]);
+    return [...folders.values(), ...files].sort(compare);
+  }, [inboxPath, roots, filteredUnassigned, scopedFiles, unassignedSort]);
 
   /** 当前文件夹本身就是一个作品组时，把识别 / 手动整理操作放在这一级。 */
   const inboxGroupHere = useMemo(() => {
@@ -477,17 +482,22 @@ export function LibraryPage() {
             {inboxMediaLoading ? <div className="inbox-empty">正在读取文件列表…</div> : null}
             {!inboxMediaLoading && inboxLevel.length === 0 ? <div className="inbox-empty">这个文件夹里没有待整理的内容。</div> : null}
             {inboxLevel.slice(0, unassignedLimit).map((entry) => entry.folder ? (
-              <button type="button" className="inbox-folder" key={entry.key} onClick={() => setInboxPath(entry.path)}>
+              <div className="inbox-folder" key={entry.key}>
+                <button type="button" className="inbox-folder-link" onClick={() => setInboxPath(entry.path)}>
                 <span className="inbox-name"><FolderTree size={18} /><span><strong>{entry.name}</strong><small title={entry.path}>{entry.path}</small></span></span>
+                </button>
                 <span className="inbox-meta">{entry.fileCount} 个文件{entry.missingCount ? ` · ${entry.missingCount} 个缺失` : ""}</span>
                 <span className={inboxStatusClass(entry.status, entry.missingCount, entry.fileCount)}>{inboxStatusLabel(entry.status, entry.missingCount, entry.fileCount)}</span>
-                <span className="inbox-actions"><ChevronRight size={16} /></span>
-              </button>
+                <span className="inbox-actions">
+                  {entry.group?.mediaType === "video" && entry.group.missingCount < entry.group.fileCount ? <button type="button" className="button secondary compact" onClick={() => setRecognizingGroup(entry.group)}>{entry.status === "candidate_pending" ? "查看候选" : "识别"}</button> : null}
+                  <button type="button" className="icon-button" aria-label={`打开 ${entry.name}`} onClick={() => setInboxPath(entry.path)}><ChevronRight size={16} /></button>
+                </span>
+              </div>
             ) : (
               <div className="inbox-file" key={entry.key}>
                 <span className="inbox-name"><FileQuestion size={18} /><span><strong>{entry.file?.fileName ?? entry.name}</strong><small title={entry.path}>{entry.path}</small></span></span>
                 <span className="inbox-meta">{entry.file ? `${mediaLabels[entry.file.mediaType]} · ${formatSize(entry.file.size)}` : ""}</span>
-                <span className={entry.missingCount ? "warning-text" : "available-text"}>{entry.missingCount ? "文件缺失" : "未匹配"}</span>
+                <span className={inboxStatusClass(entry.status, entry.missingCount, entry.fileCount)}>{inboxStatusLabel(entry.status, entry.missingCount, entry.fileCount)}</span>
                 <span className="inbox-actions">
                   <button type="button" className="button secondary compact" onClick={() => { if (entry.file) { setWorkSearch(""); setLinkingFiles([entry.file]); } }}>关联作品</button>
                   <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void openInboxFile(entry.file); }}>打开</button>

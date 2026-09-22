@@ -30,8 +30,15 @@ pub async fn candidates_for_media(
     pool: &SqlitePool,
     media_file_id: &str,
 ) -> AppResult<Vec<MatchCandidate>> {
-    let rows = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE media_file_id = ? ORDER BY confidence DESC")
+    let mut rows = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE media_file_id = ? ORDER BY confidence DESC")
         .bind(media_file_id).fetch_all(pool).await?;
+    if rows.is_empty() {
+        if let Some(group) = grouping::recognition_group_context(pool, media_file_id).await? {
+            let ids = group.members.iter().map(|file| file.id.as_str()).collect::<Vec<_>>();
+            rows = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE media_file_id IN (SELECT value FROM json_each(?)) ORDER BY confidence DESC")
+                .bind(serde_json::to_string(&ids)?).fetch_all(pool).await?;
+        }
+    }
     rows.into_iter()
         .map(|row| row.try_into().map_err(AppError::from))
         .collect()
@@ -104,7 +111,7 @@ async fn search_provider(
     parsed: &ParsedAnime,
 ) -> AppResult<Vec<WorkMetadata>> {
     let key = format!(
-        "search:v042:{}:{:?}:{:?}",
+        "search:v045:{}:{:?}:{:?}",
         crate::anime_parser::normalize_title(query),
         parsed.season,
         parsed.special_type
@@ -382,7 +389,11 @@ pub async fn recognize_media(
         .as_ref()
         .map(|context| context.members.clone())
         .unwrap_or_else(|| vec![media.clone()]);
-    let parsed = group_query_parse(group_title, &members, &media, library_root);
+    let mut parsed = group_query_parse(group_title, &members, &media, library_root);
+    if let Some(query) = manual_query.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        parsed = parse_folder_name(query);
+        parsed.title = Some(query.to_string());
+    }
     let query = manual_query
         .as_deref()
         .map(str::trim)
@@ -486,6 +497,7 @@ pub async fn recognize_media(
         .len()
         > 1;
     let ambiguous = mixed_types
+        || group_title.is_some_and(crate::anime_parser::is_multi_season_collection)
         || scored.get(1).is_some_and(|second| {
             scored
                 .first()
@@ -729,6 +741,14 @@ pub async fn confirm_candidate(
     media_file_id: &str,
     candidate_id: &str,
 ) -> AppResult<String> {
+    confirm_candidate_internal(state, media_file_id, candidate_id, true).await
+}
+
+pub async fn confirm_candidate_local(state: &AppState, media_file_id: &str, candidate_id: &str) -> AppResult<String> {
+    confirm_candidate_internal(state, media_file_id, candidate_id, false).await
+}
+
+async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candidate_id: &str, enrich: bool) -> AppResult<String> {
     let group_member_ids: Vec<String> =
         grouping::recognition_group_context(&state.pool, media_file_id)
             .await?
@@ -736,55 +756,13 @@ pub async fn confirm_candidate(
             .unwrap_or_else(|| vec![media_file_id.to_string()]);
     let row = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE id = ? AND media_file_id = ?")
         .bind(candidate_id).bind(media_file_id).fetch_optional(&state.pool).await?.ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".to_string()))?;
-    let mut metadata: WorkMetadata = serde_json::from_str(&row.metadata_json)?;
-    let provider = BangumiProvider::new()?;
-    let detail_key = format!("detail:{}", metadata.external_id);
-    if let Some(mut cached) = cached_search(&state.pool, &detail_key).await? {
-        if let Some(item) = cached.pop() {
-            metadata = item;
-        }
-    } else if let Ok(details) = retry_network(|| provider.get_details(&metadata.external_id)).await
-    {
-        metadata = details;
-        save_cache(&state.pool, &detail_key, &[metadata.clone()], 30).await?;
-    }
-    let aggregation = crate::metadata_aggregator::aggregate(&state.pool, metadata.clone())
-        .await
-        .ok();
-    if let Some(result) = &aggregation {
-        metadata = result.metadata.clone();
-    }
-    let cover_path = if let Some(url) = &metadata.cover_url {
-        let destination = state
-            .cover_cache_path
-            .join(format!("bangumi-{}.jpg", metadata.external_id));
-        if destination.is_file()
-            || crate::metadata_aggregator::cache_cover(url, &destination)
-                .await
-                .is_ok()
-        {
-            Some(destination.to_string_lossy().to_string())
-        } else {
-            None
-        }
+    let metadata: WorkMetadata = serde_json::from_str(&row.metadata_json)?;
+    let (metadata, aggregation, cover_path, banner_path) = if enrich {
+        enrich_candidate_metadata(state, metadata).await?
     } else {
-        None
-    };
-    let banner_path = if let Some(url) = &metadata.banner_url {
-        let destination = state
-            .cover_cache_path
-            .join(format!("bangumi-{}-banner.jpg", metadata.external_id));
-        if destination.is_file()
-            || crate::metadata_aggregator::cache_banner(url, &destination)
-                .await
-                .is_ok()
-        {
-            Some(destination.to_string_lossy().to_string())
-        } else {
-            None
-        }
-    } else {
-        None
+        let cover = state.cover_cache_path.join(format!("bangumi-{}.jpg", metadata.external_id));
+        let banner = state.cover_cache_path.join(format!("bangumi-{}-banner.jpg", metadata.external_id));
+        (metadata, None, cover.is_file().then(|| cover.to_string_lossy().to_string()), banner.is_file().then(|| banner.to_string_lossy().to_string()))
     };
     let now = Utc::now().to_rfc3339();
     let (_write_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
@@ -845,6 +823,79 @@ pub async fn confirm_candidate(
         .await?;
     transaction.commit().await?;
     Ok(work_id)
+}
+
+async fn enrich_candidate_metadata(
+    state: &AppState,
+    mut metadata: WorkMetadata,
+) -> AppResult<(WorkMetadata, Option<crate::metadata_aggregator::AggregationResult>, Option<String>, Option<String>)> {
+    let provider = BangumiProvider::new()?;
+    let detail_key = format!("detail:{}", metadata.external_id);
+    if let Some(mut cached) = cached_search(&state.pool, &detail_key).await? {
+        if let Some(item) = cached.pop() {
+            metadata = item;
+        }
+    } else if let Ok(details) = retry_network(|| provider.get_details(&metadata.external_id)).await
+    {
+        metadata = details;
+        save_cache(&state.pool, &detail_key, &[metadata.clone()], 30).await?;
+    }
+    let aggregation = crate::metadata_aggregator::aggregate(&state.pool, metadata.clone())
+        .await
+        .ok();
+    if let Some(result) = &aggregation {
+        metadata = result.metadata.clone();
+    }
+    let cover_path = if let Some(url) = &metadata.cover_url {
+        let destination = state
+            .cover_cache_path
+            .join(format!("bangumi-{}.jpg", metadata.external_id));
+        if destination.is_file()
+            || crate::metadata_aggregator::cache_cover(url, &destination)
+                .await
+                .is_ok()
+        {
+            Some(destination.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let banner_path = if let Some(url) = &metadata.banner_url {
+        let destination = state
+            .cover_cache_path
+            .join(format!("bangumi-{}-banner.jpg", metadata.external_id));
+        if destination.is_file()
+            || crate::metadata_aggregator::cache_banner(url, &destination)
+                .await
+                .is_ok()
+        {
+            Some(destination.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    Ok((metadata, aggregation, cover_path, banner_path))
+}
+
+/// Enrichment never changes the chosen anchor or the user's file associations.
+pub async fn enrich_confirmed_work(state: &AppState, work_id: &str, metadata: WorkMetadata) -> AppResult<Vec<String>> {
+    let anchor = metadata.external_id.clone();
+    let (metadata, aggregation, cover, banner) = enrich_candidate_metadata(state, metadata).await?;
+    let (_guard, mut tx) = crate::db::begin_write(&state.pool).await?;
+    let current: Option<String> = sqlx::query_scalar("SELECT external_id FROM work_external_ids WHERE work_id = ? AND provider = 'bangumi'")
+        .bind(work_id).fetch_optional(&mut *tx).await?;
+    if current.as_deref() != Some(&anchor) { return Ok(Vec::new()); }
+    apply_metadata(&mut tx, work_id, &metadata, cover.clone(), banner.clone(), &Utc::now().to_rfc3339()).await?;
+    if let Some(aggregation) = aggregation {
+        crate::metadata_aggregator::persist_for_work(&mut tx, work_id, &aggregation).await?;
+    }
+    crate::anime_details::rebuild_episode_links(&mut tx, work_id).await?;
+    tx.commit().await?;
+    Ok([cover, banner].into_iter().flatten().collect())
 }
 
 async fn recognition_target_work(
@@ -996,6 +1047,32 @@ mod tests {
         assert!(score_metadata(&parsed, &candidate).0 < AUTO_MATCH_THRESHOLD);
         parsed.special_type = Some("NCED".into());
         assert!(score_metadata(&parsed, &candidate).0 < AUTO_MATCH_THRESHOLD);
+    }
+
+    #[tokio::test]
+    async fn pending_group_can_read_sibling_candidates_and_confirm_without_network() {
+        let pool = db::test_pool().await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState {
+            pool: pool.clone(), database_path: dir.path().join("test.db"),
+            data_directory: dir.path().into(), cover_cache_path: dir.path().into(),
+            thumbnail_cache_path: dir.path().into(),
+        };
+        sqlx::query("INSERT INTO library_roots (id,path,kind,enabled,created_at,updated_at) VALUES ('root','C:\\Anime','video',1,'now','now')").execute(&pool).await.unwrap();
+        for id in ["01", "02"] {
+            sqlx::query("INSERT INTO media_files (id,library_root_id,path,file_name,extension,media_type,recognition_status,created_at,updated_at) VALUES (?,'root',?,?,'mkv','video','candidate_pending','now','now')")
+                .bind(id).bind(format!("C:\\Anime\\葬送的芙莉莲\\{id}.mkv")).bind(format!("{id}.mkv")).execute(&pool).await.unwrap();
+        }
+        let metadata = crate::explore::lookup_title("葬送的芙莉莲").unwrap().remove(0);
+        sqlx::query("INSERT INTO match_candidates (id,media_file_id,provider,external_id,title,aliases_json,subject_type,confidence,match_reasons_json,metadata_json,created_at) VALUES ('c','02','bangumi',?,?,'[]','tv',0.79,'[]',?,'now')")
+            .bind(&metadata.external_id).bind(&metadata.title).bind(serde_json::to_string(&metadata).unwrap()).execute(&pool).await.unwrap();
+        let candidates = candidates_for_media(&pool, "01").await.unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].media_file_id, "02");
+        let work_id = tokio::time::timeout(StdDuration::from_secs(1), confirm_candidate_local(&state, "02", "c")).await.unwrap().unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM media_files WHERE work_id = ? AND recognition_status = 'matched'").bind(&work_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 2);
+        assert!(candidates_for_media(&pool, "01").await.unwrap().is_empty());
     }
 
     #[tokio::test]

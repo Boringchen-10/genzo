@@ -190,9 +190,15 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
 
 pub fn parse_folder_name(folder_name: &str) -> ParsedAnime {
     let cleaned = preprocess_folder_name(folder_name);
-    let mut parsed = parse_file_name(&cleaned);
+    // A folder title is not a filename: dots in titles such as 2.5次元 are significant.
+    let mut parsed = parse_file_name(&format!("{cleaned}.mkv"));
     let elements = anitomy_elements(&cleaned);
     merge_anitomy(&mut parsed, &elements, true);
+    if let Some(title) = &mut parsed.title {
+        for decimal in cached_regex!(r"\d+\.\d+").find_iter(&cleaned) {
+            *title = title.replace(&decimal.as_str().replace('.', " "), decimal.as_str());
+        }
+    }
     parsed.raw_file_name = folder_name.to_string();
     if parsed.title.is_none() && !cleaned.is_empty() {
         parsed.title = Some(cleaned);
@@ -278,6 +284,19 @@ pub fn preprocess_folder_name(value: &str) -> String {
     let separators = cached_regex!(r"[\s._\-—–]+$");
     let spaces = cached_regex!(r"\s+");
     let mut cleaned = bracketed.replace_all(value, " ").to_string();
+    // Some release folders put the title itself in the first pair of brackets.
+    if cleaned.trim().is_empty() {
+        if let Some(first) = bracketed.find(value) {
+            let token = first.as_str().trim_matches(|c| "[]【】()（）".contains(c));
+            if !is_media_token(token) && token.chars().any(char::is_alphabetic) {
+                cleaned = token.to_string();
+            }
+        }
+    }
+    cleaned = cached_regex!(r"^\s*[A-Za-z]\s+([\d.]*[\p{Han}\p{Hiragana}\p{Katakana}])")
+        .replace(&cleaned, "$1").to_string();
+    cleaned = cached_regex!(r"(?i)\s*\d{1,2}\s*[-~～]\s*\d{1,2}\s*[季期](?:\s*[+＋]\s*(?:ova|oad|特别篇|剧场版|劇場版|爆炎))*\s*$")
+        .replace(&cleaned, "").to_string();
     loop {
         let next = suffix.replace(&cleaned, "").to_string();
         if next == cleaned {
@@ -287,6 +306,10 @@ pub fn preprocess_folder_name(value: &str) -> String {
     }
     cleaned = separators.replace_all(cleaned.trim(), "").to_string();
     spaces.replace_all(cleaned.trim(), " ").to_string()
+}
+
+pub fn is_multi_season_collection(value: &str) -> bool {
+    cached_regex!(r"\d{1,2}\s*[-~～]\s*\d{1,2}\s*[季期]").is_match(value)
 }
 
 fn is_division_folder(value: &str) -> bool {
@@ -443,6 +466,20 @@ pub fn score_candidate(
 mod tests {
     use super::*;
     #[test]
+    fn cleans_library_sort_prefixes_and_collection_suffixes() {
+        for (folder, title) in [
+            ("【 4k 】b 败犬女主太多了！12集全", "败犬女主太多了！"),
+            ("【 4k 】b 笨蛋测验召唤兽 1-2季+ova", "笨蛋测验召唤兽"),
+            ("【 4k 】e 2.5次元的诱惑 24集全", "2.5次元的诱惑"),
+            ("【 4k 】g 更衣人偶坠入爱河 1-2季", "更衣人偶坠入爱河"),
+            ("[闺音吻][2018][中文字幕][4k-2160p][3.8g]", "闺音吻"),
+        ] {
+            assert_eq!(parse_folder_name(folder).title.as_deref(), Some(title), "{folder}");
+        }
+        assert_eq!(parse_folder_name("A Channel").title.as_deref(), Some("A Channel"));
+        assert!(is_multi_season_collection("作品 1-2季+OVA"));
+    }
+    #[test]
     fn descending_ranges_remain_unverified_instead_of_guessing_or_violating_db_constraints() {
         for name in [
             "Example - 12-01.mkv",
@@ -521,7 +558,7 @@ mod tests {
     #[test]
     fn removes_complete_collection_count_from_folder_title() {
         let p = parse_folder_name("【 4K 】Q 亲吻姐姐 12集全");
-        assert_eq!(p.title.as_deref(), Some("Q 亲吻姐姐"));
+        assert_eq!(p.title.as_deref(), Some("亲吻姐姐"));
         assert!(p.episode.is_none());
     }
 
@@ -536,7 +573,7 @@ mod tests {
     fn finds_work_folder_above_video_container_for_numeric_episode() {
         let path = Path::new(r"G:\影音\【 4K 】Q 亲吻姐姐 12集全\视频\01.mkv");
         let parsed = parse_work_folder(path, Some(Path::new(r"G:\影音")));
-        assert_eq!(parsed.title.as_deref(), Some("Q 亲吻姐姐"));
+        assert_eq!(parsed.title.as_deref(), Some("亲吻姐姐"));
         let episode = parse_file_name("01.mkv");
         assert_eq!(episode.episode_start, Some(1));
     }

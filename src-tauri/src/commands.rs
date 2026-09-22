@@ -11,7 +11,7 @@ use chrono::Utc;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 const WORK_TYPES: &[&str] = &["video", "comic", "novel", "game", "other"];
@@ -1047,7 +1047,11 @@ pub async fn confirm_match_candidate(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> AppResult<String> {
-    let work_id = metadata::confirm_candidate(&state, &media_file_id, &candidate_id).await?;
+    let json: String = sqlx::query_scalar("SELECT metadata_json FROM match_candidates WHERE id = ? AND media_file_id = ?")
+        .bind(&candidate_id).bind(&media_file_id).fetch_optional(&state.pool).await?
+        .ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".into()))?;
+    let candidate: WorkMetadata = serde_json::from_str(&json)?;
+    let work_id = metadata::confirm_candidate_local(&state, &media_file_id, &candidate_id).await?;
     let artwork_paths: (Option<String>, Option<String>) =
         sqlx::query_as("SELECT cover_path, banner_path FROM works WHERE id = ?")
             .bind(&work_id)
@@ -1056,6 +1060,19 @@ pub async fn confirm_match_candidate(
     for path in [artwork_paths.0, artwork_paths.1].into_iter().flatten() {
         db::allow_cover_file(&app, Path::new(&path))?;
     }
+    let state = state.inner().clone();
+    let target = work_id.clone();
+    tauri::async_runtime::spawn(async move {
+        static ENRICHMENT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+        let Ok(_permit) = ENRICHMENT.acquire().await else { return; };
+        match metadata::enrich_confirmed_work(&state, &target, candidate).await {
+            Ok(paths) => {
+                for path in paths { let _ = db::allow_cover_file(&app, Path::new(&path)); }
+                let _ = app.emit("work-metadata-updated", &target);
+            }
+            Err(error) => { eprintln!("作品补充资料更新失败：{error}"); }
+        }
+    });
     Ok(work_id)
 }
 
