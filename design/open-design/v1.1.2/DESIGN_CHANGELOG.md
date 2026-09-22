@@ -558,3 +558,18 @@
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。海报底边是否已无硬边、侧栏导航是否已上提，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
 - 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，其侧栏与海报底部结构不同）。
+
+## 正式前端：首页工具条移入标题栏窗口按钮左侧（2026-09-22）
+
+背景：用户要求把首页顶部工具条（作品数 + 媒体库 / 刷新 / 设置）从海报上挪走，挂到自定义 Windows 标题栏里、紧挨最小化 / 最大化 / 关闭三个窗口按钮的**左侧**。工具条仍属于首页功能（媒体库 / 刷新 / 设置按钮的数据依赖首页已加载的 state），因此不改动按钮行为，只改承载位置。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| SHELL-013 | 首页工具条 `.seanime-home-toolbar` 以绝对定位贴在海报右上（`top: var(--win-titlebar)` / `right: 44px`），与海报抢同一块空间，且随窗口宽度需要多档媒体查询微调 `right` | `WindowTitleBar.tsx` 在 `.window-controls` 之前新增插槽 `<div class="window-tools" id="window-titlebar-tools">`；`HomePage.tsx` 用 `createPortal` 把 `.seanime-home-toolbar` 渲染进该插槽；样式改为标题栏内的紧凑横排（`position: static`，按钮 28×28、图标 16px、作品数胶囊 `display` 隐藏于 ≤900px），移除原绝对定位与各断点的 `right` 覆盖 | 用户要求把工具条移到标题栏、窗口按钮左侧 | 首页 · 主标题栏 | 无 | 否 |
+
+- 改动文件：`src/components/WindowTitleBar.tsx`（新增 `.window-tools` 插槽；拖动区域排除选择器由 `.window-controls` 扩为 `.window-controls, .window-tools`，避免在工具条上按下按钮时误触窗口拖动 / 双击最大化）、`src/pages/HomePage.tsx`（引入 `useLayoutEffect` / `createPortal`；`toolsHost` state + 布局期 effect 读取 `#window-titlebar-tools`；抽出 `homeToolbar` 变量并 portal 渲染；图标尺寸 19 → 16）、`src/v1-1-1.css`（新增 `.window-tools` 及子元素规则；移除 `.seanime-home-toolbar` 的绝对定位、`top` / `right` 与首页两处断点覆盖）。
+- 工具条元素本身不再属于首页内容流：`.gnz-home .seanime-home-toolbar` 旧定位规则全部删除，`HomePage` 仅在插槽存在时 portal 渲染（`toolsHost ? createPortal(...) : null`），无插槽时首页与先前一致。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。工具条是否落在窗口按钮左侧、窗口拖动 / 双击最大化的命中区是否仍正确，见 `SCREENSHOT_CHECKLIST.md` 的 B / C 级待验行。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，无自定义标题栏窗口按钮区）。
