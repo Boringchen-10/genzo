@@ -1260,7 +1260,7 @@ dependencies = [
 
 [[package]]
 name = "genzo"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anitomy-ng",
  "async-trait",
