@@ -67,8 +67,16 @@ export function AppShell() {
     if (ui.settingsOpen) ui.closeSettings();
   }, [location.pathname, location.search]);
 
+  /* 沉浸式路由：首页与作品详情都让海报铺到标题栏 / 侧栏之后，
+     顶部栏与侧栏的不透明度由设置里的「顶部栏透明度」控制，两者表现一致。 */
+  const routeClass = location.pathname === "/"
+    ? "is-home-route"
+    : /^\/library\/[^/]+$/.test(location.pathname)
+      ? "is-detail-route"
+      : "is-workspace-route";
+
   return (
-    <div className={`app-frame ${location.pathname === "/" ? "is-home-route" : "is-workspace-route"}`}>
+    <div className={`app-frame ${routeClass}`}>
       <WindowTitleBar />
       <aside className="sidebar">
         <nav className="nav-list" aria-label="主导航">

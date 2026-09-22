@@ -329,6 +329,26 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* 有真实横版横幅（bannerPath / bannerUrl）时：同一层铺满、更清晰，文字靠 ::after 的左侧/底部遮罩保证可读。 */
 .detail-page.has-detail-banner .detail-backdrop::before { inset: calc(-1 * var(--poster-blur) - 4px); opacity: .9; filter: blur(var(--poster-blur)) saturate(1.03) brightness(.9); }
 .detail-page.has-detail-banner .detail-backdrop::after { background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 52%, transparent) 0, transparent 48%), linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 34%,transparent) 0%, color-mix(in srgb,var(--bg) 66%,transparent) 58%, var(--bg) 100%); }
+
+/* 作品详情沉浸式：与首页同源 —— 海报铺到标题栏 / 侧栏之后，主内容占满整个窗口，
+   顶部栏与侧栏的不透明度同样由设置里的「顶部栏透明度」控制（0 时完全融入海报背景）。
+   这里必须去掉顶部「向页面底色淡出」的那一层：海报现在从窗口 y=0 起铺，
+   若仍向底色淡出，标题栏背后会重新出现一条底色带（就是本轮要修的问题）。
+   正文整体让开标题栏与侧栏，几何关系与改动前一致，只是向上平移了一个标题栏高度。 */
+.app-frame.is-detail-route .main-content { grid-column: 1 / -1; grid-row: 1 / -1; background: transparent; }
+.app-frame.is-detail-route .detail-page { background: transparent; }
+.app-frame.is-detail-route .detail-backdrop { height: calc(460px + var(--win-titlebar)); }
+.app-frame.is-detail-route .detail-inner { padding: calc(var(--win-titlebar) + 24px) 34px 72px calc(75px + 34px); }
+.app-frame.is-detail-route .detail-backdrop::after {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--bg) 64%, transparent) 0, transparent 50%),
+    linear-gradient(180deg, transparent 0, color-mix(in srgb, var(--bg) 34%, transparent) 46%, var(--bg) 100%);
+}
+.app-frame.is-detail-route .detail-page.has-detail-banner .detail-backdrop::after {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--bg) 48%, transparent) 0, transparent 46%),
+    linear-gradient(180deg, transparent 0, color-mix(in srgb, var(--bg) 30%, transparent) 46%, var(--bg) 100%);
+}
 .detail-inner { position: relative; width: 100%; padding: 24px 34px 72px; }
 .detail-topbar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; min-height: 40px; margin-bottom: 72px; }
 .detail-topbar .icon-button { width: 40px; height: 40px; background: rgba(var(--shade), .58); border-color: var(--line); backdrop-filter: blur(var(--ui-blur)); }
