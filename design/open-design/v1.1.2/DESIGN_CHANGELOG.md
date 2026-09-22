@@ -644,3 +644,18 @@
 - 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
 - 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。详情页侧栏背后是否可见完整海报、左半幅是否不再压暗，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
 - 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，无「详情页沉浸式」路由态）。
+
+## 正式前端：移除首页横幅右侧的竖版大封面（2026-09-22）
+
+背景：用户附首页截图反馈「不需要首页背景中这个大的海报」——即横幅右侧那块按自身比例显示的**竖版大封面**（甘城主题截图里居中偏右的大海报）。该封面曾在 HOME-009 按「对齐动漫共和国」移除，但随后由 `8defe3a`（improve home poster rendering）/ `f8069f1`（refine poster framing）重新加回且未登记文档，形成「文档说没有、代码里又有」的不一致。本轮按用户最新要求再次移除，并与 HOME-009 的结论重新对齐。
+
+| 功能 ID | 修改前 | 修改后 | 修改原因 | 涉及页面 | 后端影响 | 需确认 |
+|---|---|---|---|---|---|---|
+| HOME-014 | 首页横幅内叠一张竖版大封面 `.gnz-banner-poster-frame` > `.gnz-banner-poster`（`HomePage.tsx` 由 `featuredCover` 渲染；`v1-1-1.css` 含 `position:absolute` 定位块、`object-fit:contain`、≤1040px 缩窄、≤760px 隐藏等规则） | 移除该封面：`HomePage.tsx` 删除 `featuredCover` 变量与海报 `<div>`/`<img>`；`v1-1-1.css` 删除 `.gnz-banner-poster-frame` / `.gnz-banner-poster` 全部规则及各断点覆盖。横幅只保留**一层模糊环境背景**（`.seanime-banner-image`，有横幅用清晰横幅、无横幅用柔化竖版封面）；注释里「右下海报栏」的措辞同步改为「背景」 | 用户要求首页背景不要再出现这张大的竖版海报；与 HOME-009 结论一致 | 首页 · 横幅海报 | 无（纯前端） | 否 |
+
+- 改动文件：`src/pages/HomePage.tsx`（删除 `featuredCover`、`.gnz-banner-poster-frame` 块）、`src/v1-1-1.css`（删除 `.gnz-banner-poster-frame` / `.gnz-banner-poster` 规则与 `≤1040px` / `≤760px` 覆盖；`::after` 注释「右下海报栏」改为「背景」）。
+- 未动交互与数据：`workBackdrop` / `bannerArtwork` / `featuredArtwork`、`--banner-image` 背景切换、「切换到其他作品」栏（`.gnz-home-switcher`，仍压在横幅右下角）与其它首页区块均不变；仅移除叠在背景之上的那张清晰竖版封面。
+- 未修改 `src-tauri/`、Rust、SQLite、迁移、`src/api.ts`、`src/types.ts`、`src/data/tauriProvider.ts`、`package.json`。
+- 校验：`pnpm check`（`tsc -b`）退出码 0；`pnpm test` **20/20** 通过；`pnpm build`（`tsc -b && vite build`）成功（1634 modules）。
+- 视觉 / 运行期验收：**未渲染、未截图**（写入即交付）。首页横幅右侧是否已无竖版大封面、背景是否仍随作品切换，见 `SCREENSHOT_CHECKLIST.md` 的 B 级待验行。
+- 设计原型 `design/open-design/v1.1.2/prototype/index.html` 未同步（原型为静态演示，其首页不含该竖版封面）。

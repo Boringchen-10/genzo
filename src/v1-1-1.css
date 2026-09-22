@@ -184,14 +184,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* 横版横幅只负责环境背景；竖版封面保持原始比例作为清晰主视觉。 */
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .65; filter: blur(max(28px, var(--poster-blur))) saturate(.8) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
 .gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: calc(-1 * var(--poster-blur) - 4px); opacity: .92; filter: blur(var(--poster-blur)) saturate(1.04) brightness(.92); }
-.gnz-banner-poster-frame { position: absolute; z-index: 3; right: clamp(28px, 5vw, 88px); top: clamp(72px, 10vh, 112px); bottom: clamp(38px, 6vh, 64px); display: flex; align-items: center; justify-content: center; width: clamp(190px, 19vw, 310px); padding: 10px; background: color-mix(in srgb, var(--bg) 28%, transparent); border: 1px solid color-mix(in srgb, var(--tint) 18%, transparent); border-radius: 10px; box-shadow: 0 24px 48px rgb(0 0 0 / .28); backdrop-filter: blur(8px); }
-.gnz-banner-poster-frame .gnz-banner-poster { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; border-radius: 5px; }
-@media (max-width: 1040px) { .gnz-banner-poster-frame { right: 28px; width: 180px; } }
-@media (max-width: 760px) { .gnz-banner-poster-frame { display: none; } }
 .gnz-home .seanime-banner::before { z-index: 1; background: rgb(3 8 9 / .14); }
-/* 第 1 层：海报顶端淡出到页面底色，使标题栏与海报之间没有硬边（渐变融合）。
-   第 2 层：海报底端同样淡出到页面底色，使海报与下方内容之间没有硬边。
-   第 3 层：底部压暗，保证左下标题与右下海报栏的对比度——海报**不再有横向（侧边）暗角**，
+/* 第 1 层：背景顶端淡出到页面底色，使标题栏与背景之间没有硬边（渐变融合）。
+   第 2 层：背景底端同样淡出到页面底色，使背景与下方内容之间没有硬边。
+   第 3 层：底部压暗，保证左下标题的对比度——背景**不再有横向（侧边）暗角**，
    左半幅保持原图亮度，避免压暗整块画面。 */
 .gnz-home .seanime-banner::after { z-index: 2; background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(5 10 11 / .54), transparent 46%); box-shadow: none; }
 :root:not(.dark) .gnz-home .seanime-banner::after { background: linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }

@@ -134,7 +134,6 @@ export function HomePage() {
   const carouselWorks = useMemo(() => data?.recentWorks.slice(0, 5) ?? [], [data]);
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
   const featuredArtwork = workBackdrop(featured, featuredIndex);
-  const featuredCover = featured ? coverUrl(featured.coverPath) : null;
   /** 背景是否来自真实横版横幅（决定用清晰横幅还是模糊封面铺底）。 */
   const featuredHasBanner = Boolean(bannerArtwork(featured));
   const shelfWorks = useMemo(
@@ -170,7 +169,6 @@ export function HomePage() {
       {toolsHost ? createPortal(homeToolbar, toolsHost) : null}
       <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}${featuredHasBanner ? " has-banner" : ""}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
-        {featuredCover ? <div className="gnz-banner-poster-frame"><img className="gnz-banner-poster" src={featuredCover} alt={`${featured?.title ?? ""} 封面`} /></div> : null}
         <div className="seanime-banner-title">
           <span>CONTINUE YOUR JOURNEY</span>
           <h1>{featured?.title ?? "你的本地媒体，都在这里"}</h1>
