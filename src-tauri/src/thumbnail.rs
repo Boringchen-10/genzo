@@ -3,9 +3,13 @@ use std::path::Path;
 
 /// Only visible cards request extraction. Hold the permit inside the blocking
 /// task: timing out the caller must not allow unlimited stuck Shell handlers.
+///
+/// `cache_only` 只使用 Windows 已经缓存的缩略图：挂载网盘上的 4K 文件做一次完整
+/// 提取基本必然超时，自动加载因此只走这条快速路径，用户显式重试时才完整提取。
 pub async fn extract_on_demand(
     source: std::path::PathBuf,
     destination: std::path::PathBuf,
+    cache_only: bool,
 ) -> AppResult<Option<bool>> {
     use std::sync::{Arc, OnceLock};
     use std::time::Duration;
@@ -19,7 +23,7 @@ pub async fn extract_on_demand(
     };
     let task = tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
-        extract_video_thumbnail(&source, &destination)
+        extract_video_thumbnail(&source, &destination, cache_only)
     });
     match tokio::time::timeout(Duration::from_secs(20), task).await {
         Ok(Ok(result)) => result.map(Some),
@@ -43,7 +47,7 @@ fn shell_thumbnail_path(path: &Path) -> std::path::PathBuf {
 }
 
 #[cfg(windows)]
-pub fn extract_video_thumbnail(source: &Path, destination: &Path) -> AppResult<bool> {
+pub fn extract_video_thumbnail(source: &Path, destination: &Path, cache_only: bool) -> AppResult<bool> {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::{Interface, PCWSTR};
     use windows::Win32::Foundation::{RPC_E_CHANGED_MODE, SIZE};
@@ -116,15 +120,20 @@ pub fn extract_video_thumbnail(source: &Path, destination: &Path) -> AppResult<b
             (SIZE { cx: 256, cy: 256 }, SIIGBF_THUMBNAILONLY),
         ];
         let mut last_error = None;
-        let bitmap = requests.into_iter().find_map(|(size, flags)| {
-            match unsafe { factory.GetImage(size, flags) } {
-                Ok(bitmap) => Some(bitmap),
-                Err(error) => {
-                    last_error = Some(error);
-                    None
+        // 缓存优先：只有第一条请求允许直接读缓存，其余会真正读取视频内容。
+        let attempt_count = if cache_only { 1 } else { requests.len() };
+        let bitmap = requests
+            .into_iter()
+            .take(attempt_count)
+            .find_map(|(size, flags)| {
+                match unsafe { factory.GetImage(size, flags) } {
+                    Ok(bitmap) => Some(bitmap),
+                    Err(error) => {
+                        last_error = Some(error);
+                        None
+                    }
                 }
-            }
-        });
+            });
         let Some(bitmap) = bitmap else {
             #[cfg(test)]
             if let Some(error) = last_error {
@@ -232,7 +241,7 @@ fn bitmap_to_jpeg(
 }
 
 #[cfg(not(windows))]
-pub fn extract_video_thumbnail(_source: &Path, _destination: &Path) -> AppResult<bool> {
+pub fn extract_video_thumbnail(_source: &Path, _destination: &Path, _cache_only: bool) -> AppResult<bool> {
     Ok(false)
 }
 
@@ -263,7 +272,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary thumbnail directory");
         let destination = directory.path().join("thumbnail.jpg");
         assert!(
-            extract_video_thumbnail(Path::new(&source), &destination).expect("extract thumbnail")
+            extract_video_thumbnail(Path::new(&source), &destination, false).expect("extract thumbnail")
         );
         assert!(destination.metadata().expect("thumbnail metadata").len() > 1_000);
     }

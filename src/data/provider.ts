@@ -117,7 +117,8 @@ export interface GenzoDataProvider {
    *   再次 `getWork()` 才能取得更新后的简介与标签。
    * - `setMediaEpisode` 传 `null` 表示解除分集映射。
    * - `getMediaThumbnail` 返回 `null` 是合法结果（部分 MKV/HEVC 无法提取封面帧），UI 必须按
-   *   无缩略图状态渲染，**不得用作品海报冒充视频帧**。
+   *   无缩略图状态渲染，**不得用作品海报冒充视频帧**。挂载网盘上的视频自动加载只查
+   *   Windows 已缓存的缩略图，`force` 为真时才做一次完整提取（由「重试缩略图」触发）。
    *
    * **可选成员**：`tauriProvider.ts` 由 Codex 维护，其真实委托由 Codex 补齐；页面通过
    * `getAnimeDetailProvider()` 访问，未补齐时显示明确的「尚未接入」状态，不伪造数据。
@@ -125,7 +126,7 @@ export interface GenzoDataProvider {
   getAnimeWorkStructure?(workId: string): Promise<AnimeWorkStructure>;
   refreshWorkMetadata?(workId: string): Promise<AnimeWorkStructure>;
   setMediaEpisode?(mediaFileId: string, episodeExternalId: string | null): Promise<void>;
-  getMediaThumbnail?(mediaFileId: string): Promise<string | null>;
+  getMediaThumbnail?(mediaFileId: string, force?: boolean): Promise<string | null>;
 
   /**
    * 动画排行榜（按 Bangumi 评分排名，支持分页）。
@@ -148,7 +149,7 @@ export interface GenzoAnimeDetailProvider {
   getAnimeWorkStructure(workId: string): Promise<AnimeWorkStructure>;
   refreshWorkMetadata(workId: string): Promise<AnimeWorkStructure>;
   setMediaEpisode(mediaFileId: string, episodeExternalId: string | null): Promise<void>;
-  getMediaThumbnail(mediaFileId: string): Promise<string | null>;
+  getMediaThumbnail(mediaFileId: string, force?: boolean): Promise<string | null>;
 }
 
 /** 动画排行能力子集：Provider 补齐后可用（见 `getAnimeRankingProvider()`）。 */

@@ -31,6 +31,72 @@ fn has_mixed_installments(files: &[MediaFile]) -> bool {
         > 1
 }
 
+/// Bangumi 分集类型：0 正片、1 特别篇、2 OP、3 ED、4 预告、5 MAD、6 其他。
+const EPISODE_TYPE_MAIN: u32 = 0;
+const EPISODE_TYPE_SPECIAL: u32 = 1;
+const EPISODE_TYPE_OPENING: u32 = 2;
+const EPISODE_TYPE_ENDING: u32 = 3;
+
+fn marker_matches(token: &str, base: &str) -> bool {
+    token == base
+        || (token.starts_with(base)
+            && token[base.len()..].chars().all(|value| value.is_ascii_digit()))
+}
+
+fn bracket_tokens(file_name: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    for segment in file_name.split(['[', '(', '【', '（']).skip(1) {
+        let Some(end) = segment.find([']', ')', '】', '）']) else {
+            continue;
+        };
+        for token in segment[..end].split(|value: char| !value.is_ascii_alphanumeric()) {
+            if !token.is_empty() {
+                tokens.push(token.to_ascii_uppercase());
+            }
+        }
+    }
+    tokens
+}
+
+/// 片头/片尾素材的标记，返回对应的 Bangumi 分集类型。
+/// `NCOP`/`NCED` 在任何位置都算数；单独的 `OP`/`ED` 只认括号里的标记，
+/// 避免把标题里的字母当成片头片尾。
+fn creditless_marker(file_name: &str) -> Option<u32> {
+    let upper = file_name.to_ascii_uppercase();
+    let plain = upper
+        .split(|value: char| !value.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let bracketed = bracket_tokens(file_name);
+    if plain.iter().any(|token| marker_matches(token, "NCOP"))
+        || bracketed.iter().any(|token| marker_matches(token, "OP"))
+    {
+        return Some(EPISODE_TYPE_OPENING);
+    }
+    if plain.iter().any(|token| marker_matches(token, "NCED"))
+        || bracketed.iter().any(|token| marker_matches(token, "ED"))
+    {
+        return Some(EPISODE_TYPE_ENDING);
+    }
+    None
+}
+
+/// 作品锚定的 Bangumi 条目季数：同一文件夹里其它季度的文件不能算进本作品分集。
+async fn work_anchor_season(
+    transaction: &mut Transaction<'_, Sqlite>,
+    work_id: &str,
+) -> AppResult<Option<i64>> {
+    let json: Option<String> = sqlx::query_scalar(
+        "SELECT response_json FROM metadata_provider_records WHERE work_id = ? AND provider = 'bangumi'",
+    )
+    .bind(work_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    Ok(json
+        .and_then(|value| serde_json::from_str::<crate::models::WorkMetadata>(&value).ok())
+        .and_then(|metadata| metadata.season))
+}
+
 pub async fn rebuild_episode_links(
     transaction: &mut Transaction<'_, Sqlite>,
     work_id: &str,
@@ -45,11 +111,6 @@ pub async fn rebuild_episode_links(
     .bind(work_id)
     .fetch_all(&mut **transaction)
     .await?;
-    // Episode numbers alone cannot identify episodes in a mixed-season work.
-    // Keep explicit manual mappings, and let the user recognize each group first.
-    if has_mixed_installments(&files) {
-        return Ok(());
-    }
     let manual_media_ids = sqlx::query_scalar::<_, String>(
         "SELECT media_file_id FROM media_episode_links WHERE work_id = ? AND match_method = 'manual'",
     )
@@ -58,33 +119,145 @@ pub async fn rebuild_episode_links(
     .await?
     .into_iter()
     .collect::<HashSet<_>>();
-    let episode_ids = sqlx::query_as::<_, (String, i64)>(
-        "SELECT external_id, episode_number FROM anime_episodes WHERE work_id = ? AND provider = 'bangumi' AND episode_number IS NOT NULL",
-    )
-    .bind(work_id)
-    .fetch_all(&mut **transaction)
-    .await?
-    .into_iter()
-    .map(|(id, number)| (number, id))
-    .collect::<HashMap<_, _>>();
-    let media = sqlx::query_as::<_, (String, i64)>(
-        "SELECT id, parsed_episode_start FROM media_files WHERE work_id = ? AND media_type = 'video' AND missing = 0 AND parsed_episode_start IS NOT NULL",
+
+    // 官方分集按类型分组：正片按集号，特别篇与 OP/ED 各自按顺序，
+    // 避免把 OVA、片头片尾当成同号正片。
+    let episodes = sqlx::query_as::<_, (String, Option<i64>, Option<i64>)>(
+        "SELECT external_id, episode_number, episode_type FROM anime_episodes WHERE work_id = ? AND provider = 'bangumi' ORDER BY sort_number, episode_number",
     )
     .bind(work_id)
     .fetch_all(&mut **transaction)
     .await?;
-    let now = Utc::now().to_rfc3339();
-    for (media_file_id, episode_number) in media {
-        if manual_media_ids.contains(&media_file_id) {
+    let mut main_by_number: HashMap<i64, String> = HashMap::new();
+    let mut specials: Vec<String> = Vec::new();
+    let mut openings: Vec<String> = Vec::new();
+    let mut endings: Vec<String> = Vec::new();
+    for (external_id, number, episode_type) in episodes {
+        match episode_type.and_then(|value| u32::try_from(value).ok()) {
+            Some(EPISODE_TYPE_SPECIAL) => specials.push(external_id),
+            Some(EPISODE_TYPE_OPENING) => openings.push(external_id),
+            Some(EPISODE_TYPE_ENDING) => endings.push(external_id),
+            // 旧记录没有类型，按正片处理；预告/MAD/其他不参与自动分集。
+            Some(EPISODE_TYPE_MAIN) | None => {
+                if let Some(number) = number {
+                    main_by_number.entry(number).or_insert(external_id);
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    if main_by_number.is_empty() && specials.is_empty() && openings.is_empty() && endings.is_empty() {
+        return Ok(());
+    }
+
+    let anchor_season = work_anchor_season(transaction, work_id).await?;
+    // 用文件名重新解析，不信任可能过期的 parsed_* 列。
+    let parsed_files = files
+        .iter()
+        .filter(|file| {
+            file.media_type == "video" && !file.missing && !manual_media_ids.contains(&file.id)
+        })
+        .map(|file| {
+            let parsed = crate::anime_parser::parse_media_path(
+                &file.file_name,
+                Path::new(&crate::remote_storage::display_path(&file.path)),
+                None,
+            );
+            (file, parsed)
+        })
+        .collect::<Vec<_>>();
+    // 没有 Bangumi 季度信息又混装多个季度时，退回保守做法，不猜集号。
+    // 这里必须看全部视频文件（含手动关联过的），否则同一作品里的另一季会被误判成单季。
+    let mut main_seasons = HashSet::new();
+    for file in files.iter().filter(|file| file.media_type == "video") {
+        let parsed = crate::anime_parser::parse_media_path(
+            &file.file_name,
+            Path::new(&crate::remote_storage::display_path(&file.path)),
+            None,
+        );
+        if parsed.special_type.is_none() && creditless_marker(&file.file_name).is_none() {
+            main_seasons.insert(parsed.season.unwrap_or(1));
+        }
+    }
+    let link_main = anchor_season.is_some() || main_seasons.len() <= 1;
+
+    let mut claims: Vec<(String, String)> = Vec::new();
+    let mut special_claims: Vec<(i64, String, String)> = Vec::new();
+    let mut opening_claims: Vec<(bool, i64, String, String)> = Vec::new();
+    let mut ending_claims: Vec<(bool, i64, String, String)> = Vec::new();
+    for (file, parsed) in &parsed_files {
+        let episode_number = parsed
+            .episode
+            .as_deref()
+            .and_then(|value| value.trim().parse::<i64>().ok());
+        if let Some(kind) = creditless_marker(&file.file_name) {
+            let creditless = file.file_name.to_ascii_uppercase().contains("NC");
+            let claim = (creditless, episode_number.unwrap_or(1), file.file_name.clone(), file.id.clone());
+            if kind == EPISODE_TYPE_OPENING {
+                opening_claims.push(claim);
+            } else {
+                ending_claims.push(claim);
+            }
             continue;
         }
-        let Some(episode_external_id) = episode_ids.get(&episode_number) else {
+        if parsed.special_type.is_some() {
+            // 特别篇按文件里的序号对应同序号的特别篇；没有序号就不猜。
+            if let Some(ordinal) = episode_number {
+                special_claims.push((ordinal, file.file_name.clone(), file.id.clone()));
+            }
             continue;
-        };
+        }
+        if !link_main {
+            continue;
+        }
+        if let Some(anchor) = anchor_season {
+            if parsed.season.is_some_and(|value| value != anchor) {
+                continue;
+            }
+        }
+        if let Some(number) = episode_number {
+            if let Some(episode_external_id) = main_by_number.get(&number) {
+                claims.push((file.id.clone(), episode_external_id.clone()));
+            }
+        }
+    }
+    for (ordinal, _, media_file_id) in &special_claims {
+        if let Some(episode_external_id) = ordinal
+            .checked_sub(1)
+            .and_then(|index| usize::try_from(index).ok())
+            .and_then(|index| specials.get(index))
+        {
+            claims.push((media_file_id.clone(), episode_external_id.clone()));
+        }
+    }
+    for (claims_for_type, episodes_for_type) in [
+        (&mut opening_claims, &openings),
+        (&mut ending_claims, &endings),
+    ] {
+        // 先正片头尾再 NC 版，其余按序号和文件名稳定排序。
+        claims_for_type.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.cmp(&right.1))
+                .then(natord::compare_ignore_case(&left.2, &right.2))
+        });
+        for (index, (_, _, _, media_file_id)) in claims_for_type.iter().enumerate() {
+            if let Some(episode_external_id) = episodes_for_type.get(index) {
+                claims.push((media_file_id.clone(), episode_external_id.clone()));
+            }
+        }
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let mut linked = HashSet::new();
+    for (media_file_id, episode_external_id) in claims {
+        if !linked.insert(media_file_id.clone()) {
+            continue;
+        }
         sqlx::query("INSERT INTO media_episode_links (media_file_id, work_id, provider, episode_external_id, match_method, confidence, updated_at) VALUES (?, ?, 'bangumi', ?, 'parsed', 1, ?)")
-            .bind(media_file_id)
+            .bind(&media_file_id)
             .bind(work_id)
-            .bind(episode_external_id)
+            .bind(&episode_external_id)
             .bind(&now)
             .execute(&mut **transaction)
             .await?;
@@ -190,6 +363,12 @@ pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<Anime
     let official = crate::metadata_aggregator::episodes_for_work(pool, work_id).await?;
     if official.is_empty() {
         warnings.push("尚未缓存官方分集，请先刷新作品元数据".to_string());
+    } else if official
+        .iter()
+        .all(|episode| episode.episode_type.is_none())
+    {
+        // 旧记录只抓过正片，OVA/OP/ED 无法归类，也无法自动分集这些素材。
+        warnings.push("官方分集缺少类型信息，刷新作品元数据后可以自动分集特别篇与 OP/ED".to_string());
     }
     let linked = sqlx::query_as::<_, (String, String, String)>(
         "SELECT media_file_id, episode_external_id, match_method FROM media_episode_links WHERE work_id = ? AND provider IN ('bangumi', 'local')",
@@ -205,11 +384,10 @@ pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<Anime
     .await?;
     let mixed = has_mixed_installments(&media);
     if mixed {
-        warnings.push("检测到不同季度或特别篇混在同一作品中，请在文件操作中选择“识别到其他作品”；确认拆分前暂停自动分集关联。".to_string());
+        warnings.push("同一作品里混有不同季度或特别篇：只有与本作品季度一致的文件会自动分集，其余请在文件操作中选择“识别到其他作品”。".to_string());
     }
     let linked = linked
         .into_iter()
-        .filter(|(_, _, method)| !mixed || method == "manual")
         .map(|(id, episode, _)| (id, episode))
         .collect::<HashMap<_, _>>();
     let mut files_by_episode: HashMap<String, Vec<MediaFile>> = HashMap::new();
@@ -299,25 +477,31 @@ pub async fn media_thumbnail(
     state: &AppState,
     app: &AppHandle,
     media_file_id: &str,
+    force: bool,
 ) -> AppResult<Option<String>> {
-    let result = media_thumbnail_path(state, media_file_id).await?;
+    let result = media_thumbnail_path(state, media_file_id, force).await?;
     if let Some(path) = &result {
         db::allow_cover_file(app, Path::new(path))?;
     }
     Ok(result)
 }
 
-async fn media_thumbnail_path(state: &AppState, media_file_id: &str) -> AppResult<Option<String>> {
-    media_thumbnail_with(state, media_file_id, crate::thumbnail::extract_on_demand).await
+async fn media_thumbnail_path(
+    state: &AppState,
+    media_file_id: &str,
+    force: bool,
+) -> AppResult<Option<String>> {
+    media_thumbnail_with(state, media_file_id, force, crate::thumbnail::extract_on_demand).await
 }
 
 async fn media_thumbnail_with<F, Fut>(
     state: &AppState,
     media_file_id: &str,
+    force: bool,
     extract: F,
 ) -> AppResult<Option<String>>
 where
-    F: FnOnce(PathBuf, PathBuf) -> Fut,
+    F: FnOnce(PathBuf, PathBuf, bool) -> Fut,
     Fut: Future<Output = AppResult<Option<bool>>>,
 {
     let (path, media_type, missing, cached, modified_at): (String, String, bool, Option<String>, Option<String>) =
@@ -354,7 +538,10 @@ where
     let destination = state
         .thumbnail_cache_path
         .join(format!("media-{media_file_id}.jpg"));
-    let Some(created) = extract(source, destination.clone()).await? else {
+    // 挂载网盘上的大文件完整提取往往要读整段视频，自动加载只查 Windows 缓存；
+    // 用户点「重试缩略图」时 force 为真，才做一次完整提取。
+    let cache_only = mounted && !force;
+    let Some(created) = extract(source, destination.clone(), cache_only).await? else {
         return Ok(None);
     };
     if !created {
@@ -442,14 +629,15 @@ mod tests {
         sqlx::query("INSERT INTO library_roots(id,path,kind,source_type,created_at,updated_at) VALUES ('r','R:\\Anime','video','mounted','now','now')").execute(&state.pool).await.unwrap();
         let raw = r"\\?\UNC\server\share\01.mkv";
         sqlx::query("INSERT INTO media_files(id,library_root_id,path,file_name,extension,media_type,thumbnail_path,created_at,updated_at) VALUES ('m','r',?,'01.mkv','mkv','video','__unsupported__','now','now')").bind(raw).execute(&state.pool).await.unwrap();
-        let failed = media_thumbnail_with(&state, "m", |source, _| async move {
+        let failed = media_thumbnail_with(&state, "m", false, |source, _, cache_only| async move {
             assert_eq!(source, Path::new(raw)); // original persisted path reaches the boundary
+            assert!(cache_only, "自动加载挂载目录的缩略图必须只查缓存");
             Ok(Some(false))
         })
         .await
         .unwrap();
         assert!(failed.is_none());
-        let image = media_thumbnail_with(&state, "m", |_, destination| async move {
+        let image = media_thumbnail_with(&state, "m", false, |_, destination, _| async move {
             std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
             image::RgbImage::new(160, 90).save(&destination).unwrap();
             Ok(Some(true))
@@ -461,12 +649,26 @@ mod tests {
             .execute(&state.pool)
             .await
             .unwrap();
-        let cached = media_thumbnail_with(&state, "m", |_, _| async {
+        let cached = media_thumbnail_with(&state, "m", false, |_, _, _| async {
             panic!("cached image must not touch the disconnected mount")
         })
         .await
         .unwrap();
         assert_eq!(cached, Some(image));
+        // 用户显式重试时必须允许完整提取，否则挂载目录永远拿不到缩略图。
+        sqlx::query("UPDATE media_files SET thumbnail_path=NULL, missing=0")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        let forced = media_thumbnail_with(&state, "m", true, |_, destination, cache_only| async move {
+            assert!(!cache_only, "显式重试必须走完整提取");
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            image::RgbImage::new(160, 90).save(&destination).unwrap();
+            Ok(Some(true))
+        })
+        .await
+        .unwrap();
+        assert!(forced.is_some());
         let stored: String = sqlx::query_scalar("SELECT path FROM media_files WHERE id='m'")
             .fetch_one(&state.pool)
             .await
@@ -527,6 +729,80 @@ mod tests {
         .await
         .expect("count links");
         assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn maps_specials_and_creditless_opening_ending_to_their_own_episodes() {
+        let pool = db::test_pool().await.expect("database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('work', '动画', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("work");
+        for (id, number, sort, episode_type) in [
+            ("ep1", 1_i64, 1_i64, 0_i64),
+            ("sp1", 1, 11, 1),
+            ("sp2", 2, 12, 1),
+            ("op1", 1, 21, 2),
+            ("op2", 2, 22, 2),
+            ("ed1", 1, 31, 3),
+        ] {
+            sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, episode_type, title, fetched_at) VALUES ('work', 'bangumi', ?, ?, ?, ?, '', ?)")
+                .bind(id).bind(number).bind(sort).bind(episode_type).bind(&now).execute(&pool).await.expect("episode");
+        }
+        for (id, name) in [
+            ("tv", "Show - 01.mkv"),
+            ("ova1", "Show OVA 01.mkv"),
+            ("ova2", "Show OVA 02.mkv"),
+            ("op", "Show [OP][1080p].mkv"),
+            ("ncop", "Show [NCOP][1080p].mkv"),
+            ("ed", "Show [ED][1080p].mkv"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, size, missing, created_at, updated_at) VALUES (?, 'work', ?, ?, 'mkv', 'video', 10, 0, ?, ?)")
+                .bind(id).bind(format!("C:\\Anime\\Show\\{name}")).bind(name).bind(&now).bind(&now).execute(&pool).await.expect("media");
+        }
+        let mut transaction = pool.begin().await.expect("transaction");
+        rebuild_episode_links(&mut transaction, "work").await.expect("mapping");
+        transaction.commit().await.expect("commit");
+        let links: Vec<(String, String)> =
+            sqlx::query_as("SELECT media_file_id, episode_external_id FROM media_episode_links ORDER BY media_file_id")
+                .fetch_all(&pool).await.expect("links");
+        assert_eq!(
+            links,
+            vec![
+                ("ed".to_string(), "ed1".to_string()),
+                ("ncop".to_string(), "op2".to_string()),
+                ("op".to_string(), "op1".to_string()),
+                ("ova1".to_string(), "sp1".to_string()),
+                ("ova2".to_string(), "sp2".to_string()),
+                ("tv".to_string(), "ep1".to_string()),
+            ]
+        );
+    }
+
+    /// 同一文件夹里混装了别的季度时，只能自动分集本作品季度内的文件。
+    #[tokio::test]
+    async fn only_links_files_from_the_anchored_season() {
+        let pool = db::test_pool().await.expect("database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('work', '动画', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("work");
+        let mut metadata = crate::explore::lookup_title("葬送的芙莉莲").expect("index").remove(0);
+        metadata.season = Some(1);
+        sqlx::query("INSERT INTO metadata_provider_records (work_id, provider, external_id, title, year, confidence, response_json, fetched_at) VALUES ('work', 'bangumi', ?, ?, ?, 1, ?, ?)")
+            .bind(&metadata.external_id).bind(&metadata.title).bind(metadata.year).bind(serde_json::to_string(&metadata).unwrap()).bind(&now)
+            .execute(&pool).await.expect("record");
+        sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, episode_type, title, fetched_at) VALUES ('work', 'bangumi', 'ep1', 1, 1, 0, '', ?), ('work', 'bangumi', 'ep2', 2, 2, 0, '', ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("episodes");
+        for (id, name) in [("s1", "Show - 02.mkv"), ("s2", "Show S2 - 02.mkv")] {
+            sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, size, missing, created_at, updated_at) VALUES (?, 'work', ?, ?, 'mkv', 'video', 10, 0, ?, ?)")
+                .bind(id).bind(format!("C:\\Anime\\Show\\{name}")).bind(name).bind(&now).bind(&now).execute(&pool).await.expect("media");
+        }
+        let mut transaction = pool.begin().await.expect("transaction");
+        rebuild_episode_links(&mut transaction, "work").await.expect("mapping");
+        transaction.commit().await.expect("commit");
+        let links: Vec<(String, String)> =
+            sqlx::query_as("SELECT media_file_id, episode_external_id FROM media_episode_links")
+                .fetch_all(&pool).await.expect("links");
+        assert_eq!(links, vec![("s1".to_string(), "ep2".to_string())]);
     }
 
     #[tokio::test]

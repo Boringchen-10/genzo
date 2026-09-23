@@ -594,6 +594,8 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-inline-error { margin: 0 0 14px; color: var(--danger); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 
 .official-episodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.episode-group-head { margin: 22px 0 12px; color: var(--text); font-size: 13px; font-weight: 650; }
+.episode-group-head:first-child { margin-top: 0; }
 .official-episode { display: grid; grid-template-rows: auto auto auto 1fr; align-content: start; min-width: 0; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
 
 /* 集数快照：卡片主体。用本地视频帧，取不到帧时用中性占位——绝不用作品海报冒充视频帧。 */

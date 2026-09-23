@@ -1282,10 +1282,11 @@ pub async fn set_media_episode(
 #[tauri::command]
 pub async fn get_media_thumbnail(
     media_file_id: String,
+    force: Option<bool>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<Option<String>> {
-    crate::anime_details::media_thumbnail(&state, &app, &media_file_id).await
+    crate::anime_details::media_thumbnail(&state, &app, &media_file_id, force.unwrap_or(false)).await
 }
 
 #[tauri::command]

@@ -509,6 +509,7 @@ const mockAnimeStructure = (workId: string): AnimeWorkStructure => {
       externalId: structureEpisodeId(workId, number),
       episodeNumber: number,
       sortNumber: number,
+      episodeType: 0,
       title: seed?.title ?? "",
       originalTitle: null,
       description: seed?.description ?? "",

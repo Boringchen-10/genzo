@@ -264,6 +264,10 @@ pub struct AnimeEpisodeMetadata {
     pub external_id: String,
     pub episode_number: Option<u32>,
     pub sort_number: u32,
+    /// Bangumi 分集类型：0 正片、1 特别篇、2 OP、3 ED、4 预告、5 MAD、6 其他。
+    /// 旧记录为 `None`，按正片处理。
+    #[serde(default)]
+    pub episode_type: Option<u32>,
     pub title: String,
     pub original_title: Option<String>,
     pub description: String,

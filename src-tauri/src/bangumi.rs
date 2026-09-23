@@ -164,7 +164,6 @@ impl BangumiProvider {
                 .get(format!("{API_ROOT}/episodes"))
                 .query(&[
                     ("subject_id", subject_id.to_string()),
-                    ("type", "0".to_string()),
                     ("limit", "100".to_string()),
                     ("offset", offset.to_string()),
                 ])
@@ -343,6 +342,10 @@ fn episode_to_metadata(item: &Value, fetched_at: &str) -> Option<AnimeEpisodeMet
         external_id: id,
         episode_number,
         sort_number: sort.max(0.0).round() as u32,
+        episode_type: item
+            .get("type")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok()),
         title,
         original_title,
         description: item
@@ -591,6 +594,7 @@ mod tests {
             &json!({
                 "id": 100,
                 "sort": 12,
+                "type": 0,
                 "name": "The End of the Journey",
                 "name_cn": "旅途的终点",
                 "airdate": "2023-12-01",
@@ -602,6 +606,23 @@ mod tests {
         assert_eq!(episode.episode_number, Some(12));
         assert_eq!(episode.sort_number, 12);
         assert_eq!(episode.title, "旅途的终点");
+        assert_eq!(episode.episode_type, Some(0));
+    }
+
+    #[test]
+    fn maps_special_and_creditless_episode_types() {
+        let special = episode_to_metadata(
+            &json!({ "id": 200, "sort": 1, "type": 1, "name_cn": "特别篇" }),
+            "2026-09-15T00:00:00Z",
+        )
+        .expect("special");
+        assert_eq!(special.episode_type, Some(1));
+        let creditless = episode_to_metadata(
+            &json!({ "id": 201, "sort": 1, "type": 2, "name": "NCOP" }),
+            "2026-09-15T00:00:00Z",
+        )
+        .expect("opening");
+        assert_eq!(creditless.episode_type, Some(2));
     }
 
     #[tokio::test]

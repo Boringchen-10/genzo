@@ -330,6 +330,8 @@ export interface AnimeEpisodeMetadata {
   externalId: string;
   episodeNumber: number | null;
   sortNumber: number;
+  /** Bangumi 分集类型：0 正片、1 特别篇、2 OP、3 ED、4 预告、5 MAD、6 其他；null 按正片处理。 */
+  episodeType: number | null;
   title: string;
   originalTitle: string | null;
   description: string;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -60,10 +60,25 @@ function workInput(work: WorkDetail, overrides: Partial<WorkInput> = {}): WorkIn
 
 const episodeNumber = (episode: AnimeEpisodeEntry): number => episode.episodeNumber ?? episode.sortNumber;
 
-/** 有标题时显示「第 N 集 · 标题」，没有标题时只显示「第 N 集」，不虚构标题。 */
+/** Bangumi 分集类型：0 正片、1 特别篇、2 OP、3 ED、4 预告、5 MAD、6 其他。 */
+const episodeTypeLabels: Record<number, string> = {
+  1: "特别篇",
+  2: "OP",
+  3: "ED",
+  4: "预告",
+  5: "MAD",
+  6: "其他",
+};
+
+const isMainEpisode = (episode: AnimeEpisodeEntry): boolean => (episode.episodeType ?? 0) === 0;
+
+/** 正片显示「第 N 集 · 标题」，特别篇/OP/ED 按类型显示，不把 OP 写成「第 1 集」。 */
 const episodeLabel = (episode: AnimeEpisodeEntry): string => {
-  const number = episodeNumber(episode);
-  return episode.title.trim() ? `第 ${number} 集 · ${episode.title}` : `第 ${number} 集`;
+  const type = episode.episodeType ?? 0;
+  const head = type === 0
+    ? `第 ${episodeNumber(episode)} 集`
+    : `${episodeTypeLabels[type] ?? "其他"}${episode.episodeNumber ? ` ${episode.episodeNumber}` : ""}`;
+  return episode.title.trim() ? `${head} · ${episode.title}` : head;
 };
 
 /** 从「1080p · HEVC · FLAC」这类解析文本里取分辨率数值用于排序，越大越清晰；识别不到返回 0。 */
@@ -125,7 +140,9 @@ function LocalFileThumb({ file, provider, className = "local-file-thumb" }: { fi
       if (requested.current) return;
       requested.current = true;
       try {
-        const result = await provider.getMediaThumbnail(file.id);
+        // 只有用户点过「重试缩略图」（retry > 0）才要求完整提取；
+        // 滚动到可见时的自动加载在挂载盘上只查 Windows 缓存，避免长时间等待。
+        const result = await provider.getMediaThumbnail(file.id, retry > 0);
         completed = true;
         if (!disposed) { setThumb(result); setFailed(!result); }
       } catch {
@@ -520,6 +537,13 @@ export function WorkDetailPage() {
   const detailBanner = coverUrl(work.bannerPath ?? null);
   const detailArtwork = detailBanner ?? coverUrl(work.coverPath);
   const officialEpisodes = structure?.episodes ?? [];
+  const mainEpisodes = officialEpisodes.filter(isMainEpisode);
+  const extraEpisodes = officialEpisodes.filter((episode) => !isMainEpisode(episode));
+  /** 正片与特别篇/OP/ED 分开成组，避免把片头片尾混进集数列表。 */
+  const episodeGroups = [
+    { key: "main", title: "", episodes: mainEpisodes },
+    { key: "extras", title: "特别篇 / OP / ED", episodes: extraEpisodes },
+  ].filter((group) => group.episodes.length);
   const libraryEpisodeCount = officialEpisodes.filter((episode) => episode.localFiles.length > 0).length;
   /** 未匹配列表里**路径已失效**的记录：文件不在磁盘上，无法用于分集关联（区别于真正待映射的文件）。 */
   const unmatchedStaleCount = (structure?.unmatchedFiles ?? []).filter((file) => file.missing).length;
@@ -623,7 +647,7 @@ export function WorkDetailPage() {
                 <h2>章节与文件</h2>
                 <span className="episode-summary">
                   {hasStructure
-                    ? <><strong>{officialEpisodes.length}</strong> 集 · 库中 <strong>{libraryEpisodeCount}</strong> 集</>
+                    ? <><strong>{mainEpisodes.length}</strong> 集{extraEpisodes.length ? <> · 特别篇/OP/ED <strong>{extraEpisodes.length}</strong></> : null} · 库中 <strong>{libraryEpisodeCount}</strong> 集</>
                     : <><strong>{work.mediaFiles.length}</strong> 个关联文件</>}
                 </span>
               </div>
@@ -646,8 +670,11 @@ export function WorkDetailPage() {
                   {officialEpisodes.length === 0 ? (
                     <EmptyState title="没有分集信息" description={structure?.warnings[0] ?? "这部作品还没有可用的官方分集。"} />
                   ) : (
-                    <div className="official-episodes">
-                      {officialEpisodes.map((episode) => {
+                    episodeGroups.map((group) => (
+                      <Fragment key={group.key}>
+                        {group.title ? <h3 className="episode-group-head">{group.title}（{group.episodes.length}）</h3> : null}
+                        <div className="official-episodes">
+                      {group.episodes.map((episode) => {
                         const primaryFile = episode.localFiles.find((file) => file.id === versionChoice[episode.externalId])
                           ?? pickPrimaryFile(episode.localFiles);
                         const snapshotFile = (primaryFile?.thumbnailPath && !primaryFile.thumbnailPath.includes("__unsupported__") ? primaryFile : null)
@@ -743,7 +770,9 @@ export function WorkDetailPage() {
                           </article>
                         );
                       })}
-                    </div>
+                        </div>
+                      </Fragment>
+                    ))
                   )}
 
                   <div className="unmatched-block">

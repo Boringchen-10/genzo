@@ -192,8 +192,8 @@ export const api = {
     withAnimeStructureAssets(await call<AnimeWorkStructure>("refresh_work_metadata", { workId })),
   setMediaEpisode: (mediaFileId: string, episodeExternalId: string | null) =>
     call<void>("set_media_episode", { mediaFileId, episodeExternalId }),
-  getMediaThumbnail: async (mediaFileId: string) =>
-    localAssetUrl(await call<string | null>("get_media_thumbnail", { mediaFileId })) ?? null,
+  getMediaThumbnail: async (mediaFileId: string, force = false) =>
+    localAssetUrl(await call<string | null>("get_media_thumbnail", { mediaFileId, force })) ?? null,
   animeRanking: (page = 1, pageSize = 50) =>
     call<ExploreSubject[]>("get_anime_ranking", { page, pageSize }).then((subjects) =>
       subjects.map(withExploreAssets),

@@ -224,12 +224,13 @@ pub async fn persist_for_work(
         .map(|episode| episode.external_id.as_str())
         .collect::<std::collections::HashSet<_>>();
     for episode in &result.episodes {
-        sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, title, original_title, description, air_date, duration, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(work_id, provider, external_id) DO UPDATE SET episode_number = excluded.episode_number, sort_number = excluded.sort_number, title = excluded.title, original_title = excluded.original_title, description = excluded.description, air_date = excluded.air_date, duration = excluded.duration, fetched_at = excluded.fetched_at")
+        sqlx::query("INSERT INTO anime_episodes (work_id, provider, external_id, episode_number, sort_number, episode_type, title, original_title, description, air_date, duration, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(work_id, provider, external_id) DO UPDATE SET episode_number = excluded.episode_number, sort_number = excluded.sort_number, episode_type = excluded.episode_type, title = excluded.title, original_title = excluded.original_title, description = excluded.description, air_date = excluded.air_date, duration = excluded.duration, fetched_at = excluded.fetched_at")
             .bind(work_id)
             .bind(&episode.provider)
             .bind(&episode.external_id)
             .bind(episode.episode_number.map(i64::from))
             .bind(i64::from(episode.sort_number))
+            .bind(episode.episode_type.map(i64::from))
             .bind(&episode.title)
             .bind(&episode.original_title)
             .bind(&episode.description)
@@ -255,7 +256,7 @@ pub async fn episodes_for_work(
     pool: &SqlitePool,
     work_id: &str,
 ) -> AppResult<Vec<AnimeEpisodeMetadata>> {
-    let rows = sqlx::query_as::<_, EpisodeRow>("SELECT provider, external_id, episode_number, sort_number, title, original_title, description, air_date, duration, fetched_at FROM anime_episodes WHERE work_id = ? ORDER BY sort_number, episode_number")
+    let rows = sqlx::query_as::<_, EpisodeRow>("SELECT provider, external_id, episode_number, sort_number, episode_type, title, original_title, description, air_date, duration, fetched_at FROM anime_episodes WHERE work_id = ? ORDER BY sort_number, episode_number")
         .bind(work_id)
         .fetch_all(pool)
         .await?;
@@ -533,6 +534,7 @@ struct EpisodeRow {
     external_id: String,
     episode_number: Option<i64>,
     sort_number: i64,
+    episode_type: Option<i64>,
     title: String,
     original_title: Option<String>,
     description: String,
@@ -555,6 +557,11 @@ impl TryFrom<EpisodeRow> for AnimeEpisodeMetadata {
                 .map_err(|_| AppError::System("数据库中的分集编号超出范围".to_string()))?,
             sort_number: u32::try_from(row.sort_number)
                 .map_err(|_| AppError::System("数据库中的分集排序号超出范围".to_string()))?,
+            episode_type: row
+                .episode_type
+                .map(u32::try_from)
+                .transpose()
+                .map_err(|_| AppError::System("数据库中的分集类型超出范围".to_string()))?,
             title: row.title,
             original_title: row.original_title,
             description: row.description,
