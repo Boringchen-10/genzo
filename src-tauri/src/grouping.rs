@@ -27,6 +27,22 @@ fn normalized_key(path: &Path) -> String {
     path.to_string_lossy().replace('/', "\\").to_lowercase()
 }
 
+/// 季度与特别篇标记只依赖文件名和目录层级，便于同一作品文件夹内
+/// 不同媒体源归属的文件使用同一口径比较（不叠加季度后缀）。
+fn season_marker(media: &MediaFile, root: Option<&Path>) -> (i64, Option<String>) {
+    // Use fresh filename/path evidence: older group recognition may have copied
+    // the representative's season into every database row in the folder.
+    let parsed = parse_media_path(&media.file_name, Path::new(&media.path), root);
+    let season = parsed.season.unwrap_or(1);
+    let special = parsed.special_type.clone().or_else(|| {
+        media.path.split(['\\', '/']).find_map(|segment| {
+            (segment.contains("特别篇") || segment.contains("特別篇"))
+                .then_some("SPECIAL".to_string())
+        })
+    });
+    (season, special)
+}
+
 fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
     let mut decoded_media;
     let media = if media.path.starts_with("webdav://") {
@@ -38,20 +54,7 @@ fn group_identity(media: &MediaFile, root_path: Option<&str>) -> GroupIdentity {
     };
     let mut identity = container_identity(media, root_path);
     if media.media_type == "video" || is_subtitle_file(media) {
-        // Use fresh filename/path evidence: older group recognition may have copied
-        // the representative's season into every database row in the folder.
-        let parsed = parse_media_path(
-            &media.file_name,
-            Path::new(&media.path),
-            root_path.map(Path::new),
-        );
-        let season = parsed.season.unwrap_or(1);
-        let special = parsed.special_type.clone().or_else(|| {
-            media.path.split(['\\', '/']).find_map(|segment| {
-                (segment.contains("特别篇") || segment.contains("特別篇"))
-                    .then_some("SPECIAL".to_string())
-            })
-        });
+        let (season, special) = season_marker(media, root_path.map(Path::new));
         identity.key = format!("{}:season:{season}:special:{}", identity.key, special.as_deref().unwrap_or_default());
         if season > 1 {
             identity.title = format!("{} · 第 {season} 季", identity.title);
@@ -227,8 +230,15 @@ fn choose_representative(files: &[MediaFile], media_type: &str) -> MediaFile {
 }
 
 fn dominant_media_type(files: &[MediaFile]) -> String {
+    // 字幕等附属文件以 "other" 入库。只要组里有真正的媒体文件，就不能让
+    // 附属文件决定整组类型：否则字幕偏多的作品文件夹会被判成“其他”，
+    // 既不能批量识别，也选不出视频代表文件。
+    let has_primary = files.iter().any(|file| file.media_type != "other");
     let mut counts: HashMap<&str, usize> = HashMap::new();
     for file in files {
+        if has_primary && file.media_type == "other" {
+            continue;
+        }
         *counts.entry(&file.media_type).or_default() += 1;
     }
     counts
@@ -401,6 +411,218 @@ pub async fn unassigned_group_member_ids(
             None => vec![representative_id.to_string()],
         },
     )
+}
+
+/// 识别范围：沿用按季度/特别篇分组，或把整个作品文件夹（含所有季度）视作一组。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupScope {
+    Season,
+    Folder,
+}
+
+impl GroupScope {
+    pub fn parse(value: Option<&str>) -> Self {
+        match value.map(str::trim) {
+            Some("folder") => GroupScope::Folder,
+            _ => GroupScope::Season,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GroupScope::Season => "season",
+            GroupScope::Folder => "folder",
+        }
+    }
+}
+
+/// 识别界面使用的作用域上下文。除了可以纳入本次关联的文件，还会带上同一
+/// 作品文件夹里已经关联过的文件：先前单独识别过的小文件夹因此能和之后
+/// 添加的大文件夹一起处理，而不是各自新建一部作品。
+#[derive(Debug, Clone)]
+pub struct RecognitionScopeContext {
+    pub scope: GroupScope,
+    pub title: String,
+    pub folder_path: Option<String>,
+    pub members: Vec<MediaFile>,
+    pub linked_work_id: Option<String>,
+    pub linked_work_title: Option<String>,
+}
+
+impl RecognitionScopeContext {
+    /// 可以提交本次关联的文件：未关联文件，或已经在同一部作品里的文件。
+    pub fn selectable_ids(&self, requested_work_id: Option<&str>) -> Vec<String> {
+        self.members
+            .iter()
+            .filter(|file| match (&file.work_id, requested_work_id) {
+                (None, _) => true,
+                (Some(work_id), Some(requested)) => work_id == requested,
+                _ => false,
+            })
+            .map(|file| file.id.clone())
+            .collect()
+    }
+}
+
+/// 媒体文件所属“作品文件夹”的原始路径（不含季度/特别篇后缀）。直接放在
+/// 扫描目录下的文件，其作品文件夹就是该扫描目录本身。
+fn work_folder_prefix(media: &MediaFile, root_path: Option<&str>) -> Option<String> {
+    let root = root_path?.trim_end_matches(['\\', '/']);
+    if root.is_empty() {
+        return None;
+    }
+    let media_path = media.path.trim_end_matches(['\\', '/']);
+    let head = media_path.get(..root.len())?;
+    if !head.eq_ignore_ascii_case(root) {
+        return None;
+    }
+    let separator = if root.starts_with("webdav://") { '/' } else { '\\' };
+    if media_path.as_bytes().get(root.len()).copied() != Some(separator as u8) {
+        return None;
+    }
+    let rest = media_path.get(root.len() + 1..)?;
+    match rest.split(separator).next() {
+        Some(first) if rest.contains(separator) => Some(format!("{root}{separator}{first}")),
+        Some(_) => Some(root.to_string()),
+        None => None,
+    }
+}
+
+fn path_inside_folder(path: &str, folder: &str) -> bool {
+    let path = path.trim_end_matches(['\\', '/']);
+    let folder = folder.trim_end_matches(['\\', '/']);
+    let Some(head) = path.get(..folder.len()) else {
+        return false;
+    };
+    if !head.eq_ignore_ascii_case(folder) {
+        return false;
+    }
+    let separator = if folder.starts_with("webdav://") { '/' } else { '\\' };
+    path.as_bytes().get(folder.len()).copied() == Some(separator as u8)
+}
+
+/// 该文件夹是否只是“媒体源”级别的合集目录：它下面还配置了更具体的媒体源。
+/// 这种目录按文件名各自成组，不做整个文件夹级别的一起识别。
+fn folder_contains_nested_roots(folder: &str, roots: &HashMap<String, String>) -> bool {
+    roots
+        .values()
+        .any(|root| root.as_str() != folder && path_inside_folder(root, folder))
+}
+
+pub async fn recognition_scope_context(
+    pool: &SqlitePool,
+    media_file_id: &str,
+    scope: GroupScope,
+) -> AppResult<Option<RecognitionScopeContext>> {
+    let requested = sqlx::query_as::<_, MediaFile>(&format!(
+        "SELECT {MEDIA_COLUMNS} FROM media_files WHERE id = ?"
+    ))
+    .bind(media_file_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+    let roots = roots_by_id(pool).await?;
+    let root_for = |file: &MediaFile| {
+        file.library_root_id
+            .as_ref()
+            .and_then(|id| roots.get(id))
+            .map(String::as_str)
+    };
+    let requested_root = root_for(&requested);
+    let is_video_group = requested.media_type == "video" || is_subtitle_file(&requested);
+    let folder = work_folder_prefix(&requested, requested_root).filter(|_| is_video_group);
+    // 文件直接放在一个还包含其他媒体源的合集目录下时，保持按文件名分组，
+    // 避免一次把整个合集目录都拉进识别界面。
+    let folder = folder.filter(|folder| {
+        !(requested_root.is_some_and(|root| root.trim_end_matches(['\\', '/']) == folder.as_str())
+            && folder_contains_nested_roots(folder, &roots))
+    });
+    let Some(folder) = folder else {
+        return Ok(Some(RecognitionScopeContext {
+            scope: GroupScope::Season,
+            title: file_identity(&requested).title,
+            folder_path: None,
+            members: vec![requested],
+            linked_work_id: None,
+            linked_work_title: None,
+        }));
+    };
+
+    let rows: Vec<MediaFile> = match requested.work_id.as_deref() {
+        // 已关联文件重新识别时只在本作品内选择，避免把别的作品一起搬走。
+        Some(work_id) => {
+            sqlx::query_as::<_, MediaFile>(&format!(
+                "SELECT {MEDIA_COLUMNS} FROM media_files WHERE work_id = ? ORDER BY path COLLATE NOCASE"
+            ))
+            .bind(work_id)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query_as::<_, MediaFile>(&format!(
+                "SELECT {MEDIA_COLUMNS} FROM media_files WHERE path = ? COLLATE NOCASE OR (substr(path, 1, length(?)) = ? COLLATE NOCASE AND substr(path, length(?) + 1, 1) IN ('\\', '/')) ORDER BY path COLLATE NOCASE"
+            ))
+            .bind(&folder)
+            .bind(&folder)
+            .bind(&folder)
+            .bind(&folder)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+
+    let folder_path = Path::new(&folder);
+    let requested_marker = season_marker(&requested, Some(folder_path));
+    let members: Vec<MediaFile> = rows
+        .into_iter()
+        .filter(|file| file.media_type == "video" || is_subtitle_file(file))
+        .filter(|file| path_inside_folder(&file.path, &folder))
+        .filter(|file| {
+            scope == GroupScope::Folder || season_marker(file, Some(folder_path)) == requested_marker
+        })
+        .collect();
+
+    let mut linked: Option<String> = None;
+    for member in &members {
+        let Some(work_id) = member.work_id.as_deref() else {
+            continue;
+        };
+        match linked.as_deref() {
+            None => linked = Some(work_id.to_string()),
+            Some(current) if current == work_id => {}
+            // 文件夹里已有多个作品时不做隐式合并，保持原有行为。
+            Some(_) => {
+                linked = None;
+                break;
+            }
+        }
+    }
+    let linked = requested.work_id.is_none().then_some(linked).flatten();
+    let linked_work_title = match &linked {
+        Some(work_id) => {
+            sqlx::query_scalar("SELECT title FROM works WHERE id = ?")
+                .bind(work_id)
+                .fetch_optional(pool)
+                .await?
+        }
+        None => None,
+    };
+    let title = Path::new(&folder)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| file_identity(&requested).title);
+
+    Ok(Some(RecognitionScopeContext {
+        scope,
+        title,
+        folder_path: Some(folder),
+        members,
+        linked_work_id: linked,
+        linked_work_title,
+    }))
 }
 
 #[cfg(test)]
@@ -766,5 +988,91 @@ mod tests {
         assert_eq!(groups[0].title, "Q 亲吻姐姐 12集全");
         assert_eq!(groups[0].file_count, 2);
         assert_eq!(groups[0].media_type, "video");
+    }
+
+    /// 字幕比视频多时，作品组仍然要按视频处理，否则整组既不能批量识别，
+    /// 也选不出视频代表文件。
+    #[tokio::test]
+    async fn keeps_subtitle_heavy_folders_recognizable_as_video() {
+        let pool = db::test_pool().await.expect("create database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('root', 'C:\\Anime', 'video', 1, ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert root");
+        sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES ('v', 'root', 'C:\\Anime\\Show\\Show - 01.mkv', 'Show - 01.mkv', 'mkv', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert video");
+        for index in 1..=3 {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, 'ass', 'other', ?, ?)")
+                .bind(format!("s{index}"))
+                .bind(format!("C:\\Anime\\Show\\Show - 0{index}.ass"))
+                .bind(format!("Show - 0{index}.ass"))
+                .bind(&now).bind(&now).execute(&pool).await.expect("insert subtitle");
+        }
+
+        let groups = list_unassigned_groups(&pool).await.expect("list groups");
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].media_type, "video");
+        assert_eq!(groups[0].representative.media_type, "video");
+        assert_eq!(groups[0].file_count, 4);
+    }
+
+    /// 后来的大文件夹里包含先前单独识别过的小文件夹时，作品文件夹范围要能
+    /// 一起看到并处理这些文件，同时识别出应该并入的已有作品。
+    #[tokio::test]
+    async fn folder_scope_unifies_nested_roots_and_already_linked_files() {
+        let pool = db::test_pool().await.expect("create database");
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES ('parent', 'C:\\Anime', 'video', 1, ?, ?), ('child', 'C:\\Anime\\Show', 'video', 1, ?, ?)")
+            .bind(&now).bind(&now).bind(&now).bind(&now).execute(&pool).await.expect("insert roots");
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('w', 'Show', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert work");
+        for (id, path, name, root, work) in [
+            ("pending", "C:\\Anime\\Show\\第一季\\01.mkv", "01.mkv", "parent", None),
+            ("linked", "C:\\Anime\\Show\\第二季\\01.mkv", "01.mkv", "child", Some("w")),
+            ("direct", "C:\\Anime\\Show\\extra.mkv", "extra.mkv", "child", Some("w")),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, work_id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'mkv', 'video', ?, ?)")
+                .bind(id).bind(work).bind(root).bind(path).bind(name).bind(&now).bind(&now).execute(&pool).await.expect("insert media");
+        }
+
+        let folder = recognition_scope_context(&pool, "pending", GroupScope::Folder)
+            .await
+            .expect("folder scope")
+            .expect("context");
+        assert_eq!(folder.title, "Show");
+        assert_eq!(
+            folder.members.iter().map(|file| file.id.as_str()).collect::<Vec<_>>(),
+            vec!["direct", "pending", "linked"]
+        );
+        assert_eq!(folder.linked_work_id.as_deref(), Some("w"));
+        assert_eq!(folder.linked_work_title.as_deref(), Some("Show"));
+        assert_eq!(folder.selectable_ids(None), vec!["pending"]);
+
+        let season = recognition_scope_context(&pool, "pending", GroupScope::Season)
+            .await
+            .expect("season scope")
+            .expect("context");
+        // 季度范围只包含同一季度的文件；同季度已经关联过的文件仍然可见，
+        // 因此确认时会并入它们所在的作品。
+        assert_eq!(
+            season.members.iter().map(|file| file.id.as_str()).collect::<Vec<_>>(),
+            vec!["direct", "pending"]
+        );
+        assert_eq!(season.linked_work_id.as_deref(), Some("w"));
+        assert!(!season
+            .members
+            .iter()
+            .any(|file| file.id == "linked"));
+
+        // 合集目录（下面还配了别的媒体源）不按整个文件夹一起识别，
+        // 直接放在合集中的文件仍按文件名分组。
+        sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES ('stray', 'parent', 'C:\\Anime\\Stray Movie.mkv', 'Stray Movie.mkv', 'mkv', 'video', ?, ?)")
+            .bind(&now).bind(&now).execute(&pool).await.expect("insert stray");
+        let stray = recognition_scope_context(&pool, "stray", GroupScope::Folder)
+            .await
+            .expect("stray scope")
+            .expect("context");
+        assert!(stray.folder_path.is_none());
+        assert_eq!(stray.members.len(), 1);
     }
 }

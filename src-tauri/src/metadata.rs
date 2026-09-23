@@ -741,19 +741,68 @@ pub async fn confirm_candidate(
     media_file_id: &str,
     candidate_id: &str,
 ) -> AppResult<String> {
-    confirm_candidate_internal(state, media_file_id, candidate_id, true).await
+    confirm_candidate_internal(state, media_file_id, candidate_id, true, None, grouping::GroupScope::Season).await
 }
 
 pub async fn confirm_candidate_local(state: &AppState, media_file_id: &str, candidate_id: &str) -> AppResult<String> {
-    confirm_candidate_internal(state, media_file_id, candidate_id, false).await
+    confirm_candidate_internal(state, media_file_id, candidate_id, false, None, grouping::GroupScope::Season).await
 }
 
-async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candidate_id: &str, enrich: bool) -> AppResult<String> {
-    let group_member_ids: Vec<String> =
-        grouping::recognition_group_context(&state.pool, media_file_id)
-            .await?
-            .map(|context| context.members.into_iter().map(|file| file.id).collect())
-            .unwrap_or_else(|| vec![media_file_id.to_string()]);
+pub async fn confirm_candidate_local_selected(
+    state: &AppState,
+    media_file_id: &str,
+    candidate_id: &str,
+    selected_media_ids: &[String],
+    scope: grouping::GroupScope,
+) -> AppResult<String> {
+    confirm_candidate_internal(state, media_file_id, candidate_id, false, Some(selected_media_ids), scope).await
+}
+
+/// 用户在识别界面显式确认时，提交范围由界面里的作品文件夹/季度范围决定：
+/// 该范围既限制可以勾选的文件，也决定确认后是否并入文件夹里已有的作品。
+async fn confirmation_scope(
+    state: &AppState,
+    media_file_id: &str,
+    scope: grouping::GroupScope,
+) -> AppResult<(Vec<String>, Vec<String>, Option<String>)> {
+    let Some(context) = grouping::recognition_scope_context(&state.pool, media_file_id, scope).await?
+    else {
+        return Ok((vec![media_file_id.to_string()], vec![media_file_id.to_string()], None));
+    };
+    let requested_work = context
+        .members
+        .iter()
+        .find(|file| file.id == media_file_id)
+        .and_then(|file| file.work_id.clone());
+    let scope_ids = context.members.iter().map(|file| file.id.clone()).collect();
+    let selectable_ids = context.selectable_ids(requested_work.as_deref());
+    Ok((scope_ids, selectable_ids, context.linked_work_id))
+}
+
+fn selected_group_members(group_member_ids: Vec<String>, candidate_media_id: &str, selected_media_ids: Option<&[String]>) -> AppResult<Vec<String>> {
+    let Some(selected) = selected_media_ids else { return Ok(group_member_ids); };
+    let allowed: HashSet<&str> = group_member_ids.iter().map(String::as_str).collect();
+    let unique: HashSet<&str> = selected.iter().map(String::as_str).collect();
+    if selected.is_empty() || unique.len() != selected.len() || !unique.contains(candidate_media_id) || !unique.is_subset(&allowed) {
+        return Err(AppError::Validation("所选文件已变化，请重新打开识别界面确认".to_string()));
+    }
+    Ok(selected.to_vec())
+}
+
+async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candidate_id: &str, enrich: bool, selected_media_ids: Option<&[String]>, scope: grouping::GroupScope) -> AppResult<String> {
+    // 自动匹配沿用季度组（行为不变）；界面确认则使用用户看到的文件夹范围，
+    // 这样先前单独识别过的小文件夹会被一起处理，而不是另建一部作品。
+    let (scope_member_ids, selectable_ids, linked_work_id) = match selected_media_ids {
+        Some(_) => confirmation_scope(state, media_file_id, scope).await?,
+        None => {
+            let ids: Vec<String> = grouping::recognition_group_context(&state.pool, media_file_id)
+                .await?
+                .map(|context| context.members.into_iter().map(|file| file.id).collect())
+                .unwrap_or_else(|| vec![media_file_id.to_string()]);
+            (ids.clone(), ids, None)
+        }
+    };
+    let group_member_ids = selected_group_members(selectable_ids, media_file_id, selected_media_ids)?;
     let row = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE id = ? AND media_file_id = ?")
         .bind(candidate_id).bind(media_file_id).fetch_optional(&state.pool).await?.ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".to_string()))?;
     let metadata: WorkMetadata = serde_json::from_str(&row.metadata_json)?;
@@ -784,13 +833,20 @@ async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candi
     .bind(&metadata.external_id)
     .fetch_optional(&mut *transaction)
     .await?;
-    let work_id = recognition_target_work(
-        &mut transaction,
-        existing,
-        media_work.as_deref(),
-        &group_member_ids,
-    )
-    .await?;
+    // 同一文件夹里已经有作品时，把本次确认的文件并入它，而不是新建重复作品。
+    let work_id = if let Some(existing) = existing {
+        existing
+    } else if let Some(linked) = linked_work_id {
+        linked
+    } else {
+        recognition_target_work(
+            &mut transaction,
+            None,
+            media_work.as_deref(),
+            &scope_member_ids,
+        )
+        .await?
+    };
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM works WHERE id = ?)")
         .bind(&work_id)
         .fetch_one(&mut *transaction)
@@ -1080,6 +1136,101 @@ mod tests {
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM media_files WHERE work_id = ? AND recognition_status = 'matched'").bind(&work_id).fetch_one(&pool).await.unwrap();
         assert_eq!(count, 2);
         assert!(candidates_for_media(&pool, "01").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn selected_confirmation_leaves_excluded_group_files_unassigned() {
+        let pool = db::test_pool().await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState {
+            pool: pool.clone(), database_path: dir.path().join("test.db"),
+            data_directory: dir.path().into(), cover_cache_path: dir.path().into(),
+            thumbnail_cache_path: dir.path().into(),
+        };
+        sqlx::query("INSERT INTO library_roots (id,path,kind,enabled,created_at,updated_at) VALUES ('root','C:\\Anime','video',1,'now','now')").execute(&pool).await.unwrap();
+        for id in ["01", "02", "03"] {
+            sqlx::query("INSERT INTO media_files (id,library_root_id,path,file_name,extension,media_type,recognition_status,created_at,updated_at) VALUES (?,'root',?,?,'mkv','video','candidate_pending','now','now')")
+                .bind(id).bind(format!("C:\\Anime\\Show\\{id}.mkv")).bind(format!("{id}.mkv")).execute(&pool).await.unwrap();
+        }
+        let metadata = crate::explore::lookup_title("葬送的芙莉莲").unwrap().remove(0);
+        sqlx::query("INSERT INTO match_candidates (id,media_file_id,provider,external_id,title,aliases_json,subject_type,confidence,match_reasons_json,metadata_json,created_at) VALUES ('c','02','bangumi',?,?,'[]','tv',0.79,'[]',?,'now')")
+            .bind(&metadata.external_id).bind(&metadata.title).bind(serde_json::to_string(&metadata).unwrap()).execute(&pool).await.unwrap();
+
+        assert!(confirm_candidate_local_selected(&state, "02", "c", &["01".into()], crate::grouping::GroupScope::Season).await.is_err());
+        assert!(confirm_candidate_local_selected(&state, "02", "c", &["02".into(), "outside".into()], crate::grouping::GroupScope::Season).await.is_err());
+        let work_id = confirm_candidate_local_selected(&state, "02", "c", &["01".into(), "02".into()], crate::grouping::GroupScope::Season).await.unwrap();
+        let matched: Vec<String> = sqlx::query_scalar("SELECT id FROM media_files WHERE work_id = ? ORDER BY id")
+            .bind(&work_id).fetch_all(&pool).await.unwrap();
+        assert_eq!(matched, vec!["01", "02"]);
+        let excluded: Option<String> = sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = '03'").fetch_one(&pool).await.unwrap();
+        assert!(excluded.is_none());
+    }
+
+    /// 同一个作品文件夹里，先前单独识别过一部分文件后，再识别整个文件夹
+    /// （作品文件夹范围）应该并入那部作品，而不是新建重复作品。
+    #[tokio::test]
+    async fn folder_confirmation_merges_pending_files_into_the_linked_work() {
+        let pool = db::test_pool().await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState {
+            pool: pool.clone(), database_path: dir.path().join("test.db"),
+            data_directory: dir.path().into(), cover_cache_path: dir.path().into(),
+            thumbnail_cache_path: dir.path().into(),
+        };
+        sqlx::query("INSERT INTO library_roots (id,path,kind,enabled,created_at,updated_at) VALUES ('root','C:\\Anime','video',1,'now','now')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO works (id,title,type,created_at,updated_at) VALUES ('w','示例动画','video','now','now')").execute(&pool).await.unwrap();
+        for (id, path, file_name, work) in [
+            ("linked", r"C:\Anime\Show\01.mkv", "01.mkv", Some("w")),
+            ("pending", r"C:\Anime\Show\02.mkv", "02.mkv", None),
+        ] {
+            sqlx::query("INSERT INTO media_files (id,work_id,library_root_id,path,file_name,extension,media_type,recognition_status,created_at,updated_at) VALUES (?,?,'root',?,?,'mkv','video','candidate_pending','now','now')")
+                .bind(id).bind(work).bind(path).bind(file_name).execute(&pool).await.unwrap();
+        }
+        let metadata = crate::explore::lookup_title("葬送的芙莉莲").unwrap().remove(0);
+        sqlx::query("INSERT INTO match_candidates (id,media_file_id,provider,external_id,title,aliases_json,subject_type,confidence,match_reasons_json,metadata_json,created_at) VALUES ('c','pending','bangumi',?,?,'[]','tv',0.79,'[]',?,'now')")
+            .bind(&metadata.external_id).bind(&metadata.title).bind(serde_json::to_string(&metadata).unwrap()).execute(&pool).await.unwrap();
+
+        let work_id = confirm_candidate_local_selected(&state, "pending", "c", &["pending".into()], crate::grouping::GroupScope::Folder)
+            .await
+            .unwrap();
+        assert_eq!(work_id, "w");
+        let merged: Vec<String> = sqlx::query_scalar("SELECT id FROM media_files WHERE work_id = 'w' ORDER BY id")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(merged, vec!["linked", "pending"]);
+        let works: i64 = sqlx::query_scalar("SELECT count(*) FROM works").fetch_one(&pool).await.unwrap();
+        assert_eq!(works, 1);
+    }
+
+    /// 季度范围仍然按季拆分成各自的作品，不会把第二季悄悄并进第一季。
+    #[tokio::test]
+    async fn season_confirmation_keeps_later_seasons_in_their_own_work() {
+        let pool = db::test_pool().await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState {
+            pool: pool.clone(), database_path: dir.path().join("test.db"),
+            data_directory: dir.path().into(), cover_cache_path: dir.path().into(),
+            thumbnail_cache_path: dir.path().into(),
+        };
+        sqlx::query("INSERT INTO library_roots (id,path,kind,enabled,created_at,updated_at) VALUES ('root','C:\\Anime','video',1,'now','now')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO works (id,title,type,created_at,updated_at) VALUES ('w','示例动画','video','now','now')").execute(&pool).await.unwrap();
+        for (id, path, file_name, work) in [
+            ("s1", r"C:\Anime\Show\第一季\01.mkv", "01.mkv", Some("w")),
+            ("s2", r"C:\Anime\Show\第二季\01.mkv", "01.mkv", None),
+        ] {
+            sqlx::query("INSERT INTO media_files (id,work_id,library_root_id,path,file_name,extension,media_type,recognition_status,created_at,updated_at) VALUES (?,?,'root',?,?,'mkv','video','candidate_pending','now','now')")
+                .bind(id).bind(work).bind(path).bind(file_name).execute(&pool).await.unwrap();
+        }
+        let metadata = crate::explore::lookup_title("葬送的芙莉莲").unwrap().remove(0);
+        sqlx::query("INSERT INTO match_candidates (id,media_file_id,provider,external_id,title,aliases_json,subject_type,confidence,match_reasons_json,metadata_json,created_at) VALUES ('c','s2','bangumi',?,?,'[]','tv',0.79,'[]',?,'now')")
+            .bind(&metadata.external_id).bind(&metadata.title).bind(serde_json::to_string(&metadata).unwrap()).execute(&pool).await.unwrap();
+
+        let work_id = confirm_candidate_local_selected(&state, "s2", "c", &["s2".into()], crate::grouping::GroupScope::Season)
+            .await
+            .unwrap();
+        assert_ne!(work_id, "w");
+        let first_season: Vec<String> = sqlx::query_scalar("SELECT id FROM media_files WHERE work_id = 'w'")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(first_season, vec!["s1"]);
     }
 
     #[tokio::test]

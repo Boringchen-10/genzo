@@ -685,13 +685,23 @@ export function createMockProvider(): GenzoDataProvider {
         title: "未知作品（示例）",
         folderPath: "H:\\Media\\未整理\\示例目录",
         mediaType: "video",
-        fileCount: 12,
+        fileCount: 2,
         missingCount: 0,
         totalSize: 14_400_000_000,
         recognitionStatus: "unmatched",
         representative: mediaFile("media-1", null, "S01E01.mkv", "1"),
       };
       return [group];
+    },
+    async listRecognitionGroupMembers(_mediaFileId, groupScope = "season") {
+      return {
+        scope: groupScope,
+        title: "未知作品（示例）",
+        folderPath: "H:\\Media\\未整理\\示例目录",
+        members: [mediaFile("media-1", null, "S01E01.mkv", "1"), mediaFile("media-2", null, "S01E02.mkv", "2")],
+        linkedWorkId: null,
+        linkedWorkTitle: null,
+      };
     },
     async attachMedia() {
       /* 设计期：内存演示，不涉及真实关联 */

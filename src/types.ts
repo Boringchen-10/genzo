@@ -75,6 +75,19 @@ export interface UnassignedMediaGroup {
   representative: MediaFile;
 }
 
+/** 识别范围：按季度/特别篇，或整个作品文件夹（含所有季度）。 */
+export type RecognitionGroupScope = "season" | "folder";
+
+/** 识别界面读取的分组上下文；members 里含有已经关联过的文件。 */
+export interface RecognitionGroupInfo {
+  scope: RecognitionGroupScope;
+  title: string;
+  folderPath: string | null;
+  members: MediaFile[];
+  linkedWorkId: string | null;
+  linkedWorkTitle: string | null;
+}
+
 export interface WorkDetail extends Work {
   tags: string[];
   mediaFiles: MediaFile[];

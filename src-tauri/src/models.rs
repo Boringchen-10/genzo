@@ -90,6 +90,19 @@ pub struct UnassignedMediaGroup {
     pub representative: MediaFile,
 }
 
+/// 识别界面读取的作品文件夹/季度范围。members 里同时包含已经关联过的文件，
+/// 便于把先前单独识别过的小文件夹与整个大文件夹合并到同一部作品。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognitionGroupInfo {
+    pub scope: String,
+    pub title: String,
+    pub folder_path: Option<String>,
+    pub members: Vec<MediaFile>,
+    pub linked_work_id: Option<String>,
+    pub linked_work_title: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkListItem {

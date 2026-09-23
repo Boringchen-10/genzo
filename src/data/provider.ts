@@ -23,6 +23,8 @@ import type {
   LibraryRoot,
   MatchCandidate,
   MediaFile,
+  RecognitionGroupInfo,
+  RecognitionGroupScope,
   RecognitionResult,
   RecognitionSummary,
   RootKind,
@@ -52,6 +54,7 @@ export interface GenzoDataProvider {
 
   listUnassignedMedia(): Promise<MediaFile[]>;
   listUnassignedGroups(): Promise<UnassignedMediaGroup[]>;
+  listRecognitionGroupMembers(mediaFileId: string, groupScope?: RecognitionGroupScope): Promise<RecognitionGroupInfo>;
   attachMedia(workId: string, mediaFileId: string): Promise<void>;
   attachMediaFiles(workId: string, mediaFileIds: string[]): Promise<void>;
   detachMedia(mediaFileId: string): Promise<void>;
@@ -82,7 +85,7 @@ export interface GenzoDataProvider {
   recognizeMedia(mediaFileId: string, query?: string | null): Promise<RecognitionResult>;
   recognizeUnmatched(): Promise<RecognitionSummary>;
   listMatchCandidates(mediaFileId: string): Promise<MatchCandidate[]>;
-  confirmMatch(mediaFileId: string, candidateId: string): Promise<string>;
+  confirmMatch(mediaFileId: string, candidateId: string, selectedMediaIds?: string[], groupScope?: RecognitionGroupScope): Promise<string>;
   cancelMatch(mediaFileId: string): Promise<void>;
   setFieldLock(workId: string, field: string, locked: boolean): Promise<void>;
 

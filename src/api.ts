@@ -18,6 +18,8 @@ import type {
   MediaFile,
   UnassignedMediaGroup,
   MatchCandidate,
+  RecognitionGroupInfo,
+  RecognitionGroupScope,
   RecognitionResult,
   RecognitionSummary,
   RootKind,
@@ -105,6 +107,8 @@ export const api = {
   deleteWork: (id: string) => call<void>("delete_work", { id }),
   listUnassignedMedia: () => call<MediaFile[]>("list_unassigned_media"),
   listUnassignedGroups: () => call<UnassignedMediaGroup[]>("list_unassigned_media_groups"),
+  listRecognitionGroupMembers: (mediaFileId: string, groupScope: RecognitionGroupScope = "season") =>
+    call<RecognitionGroupInfo>("list_recognition_group_members", { mediaFileId, groupScope }),
   attachMedia: (workId: string, mediaFileId: string) =>
     call<void>("attach_media_file", { workId, mediaFileId }),
   attachMediaFiles: (workId: string, mediaFileIds: string[]) =>
@@ -140,8 +144,8 @@ export const api = {
   recognizeUnmatched: () => call<RecognitionSummary>("recognize_unmatched_media"),
   listMatchCandidates: (mediaFileId: string) =>
     call<MatchCandidate[]>("list_match_candidates", { mediaFileId }),
-  confirmMatch: (mediaFileId: string, candidateId: string) =>
-    call<string>("confirm_match_candidate", { mediaFileId, candidateId }),
+  confirmMatch: (mediaFileId: string, candidateId: string, selectedMediaIds?: string[], groupScope?: RecognitionGroupScope) =>
+    call<string>("confirm_match_candidate", { mediaFileId, candidateId, selectedMediaIds, groupScope }),
   cancelMatch: (mediaFileId: string) =>
     call<void>("cancel_match_candidates", { mediaFileId }),
   setFieldLock: (workId: string, field: string, locked: boolean) =>

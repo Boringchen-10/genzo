@@ -194,10 +194,26 @@ select { height: 36px; padding: 0 28px 0 10px; }
 .recognition-file { min-width: 0; padding: 0 0 13px; border-bottom: 1px solid var(--border); }
 .recognition-file strong, .recognition-file small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recognition-file small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.recognition-members { display: grid; gap: 5px; margin-top: 12px; font-size: 11px; }
+.recognition-members > small { color: var(--muted); line-height: 1.5; }
+.recognition-members-head { display: grid; gap: 3px; }
+.recognition-members-head small { color: var(--muted); line-height: 1.5; }
+.recognition-merge { display: flex; align-items: center; gap: 5px; color: var(--accent); line-height: 1.5; }
+.recognition-member-list { max-height: 168px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; }
+.recognition-member { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.recognition-member:last-child { border-bottom: 0; }
+.recognition-member:hover { background: var(--hover); }
+.recognition-member.linked { cursor: default; opacity: .72; }
+.recognition-member.linked:hover { background: transparent; }
+.recognition-member input { flex: 0 0 auto; accent-color: var(--accent); }
+.recognition-member span { min-width: 0; }
+.recognition-member strong, .recognition-member small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recognition-member small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.recognition-linked-tag { margin-left: 6px; padding: 1px 5px; color: var(--muted); background: var(--hover); border-radius: 3px; font-size: 9px; font-style: normal; }
 .recognition-search { display: grid; grid-template-columns: minmax(190px, 1fr) auto auto; gap: 7px; margin: 13px 0; }
 .recognition-error { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; padding: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border)); border-radius: 5px; font-size: 11px; line-height: 1.5; }
 .recognition-error svg { flex: 0 0 auto; }
-.candidate-list { max-height: min(480px, calc(100vh - 260px)); overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.candidate-list { max-height: min(340px, calc(100vh - 390px)); overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
 .candidate-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 92px; padding: 9px 11px; border-bottom: 1px solid var(--border); }
 .candidate-row:last-child { border-bottom: 0; }
 .candidate-row:hover { background: var(--hover); }

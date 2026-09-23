@@ -9,8 +9,8 @@ import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ScanPage } from "./ScanPage";
 import { usePreferences, useToasts } from "../store";
-import type { LibraryRoot, MediaFile, MediaType, RecognitionStatus, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
-import { formatDate, formatSize, getErrorMessage, mediaLabels, unassignedStatusRank } from "../utils";
+import type { LibraryRoot, MediaFile, MediaType, RecognitionGroupScope, RecognitionStatus, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
+import { formatDate, formatSize, getErrorMessage, mediaLabels, recognitionActionLabel, recognitionEntryGroup, recognisableGroups, unassignedStatusRank } from "../utils";
 import { normalizePath, pathBaseName, pathDirName, pathChildSegment } from "../mediaPaths";
 
 type Scope = "all" | "recent" | "favorites" | "missing";
@@ -28,8 +28,16 @@ interface InboxEntry {
   fileCount: number;
   missingCount: number;
   status: RecognitionStatus;
-  group: UnassignedMediaGroup | null;
+  /** 落在这个文件夹里的待整理作品组（同一作品文件夹的多个季度会有多个）。 */
+  groups: UnassignedMediaGroup[];
   file: MediaFile | null;
+}
+
+/** 一次识别要处理的目标：作品组代表文件 + 识别范围。 */
+interface RecognitionTarget {
+  media: MediaFile;
+  scope: RecognitionGroupScope;
+  label: string;
 }
 
 const inboxStatusLabel = (status: RecognitionStatus, missingCount: number, fileCount: number) => {
@@ -65,11 +73,12 @@ export function LibraryPage() {
   const [unassignedSort, setUnassignedSort] = useState<UnassignedSortKey>("status");
   const [comicBrowsePath, setComicBrowsePath] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [organizingGroup, setOrganizingGroup] = useState<UnassignedMediaGroup | null>(null);
+  const [organizingSeed, setOrganizingSeed] = useState<{ media: MediaFile; title: string; mediaType: MediaType } | null>(null);
   const [saving, setSaving] = useState(false);
   const [linkingFiles, setLinkingFiles] = useState<MediaFile[] | null>(null);
   const [workSearch, setWorkSearch] = useState("");
-  const [recognizingGroup, setRecognizingGroup] = useState<UnassignedMediaGroup | null>(null);
+  /** 识别会话：单项处理或连续处理队列。 */
+  const [session, setSession] = useState<{ targets: RecognitionTarget[]; index: number } | null>(null);
   const [batchRecognizing, setBatchRecognizing] = useState(false);
   const [unassignedLimit, setUnassignedLimit] = useState(100);
   const [inboxPath, setInboxPath] = useState<string | null>(null);
@@ -242,7 +251,7 @@ export function LibraryPage() {
             fileCount: groups.reduce((total, group) => total + group.fileCount, 0),
             missingCount: groups.reduce((total, group) => total + group.missingCount, 0),
             status: groups.find(group => group.recognitionStatus === "candidate_pending")?.recognitionStatus ?? groups.find(group => group.recognitionStatus === "error")?.recognitionStatus ?? "unmatched",
-            group: null,
+            groups: [],
             file: null,
           };
         })
@@ -263,12 +272,13 @@ export function LibraryPage() {
         fileCount: 0,
         missingCount: 0,
         status: "unmatched" as RecognitionStatus,
-        group: null,
+        groups: [],
         file: null,
       };
       if (group) {
-        if (!entry.group || unassignedStatusRank(group.recognitionStatus, group.missingCount, group.fileCount) < unassignedStatusRank(entry.status, entry.missingCount, entry.fileCount)) {
-          entry.group = group;
+        // 同一作品文件夹下的多个季度会落进同一行，全部保留以免漏掉待确认的季度。
+        if (!entry.groups.some((item) => item.key === group.key)) entry.groups.push(group);
+        if (unassignedStatusRank(group.recognitionStatus, group.missingCount, group.fileCount) < unassignedStatusRank(entry.status, entry.missingCount, entry.fileCount)) {
           entry.status = group.recognitionStatus;
         }
       }
@@ -297,13 +307,13 @@ export function LibraryPage() {
           fileCount: 1,
           missingCount: file.missing ? 1 : 0,
           status: file.recognitionStatus,
-          group: null,
+          groups: [],
           file,
         });
         continue;
       }
       const entry = touchFolder(segment, null);
-      if (!entry.group) {
+      if (!entry.groups.length) {
         entry.fileCount += 1;
         if (file.missing) entry.missingCount += 1;
       }
@@ -312,11 +322,11 @@ export function LibraryPage() {
     return [...folders.values(), ...files].sort(compare);
   }, [inboxPath, roots, filteredUnassigned, scopedFiles, unassignedSort]);
 
-  /** 当前文件夹本身就是一个作品组时，把识别 / 手动整理操作放在这一级。 */
-  const inboxGroupHere = useMemo(() => {
-    if (inboxPath === null) return null;
+  /** 当前文件夹本身就是一个作品组（可能是多季）时，把识别 / 手动整理操作放在这一级。 */
+  const inboxGroupsHere = useMemo(() => {
+    if (inboxPath === null) return [] as UnassignedMediaGroup[];
     const prefix = normalizePath(inboxPath);
-    return filteredUnassigned.find((group) => normalizePath(group.folderPath ?? group.representative.path) === prefix) ?? null;
+    return filteredUnassigned.filter((group) => normalizePath(group.folderPath ?? group.representative.path) === prefix);
   }, [inboxPath, filteredUnassigned]);
 
   const openInboxFile = async (file: MediaFile) => {
@@ -327,6 +337,85 @@ export function LibraryPage() {
     }
   };
   const currentInboxFiles = inboxPath === null ? [] : scopedFiles.filter(file => pathChildSegment(inboxPath, file.path) !== null);
+
+  const recognitionTargetForGroup = (group: UnassignedMediaGroup, scope: RecognitionGroupScope): RecognitionTarget => ({
+    media: group.representative,
+    scope,
+    label: group.title,
+  });
+  /** 附属文件（字幕）本身不能识别，改用它同组里的视频文件作为入口。 */
+  const recognitionTargetForFile = (file: MediaFile): RecognitionTarget | null => {
+    if (file.mediaType === "video") return { media: file, scope: "season", label: file.fileName };
+    const folder = pathDirName(file.path);
+    const sibling = scopedFiles.find((candidate) => candidate.mediaType === "video" && pathDirName(candidate.path) === folder);
+    if (sibling) return { media: sibling, scope: "season", label: file.fileName };
+    const group = filteredUnassigned.find((item) => item.folderPath && normalizePath(item.folderPath) === folder);
+    const entry = group ? recognitionEntryGroup([group]) : null;
+    return entry ? { media: entry.representative, scope: "season", label: file.fileName } : null;
+  };
+  /** 当前层级里按现有排序待处理的识别目标，用于连续处理。 */
+  const inboxTargets = useMemo(() => {
+    const targets: RecognitionTarget[] = [];
+    // 当前文件夹本身就是作品组时，先处理它，再看下面的子文件夹与文件。
+    const ownGroup = recognitionEntryGroup(inboxGroupsHere);
+    if (ownGroup) targets.push(recognitionTargetForGroup(ownGroup, "folder"));
+    for (const entry of inboxLevel) {
+      if (entry.folder) {
+        const group = recognitionEntryGroup(entry.groups);
+        if (group) targets.push(recognitionTargetForGroup(group, "folder"));
+        continue;
+      }
+      if (!entry.file || entry.missingCount > 0) continue;
+      if (entry.status === "matched") continue;
+      const target = recognitionTargetForFile(entry.file);
+      if (target) targets.push(target);
+    }
+    return targets;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inboxLevel, inboxGroupsHere, scopedFiles, filteredUnassigned]);
+
+  const currentTarget = session ? session.targets[session.index] ?? null : null;
+
+  const startRecognition = (targets: RecognitionTarget[]) => {
+    if (!targets.length) return;
+    setSession({ targets, index: 0 });
+  };
+  const closeSession = () => setSession(null);
+  const advanceSession = () => setSession((current) => {
+    if (!current) return null;
+    const next = current.index + 1;
+    return next >= current.targets.length ? null : { ...current, index: next };
+  });
+
+  /** 确认 / 识别之后重新取数，并把已经处理过的项从连续处理队列里移除。 */
+  const refreshAfterRecognition = async () => {
+    await load();
+    try {
+      const files = await api.listUnassignedMedia();
+      setInboxMedia(files);
+      const pendingIds = new Set(files.map((file) => file.id));
+      setSession((current) => {
+        if (!current) return null;
+        const targets = current.targets.filter((target) => pendingIds.has(target.media.id));
+        if (!targets.length) return null;
+        const currentId = current.targets[current.index]?.media.id;
+        const index = currentId ? Math.max(0, targets.findIndex((target) => target.media.id === currentId)) : 0;
+        return { targets, index };
+      });
+    } catch (mediaError: unknown) {
+      toast(getErrorMessage(mediaError), "error");
+    }
+  };
+
+  const openManualCreate = (target: RecognitionTarget) => {
+    setOrganizingSeed({
+      media: target.media,
+      title: target.media.parsedTitle || target.label.replace(/\.[^.]+$/, ""),
+      mediaType: target.media.mediaType,
+    });
+    closeSession();
+  };
+
   const attachToExisting = async (workId: string) => {
     if (!linkingFiles) return;
     setSaving(true);
@@ -362,12 +451,12 @@ export function LibraryPage() {
   };
 
   const createFromMedia = async (input: WorkInput) => {
-    if (!organizingGroup) return;
+    if (!organizingSeed) return;
     setSaving(true);
     try {
-      const work = await api.createWorkFromMedia(organizingGroup.representative.id, input);
-      setOrganizingGroup(null);
-      toast(`作品已创建，已关联 ${organizingGroup.fileCount} 个文件`, "success");
+      const work = await api.createWorkFromMedia(organizingSeed.media.id, input);
+      setOrganizingSeed(null);
+      toast("作品已创建，已关联同组的待整理文件", "success");
       await load();
       navigate(`/library/${work.id}`);
     } catch (createError: unknown) {
@@ -377,7 +466,7 @@ export function LibraryPage() {
     }
   };
 
-  const suggestedTitle = organizingGroup?.title ?? "";
+  const suggestedTitle = organizingSeed?.title ?? "";
 
   const recognizeAll = async () => {
     setBatchRecognizing(true);
@@ -445,11 +534,14 @@ export function LibraryPage() {
         <section className="unassigned-section">
           <div className="section-heading">
             <div><h2>待整理内容</h2><span>{inboxPath === null ? `${roots.length} 个媒体源，共 ${unassignedFileCount} 个待整理文件；逐级打开文件夹即可看到文件。` : `${inboxBreadcrumb.map((crumb) => crumb.name).join(" / ")} · ${inboxLevel.filter((entry) => entry.folder).length} 个子文件夹 · ${inboxLevel.filter((entry) => !entry.folder).length} 个文件`}</span></div>
-            <select className="unassigned-sort" value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as UnassignedSortKey)} aria-label="待整理内容排序">
-              <option value="status">按识别状态</option>
-              <option value="title">按标题</option>
-              <option value="fileCount">按文件数量</option>
-            </select>
+            <div className="inbox-heading-actions">
+              {inboxPath === null ? null : <button type="button" className="button secondary compact icon-text" disabled={!inboxTargets.length} onClick={() => startRecognition(inboxTargets)}><Sparkles size={15} />连续处理{inboxTargets.length ? ` ${inboxTargets.length}` : ""}</button>}
+              <select className="unassigned-sort" value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as UnassignedSortKey)} aria-label="待整理内容排序">
+                <option value="status">按识别状态</option>
+                <option value="title">按标题</option>
+                <option value="fileCount">按文件数量</option>
+              </select>
+            </div>
           </div>
 
           <nav className="inbox-crumbs" aria-label="待整理文件夹路径">
@@ -464,18 +556,42 @@ export function LibraryPage() {
 
           {currentInboxFiles.length ? <div className="inbox-group-row"><span>当前目录及子目录：{currentInboxFiles.length} 个待整理文件</span><button type="button" className="button secondary compact" disabled={inboxMediaLoading} onClick={() => { setWorkSearch(""); setLinkingFiles(currentInboxFiles); }}>关联已有作品</button></div> : null}
 
-          {inboxGroupHere ? (
-            <div className="inbox-group-row">
-              <div>
-                <strong>{inboxGroupHere.title}</strong>
-                <small>{mediaLabels[inboxGroupHere.mediaType]} · {inboxGroupHere.fileCount} 个文件 · {inboxStatusLabel(inboxGroupHere.recognitionStatus, inboxGroupHere.missingCount, inboxGroupHere.fileCount)}</small>
+          {inboxGroupsHere.length ? (() => {
+            const primary = inboxGroupsHere[0];
+            if (!primary) return null;
+            const entryGroup = recognitionEntryGroup(inboxGroupsHere);
+            const totalFiles = inboxGroupsHere.reduce((total, group) => total + group.fileCount, 0);
+            return (
+              <div className="inbox-group-here">
+                <div className="inbox-group-row">
+                  <div>
+                    <strong>{primary.title}</strong>
+                    <small>
+                      {inboxGroupsHere.length > 1 ? `${inboxGroupsHere.length} 个季度/特别篇组` : mediaLabels[primary.mediaType]}
+                      {" · "}{totalFiles} 个文件 · {inboxStatusLabel(primary.recognitionStatus, primary.missingCount, primary.fileCount)}
+                    </small>
+                  </div>
+                  <div className="inbox-actions">
+                    {entryGroup ? <button type="button" className="button secondary compact" onClick={() => startRecognition([recognitionTargetForGroup(entryGroup, "folder")])}>{inboxGroupsHere.length > 1 ? "识别整个文件夹" : recognitionActionLabel(entryGroup)}</button> : null}
+                    <button type="button" className="button secondary compact" disabled={inboxGroupsHere.every((group) => group.missingCount >= group.fileCount)} onClick={() => openManualCreate(recognitionTargetForGroup(primary, "folder"))}>手动整理</button>
+                  </div>
+                </div>
+                {inboxGroupsHere.length > 1 ? (
+                  <div className="inbox-season-list">
+                    {inboxGroupsHere.map((group) => (
+                      <div className="inbox-season-row" key={group.key}>
+                        <span><strong>{group.title}</strong><small>{group.fileCount} 个文件 · {inboxStatusLabel(group.recognitionStatus, group.missingCount, group.fileCount)}</small></span>
+                        <span className="inbox-actions">
+                          {recognisableGroups([group]).length ? <button type="button" className="button secondary compact" onClick={() => startRecognition([recognitionTargetForGroup(group, "season")])}>{recognitionActionLabel(group)}</button> : null}
+                          <button type="button" className="button secondary compact" onClick={() => openManualCreate(recognitionTargetForGroup(group, "season"))}>手动整理</button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-              <div className="inbox-actions">
-                {inboxGroupHere.mediaType === "video" ? <button type="button" className="button secondary compact" onClick={() => setRecognizingGroup(inboxGroupHere)} disabled={inboxGroupHere.missingCount >= inboxGroupHere.fileCount}>{inboxGroupHere.recognitionStatus === "candidate_pending" ? "查看候选" : "识别"}</button> : null}
-                <button type="button" className="button secondary compact" onClick={() => setOrganizingGroup(inboxGroupHere)} disabled={inboxGroupHere.missingCount >= inboxGroupHere.fileCount}>手动整理</button>
-              </div>
-            </div>
-          ) : null}
+            );
+          })() : null}
 
           <div className="inbox-tree">
             <div className="inbox-tree-head"><span>名称</span><span>内容</span><span>识别状态</span><span>操作</span></div>
@@ -489,7 +605,10 @@ export function LibraryPage() {
                 <span className="inbox-meta">{entry.fileCount} 个文件{entry.missingCount ? ` · ${entry.missingCount} 个缺失` : ""}</span>
                 <span className={inboxStatusClass(entry.status, entry.missingCount, entry.fileCount)}>{inboxStatusLabel(entry.status, entry.missingCount, entry.fileCount)}</span>
                 <span className="inbox-actions">
-                  {entry.group?.mediaType === "video" && entry.group.missingCount < entry.group.fileCount ? <button type="button" className="button secondary compact" onClick={() => setRecognizingGroup(entry.group)}>{entry.status === "candidate_pending" ? "查看候选" : "识别"}</button> : null}
+                  {(() => {
+                    const group = recognitionEntryGroup(entry.groups);
+                    return group ? <button type="button" className="button secondary compact" onClick={() => startRecognition([recognitionTargetForGroup(group, "folder")])}>{recognitionActionLabel(group)}</button> : null;
+                  })()}
                   <button type="button" className="icon-button" aria-label={`打开 ${entry.name}`} onClick={() => setInboxPath(entry.path)}><ChevronRight size={16} /></button>
                 </span>
               </div>
@@ -499,6 +618,10 @@ export function LibraryPage() {
                 <span className="inbox-meta">{entry.file ? `${mediaLabels[entry.file.mediaType]} · ${formatSize(entry.file.size)}` : ""}</span>
                 <span className={inboxStatusClass(entry.status, entry.missingCount, entry.fileCount)}>{inboxStatusLabel(entry.status, entry.missingCount, entry.fileCount)}</span>
                 <span className="inbox-actions">
+                  {(() => {
+                    const target = entry.file && entry.missingCount === 0 && entry.status !== "matched" ? recognitionTargetForFile(entry.file) : null;
+                    return target ? <button type="button" className="button secondary compact" onClick={() => startRecognition([target])}>{entry.status === "candidate_pending" ? "查看候选" : "识别"}</button> : null;
+                  })()}
                   <button type="button" className="button secondary compact" onClick={() => { if (entry.file) { setWorkSearch(""); setLinkingFiles([entry.file]); } }}>关联作品</button>
                   <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void openInboxFile(entry.file); }}>打开</button>
                   <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void revealInboxFile(entry.file); }}>所在目录</button>
@@ -547,18 +670,30 @@ export function LibraryPage() {
         <div className="attach-list">{works.filter(work => `${work.title} ${work.originalTitle ?? ""}`.toLowerCase().includes(workSearch.trim().toLowerCase())).map(work => <div className="attach-row" key={work.id}><div><strong>{work.title}</strong><small>{work.originalTitle}</small></div><span>{mediaLabels[work.type]}</span><button type="button" className="button primary compact" disabled={saving} onClick={() => void attachToExisting(work.id)}>关联到此作品</button></div>)}</div>
         {!works.length ? <p className="quiet-inline">媒体库暂无作品，请先手动创建作品。</p> : null}
       </Modal> : null}
-      {organizingGroup ? (
-        <Modal title="整理为作品" width="large" onClose={() => setOrganizingGroup(null)}>
+      {organizingSeed ? (
+        <Modal title="整理为作品" width="large" onClose={() => setOrganizingSeed(null)}>
           <WorkForm
-            key={organizingGroup.key}
-            initialInput={{ title: suggestedTitle, type: organizingGroup.mediaType }}
+            key={organizingSeed.media.id}
+            initialInput={{ title: suggestedTitle, type: organizingSeed.mediaType }}
             busy={saving}
-            onCancel={() => setOrganizingGroup(null)}
+            onCancel={() => setOrganizingSeed(null)}
             onSubmit={createFromMedia}
           />
         </Modal>
       ) : null}
-      {recognizingGroup ? <RecognitionDialog media={recognizingGroup.representative} onClose={() => setRecognizingGroup(null)} onChanged={() => void load()} onManualCreate={() => { const group = recognizingGroup; setRecognizingGroup(null); setOrganizingGroup(group); }} onMatched={() => { setRecognizingGroup(null); void load(); }} /> : null}
+      {currentTarget ? (
+        <RecognitionDialog
+          key={`${currentTarget.media.id}:${currentTarget.scope}`}
+          media={currentTarget.media}
+          scope={currentTarget.scope}
+          queue={session && session.targets.length > 1 ? { index: session.index, total: session.targets.length } : null}
+          onClose={closeSession}
+          onChanged={() => void refreshAfterRecognition()}
+          onManualCreate={() => openManualCreate(currentTarget)}
+          onMatched={() => { advanceSession(); void refreshAfterRecognition(); }}
+          onSkip={session && session.targets.length > 1 ? advanceSession : undefined}
+        />
+      ) : null}
     </div>
   );
 }

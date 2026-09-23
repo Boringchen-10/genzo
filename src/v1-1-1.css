@@ -716,6 +716,16 @@ a.related-link { cursor: pointer; }
 .inbox-group-row strong { font-size: 13px; }
 .inbox-group-row small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 
+.inbox-heading-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.inbox-group-here { display: grid; gap: 8px; }
+.inbox-group-here .inbox-group-row { margin-bottom: 0; }
+.inbox-season-list { display: grid; gap: 6px; margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.inbox-season-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 5px 2px; }
+.inbox-season-row > span:first-child { min-width: 0; }
+.inbox-season-row strong, .inbox-season-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-season-row strong { font-size: 12px; font-weight: 600; }
+.inbox-season-row small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+
 .inbox-tree { border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--bg); }
 .inbox-tree-head { display: grid; grid-template-columns: minmax(0, 1fr) 150px 96px 150px; align-items: center; gap: 12px; height: 34px; padding: 0 14px; color: var(--muted); background: var(--surface); border-bottom: 1px solid var(--line); font-size: 10px; font-weight: 700; }
 .inbox-folder, .inbox-file { display: grid; grid-template-columns: minmax(0, 1fr) 150px 96px 150px; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 9px 14px; color: var(--text); background: transparent; border: 0; border-bottom: 1px solid var(--line); font: inherit; font-size: 12px; text-align: left; }

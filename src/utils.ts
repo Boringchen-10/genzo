@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { MediaType, RecognitionStatus, RootKind, WorkStatus } from "./types";
+import type { MediaType, RecognitionStatus, RootKind, UnassignedMediaGroup, WorkStatus } from "./types";
 
 export const mediaLabels: Record<MediaType, string> = {
   video: "动漫",
@@ -31,6 +31,21 @@ export function unassignedStatusRank(status: RecognitionStatus, missingCount: nu
   if (status === "candidate_pending") return 0;
   if (status === "error") return 1;
   return 2;
+}
+
+/** 待整理里可以继续识别的作品组：视频作品组，且不是全部文件缺失。 */
+export function recognisableGroups(groups: UnassignedMediaGroup[]): UnassignedMediaGroup[] {
+  return groups.filter((group) => group.mediaType === "video" && group.missingCount < group.fileCount);
+}
+
+/** 优先用「待确认」的作品组作为识别入口，方便直接查看候选。 */
+export function recognitionEntryGroup(groups: UnassignedMediaGroup[]): UnassignedMediaGroup | null {
+  const candidates = recognisableGroups(groups);
+  return candidates.find((group) => group.recognitionStatus === "candidate_pending") ?? candidates[0] ?? null;
+}
+
+export function recognitionActionLabel(group: UnassignedMediaGroup): string {
+  return group.recognitionStatus === "candidate_pending" ? "查看候选" : "识别";
 }
 
 export function formatDate(value: string | null): string {

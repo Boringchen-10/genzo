@@ -328,6 +328,26 @@ pub async fn list_unassigned_media_groups(
 }
 
 #[tauri::command]
+pub async fn list_recognition_group_members(
+    media_file_id: String,
+    group_scope: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<RecognitionGroupInfo> {
+    let scope = grouping::GroupScope::parse(group_scope.as_deref());
+    let context = grouping::recognition_scope_context(&state.pool, &media_file_id, scope)
+        .await?
+        .ok_or_else(|| AppError::NotFound("媒体文件不存在".to_string()))?;
+    Ok(RecognitionGroupInfo {
+        scope: context.scope.as_str().to_string(),
+        title: context.title,
+        folder_path: context.folder_path,
+        members: context.members,
+        linked_work_id: context.linked_work_id,
+        linked_work_title: context.linked_work_title,
+    })
+}
+
+#[tauri::command]
 pub async fn attach_media_files(
     work_id: String,
     media_file_ids: Vec<String>,
@@ -1044,6 +1064,8 @@ pub async fn list_match_candidates(
 pub async fn confirm_match_candidate(
     media_file_id: String,
     candidate_id: String,
+    selected_media_ids: Option<Vec<String>>,
+    group_scope: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> AppResult<String> {
@@ -1051,7 +1073,10 @@ pub async fn confirm_match_candidate(
         .bind(&candidate_id).bind(&media_file_id).fetch_optional(&state.pool).await?
         .ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".into()))?;
     let candidate: WorkMetadata = serde_json::from_str(&json)?;
-    let work_id = metadata::confirm_candidate_local(&state, &media_file_id, &candidate_id).await?;
+    let work_id = match selected_media_ids {
+        Some(ids) => metadata::confirm_candidate_local_selected(&state, &media_file_id, &candidate_id, &ids, grouping::GroupScope::parse(group_scope.as_deref())).await?,
+        None => metadata::confirm_candidate_local(&state, &media_file_id, &candidate_id).await?,
+    };
     let artwork_paths: (Option<String>, Option<String>) =
         sqlx::query_as("SELECT cover_path, banner_path FROM works WHERE id = ?")
             .bind(&work_id)
