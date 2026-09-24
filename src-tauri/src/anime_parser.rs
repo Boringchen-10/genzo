@@ -110,6 +110,18 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
         ..Default::default()
     };
     parse_numeric_episode(raw, &mut parsed);
+    // 在去掉发布组/画质括号前读取分集类型，否则 [NCED01] 会丢失
+    // 标记并和跨季正片一起进入重新识别范围。
+    if let Some(caps) = cached_regex!(r"(?i)(?:^|[\s\[【(_.-])(NCOP|NCED|OVA|OAD|SPECIAL|SP)[\s_.-]*(\d{1,3})?(?:$|[\s\]】)_.-])").captures(raw) {
+        parsed.special_type = Some(caps[1].to_ascii_uppercase());
+        if let Some(number) = caps.get(2).and_then(|value| value.as_str().parse().ok()) {
+            set_episode_range(&mut parsed, Some(number), None);
+        }
+    } else if let Some(caps) = cached_regex!(r"[\[【(](\d{1,3}\.\d+)[\]】)]").captures(raw) {
+        // 12.5 之类的插入篇不降成第 12 集，也不猜成下一季正片。
+        parsed.special_type = Some("SPECIAL".to_string());
+        parsed.episode = Some(caps[1].to_string());
+    }
     let mut text = raw
         .replace(['_', '.'], " ")
         .replace('【', "[")
@@ -469,6 +481,21 @@ pub fn score_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bracketed_credits_and_fractional_episodes_do_not_become_normal_episodes() {
+        for (token, kind, number) in [("NCED01", "NCED", 1), ("NCOP02", "NCOP", 2), ("OAD01", "OAD", 1)] {
+            let parsed = parse_file_name(&format!("[TUDO&Ygm] Boku no Kokoro no Yabai Yatsu[{token}][Ma10p_2160p][x265_flac].mkv"));
+            assert_eq!(parsed.special_type.as_deref(), Some(kind), "{parsed:?}");
+            assert_eq!(parsed.episode_start, Some(number), "{parsed:?}");
+        }
+        let special = parse_file_name("[TUDO&Ygm] Boku no Kokoro no Yabai Yatsu [12.5][Ma10p_2160p][x265_flac_ass].mkv");
+        assert_eq!(special.special_type.as_deref(), Some("SPECIAL"));
+        assert_eq!(special.episode.as_deref(), Some("12.5"));
+        assert_eq!(special.episode_start, None);
+        let normal = parse_file_name("[TUDO&Ygm] Boku no Kokoro no Yabai Yatsu [01][Ma10p_2160p][x265_flac_ass].mkv");
+        assert_eq!(normal.special_type, None);
+        assert_eq!(normal.episode_start, Some(1));
+    }
     #[test]
     fn cleans_library_sort_prefixes_and_collection_suffixes() {
         for (folder, title) in [

@@ -121,11 +121,12 @@ export function RecognitionDialog({ media, scope = "season", initialCandidates =
       <div className="recognition-members">
         <div className="recognition-members-head">
           <strong>{scope === "folder" ? "整个作品文件夹" : "当前季度/特别篇"} · 本次关联 {selectedIds.length} / {selectable.length} 个文件</strong>
-          <small>{scope === "folder" ? "一个作品文件夹里的所有季度会显示在一起，可以只勾选本次要关联的部分。" : "同一季度的视频与字幕会一起处理，取消勾选的文件留在待整理。"}</small>
+          <small>{scope === "folder" ? "一个作品文件夹里的所有季度会显示在一起，请只勾选属于所选作品的文件。" : "请核对本次关联的文件；取消勾选的文件保留原有归属。"}</small>
         </div>
         {loadingGroup ? <span role="status">正在读取分组文件…</span> : null}
         {groupError ? <span className="warning-text" role="alert">{groupError}</span> : null}
-        {mergeTarget ? <span className="recognition-merge"><Link2 size={13} />确认后将并入已有作品《{mergeTarget}》，不会新建重复作品。</span> : null}
+        {mergeTarget ? <span className="recognition-merge"><Link2 size={13} />同目录已有《{mergeTarget}》；选择不同季度的条目时会分别归档。</span> : null}
+        {media.workId ? <small className="quiet-inline">从未匹配文件重新识别时，已有官方分集或手动分集关联的文件会保留在原作品。</small> : null}
         {multiSeason && selectedIds.length > 1 ? <span className="warning-text"><AlertTriangle size={13} />所选文件跨多个季度，将一起关联到同一部作品。</span> : null}
         {members.length ? (
           <div className="recognition-member-list">

@@ -395,10 +395,39 @@ pub async fn recognition_group_context(
     .into_iter()
     .filter(|file| group_identity(file, root_for(file)) == identity)
     .collect();
+    let members = preserve_linked_episodes(pool, &requested, members).await?;
     Ok(Some(MediaGroupContext {
         title: identity.title,
         members,
     }))
+}
+
+/// 从未匹配文件发起跨作品拆分时，保留原作品已经核实的分集。
+/// 本地占位关联不代表官方核实，仍可随此次拆分一起修正。
+async fn preserve_linked_episodes(
+    pool: &SqlitePool,
+    requested: &MediaFile,
+    members: Vec<MediaFile>,
+) -> AppResult<Vec<MediaFile>> {
+    let Some(work_id) = requested.work_id.as_deref() else {
+        return Ok(members);
+    };
+    let linked: std::collections::HashSet<String> = sqlx::query_scalar(
+        "SELECT media_file_id FROM media_episode_links WHERE work_id = ? AND (provider = 'bangumi' OR match_method = 'manual') UNION SELECT s.subtitle_media_file_id FROM subtitle_links s JOIN media_episode_links e ON e.media_file_id = s.video_media_file_id AND e.work_id = s.work_id WHERE s.work_id = ? AND (e.provider = 'bangumi' OR e.match_method = 'manual')",
+    )
+    .bind(work_id)
+    .bind(work_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+    if linked.contains(&requested.id) {
+        return Ok(members);
+    }
+    Ok(members
+        .into_iter()
+        .filter(|file| !linked.contains(&file.id))
+        .collect())
 }
 
 pub async fn unassigned_group_member_ids(
@@ -584,6 +613,7 @@ pub async fn recognition_scope_context(
         })
         .collect();
 
+    let members = preserve_linked_episodes(pool, &requested, members).await?;
     let mut linked: Option<String> = None;
     for member in &members {
         let Some(work_id) = member.work_id.as_deref() else {
