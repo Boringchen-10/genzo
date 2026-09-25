@@ -33,7 +33,7 @@ const overviewRequests = createExploreRequests((year, month) => {
   return provider.exploreOverview(year, month);
 });
 
-/** 年份筛选的最早年份：本季筛选从 2000 年起都可选（Bangumi 索引里的动画年份范围）。 */
+/** 年份筛选的最早年份：动漫筛选从 2000 年起都可选（Bangumi 索引里的动画年份范围）。 */
 const YEAR_MIN = 2000;
 
 /** 动画排行榜每页条数（「加载更多」每次追加一页）。 */
@@ -187,7 +187,7 @@ export function ExplorePage() {
   const [rankingError, setRankingError] = useState("");
   const [rankingDone, setRankingDone] = useState(false);
 
-  /** 筛选为「全部」时，本季按当前日期所在季度自动取值。 */
+  /** 筛选为「全部」时，动漫按当前日期所在季度自动取值。 */
   const effectiveYear = year ?? initialCour.year;
   const effectiveMonth = month ?? initialCour.month;
 
@@ -369,7 +369,7 @@ export function ExplorePage() {
   const heading = searchTerm !== null
     ? { title: "搜索结果", detail: `「${searchTerm}」共 ${gridSubjects.length} 条` }
     : tab === "seasonal"
-      ? { title: "本季番组", detail: `${courLabel(shownYear, shownMonth)} · 来自 bangumi-data 番组索引` }
+      ? { title: "动漫番组", detail: `${courLabel(shownYear, shownMonth)} · 来自 bangumi-data 番组索引` }
       : { title: "本季热度", detail: `${courLabel(hotYear, hotMonth)} · 按 Bangumi 评分人数与收藏人数排序 · 不受年份 / 季节筛选影响` };
 
   /** 当前列表仍有缺失 / 远程封面时，安排一次有限次数的静默重读；数据加载中不打扰。 */
@@ -385,9 +385,9 @@ export function ExplorePage() {
 
   const clearSearch = () => { setSearchTerm(null); setResults([]); setQuery(""); };
   const openTab = (next: ExploreTab) => { clearSearch(); setTab(next); };
-  /** 标签筛选（对「推荐」和「本季」都生效）单独重置。 */
+  /** 标签筛选（对「推荐」和「动漫」都生效）单独重置。 */
   const resetTagFilter = () => setTag(null);
-  /** 本季的季节 / 年份筛选重置：回到「全部」时按当前日期所在季节取值。 */
+  /** 动漫的季节 / 年份筛选重置：回到「全部」时按当前日期所在季节取值。 */
   const resetSeasonFilter = () => { setYear(null); setMonth(null); };
 
   const submitSearch = async (event: FormEvent) => {
@@ -460,7 +460,7 @@ export function ExplorePage() {
   }, [initialCour.year]);
 
   const emptyState = searchTerm !== null
-    ? <EmptyState title="没有匹配的条目" description="换一个关键词，或清除搜索回到本季列表。" />
+    ? <EmptyState title="没有匹配的条目" description="换一个关键词，或清除搜索回到动漫列表。" />
     : tab === "seasonal"
       ? <EmptyState title="这个季节没有索引到番组" description={`bangumi-data 番组索引里没有 ${courLabel(effectiveYear, effectiveMonth)} 的条目，换一个年份或季节再试。`} />
       : <EmptyState title="热度榜暂时没有数据" description={hotProblems.blockers[0]?.warning ?? `Bangumi 每日放送里暂时没有 ${courLabel(hotYear, hotMonth)} 的热度条目，稍后刷新再试。`} />;
@@ -600,11 +600,11 @@ export function ExplorePage() {
       <section className="gnz-explore-heading">
         <div>
           <h1>探索</h1>
-          <p>浏览本季番组与当前热度作品，并把要追的条目加入本地媒体库。评分与排名来自 Bangumi 网络数据，不是你的个人评分。</p>
+          <p>浏览动漫番组与当前热度作品，并把要追的条目加入本地媒体库。评分与排名来自 Bangumi 网络数据，不是你的个人评分。</p>
         </div>
         <div className="gnz-explore-source-note">
           <strong>{courLabel(shownYear, shownMonth)} · Bangumi 数据源</strong>
-          <span>{overview ? `本季 ${overview.seasonal.length} 部 · 热度榜 ${hot?.trending.length ?? 0} 部` : loading ? "正在读取网络数据" : "暂无数据"}</span>
+          <span>{overview ? `动漫 ${overview.seasonal.length} 部 · 热度榜 ${hot?.trending.length ?? 0} 部` : loading ? "正在读取网络数据" : "暂无数据"}</span>
           {overview ? <span>数据时间 {formatDate(overview.fetchedAt)}</span> : null}
         </div>
       </section>
@@ -642,8 +642,8 @@ export function ExplorePage() {
 
       <div className="gnz-primary-tabs" role="tablist" aria-label="探索分类">
         <button type="button" role="tab" aria-selected={tab === "recommended"} className={tab === "recommended" ? "active" : ""} onClick={() => openTab("recommended")}>推荐</button>
-        <button type="button" role="tab" aria-selected={tab === "seasonal"} className={tab === "seasonal" ? "active" : ""} onClick={() => openTab("seasonal")}>本季</button>
-        <button type="button" disabled title="需要新增后端：全年 / 全量动画浏览查询（当前契约只提供本季番组与热度）">动画<span className="future-badge">Future</span></button>
+        <button type="button" role="tab" aria-selected={tab === "seasonal"} className={tab === "seasonal" ? "active" : ""} onClick={() => openTab("seasonal")}>动漫</button>
+        <button type="button" disabled title="需要新增后端：全年 / 全量动画浏览查询（当前契约只提供动漫番组与热度）">动画<span className="future-badge">Future</span></button>
         <button type="button" disabled title="需要新增后端：漫画探索数据源（当前只接入 Bangumi 动画条目）">漫画<span className="future-badge">Future</span></button>
       </div>
 
@@ -651,8 +651,8 @@ export function ExplorePage() {
 
       {overview ? (
         <>
-          {/* 筛选面板（位置 / 间距 / 结构对齐 Open Design v1.1.2）：只放标签筛选，对「推荐 / 本季」都生效；
-              季节与年份属于「本季」自己的界面，见下方本节。 */}
+          {/* 筛选面板（位置 / 间距 / 结构对齐 Open Design v1.1.2）：只放标签筛选，对「推荐 / 动漫」都生效；
+              季节与年份属于「动漫」自己的界面，见下方本节。 */}
           <section className="gnz-filter-preview" aria-labelledby="explore-filter-title">
             <div className="gnz-filter-head">
               <h2 id="explore-filter-title">筛选</h2>
@@ -688,8 +688,8 @@ export function ExplorePage() {
               {searchTerm !== null ? (
                 <button type="button" className="button secondary compact" onClick={clearSearch}>清除搜索</button>
               ) : tab === "seasonal" ? (
-                /* 季节 / 年份只作用于「本季」：与本季番组标题同一行、靠右；全部时按当前日期所在季节取值。 */
-                <div className="gnz-season-filter" role="group" aria-label="本季的季节与年份筛选">
+                /* 季节 / 年份只作用于「动漫」：与动漫番组标题同一行、靠右；全部时按当前日期所在季节取值。 */
+                <div className="gnz-season-filter" role="group" aria-label="动漫的季节与年份筛选">
                   <label className="gnz-filter-select"><span>季节</span>
                     <select
                       value={month === null ? "" : String(month)}
