@@ -2,7 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { MediaType, RecognitionStatus, RootKind, UnassignedMediaGroup, WorkStatus } from "./types";
 
 export const mediaLabels: Record<MediaType, string> = {
-  video: "动漫",
+  video: "视频",
   comic: "漫画",
   novel: "小说",
   game: "游戏",
@@ -19,7 +19,7 @@ export const statusLabels: Record<WorkStatus, string> = {
 
 export const rootKindLabels: Record<RootKind, string> = {
   auto: "自动识别",
-  video: "动漫",
+  video: "视频",
   comic: "漫画",
   novel: "小说",
   game: "游戏",

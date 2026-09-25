@@ -80,6 +80,7 @@ export function LibraryPage() {
   /** 识别会话：单项处理或连续处理队列。 */
   const [session, setSession] = useState<{ targets: RecognitionTarget[]; index: number } | null>(null);
   const [batchRecognizing, setBatchRecognizing] = useState(false);
+  const [recognitionKind, setRecognitionKind] = useState<import("../types").RecognitionKind>("anime");
   const [unassignedLimit, setUnassignedLimit] = useState(100);
   const [inboxPath, setInboxPath] = useState<string | null>(null);
   const [inboxMedia, setInboxMedia] = useState<MediaFile[]>([]);
@@ -471,8 +472,10 @@ export function LibraryPage() {
   const recognizeAll = async () => {
     setBatchRecognizing(true);
     try {
-      const result: RecognitionSummary = await api.recognizeUnmatched();
-      toast(`识别 ${result.scanned} 个作品组：匹配 ${result.matched}，待确认 ${result.pending}，未匹配 ${result.unmatched}，失败 ${result.errors}`, result.errors ? "info" : "success");
+      const targets = filteredUnassigned.filter(group => group.mediaType === "video" && group.missingCount < group.fileCount
+        && (!inboxPath || pathChildSegment(normalizePath(inboxPath), normalizePath(group.representative.path)) !== null)).map(group => group.representative.id);
+      const result: RecognitionSummary = await api.recognizeUnmatched(recognitionKind, targets);
+      toast(`处理 ${result.scanned} 项：匹配 ${result.matched}，待确认 ${result.pending}，未匹配 ${result.unmatched}，失败 ${result.errors}`, result.errors ? "info" : "success");
       await load();
     } catch (recognizeError: unknown) {
       toast(getErrorMessage(recognizeError), "error");
@@ -487,7 +490,7 @@ export function LibraryPage() {
         title="媒体库"
         description={`${works.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
         actions={activeSection === "inbox"
-          ? <button type="button" className="button secondary icon-text" disabled={batchRecognizing || !scopedUnassigned.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别动漫"}</button>
+          ? <div className="film-tv-batch"><select aria-label="批量识别类型" value={recognitionKind} disabled={batchRecognizing} onChange={event => setRecognitionKind(event.target.value as import("../types").RecognitionKind)}><option value="anime">动漫</option><option value="movie">电影</option><option value="tv">电视剧</option></select><button type="button" className="button secondary icon-text" disabled={batchRecognizing || !scopedUnassigned.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别"}</button></div>
           : activeSection === "sources"
             ? undefined
             : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
@@ -685,6 +688,7 @@ export function LibraryPage() {
         <RecognitionDialog
           key={`${currentTarget.media.id}:${currentTarget.scope}`}
           media={currentTarget.media}
+          initialKind={recognitionKind}
           scope={currentTarget.scope}
           queue={session && session.targets.length > 1 ? { index: session.index, total: session.targets.length } : null}
           onClose={closeSession}

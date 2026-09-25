@@ -35,7 +35,7 @@ pub async fn candidates_for_media(
     if rows.is_empty() {
         if let Some(group) = grouping::recognition_group_context(pool, media_file_id).await? {
             let ids = group.members.iter().map(|file| file.id.as_str()).collect::<Vec<_>>();
-            rows = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE media_file_id IN (SELECT value FROM json_each(?)) ORDER BY confidence DESC")
+            rows = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE provider = 'bangumi' AND media_file_id IN (SELECT value FROM json_each(?)) ORDER BY confidence DESC")
                 .bind(serde_json::to_string(&ids)?).fetch_all(pool).await?;
         }
     }
@@ -804,6 +804,9 @@ async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candi
     let group_member_ids = selected_group_members(selectable_ids, media_file_id, selected_media_ids)?;
     let row = sqlx::query_as::<_, MatchCandidateRow>("SELECT id, media_file_id, provider, external_id, title, original_title, aliases_json, subject_type, year, season, cover_url, confidence, match_reasons_json, metadata_json, created_at FROM match_candidates WHERE id = ? AND media_file_id = ?")
         .bind(candidate_id).bind(media_file_id).fetch_optional(&state.pool).await?.ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".to_string()))?;
+    if row.provider == "tmdb" {
+        return crate::film_tv::confirm(state, &row, &group_member_ids).await;
+    }
     let metadata: WorkMetadata = serde_json::from_str(&row.metadata_json)?;
     let (metadata, aggregation, cover_path, banner_path) = if enrich {
         enrich_candidate_metadata(state, metadata).await?
@@ -959,6 +962,9 @@ async fn enrich_candidate_metadata(
 
 /// Enrichment never changes the chosen anchor or the user's file associations.
 pub async fn enrich_confirmed_work(state: &AppState, work_id: &str, metadata: WorkMetadata) -> AppResult<Vec<String>> {
+    if metadata.provider == "tmdb" {
+        return crate::film_tv::enrich(state, work_id, &metadata.external_id, false).await;
+    }
     let anchor = metadata.external_id.clone();
     let (metadata, aggregation, cover, banner) = enrich_candidate_metadata(state, metadata).await?;
     let (_guard, mut tx) = crate::db::begin_write(&state.pool).await?;

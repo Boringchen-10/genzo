@@ -6,6 +6,7 @@ mod credentials;
 mod db;
 mod error;
 mod explore;
+mod film_tv;
 mod grouping;
 mod launcher;
 mod media_mapping;

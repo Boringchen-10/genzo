@@ -314,6 +314,7 @@ pub struct AnimeEpisodeEntry {
     #[serde(flatten)]
     pub episode: AnimeEpisodeMetadata,
     pub local_files: Vec<MediaFile>,
+    pub image_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

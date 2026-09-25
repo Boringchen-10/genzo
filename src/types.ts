@@ -1,4 +1,5 @@
 export type MediaType = "video" | "comic" | "novel" | "game" | "other";
+export type RecognitionKind = "anime" | "movie" | "tv";
 export type WorkStatus = "planned" | "in_progress" | "completed" | "paused" | "dropped";
 export type RootKind = "auto" | "video" | "comic" | "novel" | "game" | "mixed";
 export type ThemeMode = "system" | "light" | "dark";
@@ -367,6 +368,7 @@ export interface AnimeCharacter {
 }
 
 export interface AnimeEpisodeEntry extends AnimeEpisodeMetadata {
+  imageUrl?: string | null;
   localFiles: MediaFile[];
 }
 

@@ -81,7 +81,8 @@ try {
     await page.screenshot({ path: path.join(output, `season-split-${width}x${height}.png`) });
     // Exclude one file and verify the frontend sends only the checked file.
     await dialog.locator(".recognition-member input").nth(1).uncheck();
-    await dialog.getByRole("button", { name: "确认匹配", exact: true }).click();
+    await dialog.getByRole("button", { name: "预览关联", exact: true }).click();
+    await dialog.getByRole("button", { name: "确认关联", exact: true }).click();
     await page.waitForURL("**/#/library/s2");
     const submitted = await page.evaluate(() => window.__confirmCalls.at(-1));
     assert.deepEqual(submitted.selectedMediaIds, ["13"]);

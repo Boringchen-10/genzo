@@ -817,7 +817,8 @@ export function createMockProvider(): GenzoDataProvider {
       settings.set(key, value);
     },
 
-    async recognizeMedia(mediaFileId, query) {
+    async recognizeMedia(mediaFileId, query, kind = "anime") {
+      if (kind !== "anime") throw new Error("电影与电视剧识别需要在 Genzo 桌面端运行，并配置 TMDB 凭据；浏览器预览不会执行真实刮削。");
       const title = query?.trim() || "示例作品";
       const candidates: MatchCandidate[] = [
         {
@@ -846,7 +847,8 @@ export function createMockProvider(): GenzoDataProvider {
       };
       return result;
     },
-    async recognizeUnmatched() {
+    async recognizeUnmatched(kind = "anime") {
+      if (kind !== "anime") throw new Error("电影与电视剧批量识别需要在 Genzo 桌面端运行。");
       const summary: RecognitionSummary = { scanned: 12, matched: 8, pending: 3, unmatched: 1, errors: 0 };
       return summary;
     },

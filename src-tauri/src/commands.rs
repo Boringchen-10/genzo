@@ -151,7 +151,7 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
     .bind(&id)
     .fetch_all(&state.pool)
     .await?;
-    let metadata = sqlx::query_as::<_, MetadataSummary>("SELECT e.provider, e.external_id, w.title, w.original_title, w.metadata_year AS year, w.cover_path AS cover_url, e.updated_at AS fetched_at FROM work_external_ids e JOIN works w ON w.id = e.work_id WHERE e.work_id = ? ORDER BY e.updated_at DESC LIMIT 1")
+    let metadata = sqlx::query_as::<_, MetadataSummary>("SELECT e.provider, e.external_id, w.title, w.original_title, w.metadata_year AS year, w.cover_path AS cover_url, e.updated_at AS fetched_at FROM work_external_ids e JOIN works w ON w.id = e.work_id WHERE e.work_id = ? ORDER BY CASE e.provider WHEN 'bangumi' THEN 0 WHEN 'tmdb' THEN 1 ELSE 2 END, e.updated_at DESC LIMIT 1")
         .bind(&id).fetch_optional(&state.pool).await?;
     let field_locks = sqlx::query_scalar::<_, String>("SELECT field_name FROM work_field_locks WHERE work_id = ? AND locked = 1 ORDER BY field_name")
         .bind(&id).fetch_all(&state.pool).await?;
@@ -1013,10 +1013,15 @@ pub async fn get_setting(key: String, state: State<'_, AppState>) -> AppResult<O
 pub async fn recognize_media_file(
     media_file_id: String,
     query: Option<String>,
+    kind: Option<String>,
+    season: Option<i64>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> AppResult<RecognitionResult> {
-    let result = metadata::recognize_media(&state, &media_file_id, query).await?;
+    let result = match kind.as_deref().unwrap_or("anime") {
+        "anime" => metadata::recognize_media(&state, &media_file_id, query).await?,
+        kind => crate::film_tv::recognize(&state, &media_file_id, query, crate::film_tv::Kind::parse(kind)?, season).await?,
+    };
     if result.status == "matched" {
         allow_media_work_artwork(&app, &state.pool, &media_file_id).await?;
     }
@@ -1025,10 +1030,15 @@ pub async fn recognize_media_file(
 
 #[tauri::command]
 pub async fn recognize_unmatched_media(
+    kind: Option<String>,
+    media_file_ids: Option<Vec<String>>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> AppResult<RecognitionSummary> {
-    let result = metadata::recognize_batch(&state).await?;
+    let result = match kind.as_deref().unwrap_or("anime") {
+        "anime" => metadata::recognize_batch(&state).await?,
+        kind => crate::film_tv::batch(&state, crate::film_tv::Kind::parse(kind)?, &media_file_ids.unwrap_or_default()).await?,
+    };
     db::allow_cached_images(&app, &state.cover_cache_path)?;
     Ok(result)
 }
@@ -1095,7 +1105,7 @@ pub async fn confirm_match_candidate(
                 for path in paths { let _ = db::allow_cover_file(&app, Path::new(&path)); }
                 let _ = app.emit("work-metadata-updated", &target);
             }
-            Err(error) => { eprintln!("作品补充资料更新失败：{error}"); }
+            Err(error) => { eprintln!("作品补充资料更新失败：{error}"); let _ = app.emit("work-metadata-updated", &target); }
         }
     });
     Ok(work_id)

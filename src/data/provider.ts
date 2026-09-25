@@ -82,8 +82,8 @@ export interface GenzoDataProvider {
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
 
-  recognizeMedia(mediaFileId: string, query?: string | null): Promise<RecognitionResult>;
-  recognizeUnmatched(): Promise<RecognitionSummary>;
+  recognizeMedia(mediaFileId: string, query?: string | null, kind?: import("../types").RecognitionKind, season?: number): Promise<RecognitionResult>;
+  recognizeUnmatched(kind?: import("../types").RecognitionKind, mediaFileIds?: string[]): Promise<RecognitionSummary>;
   listMatchCandidates(mediaFileId: string): Promise<MatchCandidate[]>;
   confirmMatch(mediaFileId: string, candidateId: string, selectedMediaIds?: string[], groupScope?: RecognitionGroupScope): Promise<string>;
   cancelMatch(mediaFileId: string): Promise<void>;

@@ -32,6 +32,8 @@ export function SettingsPanel() {
   const toast = useToasts((state) => state.push);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [includeHidden, setIncludeHidden] = useState(false);
+  const [tmdbToken, setTmdbToken] = useState("");
+  const [savingTmdb, setSavingTmdb] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const darkAppearance = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -40,9 +42,10 @@ export function SettingsPanel() {
     setLoading(true);
     setError("");
     try {
-      const [appInfo, hiddenSetting] = await Promise.all([api.appInfo(), api.getSetting("scan.include_hidden")]);
+      const [appInfo, hiddenSetting, token] = await Promise.all([api.appInfo(), api.getSetting("scan.include_hidden"), api.getSetting("metadata.tmdb_read_token")]);
       setInfo(appInfo);
       setIncludeHidden(hiddenSetting === "true");
+      setTmdbToken(token ?? "");
     } catch (loadError: unknown) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -76,6 +79,15 @@ export function SettingsPanel() {
     } catch (openError: unknown) {
       toast(getErrorMessage(openError), "error");
     }
+  };
+
+  const saveTmdb = async () => {
+    setSavingTmdb(true);
+    try {
+      await api.setSetting("metadata.tmdb_read_token", tmdbToken.trim());
+      toast(tmdbToken.trim() ? "TMDB 凭据已保存，识别时验证连接" : "TMDB 凭据已清除", "success");
+    } catch (saveError: unknown) { toast(getErrorMessage(saveError), "error"); }
+    finally { setSavingTmdb(false); }
   };
 
   const reset = () => {
@@ -153,6 +165,13 @@ export function SettingsPanel() {
             <code title={info.coverCachePath}>{info.coverCachePath}</code>
             <button type="button" className="button secondary icon-text" onClick={() => void openData()}><FolderOpen size={15} />打开数据目录</button>
             <small>Genzo v{info.version} · 本地模式</small>
+          </div>
+          <div className="setting" aria-label="元数据来源">
+            <label htmlFor="tmdbToken">TMDB API Read Access Token</label>
+            <input id="tmdbToken" type="password" autoComplete="off" maxLength={512} value={tmdbToken} onChange={event => setTmdbToken(event.target.value)} placeholder="在 TMDB 账户的 API 设置中获取" />
+            <small>用于电影、电视剧的中文资料、海报和分集识别；也用于动漫补充资料。清空后保存可停用。</small>
+            <button type="button" className="button secondary" disabled={savingTmdb} onClick={() => void saveTmdb()}>{savingTmdb ? "保存中…" : "保存 TMDB 凭据"}</button>
+            <small>This product uses the TMDB API but is not endorsed or certified by TMDB.</small>
           </div>
         </section>
       ) : null}

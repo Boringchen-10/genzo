@@ -504,16 +504,13 @@ export function WorkDetailPage() {
     setRefreshing(true);
     setStructureLoading(true);
     try {
-      await detailProvider.refreshWorkMetadata(id);
-      const [workData, structureData] = await Promise.all([
-        api.getWork(id),
-        detailProvider.getAnimeWorkStructure(id),
-      ]);
+      const structureData = await detailProvider.refreshWorkMetadata(id);
+      const workData = await api.getWork(id);
       setWork(workData);
       setNotesDraft(workData.notes);
       setStructure(structureData);
       setStructureError("");
-      toast("元数据已刷新", "success");
+      toast(structureData.warnings.length ? structureData.warnings.join("；") : "元数据已刷新", structureData.warnings.length ? "info" : "success");
     } catch (refreshError: unknown) {
       toast(getErrorMessage(refreshError), "error");
     } finally {
@@ -532,7 +529,8 @@ export function WorkDetailPage() {
   const recognitionFile = sortedFiles.find((file) => file.mediaType === "video" && !file.missing);
   const notesDirty = notesDraft !== work.notes;
   /** 是否使用官方分集结构（视频作品 + Provider 已接入 + 结构读取成功）。 */
-  const hasStructure = detailProvider !== null && work.type === "video" && structure !== null;
+  const isMovie = work.metadata?.provider === "tmdb" && work.metadata.externalId.startsWith("movie/");
+  const hasStructure = detailProvider !== null && work.type === "video" && structure !== null && !isMovie;
   /** 顶部背景：优先后端缓存的**横版横幅**（`bannerPath`，TMDB backdrop / AniList banner），没有横图才退回竖版封面。 */
   const detailBanner = coverUrl(work.bannerPath ?? null);
   const detailArtwork = detailBanner ?? coverUrl(work.coverPath);
@@ -684,7 +682,7 @@ export function WorkDetailPage() {
                         return (
                           <article className="official-episode" key={episode.externalId}>
                             <div className="episode-snapshot">
-                              {snapshotFile ? (
+                              {episode.imageUrl ? <span className="episode-snapshot-visual"><SafeImage src={episode.imageUrl} alt={episode.title} fallback={snapshotFile ? <LocalFileThumb file={snapshotFile} provider={detailProvider} /> : <MediaVisual type="video" coverPath={null} alt="无分集剧照" />} /></span> : snapshotFile ? (
                                 <LocalFileThumb file={snapshotFile} provider={detailProvider} className="episode-snapshot-visual" />
                               ) : (
                                 <span className="episode-snapshot-visual"><MediaVisual type="video" coverPath={null} alt="无视频快照" /></span>
@@ -836,7 +834,7 @@ export function WorkDetailPage() {
                     return (
                       <article className="file-row detail-file-card" key={file.id}>
                         <div className="detail-file-visual"><MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" /></div>
-                        <div className="file-name"><strong title={file.fileName}>{file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.fileName}</strong><small title={file.path}>{file.fileName}</small></div>
+                        <div className="file-name"><strong title={file.fileName}>{!isMovie && file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.fileName}</strong><small title={file.path}>{file.fileName}</small></div>
                         <div className="episode-card-meta">{mediaLabels[file.mediaType]} · {formatSize(file.size)}{subtitleCount ? ` · ${subtitleCount} 个字幕` : ""}</div>
                         <div className={file.missing ? "warning-text file-availability" : "available-text file-availability"}>{file.missing ? <><AlertTriangle size={13} />文件缺失</> : file.path.startsWith("webdav://") ? "远程文件" : "本地可用"}</div>
                         <div className="file-actions">
@@ -863,7 +861,7 @@ export function WorkDetailPage() {
               <section className="detail-section related-section" aria-labelledby="relatedTitle">
                 <div className="detail-section-head">
                   <h2 id="relatedTitle">关联作品</h2>
-                  <span>来自 Bangumi 关联条目，不保证都是季度</span>
+                  <span>{work.metadata?.provider === "tmdb" ? "本剧已入库的季度" : "来自 Bangumi 关联条目，不保证都是季度"}</span>
                 </div>
                 <ul className="related-list">
                   {structure.seasons.map((season) => {
@@ -948,7 +946,7 @@ export function WorkDetailPage() {
                   {hasStructure ? "当前元数据没有返回制作人员与角色。" : "当前运行环境未提供动画详情结构，因此这里没有制作人员与角色数据。"}
                 </div>
               )}
-              {hasStructure && structure?.warnings.length ? <p className="quiet-inline credits-note">{structure.warnings.join("；")}</p> : null}
+              {structure?.warnings.length ? <p className="quiet-inline credits-note" role="status">{structure.warnings.join("；")}</p> : null}
             </section>
           </main>
 
@@ -981,7 +979,7 @@ export function WorkDetailPage() {
                   return <button type="button" className={`lock-chip ${locked ? "locked" : ""}`} key={field} onClick={() => void toggleLock(field)} title={locked ? `解锁${label}` : `锁定${label}`}><span>{locked ? <Lock size={12} /> : <Unlock size={12} />}{label}</span></button>;
                 })}
               </div>
-              <p className="metadata-note">{work.metadata ? `Bangumi #${work.metadata.externalId} · 更新于 ${formatDate(work.metadata.fetchedAt)}` : "可从本地动画文件开始识别；锁定字段不会被后续刷新覆盖。"}</p>
+              <p className="metadata-note">{work.metadata ? `${work.metadata.provider === "tmdb" ? "TMDB" : "Bangumi"} #${work.metadata.externalId} · 更新于 ${formatDate(work.metadata.fetchedAt)}` : "可从本地视频文件开始识别；锁定字段不会被后续刷新覆盖。"}</p>
             </section>
 
             <aside className="detail-aside">

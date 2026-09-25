@@ -101,6 +101,9 @@ pub async fn rebuild_episode_links(
     transaction: &mut Transaction<'_, Sqlite>,
     work_id: &str,
 ) -> AppResult<()> {
+    let tmdb_primary: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_external_ids WHERE work_id=? AND provider='tmdb') AND NOT EXISTS(SELECT 1 FROM work_external_ids WHERE work_id=? AND provider='bangumi')")
+        .bind(work_id).bind(work_id).fetch_one(&mut **transaction).await?;
+    if tmdb_primary { return crate::film_tv::rebuild_links(transaction, work_id).await; }
     sqlx::query("DELETE FROM media_episode_links WHERE work_id = ? AND match_method = 'parsed'")
         .bind(work_id)
         .execute(&mut **transaction)
@@ -282,17 +285,16 @@ pub async fn set_episode_link(
         .execute(&mut *transaction)
         .await?;
     if let Some(episode_external_id) = episode_external_id {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM anime_episodes WHERE work_id = ? AND provider = 'bangumi' AND external_id = ?)")
+        let provider: Option<String> = sqlx::query_scalar("SELECT provider FROM anime_episodes WHERE work_id = ? AND provider IN ('bangumi','tmdb') AND external_id = ?")
             .bind(&work_id)
             .bind(episode_external_id)
-            .fetch_one(&mut *transaction)
+            .fetch_optional(&mut *transaction)
             .await?;
-        if !exists {
-            return Err(AppError::NotFound("官方分集不存在".to_string()));
-        }
-        sqlx::query("INSERT INTO media_episode_links (media_file_id, work_id, provider, episode_external_id, match_method, confidence, updated_at) VALUES (?, ?, 'bangumi', ?, 'manual', 1, ?)")
+        let provider = provider.ok_or_else(|| AppError::NotFound("官方分集不存在".into()))?;
+        sqlx::query("INSERT INTO media_episode_links (media_file_id, work_id, provider, episode_external_id, match_method, confidence, updated_at) VALUES (?, ?, ?, ?, 'manual', 1, ?)")
             .bind(media_file_id)
             .bind(&work_id)
+            .bind(provider)
             .bind(episode_external_id)
             .bind(Utc::now().to_rfc3339())
             .execute(&mut *transaction)
@@ -303,6 +305,9 @@ pub async fn set_episode_link(
 }
 
 pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<AnimeWorkStructure> {
+    if let Some(id) = crate::film_tv::anchor(pool, work_id).await? {
+        return crate::film_tv::structure(pool, work_id, &id).await;
+    }
     let bangumi_id: String = sqlx::query_scalar(
         "SELECT external_id FROM work_external_ids WHERE work_id = ? AND provider = 'bangumi'",
     )
@@ -405,6 +410,7 @@ pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<Anime
     let episodes = official
         .into_iter()
         .map(|episode| AnimeEpisodeEntry {
+            image_url: None,
             local_files: files_by_episode
                 .remove(&episode.external_id)
                 .unwrap_or_default(),
@@ -428,6 +434,19 @@ pub async fn refresh_work_metadata(
     app: &AppHandle,
     work_id: &str,
 ) -> AppResult<AnimeWorkStructure> {
+    if let Some(id) = crate::film_tv::anchor(&state.pool, work_id).await? {
+        match crate::film_tv::enrich(state, work_id, &id, true).await {
+            Ok(paths) => {
+                for path in paths { db::allow_cover_file(app, Path::new(&path))?; }
+                return crate::film_tv::structure(&state.pool, work_id, &id).await;
+            }
+            Err(error) => {
+                let mut structure = crate::film_tv::structure(&state.pool, work_id, &id).await?;
+                structure.warnings.push(format!("{error}；已有作品资料已保留"));
+                return Ok(structure);
+            }
+        }
+    }
     let bangumi_id: String = sqlx::query_scalar(
         "SELECT external_id FROM work_external_ids WHERE work_id = ? AND provider = 'bangumi'",
     )

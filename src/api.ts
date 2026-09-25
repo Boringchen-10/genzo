@@ -139,9 +139,9 @@ export const api = {
   openDataDirectory: () => call<void>("open_data_directory"),
   getSetting: (key: string) => call<string | null>("get_setting", { key }),
   setSetting: (key: string, value: string) => call<void>("set_setting", { key, value }),
-  recognizeMedia: (mediaFileId: string, query: string | null = null) =>
-    call<RecognitionResult>("recognize_media_file", { mediaFileId, query }),
-  recognizeUnmatched: () => call<RecognitionSummary>("recognize_unmatched_media"),
+  recognizeMedia: (mediaFileId: string, query: string | null = null, kind: import("./types").RecognitionKind = "anime", season?: number) =>
+    call<RecognitionResult>("recognize_media_file", { mediaFileId, query, kind, season }),
+  recognizeUnmatched: (kind: import("./types").RecognitionKind = "anime", mediaFileIds?: string[]) => call<RecognitionSummary>("recognize_unmatched_media", { kind, mediaFileIds }),
   listMatchCandidates: (mediaFileId: string) =>
     call<MatchCandidate[]>("list_match_candidates", { mediaFileId }),
   confirmMatch: (mediaFileId: string, candidateId: string, selectedMediaIds?: string[], groupScope?: RecognitionGroupScope) =>

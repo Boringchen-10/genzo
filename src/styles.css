@@ -210,7 +210,13 @@ select { height: 36px; padding: 0 28px 0 10px; }
 .recognition-member strong, .recognition-member small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recognition-member small { margin-top: 2px; color: var(--muted); font-size: 10px; }
 .recognition-linked-tag { margin-left: 6px; padding: 1px 5px; color: var(--muted); background: var(--hover); border-radius: 3px; font-size: 9px; font-style: normal; }
-.recognition-search { display: grid; grid-template-columns: minmax(190px, 1fr) auto auto; gap: 7px; margin: 13px 0; }
+.recognition-search { display: flex; flex-wrap: wrap; gap: 7px; margin: 13px 0; }
+.recognition-search .search-box { flex: 1 1 210px; min-width: 0; }
+.recognition-season { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+.recognition-season input { width: 64px; }
+.film-tv-batch { display: flex; gap: 7px; flex-wrap: wrap; }
+.recognition-preview { padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.recognition-preview ul { max-height: 150px; overflow: auto; overflow-wrap: anywhere; }
 .recognition-error { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; padding: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border)); border-radius: 5px; font-size: 11px; line-height: 1.5; }
 .recognition-error svg { flex: 0 0 auto; }
 .candidate-list { max-height: min(340px, calc(100vh - 390px)); overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
