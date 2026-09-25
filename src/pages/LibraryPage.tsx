@@ -10,7 +10,7 @@ import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ScanPage } from "./ScanPage";
 import { usePreferences, useToasts } from "../store";
 import type { LibraryRoot, MediaFile, MediaType, RecognitionGroupScope, RecognitionStatus, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
-import { formatDate, formatSize, getErrorMessage, mediaLabels, recognitionActionLabel, recognitionEntryGroup, recognisableGroups, unassignedStatusRank } from "../utils";
+import { formatDate, formatSize, getErrorMessage, mediaLabels, workCategoryLabel, recognitionActionLabel, recognitionEntryGroup, recognisableGroups, unassignedStatusRank } from "../utils";
 import { normalizePath, pathBaseName, pathDirName, pathChildSegment } from "../mediaPaths";
 
 type Scope = "all" | "recent" | "favorites" | "missing";
@@ -656,7 +656,7 @@ export function LibraryPage() {
           {filtered.map((work) => (
             <Link className="work-list-row" to={`/library/${work.id}`} key={work.id}>
               <div className="work-list-title"><div className="mini-cover"><MediaVisual type={work.type} coverPath={work.coverPath} alt="" /></div><div><strong>{work.title}</strong><small>{work.originalTitle || "无原始标题"}</small></div></div>
-              <span>{mediaLabels[work.type]}</span>
+              <span>{workCategoryLabel(work)}</span>
               <span className="tag-cell">{work.tags.length ? work.tags.slice(0, 2).join(" · ") : "—"}</span>
               <span className={work.missingCount ? "warning-text" : ""}>{work.mediaCount}{work.missingCount ? `（${work.missingCount} 缺失）` : ""}</span>
               <span>{formatDate(work.updatedAt).split(" ")[0]}</span>
@@ -670,7 +670,7 @@ export function LibraryPage() {
       {linkingFiles ? <Modal title="关联已有作品" width="large" onClose={() => { if (!saving) setLinkingFiles(null); }}>
         <p className="quiet-inline">将 {linkingFiles.length} 个文件关联到所选作品，不会新建重复作品。个人记录保持不变。</p>
         <div className="search-box modal-search"><input value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="搜索媒体库中的作品" /></div>
-        <div className="attach-list">{works.filter(work => `${work.title} ${work.originalTitle ?? ""}`.toLowerCase().includes(workSearch.trim().toLowerCase())).map(work => <div className="attach-row" key={work.id}><div><strong>{work.title}</strong><small>{work.originalTitle}</small></div><span>{mediaLabels[work.type]}</span><button type="button" className="button primary compact" disabled={saving} onClick={() => void attachToExisting(work.id)}>关联到此作品</button></div>)}</div>
+        <div className="attach-list">{works.filter(work => `${work.title} ${work.originalTitle ?? ""}`.toLowerCase().includes(workSearch.trim().toLowerCase())).map(work => <div className="attach-row" key={work.id}><div><strong>{work.title}</strong><small>{work.originalTitle}</small></div><span>{workCategoryLabel(work)}</span><button type="button" className="button primary compact" disabled={saving} onClick={() => void attachToExisting(work.id)}>关联到此作品</button></div>)}</div>
         {!works.length ? <p className="quiet-inline">媒体库暂无作品，请先手动创建作品。</p> : null}
       </Modal> : null}
       {organizingSeed ? (

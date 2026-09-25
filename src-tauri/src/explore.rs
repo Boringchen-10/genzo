@@ -760,9 +760,8 @@ pub async fn save_subject(
     let aggregated = crate::metadata_aggregator::aggregate(&state.pool, primary).await?;
     let metadata = &aggregated.metadata;
     let cover_path = if let Some(url) = &metadata.cover_url {
-        let destination = state
-            .cover_cache_path
-            .join(format!("bangumi-{}.jpg", metadata.external_id));
+        let destination = crate::metadata_aggregator::artwork_cache_path(
+            &state.cover_cache_path, &format!("bangumi-{}", metadata.external_id), "cover", url);
         if destination.is_file()
             || crate::metadata_aggregator::cache_cover(url, &destination)
                 .await
@@ -777,9 +776,8 @@ pub async fn save_subject(
         None
     };
     let banner_path = if let Some(url) = &metadata.banner_url {
-        let destination = state
-            .cover_cache_path
-            .join(format!("bangumi-{}-banner.jpg", metadata.external_id));
+        let destination = crate::metadata_aggregator::artwork_cache_path(
+            &state.cover_cache_path, &format!("bangumi-{}", metadata.external_id), "banner", url);
         if destination.is_file()
             || crate::metadata_aggregator::cache_banner(url, &destination)
                 .await

@@ -24,6 +24,7 @@ mod scanner;
 mod thumbnail;
 mod webdav;
 mod window_style;
+mod work_category;
 
 use tauri::Manager;
 

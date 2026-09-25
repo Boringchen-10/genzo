@@ -7,7 +7,7 @@ import { ErrorState, IconButton, LoadingState } from "../components/common";
 import { MediaVisual } from "../components/MediaVisual";
 import { useUi } from "../store";
 import type { Dashboard, MediaType, WorkListItem } from "../types";
-import { coverUrl, getErrorMessage, mediaLabels, statusLabels } from "../utils";
+import { coverUrl, getErrorMessage, mediaLabels, workCategoryLabel, statusLabels } from "../utils";
 
 type ShelfFilter = "all" | MediaType;
 
@@ -86,7 +86,7 @@ function workBackdrop(work: WorkListItem | undefined, index: number, previewMode
 
 function ShelfArtwork({ work, index, previewMode }: { work: WorkListItem; index: number; previewMode: boolean }) {
   const source = artwork(work, index, previewMode);
-  return source ? <img src={source} alt="" /> : <MediaVisual type={work.type} coverPath={null} alt="" />;
+  return <MediaVisual type={work.type} coverPath={source ?? null} thumbnailPath={work.coverThumbnailPath} alt="" />;
 }
 
 export function HomePage() {
@@ -180,7 +180,7 @@ export function HomePage() {
           </div>
         </div>
         {carouselWorks.length ? <div className="gnz-home-switcher" role="group" aria-label="切换到其他作品">
-          <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} aria-pressed={featuredIndex === index} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{mediaLabels[work.type]} · 本地</small></span></button>)}</div>
+          <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} aria-pressed={featuredIndex === index} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{workCategoryLabel(work)} · 本地</small></span></button>)}</div>
         </div> : null}
       </div>
       {works.length ? <section className="gnz-home-shelf">
@@ -189,7 +189,7 @@ export function HomePage() {
           {shelfFilterOptions.map((option) => <button key={option.key} type="button" className={shelfFilter === option.key ? "active" : ""} aria-pressed={shelfFilter === option.key} onClick={() => setShelfFilter(option.key)}>{option.label}</button>)}
         </div>
         {shelfWorks.length ? <div className="gnz-shelf-grid">{shelfWorks.slice(0, 6).map((work, index) => <Link className="gnz-shelf-card" to={`/library/${work.id}`} key={work.id}>
-          <div className="gnz-shelf-poster"><ShelfArtwork work={work} index={index} previewMode={previewMode}/><span className="gnz-shelf-type">{mediaLabels[work.type]}</span>{work.favorite ? <span className="gnz-shelf-fav" aria-hidden="true"><Star size={15} fill="currentColor"/></span> : null}</div>
+          <div className="gnz-shelf-poster"><ShelfArtwork work={work} index={index} previewMode={previewMode}/><span className="gnz-shelf-type">{workCategoryLabel(work)}</span>{work.favorite ? <span className="gnz-shelf-fav" aria-hidden="true"><Star size={15} fill="currentColor"/></span> : null}</div>
           <strong>{work.title}</strong>
           <small>{work.mediaCount} 个文件 · {statusLabels[work.status]}</small>
         </Link>)}</div> : <p className="gnz-shelf-empty">该分类下还没有作品。</p>}

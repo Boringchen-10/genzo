@@ -110,6 +110,7 @@ async fn work_list_items(pool: &SqlitePool) -> AppResult<Vec<WorkListItem>> {
     )
     .fetch_all(pool)
     .await?;
+    let mut categories = crate::work_category::load(pool, None).await?;
     let mut items = Vec::with_capacity(works.len());
     for work in works {
         let tags = tags_for_work(pool, &work.id).await?;
@@ -120,6 +121,11 @@ async fn work_list_items(pool: &SqlitePool) -> AppResult<Vec<WorkListItem>> {
         .fetch_one(pool)
         .await?;
         items.push(WorkListItem {
+            category: categories.remove(&work.id).unwrap_or_else(|| work.work_type.clone()),
+            cover_thumbnail_path: work.cover_path.as_deref().map(Path::new)
+                .filter(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("art-v2-")))
+                .map(crate::metadata_aggregator::thumbnail_path)
+                .filter(|path| path.is_file()).map(|path| path.to_string_lossy().into_owned()),
             work,
             tags,
             media_count,
@@ -158,7 +164,10 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
     let candidates = metadata::candidates_for_work(&state.pool, &id).await?;
     let subtitle_links = sqlx::query_as::<_, SubtitleLink>("SELECT subtitle_media_file_id, video_media_file_id, episode, match_method FROM subtitle_links WHERE work_id = ? ORDER BY episode, subtitle_media_file_id")
         .bind(&id).fetch_all(&state.pool).await?;
+    let category = crate::work_category::load(&state.pool, Some(&id)).await?
+        .remove(&id).unwrap_or_else(|| work.work_type.clone());
     Ok(WorkDetail {
+        category,
         work,
         tags,
         media_files,

@@ -106,6 +106,8 @@ pub struct RecognitionGroupInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkListItem {
+    pub category: String,
+    pub cover_thumbnail_path: Option<String>,
     #[serde(flatten)]
     pub work: Work,
     pub tags: Vec<String>,
@@ -116,6 +118,7 @@ pub struct WorkListItem {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkDetail {
+    pub category: String,
     #[serde(flatten)]
     pub work: Work,
     pub tags: Vec<String>,

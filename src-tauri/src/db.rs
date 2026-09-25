@@ -118,6 +118,13 @@ async fn backfill_cached_banner_paths(pool: &SqlitePool, cache_directory: &Path)
 
 pub fn allow_cover_file(app: &AppHandle, path: &Path) -> AppResult<()> {
     let scope = app.asset_protocol_scope();
+    let thumbnail = crate::metadata_aggregator::thumbnail_path(path);
+    if thumbnail.is_file() {
+        scope.allow_file(&thumbnail).map_err(|error| AppError::System(format!("无法授权封面缩略图：{error}")))?;
+        if let Ok(canonical) = std::fs::canonicalize(&thumbnail) {
+            scope.allow_file(canonical).map_err(|error| AppError::System(format!("无法授权封面缩略图：{error}")))?;
+        }
+    }
     scope
         .allow_file(path)
         .map_err(|error| AppError::System(format!("无法授权封面文件：{error}")))?;

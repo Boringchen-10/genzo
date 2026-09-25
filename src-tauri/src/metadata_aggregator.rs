@@ -271,6 +271,14 @@ pub async fn cache_banner(url: &str, destination: &Path) -> AppResult<()> {
     cache_image(url, destination, false).await
 }
 
+/// Version the encoding policy and source URL so refreshing can upgrade legacy
+/// low-resolution artwork without overwriting images still used by the UI.
+pub(crate) fn artwork_cache_path(directory: &Path, identity: &str, kind: &str, url: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let digest = format!("{:x}", Sha256::digest(format!("{identity}:{kind}:{url}").as_bytes()));
+    directory.join(format!("art-v2-{}-{kind}.jpg", &digest[..24]))
+}
+
 async fn cache_image(url: &str, destination: &Path, create_thumbnail: bool) -> AppResult<()> {
     let normalized_url = if let Some(path) = url.strip_prefix("http://lain.bgm.tv/") {
         format!("https://lain.bgm.tv/{path}")
@@ -338,6 +346,7 @@ fn decode_and_save_image(
     limits.max_image_height = Some(12_000);
     limits.max_alloc = Some(128 * 1024 * 1024);
     reader.limits(limits);
+    let format = reader.format();
     let image = reader
         .decode()
         .map_err(|error| AppError::Validation(format!("下载内容不是有效图片：{error}")))?;
@@ -346,17 +355,40 @@ fn decode_and_save_image(
             "元数据封面分辨率过低，已拒绝缓存".to_string(),
         ));
     }
-    image
-        .save_with_format(destination, image::ImageFormat::Jpeg)
-        .map_err(|error| AppError::System(format!("封面写入失败：{error}")))?;
+    // JPEG sources have already been compressed by the provider. Preserve them
+    // byte-for-byte instead of adding another lossy encoding pass.
+    let original = if format == Some(image::ImageFormat::Jpeg) {
+        bytes.to_vec()
+    } else {
+        encode_artwork(&image)?
+    };
+    write_artwork(&original, destination)?;
     if create_thumbnail {
-        let thumbnail = image.thumbnail(600, 900);
+        // Triangle downsampling avoids ringing around the line art in posters.
+        // Never enlarge a small source to fabricate detail.
+        let thumbnail = image.resize(600.min(image.width()), 900.min(image.height()), image::imageops::FilterType::Triangle);
         let thumbnail_path = thumbnail_path(destination);
-        thumbnail
-            .save_with_format(thumbnail_path, image::ImageFormat::Jpeg)
-            .map_err(|error| AppError::System(format!("封面缩略图写入失败：{error}")))?;
+        write_artwork(&encode_artwork(&thumbnail)?, &thumbnail_path)?;
     }
     Ok(())
+}
+
+fn encode_artwork(image: &image::DynamicImage) -> AppResult<Vec<u8>> {
+    let mut bytes = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 95)
+        .encode_image(&image.to_rgb8())
+        .map_err(|error| AppError::System(format!("封面编码失败：{error}")))?;
+    Ok(bytes)
+}
+
+fn write_artwork(bytes: &[u8], destination: &Path) -> AppResult<()> {
+    let temporary = destination.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> std::io::Result<()> {
+        std::fs::write(&temporary, bytes)?;
+        std::fs::rename(&temporary, destination)
+    })();
+    if result.is_err() { let _ = std::fs::remove_file(&temporary); }
+    result.map_err(|error| AppError::System(format!("封面写入失败：{error}")))
 }
 
 pub(crate) fn thumbnail_path(destination: &Path) -> PathBuf {
@@ -650,6 +682,23 @@ mod tests {
         let result = decode_and_save_image(b"not an image", &destination, true);
         assert!(matches!(result, Err(AppError::Validation(_))));
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn artwork_cache_preserves_jpeg_and_versions_sources() {
+        let directory = tempfile::tempdir().unwrap();
+        let low = artwork_cache_path(directory.path(), "movie/1", "banner", "https://image.tmdb.org/t/p/w780/a.jpg");
+        let original = artwork_cache_path(directory.path(), "movie/1", "banner", "https://image.tmdb.org/t/p/original/a.jpg");
+        assert_ne!(low, original);
+        std::fs::write(&low, b"legacy cache").unwrap();
+        let image = image::DynamicImage::new_rgb8(1200, 1800);
+        let bytes = encode_artwork(&image).unwrap();
+        decode_and_save_image(&bytes, &original, true).unwrap();
+        assert_eq!(std::fs::read(&original).unwrap(), bytes);
+        assert_eq!(image::image_dimensions(thumbnail_path(&original)).unwrap(), (600, 900));
+        assert_eq!(std::fs::read(&low).unwrap(), b"legacy cache");
+        assert!(decode_and_save_image(b"invalid response", &original, true).is_err());
+        assert_eq!(std::fs::read(&original).unwrap(), bytes);
     }
 
     #[test]

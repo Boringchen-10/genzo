@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { MediaType, RecognitionStatus, RootKind, UnassignedMediaGroup, WorkStatus } from "./types";
+import type { Work, WorkCategory, MediaType, RecognitionStatus, RootKind, UnassignedMediaGroup, WorkStatus } from "./types";
 
 export const mediaLabels: Record<MediaType, string> = {
   video: "视频",
@@ -8,6 +8,14 @@ export const mediaLabels: Record<MediaType, string> = {
   game: "游戏",
   other: "其他",
 };
+
+export const workCategoryLabels: Record<WorkCategory, string> = {
+  ...mediaLabels, video: "未分类视频", anime: "动漫", movie: "电影", tv: "电视剧",
+};
+
+export function workCategoryLabel(work: Pick<Work, "type" | "category">): string {
+  return workCategoryLabels[work.category ?? work.type] ?? mediaLabels[work.type];
+}
 
 export const statusLabels: Record<WorkStatus, string> = {
   planned: "计划中",

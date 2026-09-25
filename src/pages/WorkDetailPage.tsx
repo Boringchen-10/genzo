@@ -31,7 +31,7 @@ import { WorkForm } from "../components/WorkForm";
 import { MediaFileBrowser } from "../components/MediaFileBrowser";
 import { useToasts } from "../store";
 import type { AnimeCharacter, AnimeCredit, AnimeEpisodeEntry, AnimeWorkStructure, ExternalTool, LibraryRoot, MediaFile, WorkDetail, WorkInput } from "../types";
-import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, statusLabels } from "../utils";
+import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, workCategoryLabel, statusLabels } from "../utils";
 import "../work-detail.css";
 
 const metadataStatusLabels = {
@@ -575,7 +575,7 @@ export function WorkDetailPage() {
         <section className="detail-hero">
           <div className="detail-cover"><MediaVisual type={work.type} coverPath={work.coverPath} alt={`${work.title} 封面`} /></div>
           <div className="detail-copy">
-            <span className="detail-eyebrow">{mediaLabels[work.type]}{work.metadataYear ? ` · ${work.metadataYear}` : ""}</span>
+            <span className="detail-eyebrow">{workCategoryLabel(work)}{work.metadataYear ? ` · ${work.metadataYear}` : ""}</span>
             <h1>{work.title}</h1>
             {work.originalTitle ? <p className="original-title">{work.originalTitle}</p> : null}
             <div className="detail-actions">
@@ -968,7 +968,7 @@ export function WorkDetailPage() {
               <dl className="metadata-grid">
                 <div><dt>原作名</dt><dd>{work.originalTitle || "暂无"}</dd></div>
                 <div><dt>年份</dt><dd>{work.metadataYear || work.metadata?.year || "暂无"}</dd></div>
-                <div><dt>媒体类型</dt><dd>{mediaLabels[work.type]}</dd></div>
+                <div><dt>媒体类型</dt><dd>{workCategoryLabel(work)}</dd></div>
                 <div><dt>库内状态</dt><dd>{statusLabels[work.status]}</dd></div>
                 <div><dt>最近更新</dt><dd>{formatDate(work.updatedAt)}</dd></div>
                 <div><dt>文件数量</dt><dd>{work.mediaFiles.length} 个</dd></div>

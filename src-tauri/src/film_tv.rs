@@ -306,7 +306,10 @@ fn artwork(v: &Value, key: &str) -> Option<String> {
     v[key]
         .as_str()
         .filter(|s| s.starts_with('/') && !s.contains(".."))
-        .map(|s| format!("https://image.tmdb.org/t/p/w780{s}"))
+        .map(|s| {
+            let size = if key == "backdrop_path" { "original" } else { "w780" };
+            format!("https://image.tmdb.org/t/p/{size}{s}")
+        })
 }
 fn metadata(item: &Value, kind: Kind, season: Option<i64>) -> AppResult<WorkMetadata> {
     let id = item["id"]
@@ -708,6 +711,12 @@ async fn enrich_inner(
         m.banner_url.as_deref(),
     )
     .await;
+    if m.banner_url.is_some() && banner.is_none() {
+        warnings.push("高清背景下载失败，已有背景图已保留，可稍后刷新元数据重试".into());
+    }
+    if m.cover_url.is_some() && cover.is_none() {
+        warnings.push("封面下载失败，已有封面已保留，可稍后刷新元数据重试".into());
+    }
     let (_guard, mut tx) = db::begin_write(&state.pool).await?;
     let current: Option<String> = sqlx::query_scalar(
         "SELECT external_id FROM work_external_ids WHERE work_id=? AND provider='tmdb'",
@@ -804,11 +813,11 @@ async fn persist_episodes(
 
 async fn cache_art(directory: &Path, id: &str, kind: &str, url: Option<&str>) -> Option<String> {
     let url = url?;
-    let path = directory.join(format!("tmdb-{}-{kind}.jpg", id.replace('/', "-")));
-    if path.is_file()
-        || crate::metadata_aggregator::cache_cover(url, &path)
-            .await
-            .is_ok()
+    let path = crate::metadata_aggregator::artwork_cache_path(directory, id, kind, url);
+    let cached = if path.is_file() { true } else if kind == "banner" {
+        crate::metadata_aggregator::cache_banner(url, &path).await.is_ok()
+    } else { crate::metadata_aggregator::cache_cover(url, &path).await.is_ok() };
+    if cached
     {
         Some(path.to_string_lossy().into())
     } else {

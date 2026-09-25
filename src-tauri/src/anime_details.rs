@@ -586,6 +586,10 @@ where
 
 async fn cache_artwork(url: Option<&str>, destination: PathBuf, cover: bool) -> Option<String> {
     let url = url?;
+    let destination = crate::metadata_aggregator::artwork_cache_path(
+        destination.parent()?, destination.file_stem()?.to_str()?.trim_end_matches("-banner"),
+        if cover { "cover" } else { "banner" }, url,
+    );
     let result = if destination.is_file() {
         Ok(())
     } else if cover {

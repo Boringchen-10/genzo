@@ -2,6 +2,14 @@ use super::*;
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[test]
+fn movie_backdrops_use_original_resolution_while_posters_remain_bounded() {
+    let data = json!({"backdrop_path":"/scene.jpg", "poster_path":"/poster.jpg"});
+    assert_eq!(artwork(&data, "backdrop_path").as_deref(), Some("https://image.tmdb.org/t/p/original/scene.jpg"));
+    assert_eq!(artwork(&data, "poster_path").as_deref(), Some("https://image.tmdb.org/t/p/w780/poster.jpg"));
+    assert!(artwork(&json!({"backdrop_path":"https://untrusted.example/image.jpg"}), "backdrop_path").is_none());
+}
+
 async fn fixture() -> (AppState, tempfile::TempDir) {
     let pool = db::test_pool().await.unwrap();
     let dir = tempfile::tempdir().unwrap();

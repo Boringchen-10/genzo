@@ -1,15 +1,15 @@
 import { AlertTriangle, Heart, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { WorkListItem } from "../types";
-import { mediaLabels } from "../utils";
+import { workCategoryLabel } from "../utils";
 import { MediaVisual } from "./MediaVisual";
 
 export function WorkCard({ work }: { work: WorkListItem }) {
   return (
     <Link className="work-card" to={`/library/${work.id}`}>
       <div className="poster-frame">
-        <MediaVisual type={work.type} coverPath={work.coverPath} alt={`${work.title} 封面`} />
-        <span className="type-badge">{mediaLabels[work.type]}</span>
+        <MediaVisual type={work.type} coverPath={work.coverPath} thumbnailPath={work.coverThumbnailPath} alt={`${work.title} 封面`} />
+        <span className="type-badge">{workCategoryLabel(work)}</span>
         {work.favorite ? (
           <span className="favorite-mark" aria-label="已收藏">
             <Heart size={14} fill="currentColor" />

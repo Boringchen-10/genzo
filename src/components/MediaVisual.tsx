@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { BookOpen, FileQuestion, Gamepad2, Images, Play } from "lucide-react";
 import type { MediaType } from "../types";
 import { coverUrl, mediaLabels } from "../utils";
@@ -10,11 +11,14 @@ const icons = {
   other: FileQuestion,
 };
 
-export function MediaVisual({ type, coverPath, alt }: { type: MediaType; coverPath: string | null; alt: string }) {
-  const url = coverUrl(coverPath);
+export function MediaVisual({ type, coverPath, thumbnailPath, alt }: { type: MediaType; coverPath: string | null; thumbnailPath?: string | null; alt: string }) {
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  useEffect(() => setThumbnailFailed(false), [thumbnailPath]);
+  const useThumbnail = !!thumbnailPath && !thumbnailFailed;
+  const url = coverUrl(useThumbnail ? thumbnailPath : coverPath);
   const Icon = icons[type];
   if (url) {
-    return <img className="media-cover" src={url} alt={alt} />;
+    return <img className="media-cover" src={url} alt={alt} decoding="async" onError={useThumbnail ? () => setThumbnailFailed(true) : undefined} />;
   }
   return (
     <div className={`media-placeholder media-${type}`} aria-label={`${mediaLabels[type]}占位封面`}>

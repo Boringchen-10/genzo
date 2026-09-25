@@ -184,7 +184,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-home .seanime-banner.has-banner { height: clamp(560px, 68vh, 820px); min-height: 560px; }
 /* 横版横幅只负责环境背景；竖版封面保持原始比例作为清晰主视觉。 */
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .65; filter: blur(max(28px, var(--poster-blur))) saturate(.8) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
-.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: 0; opacity: .92; filter: saturate(.96) contrast(1.01); background-position: center center; background-size: cover; background-repeat: no-repeat; background-color: var(--bg); }
+.gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: 0; opacity: .92; filter: none; background-position: center center; background-size: cover; background-repeat: no-repeat; background-color: var(--bg); }
 /* 横版图铺满整个 Hero，底部用渐变承接标题和书架；允许裁掉少量边缘，避免出现空黑区域。 */
 .gnz-home .seanime-banner::before { z-index: 1; background: rgb(3 8 9 / .14); }
 /* 第 1 层：背景顶端淡出到页面底色，使标题栏与背景之间没有硬边（渐变融合）。
@@ -302,6 +302,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .work-card { padding: 0; background: transparent; border: 0; border-radius: 7px; box-shadow: none; }
 .work-card:hover { background: transparent; transform: translateY(-2px); }
 .poster-frame { border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 10px 25px rgb(0 0 0 / .16); }
+.poster-frame .media-cover { image-rendering: auto; filter: none; }
 .work-card-info { padding: 10px 1px 0; }
 .work-card-info > strong { font-size: 13px; }
 .type-badge, .favorite-mark { border-radius: 4px; }

@@ -1,4 +1,5 @@
 export type MediaType = "video" | "comic" | "novel" | "game" | "other";
+export type WorkCategory = MediaType | "anime" | "movie" | "tv";
 export type RecognitionKind = "anime" | "movie" | "tv";
 export type WorkStatus = "planned" | "in_progress" | "completed" | "paused" | "dropped";
 export type RootKind = "auto" | "video" | "comic" | "novel" | "game" | "mixed";
@@ -6,6 +7,8 @@ export type ThemeMode = "system" | "light" | "dark";
 export type LibraryView = "grid" | "list";
 
 export interface Work {
+  /** Content category, separate from the file type used by external tools. */
+  category?: WorkCategory;
   id: string;
   title: string;
   originalTitle: string | null;
@@ -29,6 +32,7 @@ export type MetadataStatus = "unmatched" | "candidate_pending" | "matched" | "ma
 export type RecognitionStatus = "unmatched" | "candidate_pending" | "matched" | "error";
 
 export interface WorkListItem extends Work {
+  coverThumbnailPath?: string | null;
   tags: string[];
   mediaCount: number;
   missingCount: number;
