@@ -1,3 +1,4 @@
+import { availableForWork, firstWorkFile } from "../workSelection";
 import { usePlaybackProgress } from "../usePlaybackProgress";
 import { latestPlayback } from "../playback";
 import { EpisodePlaybackProgress } from "../components/EpisodePlaybackProgress";
@@ -530,7 +531,11 @@ export function WorkDetailPage() {
   if (error || !work) return <div className="page"><ErrorState message={error || "作品不存在"} retry={() => void load()} /></div>;
 
   const sortedFiles = [...work.mediaFiles].sort((left, right) => left.fileName.localeCompare(right.fileName, "zh-CN", { numeric: true }));
-  const firstAvailable = sortedFiles.find((file) => !file.missing || file.path.startsWith("webdav://"));
+  const firstEpisodeFile = work.type === "video" ? [...(structure?.episodes ?? [])]
+    .filter(isMainEpisode).sort((a, b) => episodeNumber(a) - episodeNumber(b))
+    .map(episode => pickPrimaryFile(episode.localFiles.filter(file => availableForWork(file, work.type))))
+    .find((file): file is MediaFile => Boolean(file)) : undefined;
+  const firstAvailable = firstEpisodeFile ?? firstWorkFile(sortedFiles, work.type);
   const lastPlayed = work.type === "video" ? latestPlayback(playback.data.items, work.id, work.mediaFiles.map(file => file.id)) : undefined;
   const continueFile = lastPlayed ? work.mediaFiles.find(file => file.id === lastPlayed.mediaFileId) : firstAvailable;
   const continueActive = playback.data.sessions.some(session => session.mediaFileId === continueFile?.id && ["connecting", "tracking"].includes(session.status));

@@ -1,3 +1,4 @@
+import { recentlyAdded } from "../workSelection";
 import { usePlaybackProgress } from "../usePlaybackProgress";
 import { latestPlayback } from "../playback";
 import { useToasts } from "../store";
@@ -69,7 +70,7 @@ const previewDashboard: Dashboard = {
 };
 
 function artwork(work: WorkListItem, index: number, previewMode = false) {
-  return coverUrl(work.coverPath) ?? (previewMode ? demoLandscape[index % demoLandscape.length] : null);
+  return work.coverPath ?? (previewMode ? demoLandscape[index % demoLandscape.length] : null);
 }
 
 /**
@@ -139,7 +140,7 @@ export function HomePage() {
 
   useEffect(() => void load(), [load]);
 
-  const carouselWorks = useMemo(() => data?.recentWorks.slice(0, 5) ?? [], [data]);
+  const carouselWorks = useMemo(() => recentlyAdded(works).slice(0, 5), [works]);
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
   const featuredPlayback = usePlaybackProgress(featured?.id, !previewMode && Boolean(featured));
   const lastPlayed = featured ? latestPlayback(featuredPlayback.data.items, featured.id) : undefined;
@@ -155,7 +156,7 @@ export function HomePage() {
   /** 背景是否来自真实横版横幅（决定用清晰横幅还是模糊封面铺底）。 */
   const featuredHasBanner = Boolean(bannerArtwork(featured));
   const shelfWorks = useMemo(
-    () => (shelfFilter === "all" ? works : works.filter((work) => work.type === shelfFilter)),
+    () => recentlyAdded(shelfFilter === "all" ? works : works.filter((work) => work.type === shelfFilter)),
     [works, shelfFilter],
   );
 

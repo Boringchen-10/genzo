@@ -79,6 +79,7 @@ export function formatSize(bytes: number): string {
 
 export function coverUrl(path: string | null): string | null {
   if (!path) return null;
+  if (/^(https?:|asset:|data:|blob:)/i.test(path) || path.startsWith("/demo/") || path.startsWith("/design/")) return path;
   try {
     return convertFileSrc(path);
   } catch {
