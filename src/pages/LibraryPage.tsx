@@ -8,6 +8,8 @@ import { WorkCard } from "../components/WorkCard";
 import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ScanPage } from "./ScanPage";
+import { libraryCategories, matchesLibraryCategory, parseLibraryCategory } from "../libraryCategory";
+import { workCategoryLabels } from "../utils";
 import { usePreferences, useToasts } from "../store";
 import type { LibraryRoot, MediaFile, MediaType, RecognitionGroupScope, RecognitionStatus, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, workCategoryLabel, recognitionActionLabel, recognitionEntryGroup, recognisableGroups, unassignedStatusRank } from "../utils";
@@ -56,7 +58,8 @@ const inboxStatusClass = (status: RecognitionStatus, missingCount: number, fileC
 
 export function LibraryPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  const category = parseLibraryCategory(params.get("category"));
   const initialScope = (params.get("scope") as Scope | null) ?? "all";
   const [activeSection, setActiveSection] = useState<"library" | "sources" | "inbox">(params.get("tab") === "inbox" ? "inbox" : params.get("tab") === "sources" ? "sources" : "library");
   const [works, setWorks] = useState<WorkListItem[]>([]);
@@ -115,12 +118,12 @@ export function LibraryPage() {
     const recentThreshold = Date.now() - 30 * 24 * 60 * 60 * 1000;
     return works
       .filter((work) => !normalizedSearch || work.title.toLocaleLowerCase("zh-CN").includes(normalizedSearch) || (work.originalTitle ?? "").toLocaleLowerCase("zh-CN").includes(normalizedSearch))
-      .filter((work) => mediaType === "all" || work.type === mediaType)
+      .filter((work) => matchesLibraryCategory(work, category))
       .filter((work) => !favoriteOnly || work.favorite)
       .filter((work) => tag === "all" || work.tags.includes(tag))
       .filter((work) => scope === "all" || (scope === "favorites" && work.favorite) || (scope === "missing" && work.missingCount > 0) || (scope === "recent" && new Date(work.createdAt).getTime() >= recentThreshold))
       .sort((left, right) => sort === "title" ? left.title.localeCompare(right.title, "zh-CN", { numeric: true }) : new Date(right[sort]).getTime() - new Date(left[sort]).getTime());
-  }, [works, search, mediaType, favoriteOnly, tag, scope, sort]);
+  }, [works, search, category, favoriteOnly, tag, scope, sort]);
 
   /* 待整理只显示来自「媒体源」中已添加目录的作品组。早先扫描/导入、如今不属于任何已添加目录的
      记录（libraryRootId 为空，或指向已移除的目录）属于历史数据，先不展示——把对应目录重新添加为
@@ -506,10 +509,20 @@ export function LibraryPage() {
           <Search size={17} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索标题或原始标题" aria-label="搜索作品" />
         </div>
-        <select value={mediaType} onChange={(e) => setMediaType(e.target.value as MediaType | "all")} aria-label="媒体类型">
+        {activeSection === "library" ? <select value={category} aria-label="作品分类" onChange={(event) => {
+          const value = parseLibraryCategory(event.target.value);
+          setParams(previous => {
+            const next = new URLSearchParams(previous);
+            if (value === "all") next.delete("category");
+            else next.set("category", value);
+            return next;
+          }, { replace: true });
+        }}>
+          {libraryCategories.map(value => <option key={value} value={value}>{value === "all" ? "全部分类" : value === "videos" ? "全部视频" : workCategoryLabels[value]}</option>)}
+        </select> : <select value={mediaType} onChange={(e) => setMediaType(e.target.value as MediaType | "all")} aria-label="媒体类型">
           <option value="all">全部类型</option>
           {(Object.keys(mediaLabels) as MediaType[]).map((type) => <option key={type} value={type}>{mediaLabels[type]}</option>)}
-        </select>
+        </select>}
         <select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="标签筛选">
           <option value="all">全部标签</option>
           {tags.map((value) => <option key={value} value={value}>{value}</option>)}
