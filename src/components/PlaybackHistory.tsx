@@ -22,7 +22,7 @@ export function PlaybackHistory({ workId, mediaIds, snapshot }: { workId?: strin
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 1);
   if (!items.length && !sessions.length && !error) return workId ? <p className="quiet-inline">观看记录：从 Genzo 选择 PotPlayer 打开后自动记录；其他播放器目前只支持打开。记录期间请保持 Genzo 运行。</p> : null;
   return <section className="playback-history" aria-label="观看记录">
-    <div className="playback-history-heading"><h2>上次观看</h2><details className="playback-history-help"><summary>记录说明</summary><p>PotPlayer 约每 5 秒保存一次，请保持 Genzo 运行。在播放器内切换文件会停止原文件记录，下一集请从 Genzo 打开。</p></details></div>
+    <div className="playback-history-heading"><h2>上次观看</h2><details className="playback-history-help"><summary>记录说明</summary><p>PotPlayer 约每 5 秒保存一次，请保持 Genzo 运行。支持在播放器内切换已入库视频；未匹配的文件会等待确认，保留已有进度。</p></details></div>
     {error && <p role="alert">观看记录读取失败：{error}</p>}
     {sessions.filter(s => s.status !== "stopped" && (!items.length || s.mediaFileId === items[0]?.mediaFileId)).map(s => <p key={s.mediaFileId} className="quiet-inline" role="status">{s.message}</p>)}
     {items.map(item => {

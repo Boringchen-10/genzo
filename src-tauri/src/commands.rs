@@ -887,6 +887,8 @@ pub async fn launch_media(
             "vlc",
             "potplayermini64",
             "potplayermini",
+            "potplayer64",
+            "potplayer",
             "mpc-be64",
             "mpc-be",
             "mpc-hc64",

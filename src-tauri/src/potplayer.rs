@@ -156,6 +156,13 @@ impl Client {
     }
 
     #[cfg(test)]
+    pub fn next(&mut self) {
+        if self.find_player() {
+            self.query(0x5008, 1);
+        }
+    }
+
+    #[cfg(test)]
     pub fn pause(&mut self) {
         if self.find_player() {
             self.query(0x5007, 1);
