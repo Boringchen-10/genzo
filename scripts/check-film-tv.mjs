@@ -32,6 +32,7 @@ try {
     Object.defineProperty(window,"__TAURI_INTERNALS__",{value:{
       convertFileSrc:value=>value, transformCallback:()=>1, unregisterCallback:()=>{},
       invoke:async(command,args)=>{
+        if (command === "get_playback_progress") return { items: [], sessions: [] };
         if (command==="get_work") return args.id==="movie" ? movie : tv;
         if (command==="get_anime_work_structure" || command==="refresh_work_metadata") return {workId:args.workId,bangumiId:"",seasons:[],staff:[],characters:[],warnings:[],episodes:args.workId==="movie"?[]:[episode],unmatchedFiles:args.workId==="movie"?movie.mediaFiles:files.slice(1)};
         if (command==="list_recognition_group_members") return {scope:"season",title:"Show",members:files,linkedWorkId:null,linkedWorkTitle:null};

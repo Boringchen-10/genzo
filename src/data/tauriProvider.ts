@@ -33,6 +33,8 @@ export function createTauriProvider(): GenzoDataProvider {
     detectTools: api.detectTools,
     testTool: api.testTool,
     launchMedia: api.launchMedia,
+    playbackProgress: api.playbackProgress,
+    resumePlayback: api.resumePlayback,
     openMediaDirectory: api.openMediaDirectory,
     dashboard: api.dashboard,
     appInfo: api.appInfo,

@@ -132,6 +132,8 @@ export const api = {
   testTool: (id: string) => call<void>("test_external_tool", { id }),
   launchMedia: (mediaFileId: string, toolId: string | null = null, useSystem = false) =>
     call<void>("launch_media", { mediaFileId, toolId, useSystem }),
+  playbackProgress: (workId: string | null = null) => call<import("./playback").PlaybackOverview>("get_playback_progress", { workId }),
+  resumePlayback: (mediaFileId: string, restart = false) => call<void>("resume_playback", { mediaFileId, restart }),
   openMediaDirectory: (mediaFileId: string) =>
     call<void>("open_media_directory", { mediaFileId }),
   dashboard: () => call<Dashboard>("get_dashboard"),

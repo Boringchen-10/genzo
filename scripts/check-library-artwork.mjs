@@ -27,6 +27,7 @@ try {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {
       convertFileSrc: value => value, transformCallback: () => 1, unregisterCallback: () => {},
       invoke: async command => {
+        if (command === "get_playback_progress") return { items: [], sessions: [] };
         if (command === "list_works") return works;
         if (command === "get_dashboard") return { totalWorks: 6, recentWorks: works, favoriteWorks: [], lastScan: null, videoCount: 4, comicCount: 1, novelCount: 1, gameCount: 0, otherCount: 0, favoriteCount: 0, missingFileCount: 0 };
         if (command.startsWith("list_")) return [];

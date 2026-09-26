@@ -28,6 +28,7 @@ const candidate = {
   confidence: 0.9, matchReasons: ["由用户选择第二季"], createdAt: now,
 };
 const responses = {
+  get_playback_progress: { items: [], sessions: [] },
   get_work: detail, list_external_tools: [], list_library_roots: [], list_remote_sources: [], get_setting: null,
   list_match_candidates: [candidate],
   list_recognition_group_members: { scope: "season", title: "Show", folderPath: root, members: files.slice(1), linkedWorkId: null, linkedWorkTitle: null },

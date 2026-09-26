@@ -776,6 +776,8 @@ export function createMockProvider(): GenzoDataProvider {
     async launchMedia() {
       return notImplemented("launchMedia");
     },
+    async playbackProgress() { return { items: [], sessions: [] }; },
+    async resumePlayback() { return notImplemented("resumePlayback"); },
     async openMediaDirectory() {
       return notImplemented("openMediaDirectory");
     },

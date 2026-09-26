@@ -74,6 +74,8 @@ export interface GenzoDataProvider {
   detectTools(): Promise<ExternalTool[]>;
   testTool(id: string): Promise<void>;
   launchMedia(mediaFileId: string, toolId?: string | null, useSystem?: boolean): Promise<void>;
+  playbackProgress(workId?: string | null): Promise<import("../playback").PlaybackOverview>;
+  resumePlayback(mediaFileId: string, restart?: boolean): Promise<void>;
   openMediaDirectory(mediaFileId: string): Promise<void>;
 
   dashboard(): Promise<Dashboard>;

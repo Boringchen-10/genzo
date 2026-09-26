@@ -834,6 +834,7 @@ pub async fn launch_media(
     media_file_id: String,
     tool_id: Option<String>,
     use_system: bool,
+    restart: Option<bool>,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
     let media = sqlx::query_as::<_, MediaFile>(
@@ -903,8 +904,12 @@ pub async fn launch_media(
     } else {
         media.path.clone()
     };
+    let tracked = media.media_type == "video" && selected_tool.as_ref().is_some_and(|tool| crate::playback::is_potplayer(&tool.executable_path));
+    let seek = if tracked { crate::playback::resume_position(&state.pool, &media.id, restart.unwrap_or(false)).await? } else { None };
+    let pool = state.pool.clone();
     tauri::async_runtime::spawn_blocking(move || {
         if let Some(tool) = selected_tool {
+            let path = launcher::shell_compatible_path(&path);
             let folder = launcher::parent_folder(&path);
             let context = TemplateContext {
                 file: &path,
@@ -912,6 +917,9 @@ pub async fn launch_media(
                 title: &title,
             };
             let arguments = launcher::expand_arguments(&tool.arguments_template, &context)?;
+            if tracked {
+                return crate::playback::launch(pool, media.id, tool.id, &tool.executable_path, arguments, tool.working_directory.as_deref(), path, seek).map(|_| ());
+            }
             launcher::launch_executable(
                 &tool.executable_path,
                 &arguments,

@@ -9,6 +9,9 @@ mod explore;
 mod film_tv;
 mod grouping;
 mod launcher;
+mod playback;
+#[cfg(windows)]
+mod potplayer;
 mod media_mapping;
 mod media_reconciliation;
 mod metadata;
@@ -90,6 +93,8 @@ pub fn run() {
             commands::detect_external_tools,
             commands::test_external_tool,
             commands::launch_media,
+            playback::get_playback_progress,
+            playback::resume_playback,
             commands::open_media_directory,
             commands::get_dashboard,
             commands::get_app_info,

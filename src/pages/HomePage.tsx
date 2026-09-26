@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { PlaybackHistory } from "../components/PlaybackHistory";
 import { Bookmark, Library, Play, RefreshCw, Settings, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider as api } from "../data";
@@ -183,6 +184,7 @@ export function HomePage() {
           <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} aria-pressed={featuredIndex === index} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{workCategoryLabel(work)} · 本地</small></span></button>)}</div>
         </div> : null}
       </div>
+      {!previewMode && <PlaybackHistory />}
       {works.length ? <section className="gnz-home-shelf">
         <div className="section-heading"><div><h2>我的书架</h2><span>{shelfFilter === "all" ? `${data.totalWorks} 部作品` : `${shelfWorks.length} 部作品`}</span></div><Link to="/library">查看全部</Link></div>
         <div className="gnz-shelf-filters" role="group" aria-label="作品分类筛选">

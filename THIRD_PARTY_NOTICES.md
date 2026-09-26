@@ -53,6 +53,8 @@ Genzo 的侧栏、首页媒体布局和主题实现基于 Seanime 的 GPLv3 界�
 
 本项目未捆绑 VLC、mpv、PotPlayer、MPC-BE 等外部程序。自动检测仅检查用户机器上的典型安装路径。
 
+PotPlayer 进度适配使用其 Windows 消息协议及安装目录的 `CmdLine64.txt` 参数说明；接口常量核对自 [PotPlayerControl 的 InternalSimpleCmd.h](https://github.com/ld3l/PotPlayerControl/blob/main/InternalSimpleCmd.h)。适配器为独立 Rust 实现，未复制该项目的控制器实现、商标或素材，也未捆绑 PotPlayer。该接口在不同播放器版本中可能变化，连接或文件核对失败时保留旧进度。
+
 ## Bangumi
 
 Genzo 通过 Bangumi 官方 API（<https://github.com/bangumi/api>）搜索动画条目并读取作品元数据，不抓取网页。作品数据及封面版权归各自权利人所有，Genzo 仅按用户操作在本地缓存。动画结构解析使用 MPL-2.0 的 `anitomy-ng`；中文目录预处理、目录回溯和加权候选评分为 Genzo 自有实现。实现未复制 Animeko 代码。

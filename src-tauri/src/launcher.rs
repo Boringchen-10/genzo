@@ -68,6 +68,14 @@ pub fn launch_executable(
     arguments: &[String],
     working_directory: Option<&str>,
 ) -> AppResult<()> {
+    spawn_executable(executable_path, arguments, working_directory).map(|_| ())
+}
+
+pub fn spawn_executable(
+    executable_path: &str,
+    arguments: &[String],
+    working_directory: Option<&str>,
+) -> AppResult<std::process::Child> {
     let executable = Path::new(executable_path);
     if !executable.is_file() {
         return Err(AppError::PathNotFound(executable.to_path_buf()));
@@ -79,7 +87,6 @@ pub fn launch_executable(
     }
     command
         .spawn()
-        .map(|_| ())
         .map_err(|error| AppError::Launch(format!("{}（{error}）", executable.display())))
 }
 
@@ -132,7 +139,7 @@ pub fn open_directory(path: &str) -> AppResult<()> {
 /// Windows file APIs accept extended paths (`\\?\UNC\...`), but Explorer and
 /// ShellExecute expect the ordinary UNC form. Keep the extended form in the
 /// index for scanning, and normalize only at the external application boundary.
-fn shell_compatible_path(path: &str) -> String {
+pub(crate) fn shell_compatible_path(path: &str) -> String {
     if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
         return format!(r"\\{unc}");
     }

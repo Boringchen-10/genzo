@@ -1,3 +1,4 @@
+import { PlaybackHistory } from "../components/PlaybackHistory";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
@@ -597,6 +598,7 @@ export function WorkDetailPage() {
           </div>
         </section>
 
+        {work.type === "video" && <PlaybackHistory key={work.id} workId={work.id} mediaIds={work.mediaFiles.map(file => file.id)} />}
         <div className="detail-body">
           <main className="detail-main">
             <div className="detail-toprow">
