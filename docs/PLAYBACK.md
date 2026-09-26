@@ -14,7 +14,7 @@ Windows / PotPlayer 优先，不内置播放器，不读取播放器私人历史
 - `dataProvider.resumePlayback(mediaFileId, restart=false)` 使用原 PotPlayer 工具继续播放，`restart=true` 请求从头播放。工具已删除或改为其他程序时要求重新选择 PotPlayer。
 - 原 `launchMedia` 签名保持兼容；选择 PotPlayer 时默认读取旧进度，普通外部工具行为不变。后端 `launch_media` 可选 `restart` 参数默认 false。
 - 首页横幅和详情主按钮按当前作品最后观看时间选择文件，不再按文件名默认第一集。无记录时详情仍允许打开首个可用文件；初次读取记录失败不会自动退回第一集。分集卡片按文件版本显示封面底部进度，默认选上次观看版本，用户手动选择版本优先。进度每 5 秒及窗口重新可见时刷新。
-- 当前入口为 `src/components/PlaybackHistory.tsx`，首页展示最近 5 条，详情展示本作品记录。前端可替换布局，但必须保留错误状态，不能用点击打开推算观看时长。浏览器 mock 返回空列表，真实记录只来自桌面后端。
+- 当前入口为 `src/components/PlaybackHistory.tsx`，首页只展示最近一次观看，详情只展示本作品上次观看；完整记录仍保留供分集进度使用。前端可替换布局，但必须保留错误状态，不能用点击打开推算观看时长。浏览器 mock 返回空列表，真实记录只来自桌面后端。
 
 ## 验证方法
 

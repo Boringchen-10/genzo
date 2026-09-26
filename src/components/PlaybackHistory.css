@@ -1,10 +1,15 @@
-.playback-history { margin: 20px 0; min-width: 0; }
-.playback-history h2 { font-size: 18px; margin: 0 0 12px; }
-.playback-history-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border, #ffffff18); }
-.playback-history-info { flex: 1; min-width: 0; display: grid; gap: 5px; }
+.playback-history { margin: 10px 0; min-width: 0; }
+.playback-history-heading { display: flex; align-items: baseline; gap: 12px; }
+.playback-history h2 { font-size: 13px; margin: 0; }
+.playback-history-help { font-size: 11px; opacity: .75; }
+.playback-history-help summary { cursor: pointer; }
+.playback-history-help p { max-width: 560px; margin: 4px 0; }
+.playback-history-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.playback-history-info { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.playback-history-info strong { font-size: 12px; }
 .playback-history-info strong, .playback-history-info a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .playback-history-info span { font-size: 12px; opacity: .75; }
-.playback-history-info progress { width: 100%; height: 4px; accent-color: var(--accent); }
+.playback-history-info progress { width: min(100%, 320px); height: 3px; accent-color: var(--accent); }
 .playback-history-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.seanime-home > .playback-history { margin: 24px 40px 24px 98px; }
+.seanime-home > .playback-history { margin: 12px 40px 12px 98px; }
 @media (max-width: 700px) { .playback-history-row { align-items: stretch; flex-direction: column; } .seanime-home > .playback-history { margin-inline: 20px; } }

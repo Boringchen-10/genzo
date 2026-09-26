@@ -37,6 +37,9 @@ try {
     await page.goto(`${process.env.GENZO_TEST_URL || "http://127.0.0.1:4176"}/#/library/w`);
     const main = page.locator(".detail-actions").getByRole("button", { name: "继续观看", exact: true });
     await main.click();
+    assert.equal(await page.locator(".playback-history-row").count(), 1);
+    assert.ok((await page.locator(".playback-history-row").innerText()).includes("S01E07"));
+    assert.ok((await page.locator(".playback-history").boundingBox()).height < 115);
     assert.deepEqual(await page.evaluate(() => window.__calls.at(-1)), { command: "resume_playback", mediaFileId: "m7", restart: false });
     const episode = page.locator(".official-episode").filter({ hasText: "第 7 集" });
     const bar = episode.getByRole("progressbar");

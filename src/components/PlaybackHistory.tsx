@@ -18,12 +18,13 @@ export function PlaybackHistory({ workId, mediaIds, snapshot }: { workId?: strin
     finally { setBusy(null); }
   };
   const sessions = data.sessions.filter(s => !workId || mediaIds?.includes(s.mediaFileId));
-  const items = data.items.slice(0, workId ? 100 : 5);
+  const items = data.items.filter(item => !workId || item.workId === workId)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 1);
   if (!items.length && !sessions.length && !error) return workId ? <p className="quiet-inline">观看记录：从 Genzo 选择 PotPlayer 打开后自动记录；其他播放器目前只支持打开。记录期间请保持 Genzo 运行。</p> : null;
   return <section className="playback-history" aria-label="观看记录">
-    <h2>{workId ? "观看记录" : "最近观看"}</h2>
+    <div className="playback-history-heading"><h2>上次观看</h2><details className="playback-history-help"><summary>记录说明</summary><p>PotPlayer 约每 5 秒保存一次，请保持 Genzo 运行。在播放器内切换文件会停止原文件记录，下一集请从 Genzo 打开。</p></details></div>
     {error && <p role="alert">观看记录读取失败：{error}</p>}
-    {sessions.filter(s => s.status !== "stopped").map(s => <p key={s.mediaFileId} className="quiet-inline" role="status">{s.message}</p>)}
+    {sessions.filter(s => s.status !== "stopped" && (!items.length || s.mediaFileId === items[0]?.mediaFileId)).map(s => <p key={s.mediaFileId} className="quiet-inline" role="status">{s.message}</p>)}
     {items.map(item => {
       const active = sessions.some(s => s.mediaFileId === item.mediaFileId && ["connecting", "tracking"].includes(s.status));
       return <div className="playback-history-row" key={item.mediaFileId}>
@@ -40,6 +41,5 @@ export function PlaybackHistory({ workId, mediaIds, snapshot }: { workId?: strin
         </div>
       </div>;
     })}
-    <p className="quiet-inline">PotPlayer 约每 5 秒保存一次；在播放器内切换文件会停止原文件记录。继续下一集请从 Genzo 打开。</p>
   </section>;
 }
