@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { PlaybackHistory } from "../components/PlaybackHistory";
+import "../home-hero-sizing.css";
 import { Bookmark, Library, Play, RefreshCw, Settings, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataProvider as api } from "../data";

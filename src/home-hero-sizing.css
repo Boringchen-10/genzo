@@ -1,0 +1,50 @@
+/* Keep the hero poster strip close to the recent-additions shelf card size. */
+.gnz-home .seanime-banner {
+  --hero-rail-width: min(900px, 54vw);
+  --hero-title-gutter: 262px;
+}
+
+.gnz-home .seanime-banner .gnz-home-switcher {
+  width: var(--hero-rail-width);
+  max-width: var(--hero-rail-width);
+}
+
+.gnz-home .seanime-banner .gnz-switcher-items > button {
+  width: clamp(112px, 8.8vw, 168px);
+}
+
+.app-frame.is-home-route .gnz-home .seanime-banner-title {
+  width: min(660px, calc(100vw - var(--hero-title-gutter) - var(--hero-rail-width)));
+}
+
+@media (max-width: 1360px) {
+  .gnz-home .seanime-banner {
+    --hero-rail-width: min(680px, 47vw);
+  }
+
+  .gnz-home .seanime-banner .gnz-switcher-items > button {
+    width: clamp(112px, 8.4vw, 136px);
+  }
+}
+
+@media (max-width: 1180px) {
+  .gnz-home .seanime-banner {
+    --hero-rail-width: min(620px, 46vw);
+    --hero-title-gutter: 246px;
+  }
+}
+
+@media (max-width: 760px) {
+  .gnz-home .seanime-banner {
+    --hero-rail-width: min(620px, 58vw);
+    --hero-title-gutter: 236px;
+  }
+
+  .gnz-home .seanime-banner .gnz-home-switcher {
+    right: 18px;
+  }
+
+  .gnz-home .seanime-banner .gnz-switcher-items > button {
+    width: clamp(96px, 23vw, 124px);
+  }
+}

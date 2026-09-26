@@ -45,6 +45,17 @@ try {
       assert.deepEqual(await page.evaluate(() => window.__playbackCalls.at(-1)), { mediaFileId: "m", restart: true });
       assert.equal(await panel.evaluate(n => n.scrollWidth > n.clientWidth + 1), false);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+      if (route === "/") {
+        const geometry = await page.evaluate(() => {
+          const strip = document.querySelector(".gnz-home-switcher");
+          const poster = strip?.querySelector(".gnz-switcher-thumb");
+          const title = document.querySelector(".seanime-banner-title");
+          return { poster: poster?.getBoundingClientRect().width ?? 0, strip: strip?.getBoundingClientRect().width ?? 0, titleRight: title?.getBoundingClientRect().right ?? 0, stripLeft: strip?.getBoundingClientRect().left ?? 0 };
+        });
+        assert.ok(geometry.poster >= 112, `hero poster should be enlarged: ${width}x${height}, ${geometry.poster}px`);
+        assert.ok(geometry.titleRight <= geometry.stripLeft + 1, `title and poster strip overlap at ${width}x${height}`);
+        await page.screenshot({ path: `artifacts/screenshots/home-hero-posters-${width}.png` });
+      }
       await panel.screenshot({ path: `artifacts/screenshots/playback-${route === "/" ? "home" : "detail"}-${width}.png` });
     }
     console.log(`${width}x${height}: resume/restart, saved time and layout passed`);
