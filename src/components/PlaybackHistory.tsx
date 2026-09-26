@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { dataProvider as api } from "../data";
 import { playbackTime, type PlaybackOverview } from "../playback";
@@ -7,28 +7,10 @@ import { useToasts } from "../store";
 import "./PlaybackHistory.css";
 
 /** Minimal functional UI; progress comes only from verified player samples. */
-export function PlaybackHistory({ workId, mediaIds }: { workId?: string; mediaIds?: string[] }) {
-  const [data, setData] = useState<PlaybackOverview>({ items: [], sessions: [] });
-  const [error, setError] = useState("");
+export function PlaybackHistory({ workId, mediaIds, snapshot }: { workId?: string; mediaIds?: string[]; snapshot: { data: PlaybackOverview; error: string } }) {
+  const { data, error } = snapshot;
   const [busy, setBusy] = useState<string | null>(null);
   const toast = useToasts(state => state.push);
-  useEffect(() => {
-    let disposed = false;
-    let pending = false;
-    const load = async () => {
-      if (pending || document.hidden) return;
-      pending = true;
-      try {
-        const next = await api.playbackProgress(workId);
-        if (!disposed) { setData(next); setError(""); }
-      } catch (err) { if (!disposed) setError(getErrorMessage(err)); }
-      finally { pending = false; }
-    };
-    void load();
-    const timer = window.setInterval(() => void load(), 5000);
-    window.addEventListener("focus", load);
-    return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", load); };
-  }, [workId]);
   const resume = async (id: string, restart: boolean) => {
     setBusy(id);
     try { await api.resumePlayback(id, restart); toast(restart ? "已请求从头播放" : "已请求继续观看", "success"); }

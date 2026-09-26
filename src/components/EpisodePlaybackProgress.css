@@ -1,0 +1,17 @@
+.episode-snapshot,
+.detail-file-visual { position: relative; }
+
+.episode-playback-progress {
+  position: absolute;
+  inset: auto 0 0;
+  height: 4px;
+  overflow: hidden;
+  background: rgb(0 0 0 / 35%);
+  z-index: 2;
+}
+.episode-playback-progress > span {
+  display: block;
+  height: 100%;
+  background: #566dff;
+  border-radius: 0 2px 2px 0;
+}

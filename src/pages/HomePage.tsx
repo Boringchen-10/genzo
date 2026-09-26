@@ -1,3 +1,6 @@
+import { usePlaybackProgress } from "../usePlaybackProgress";
+import { latestPlayback } from "../playback";
+import { useToasts } from "../store";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { PlaybackHistory } from "../components/PlaybackHistory";
@@ -93,6 +96,9 @@ function ShelfArtwork({ work, index, previewMode }: { work: WorkListItem; index:
 
 export function HomePage() {
   const previewMode = new URLSearchParams(window.location.search).get("preview") === "theme";
+  const playback = usePlaybackProgress(undefined, !previewMode);
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const toast = useToasts(state => state.push);
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -135,6 +141,16 @@ export function HomePage() {
 
   const carouselWorks = useMemo(() => data?.recentWorks.slice(0, 5) ?? [], [data]);
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
+  const featuredPlayback = usePlaybackProgress(featured?.id, !previewMode && Boolean(featured));
+  const lastPlayed = featured ? latestPlayback(featuredPlayback.data.items, featured.id) : undefined;
+  const resumeActive = featuredPlayback.data.sessions.some(session => session.mediaFileId === lastPlayed?.mediaFileId && ["connecting", "tracking"].includes(session.status));
+  const resumeFeatured = async () => {
+    if (!lastPlayed) return;
+    setResumeBusy(true);
+    try { await api.resumePlayback(lastPlayed.mediaFileId, false); }
+    catch (err) { toast(getErrorMessage(err), "error"); }
+    finally { setResumeBusy(false); }
+  };
   const featuredArtwork = workBackdrop(featured, featuredIndex, previewMode);
   /** 背景是否来自真实横版横幅（决定用清晰横幅还是模糊封面铺底）。 */
   const featuredHasBanner = Boolean(bannerArtwork(featured));
@@ -176,7 +192,7 @@ export function HomePage() {
           <h1>{featured?.title ?? "你的本地媒体，都在这里"}</h1>
           <p>{featured?.description || "从作品组识别到本地播放，Genzo 让动画、漫画、小说和游戏保持清晰有序。"}</p>
           <div className="gnz-home-actions">
-            {featured ? <Link className="button primary icon-text" to={`/library/${featured.id}`}><Play size={17} fill="currentColor" />继续查看</Link> : <Link className="button primary icon-text" to="/library"><Library size={17}/>打开媒体库</Link>}
+            {lastPlayed ? <button type="button" className="button primary icon-text" title={lastPlayed.fileName} disabled={resumeBusy || resumeActive || !lastPlayed.toolId} onClick={() => void resumeFeatured()}><Play size={17} fill="currentColor" />{resumeActive ? "播放中" : lastPlayed.completed ? "重新观看" : "继续观看"}</button> : featured ? <Link className="button primary icon-text" to={`/library/${featured.id}`}><Play size={17} fill="currentColor" />查看作品</Link> : <Link className="button primary icon-text" to="/library"><Library size={17}/>打开媒体库</Link>}
             {featured ? <Link className="button secondary" to={`/library/${featured.id}`}>作品详情</Link> : <Link className="button secondary" to="/library?tab=sources">添加媒体源</Link>}
             {featured?.favorite ? <span className="gnz-bookmarked" title="已收藏"><Bookmark size={17} fill="currentColor"/></span> : null}
           </div>
@@ -185,7 +201,7 @@ export function HomePage() {
           <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} aria-pressed={featuredIndex === index} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{workCategoryLabel(work)} · 本地</small></span></button>)}</div>
         </div> : null}
       </div>
-      {!previewMode && <PlaybackHistory />}
+      {!previewMode && <PlaybackHistory snapshot={playback} />}
       {works.length ? <section className="gnz-home-shelf">
         <div className="section-heading"><div><h2>我的书架</h2><span>{shelfFilter === "all" ? `${data.totalWorks} 部作品` : `${shelfWorks.length} 部作品`}</span></div><Link to="/library">查看全部</Link></div>
         <div className="gnz-shelf-filters" role="group" aria-label="作品分类筛选">

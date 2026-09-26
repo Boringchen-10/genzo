@@ -1,3 +1,6 @@
+import { usePlaybackProgress } from "../usePlaybackProgress";
+import { latestPlayback } from "../playback";
+import { EpisodePlaybackProgress } from "../components/EpisodePlaybackProgress";
 import { PlaybackHistory } from "../components/PlaybackHistory";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
@@ -172,6 +175,7 @@ function LocalFileThumb({ file, provider, className = "local-file-thumb" }: { fi
 export function WorkDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const playback = usePlaybackProgress(id);
   const toast = useToasts((state) => state.push);
   const [work, setWork] = useState<WorkDetail | null>(null);
   const [tools, setTools] = useState<ExternalTool[]>([]);
@@ -445,7 +449,9 @@ export function WorkDetailPage() {
   const launch = async (file: MediaFile, toolId: string | null = null, useSystem = false) => {
     setBusyFile(file.id);
     try {
-      await api.launchMedia(file.id, toolId, useSystem);
+      const saved = playback.data.items.find(item => item.mediaFileId === file.id);
+      if (!toolId && !useSystem && saved?.toolId) await api.resumePlayback(file.id, false);
+      else await api.launchMedia(file.id, toolId, useSystem);
       toast(`已请求打开“${file.fileName}”`, "success");
     } catch (launchError: unknown) {
       toast(getErrorMessage(launchError), "error");
@@ -525,6 +531,9 @@ export function WorkDetailPage() {
 
   const sortedFiles = [...work.mediaFiles].sort((left, right) => left.fileName.localeCompare(right.fileName, "zh-CN", { numeric: true }));
   const firstAvailable = sortedFiles.find((file) => !file.missing || file.path.startsWith("webdav://"));
+  const lastPlayed = work.type === "video" ? latestPlayback(playback.data.items, work.id, work.mediaFiles.map(file => file.id)) : undefined;
+  const continueFile = lastPlayed ? work.mediaFiles.find(file => file.id === lastPlayed.mediaFileId) : firstAvailable;
+  const continueActive = playback.data.sessions.some(session => session.mediaFileId === continueFile?.id && ["connecting", "tracking"].includes(session.status));
   const remoteCount = sortedFiles.filter(file => file.path.startsWith("webdav://")).length;
   const isCompleted = work.status === "completed";
   const recognitionFile = sortedFiles.find((file) => file.mediaType === "video" && !file.missing);
@@ -580,8 +589,8 @@ export function WorkDetailPage() {
             <h1>{work.title}</h1>
             {work.originalTitle ? <p className="original-title">{work.originalTitle}</p> : null}
             <div className="detail-actions">
-              <button type="button" className="button primary icon-text" disabled={!firstAvailable || busyFile !== null} onClick={() => firstAvailable && void launch(firstAvailable)}>
-                <Play size={17} fill="currentColor" />{work.type === "game" ? "启动游戏" : "打开"}
+              <button type="button" className="button primary icon-text" disabled={!continueFile || (continueFile.missing && !continueFile.path.startsWith("webdav://")) || busyFile !== null || continueActive || (work.type === "video" && !playback.loaded)} title={continueFile?.fileName} onClick={() => continueFile && void launch(continueFile)}>
+                <Play size={17} fill="currentColor" />{work.type === "game" ? "启动游戏" : continueActive ? "播放中" : lastPlayed ? (lastPlayed.completed ? "重新观看" : "继续观看") : "打开"}
               </button>
               <button
                 type="button"
@@ -598,7 +607,7 @@ export function WorkDetailPage() {
           </div>
         </section>
 
-        {work.type === "video" && <PlaybackHistory key={work.id} workId={work.id} mediaIds={work.mediaFiles.map(file => file.id)} />}
+        {work.type === "video" && <PlaybackHistory snapshot={playback} key={work.id} workId={work.id} mediaIds={work.mediaFiles.map(file => file.id)} />}
         <div className="detail-body">
           <main className="detail-main">
             <div className="detail-toprow">
@@ -675,8 +684,11 @@ export function WorkDetailPage() {
                         {group.title ? <h3 className="episode-group-head">{group.title}（{group.episodes.length}）</h3> : null}
                         <div className="official-episodes">
                       {group.episodes.map((episode) => {
+                        const episodePlayback = latestPlayback(playback.data.items, work.id, episode.localFiles.map(file => file.id));
                         const primaryFile = episode.localFiles.find((file) => file.id === versionChoice[episode.externalId])
+                          ?? episode.localFiles.find(file => file.id === episodePlayback?.mediaFileId)
                           ?? pickPrimaryFile(episode.localFiles);
+                        const fileProgress = playback.data.items.find(item => item.mediaFileId === primaryFile?.id);
                         const snapshotFile = (primaryFile?.thumbnailPath && !primaryFile.thumbnailPath.includes("__unsupported__") ? primaryFile : null)
                           ?? episode.localFiles.find((file) => file.thumbnailPath && !file.thumbnailPath.includes("__unsupported__"))
                           ?? episode.localFiles.find((file) => !file.missing)
@@ -689,6 +701,7 @@ export function WorkDetailPage() {
                               ) : (
                                 <span className="episode-snapshot-visual"><MediaVisual type="video" coverPath={null} alt="无视频快照" /></span>
                               )}
+                              <EpisodePlaybackProgress progress={fileProgress} />
                               <span className="episode-snapshot-badge">
                                 {episode.localFiles.length ? `已关联 ${episode.localFiles.length} 个版本` : "未关联文件"}
                               </span>
@@ -760,7 +773,7 @@ export function WorkDetailPage() {
                                   <span className={primaryFile.missing ? "warning-text" : "available-text"}>
                                     {primaryFile.missing ? <><AlertTriangle size={12} />文件缺失</> : primaryFile.path.startsWith("webdav://") ? "远程文件" : "本地可用"}
                                   </span>
-                                  <RemoteFileActions id={primaryFile.id} path={primaryFile.path} /><button type="button" className="button compact primary" disabled={(primaryFile.missing && !primaryFile.path.startsWith("webdav://")) || busyFile === primaryFile.id} onClick={() => void launch(primaryFile)}>{busyFile === primaryFile.id ? "准备中…" : "打开"}</button>
+                                  <RemoteFileActions id={primaryFile.id} path={primaryFile.path} /><button type="button" className="button compact primary" disabled={(primaryFile.missing && !primaryFile.path.startsWith("webdav://")) || busyFile === primaryFile.id} onClick={() => void launch(primaryFile)}>{busyFile === primaryFile.id ? "准备中…" : fileProgress ? (fileProgress.completed ? "重新观看" : "继续观看") : "打开"}</button>
                                 </li>
                                 {episode.localFiles.length > 1 ? (
                                   <li className="episode-version-more">另有 {episode.localFiles.length - 1} 个版本，点右上角「⋯」切换</li>
@@ -835,7 +848,7 @@ export function WorkDetailPage() {
                     const subtitleCount = work.subtitleLinks.filter((link) => link.videoMediaFileId === file.id).length;
                     return (
                       <article className="file-row detail-file-card" key={file.id}>
-                        <div className="detail-file-visual"><MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" /></div>
+                        <div className="detail-file-visual"><MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" /><EpisodePlaybackProgress progress={playback.data.items.find(item => item.mediaFileId === file.id)} /></div>
                         <div className="file-name"><strong title={file.fileName}>{!isMovie && file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.fileName}</strong><small title={file.path}>{file.fileName}</small></div>
                         <div className="episode-card-meta">{mediaLabels[file.mediaType]} · {formatSize(file.size)}{subtitleCount ? ` · ${subtitleCount} 个字幕` : ""}</div>
                         <div className={file.missing ? "warning-text file-availability" : "available-text file-availability"}>{file.missing ? <><AlertTriangle size={13} />文件缺失</> : file.path.startsWith("webdav://") ? "远程文件" : "本地可用"}</div>
