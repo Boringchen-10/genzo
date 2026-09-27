@@ -26,6 +26,7 @@ mod remote_storage;
 mod remote_storage_tests;
 mod remote_transfer;
 mod scanner;
+mod scan_tasks;
 mod thumbnail;
 mod webdav;
 mod window_style;
@@ -92,6 +93,9 @@ pub fn run() {
             commands::delete_library_root,
             commands::scan_library_root,
             commands::list_scan_jobs,
+            scan_tasks::list_scan_tasks,
+            scan_tasks::cancel_scan_task,
+            scan_tasks::retry_scan_task,
             commands::list_external_tools,
             commands::create_external_tool,
             commands::update_external_tool,

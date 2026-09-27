@@ -77,10 +77,27 @@ async fn fixture() -> Fixture {
                     return;
                 }
                 if request.starts_with("PROPFIND") {
-                    if m.load(Ordering::SeqCst) == 1 {
+                    let mode = m.load(Ordering::SeqCst);
+                    if mode == 1 || (mode == 5 && request.starts_with("PROPFIND /dav/bad/ ")) {
                         let _ = socket
                             .write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\n\r\n")
                             .await;
+                        return;
+                    }
+                    if mode >= 5 {
+                        let path = request.split_whitespace().nth(1).unwrap();
+                        let mut xml = String::from("<d:multistatus xmlns:d=\"DAV:\">");
+                        let self_entry = format!("<d:response><d:href>{path}</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>");
+                        xml.push_str(&self_entry);
+                        if path == "/dav/" {
+                            for child in ["good", "bad"] {
+                                xml.push_str(&format!("<d:response><d:href>/dav/{child}/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"));
+                            }
+                        } else {
+                            xml.push_str(&format!("<d:response><d:href>{path}Show%20-%2001.mkv</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>10</d:getcontentlength><d:getetag>&quot;stable&quot;</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"));
+                        }
+                        xml.push_str("</d:multistatus>");
+                        let _=socket.write_all(format!("HTTP/1.1 207 Multi-Status\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{xml}",xml.len()).as_bytes()).await;
                         return;
                     }
                     let mut xml = String::from("<d:multistatus xmlns:d=\"DAV:\">");
@@ -94,6 +111,9 @@ async fn fixture() -> Fixture {
                         xml.push_str(&format!("<d:response><d:href>/dav/{name}</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>10</d:getcontentlength><d:getetag>&quot;stable&quot;</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"));
                     }
                     xml.push_str("</d:multistatus>");
+                    if mode == 4 {
+                        xml = xml.replace("stable", "new-version");
+                    }
                     let _=socket.write_all(format!("HTTP/1.1 207 Multi-Status\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{xml}",xml.len()).as_bytes()).await;
                 } else {
                     g.fetch_add(1, Ordering::SeqCst);
@@ -163,6 +183,87 @@ async fn fixture() -> Fixture {
         task,
         _directory: directory,
     }
+}
+
+#[tokio::test]
+async fn webdav_incremental_reuse_skips_writes_but_etag_changes_refresh_index() {
+    let f = fixture().await;
+    scanner::scan_library_root(&f.state.pool, &f.root)
+        .await
+        .unwrap();
+    sqlx::query("CREATE TRIGGER reject_repeat_media BEFORE UPDATE ON media_files BEGIN SELECT RAISE(ABORT,'unexpected media update'); END").execute(&f.state.pool).await.unwrap();
+    sqlx::query("CREATE TRIGGER reject_repeat_remote BEFORE UPDATE ON remote_files BEGIN SELECT RAISE(ABORT,'unexpected locator update'); END").execute(&f.state.pool).await.unwrap();
+    let result = scanner::scan_library_root(&f.state.pool, &f.root)
+        .await
+        .unwrap();
+    assert!(result.errors.is_empty());
+    let task = crate::scan_tasks::list(&f.state.pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|task| task.id == result.job.id)
+        .unwrap();
+    assert_eq!(task.reused, 3);
+    sqlx::query("DROP TRIGGER reject_repeat_media")
+        .execute(&f.state.pool)
+        .await
+        .unwrap();
+    sqlx::query("DROP TRIGGER reject_repeat_remote")
+        .execute(&f.state.pool)
+        .await
+        .unwrap();
+    f.mode.store(4, Ordering::SeqCst);
+    let changed = scanner::scan_library_root(&f.state.pool, &f.root)
+        .await
+        .unwrap();
+    let task = crate::scan_tasks::list(&f.state.pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|task| task.id == changed.job.id)
+        .unwrap();
+    assert_eq!(task.reused, 0);
+    let refreshed: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM remote_files WHERE etag='\"new-version\"'")
+            .fetch_one(&f.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(refreshed, 3);
+    assert_eq!(f.gets.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn partial_webdav_failure_keeps_siblings_and_retries_only_failed_directory() {
+    let f = fixture().await;
+    scanner::scan_library_root(&f.state.pool, &f.root)
+        .await
+        .unwrap();
+    f.mode.store(5, Ordering::SeqCst);
+    let partial = scanner::scan_library_root(&f.state.pool, &f.root)
+        .await
+        .unwrap();
+    assert_eq!(partial.job.added_count, 1);
+    assert_eq!(partial.job.missing_count, 0);
+    let task = crate::scan_tasks::list(&f.state.pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|task| task.id == partial.job.id)
+        .unwrap();
+    assert_eq!(task.failed_directories, vec!["/dav/bad/"]);
+    f.mode.store(6, Ordering::SeqCst);
+    let retry = scanner::scan_with_options(
+        &f.state.pool,
+        &f.root,
+        Some((task.scope_key, task.failed_directories)),
+    )
+    .await
+    .unwrap();
+    assert!(retry.errors.is_empty());
+    assert_eq!(retry.job.discovered_count, 1);
+    assert_eq!(retry.job.added_count, 1);
+    assert_eq!(retry.job.missing_count, 0);
+    assert_eq!(f.gets.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

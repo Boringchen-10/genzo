@@ -23,12 +23,14 @@ struct ScannedFile {
     parsed_anime: Option<ParsedAnime>,
     content_fingerprint: Option<String>,
     remote: Option<(String, Option<String>)>,
+    reused: bool,
 }
 
 #[derive(Debug, Default)]
 struct WalkOutput {
     files: Vec<ScannedFile>,
     errors: Vec<String>,
+    failed_directories: Vec<String>,
 }
 
 pub fn normalize_existing_path(path: &Path) -> AppResult<String> {
@@ -240,8 +242,9 @@ fn visit_directory(
                 }
             }
         } else {
-            None
+            saved.and_then(|(_, _, fingerprint)| fingerprint.clone())
         };
+        let reused = saved.is_some();
         let file = ScannedFile {
             path: normalized,
             file_name: file_name.clone(),
@@ -249,9 +252,10 @@ fn visit_directory(
             media_type: media_type.to_string(),
             size,
             modified_at,
-            parsed_anime: (media_type == "video").then(|| parse_file_name(&file_name)),
+            parsed_anime: (media_type == "video" && !reused).then(|| parse_file_name(&file_name)),
             content_fingerprint,
             remote: None,
+            reused,
         };
         if !emit(WalkEvent::File(Box::new(file))) {
             return;
@@ -260,6 +264,12 @@ fn visit_directory(
 }
 
 fn sort_scanned_files(output: &mut WalkOutput) {
+    let mut seen = HashSet::new();
+    output
+        .files
+        .retain(|file| seen.insert(file.path.to_lowercase()));
+    output.failed_directories.sort();
+    output.failed_directories.dedup();
     output.files.sort_by(|left, right| {
         let by_name = natord::compare_ignore_case(&left.file_name, &right.file_name);
         if by_name == Ordering::Equal {
@@ -301,6 +311,7 @@ fn collect_local_files(root: &Path, kind: &str, include_hidden: bool, mounted: b
     output
 }
 
+#[cfg(test)]
 async fn receive_directory(
     receiver: &mut tokio::sync::mpsc::Receiver<WalkEvent>,
     directory: &Path,
@@ -308,14 +319,43 @@ async fn receive_directory(
     output: &mut WalkOutput,
     idle_timeout: std::time::Duration,
 ) {
+    receive_directory_monitored(receiver, directory, pending, output, idle_timeout, None).await
+}
+
+async fn receive_directory_monitored(
+    receiver: &mut tokio::sync::mpsc::Receiver<WalkEvent>,
+    directory: &Path,
+    pending: &mut std::collections::VecDeque<PathBuf>,
+    output: &mut WalkOutput,
+    idle_timeout: std::time::Duration,
+    task: Option<&crate::scan_tasks::TaskHandle>,
+) {
+    let before_errors = output.errors.len();
     loop {
+        if let Some(task) = task {
+            task.update(|state| {
+                state.discovered = output.files.len();
+                state.pending_directories = pending.len();
+                state.errors = output.errors.clone();
+            });
+        }
         match tokio::time::timeout(idle_timeout, receiver.recv()).await {
             Ok(Some(WalkEvent::File(file))) => output.files.push(*file),
             Ok(Some(WalkEvent::Directory(path))) => pending.push_back(path),
             Ok(Some(WalkEvent::Error(error))) => output.errors.push(error),
             Ok(Some(WalkEvent::Progress)) => {}
-            Ok(Some(WalkEvent::Finished)) => return,
+            Ok(Some(WalkEvent::Finished)) => {
+                if output.errors.len() > before_errors {
+                    output
+                        .failed_directories
+                        .push(directory.to_string_lossy().into());
+                }
+                return;
+            }
             Ok(None) => {
+                output
+                    .failed_directories
+                    .push(directory.to_string_lossy().into());
                 output.errors.push(format!(
                     "目录扫描中断：{}；已保留本轮发现的文件",
                     directory.display()
@@ -323,6 +363,9 @@ async fn receive_directory(
                 return;
             }
             Err(_) => {
+                output
+                    .failed_directories
+                    .push(directory.to_string_lossy().into());
                 output.errors.push(format!(
                     "目录连续 {} 秒无响应：{}；已保留本轮发现的文件并继续其他目录",
                     idle_timeout.as_secs(),
@@ -334,12 +377,24 @@ async fn receive_directory(
     }
 }
 
+#[cfg(test)]
 async fn collect_local_tree(
     root: PathBuf,
     kind: String,
     include_hidden: bool,
     mounted: bool,
     known: FingerprintCache,
+) -> WalkOutput {
+    collect_local_tree_monitored(vec![root], kind, include_hidden, mounted, known, None).await
+}
+
+async fn collect_local_tree_monitored(
+    directories: Vec<PathBuf>,
+    kind: String,
+    include_hidden: bool,
+    mounted: bool,
+    known: FingerprintCache,
+    task: Option<&crate::scan_tasks::TaskHandle>,
 ) -> WalkOutput {
     use std::sync::{Arc, OnceLock};
     // A blocked Windows network call cannot be force-cancelled safely. Bound
@@ -348,13 +403,25 @@ async fn collect_local_tree(
     let slots = WORKERS.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(4)));
     let known = Arc::new(known);
     let mut output = WalkOutput::default();
-    let mut pending = std::collections::VecDeque::from([root]);
+    let mut pending = std::collections::VecDeque::from(directories);
     while let Some(directory) = pending.pop_front() {
+        if let Some(task) = task {
+            task.update(|state| {
+                state.current_directory = directory.to_string_lossy().into();
+                state.pending_directories = pending.len();
+            });
+        }
         let Ok(permit) = slots.clone().try_acquire_owned() else {
             output.errors.push(format!(
                 "网络目录仍有 4 个读取未返回，暂停剩余 {} 个目录；已保留扫描结果，请恢复连接后重试",
                 pending.len() + 1
             ));
+            output
+                .failed_directories
+                .push(directory.to_string_lossy().into());
+            output
+                .failed_directories
+                .extend(pending.iter().map(|path| path.to_string_lossy().into()));
             break;
         };
         let (sender, mut receiver) = tokio::sync::mpsc::channel(128);
@@ -373,23 +440,35 @@ async fn collect_local_tree(
             );
             let _ = sender.blocking_send(WalkEvent::Finished);
         });
-        receive_directory(
+        receive_directory_monitored(
             &mut receiver,
             &directory,
             &mut pending,
             &mut output,
             std::time::Duration::from_secs(30),
+            task,
         )
         .await;
         // Closing the receiver cooperatively stops a timed-out worker as soon
         // as its current OS operation returns; it cannot continue traversing.
         drop(receiver);
+        if let Some(task) = task {
+            task.update(|state| state.visited_directories += 1);
+        }
     }
     sort_scanned_files(&mut output);
     output
 }
 
 pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<ScanResult> {
+    scan_with_options(pool, root_id, None).await
+}
+
+pub async fn scan_with_options(
+    pool: &SqlitePool,
+    root_id: &str,
+    retry: Option<(String, Vec<String>)>,
+) -> AppResult<ScanResult> {
     let root = sqlx::query_as::<_, LibraryRoot>(
         "SELECT id, path, kind, enabled, last_scanned_at, created_at, updated_at, source_type, availability FROM library_roots WHERE id = ?",
     )
@@ -402,21 +481,55 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         return Err(AppError::Validation("该扫描目录已停用".to_string()));
     }
 
-    let lock = SCAN_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
-    let _guard = lock.lock().await;
-
+    let scope_key = crate::scan_tasks::scope_key(pool, &root).await?;
+    if retry
+        .as_ref()
+        .is_some_and(|(key, paths)| key != &scope_key || paths.is_empty())
+    {
+        return Err(AppError::Validation(
+            "来源配置已变更，请重新完整扫描".into(),
+        ));
+    }
+    let directories = retry.as_ref().map(|(_, paths)| paths.clone());
+    if root.source_type != "webdav" {
+        if let Some(paths) = &directories {
+            for path in paths {
+                if !(normalized_directory(path) == normalized_directory(&root.path)
+                    || is_more_specific_root(path, &root.path))
+                    || path
+                        .split(['\\', '/'])
+                        .any(|part| part == ".." || part == ".")
+                {
+                    return Err(AppError::Validation("重试目录超出媒体源范围".into()));
+                }
+            }
+        }
+    }
     let job_id = Uuid::new_v4().to_string();
     let started_at = Utc::now().to_rfc3339();
-    sqlx::query(
+    {
+        let (_write_guard, mut job_transaction) = crate::db::begin_write(pool).await?;
+        sqlx::query(
         "INSERT INTO scan_jobs (id, library_root_id, status, started_at) VALUES (?, ?, 'running', ?)",
     )
     .bind(&job_id)
     .bind(&root.id)
     .bind(&started_at)
-    .execute(pool)
+    .execute(&mut *job_transaction)
     .await?;
+        job_transaction.commit().await?;
+    }
 
+    let task = crate::scan_tasks::register(&job_id, &root, scope_key, retry.is_some());
     let result: AppResult<ScanResult> = async {
+    crate::scan_tasks::persist(pool, &task).await?;
+    let lock = SCAN_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
+    let _guard = tokio::select! {
+        guard = lock.lock() => guard,
+        _ = task.cancellation() => { task.check()?; unreachable!() },
+    };
+    task.check()?;
+    task.update(|state| state.stage = "scanning".into());
     let include_hidden = sqlx::query_scalar::<_, String>(
         "SELECT value FROM app_settings WHERE key = 'scan.include_hidden'",
     )
@@ -427,28 +540,40 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     let scan_kind = root.kind.clone();
     let mounted_source = root.source_type == "mounted"
         || (root.source_type != "webdav" && is_network_location(&scan_path));
-    let walk_output = if root.source_type == "webdav" {
-        match collect_remote_files(pool, &root, include_hidden).await {
-            Ok(files) => WalkOutput {
-                files,
-                errors: vec![],
-            },
-            Err(error) => WalkOutput {
-                files: vec![],
-                errors: vec![error.to_string()],
-            },
+    // Metadata enumeration is still necessary for additions and moves; unchanged files
+    // reuse parsing/fingerprints without touching content, including mounted roots.
+    let known: FingerprintCache = sqlx::query_as::<_, (String, i64, Option<String>, Option<String>)>(
+        "SELECT path, size, modified_at, content_fingerprint FROM media_files WHERE path = ? COLLATE NOCASE OR (substr(path,1,length(?)) = ? COLLATE NOCASE AND substr(path,length(?) + 1,1) IN ('\\', '/'))")
+        .bind(&root.path).bind(&root.path).bind(&root.path).bind(&root.path).fetch_all(pool).await?.into_iter()
+        .map(|(path, size, modified, fingerprint)| (path.to_lowercase(), (size, modified, fingerprint))).collect();
+    let walk = async {
+        if root.source_type == "webdav" {
+            collect_remote_files(pool, &root, include_hidden, directories.clone(), &known, &task).await
+        } else {
+            Ok(collect_local_tree_monitored(directories.clone().unwrap_or_else(|| vec![root.path.clone()]).into_iter().map(PathBuf::from).collect(), scan_kind, include_hidden, mounted_source, known, Some(&task)).await)
         }
-    } else {
-        let known: FingerprintCache = if mounted_source { HashMap::new() } else {
-            sqlx::query_as::<_, (String, i64, Option<String>, Option<String>)>(
-                "SELECT path, size, modified_at, content_fingerprint FROM media_files WHERE library_root_id = ?")
-                .bind(&root.id).fetch_all(pool).await?.into_iter()
-                .map(|(path, size, modified, fingerprint)| (path.to_lowercase(), (size, modified, fingerprint))).collect()
-        };
-        collect_local_tree(scan_path, scan_kind, include_hidden, mounted_source, known).await
     };
+    let walk_output = tokio::select! {
+        output = walk => output?,
+        _ = task.cancellation() => { task.check()?; unreachable!() },
+    };
+    task.update(|state| {
+        state.stage = "indexing".into(); state.discovered = walk_output.files.len();
+        state.errors = walk_output.errors.clone(); state.failed_directories = walk_output.failed_directories.clone();
+    });
 
     let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
+    task.check()?;
+    // A source edited/removed during enumeration cannot be indexed using the old configuration.
+    let current_root: Option<(String,String,String,bool)> = sqlx::query_as(
+        "SELECT path,kind,source_type,enabled FROM library_roots WHERE id=?")
+        .bind(&root.id).fetch_optional(&mut *transaction).await?;
+    let remote_config: Option<(String,String)> = sqlx::query_as(
+        "SELECT endpoint,directory FROM remote_sources WHERE id=?")
+        .bind(&root.id).fetch_optional(&mut *transaction).await?;
+    if !current_root.is_some_and(|(path,kind,source_type,enabled)| enabled && serde_json::to_string(&(path,kind,source_type,remote_config)).ok().as_deref() == Some(task.snapshot().scope_key.as_str())) {
+        return Err(AppError::Validation("扫描期间来源配置已变更，本轮索引未提交，请重新扫描".into()));
+    }
     let root_paths: HashMap<String, String> =
         sqlx::query_as::<_, (String, String)>("SELECT id, path FROM library_roots")
             .fetch_all(&mut *transaction)
@@ -473,7 +598,8 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         .collect::<HashSet<_>>();
     let mut move_candidates: HashMap<String, Vec<MediaFile>> = HashMap::new();
     for file in &existing_files {
-        if !scanned_paths.contains(&file.path.to_lowercase()) {
+        // A partial scan cannot prove an unseen old path is absent.
+        if retry.is_none() && walk_output.errors.is_empty() && !scanned_paths.contains(&file.path.to_lowercase()) {
             if let Some(fingerprint) = &file.content_fingerprint {
                 move_candidates
                     .entry(fingerprint.clone())
@@ -486,12 +612,14 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
         .into_iter()
         .map(|file| (file.path.to_lowercase(), file))
         .collect();
-    if walk_output.errors.is_empty() {
-        sqlx::query("UPDATE media_files SET missing = 1, updated_at = ? WHERE library_root_id = ?")
-            .bind(Utc::now().to_rfc3339())
-            .bind(&root.id)
-            .execute(&mut *transaction)
-            .await?;
+    // Only a complete full scan can establish absence. No missing flip on every
+    // existing row: unchanged timestamps and thumbnails must remain stable.
+    if retry.is_none() && walk_output.errors.is_empty() {
+        for existing in existing_by_path.values().filter(|file| !file.missing && file.library_root_id.as_deref() == Some(root.id.as_str()) && !scanned_paths.contains(&file.path.to_lowercase())) {
+            task.check()?;
+            sqlx::query("UPDATE media_files SET missing=1,updated_at=? WHERE id=?")
+                .bind(Utc::now().to_rfc3339()).bind(&existing.id).execute(&mut *transaction).await?;
+        }
     }
 
     let mut added_count = 0_i64;
@@ -499,6 +627,8 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     let mut errors = walk_output.errors;
 
     for file in &walk_output.files {
+        task.check()?;
+        task.update(|state| state.processed += 1);
         let now = Utc::now().to_rfc3339();
         if let Some(existing) = existing_by_path.get(&file.path.to_lowercase()) {
             let existing_root_path = existing
@@ -513,14 +643,22 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
             } else {
                 existing.library_root_id.as_deref()
             };
-            if existing.size != file.size
+            let changed = existing.size != file.size
                 || existing.modified_at != file.modified_at
                 || existing.missing
                 || existing.media_type != file.media_type
                 || claim_for_current_root
-                    && existing.library_root_id.as_deref() != Some(root.id.as_str())
-            {
-                updated_count += 1;
+                    && existing.library_root_id.as_deref() != Some(root.id.as_str());
+            if changed { updated_count += 1; }
+            let same_metadata = existing.size == file.size && existing.modified_at == file.modified_at
+                && existing.media_type == file.media_type && existing.file_name == file.file_name;
+            if same_metadata && file.reused {
+                task.update(|state| state.reused += 1);
+                if changed || file.content_fingerprint != existing.content_fingerprint {
+                    sqlx::query("UPDATE media_files SET library_root_id=?,missing=0,content_fingerprint=COALESCE(?,content_fingerprint),updated_at=? WHERE id=?")
+                        .bind(target_root_id).bind(&file.content_fingerprint).bind(&now).bind(&existing.id).execute(&mut *transaction).await?;
+                }
+                continue;
             }
             if let Err(error) = sqlx::query(
                 "UPDATE media_files SET library_root_id = ?, file_name = ?, extension = ?, media_type = ?, thumbnail_path = CASE WHEN size = ? AND modified_at IS ? THEN thumbnail_path ELSE NULL END, size = ?, modified_at = ?, missing = 0, parsed_title = ?, parsed_original_title = ?, parsed_season = ?, parsed_episode = ?, parsed_episode_start = ?, parsed_episode_end = ?, parsed_year = ?, parsed_release_group = ?, parsed_special_type = ?, parsed_media_info = ?, content_fingerprint = COALESCE(?, content_fingerprint), updated_at = ? WHERE id = ?",
@@ -632,14 +770,14 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
 
     for file in &walk_output.files {
         if let Some((href, etag)) = &file.remote {
-            sqlx::query("INSERT INTO remote_files(media_file_id,source_id,href,etag) SELECT id,?,?,? FROM media_files WHERE path = ? ON CONFLICT(media_file_id) DO UPDATE SET href=excluded.href,etag=excluded.etag")
+            sqlx::query("INSERT INTO remote_files(media_file_id,source_id,href,etag) SELECT id,?,?,? FROM media_files WHERE path = ? ON CONFLICT(media_file_id) DO UPDATE SET href=excluded.href,etag=excluded.etag WHERE remote_files.href IS NOT excluded.href OR remote_files.etag IS NOT excluded.etag")
                 .bind(&root.id).bind(href).bind(etag).bind(&file.path).execute(&mut *transaction).await?;
         }
     }
 
     // Handles legacy records with no root or parsed episode, including moves
     // between scan roots, while preserving episode/subtitle associations.
-    if root.source_type == "local" && !mounted_source && errors.is_empty() {
+    if retry.is_none() && root.source_type == "local" && !mounted_source && errors.is_empty() && (added_count > 0 || updated_count > 0) {
         crate::media_reconciliation::reconcile(&mut transaction, None).await?;
     }
 
@@ -685,6 +823,7 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     .bind(&job_id)
     .execute(&mut *transaction)
     .await?;
+    task.committing()?;
     transaction.commit().await?;
 
     Ok(ScanResult {
@@ -706,14 +845,39 @@ pub async fn scan_library_root(pool: &SqlitePool, root_id: &str) -> AppResult<Sc
     if let Err(error) = &result {
         // The indexing transaction has rolled back before recording its failure.
         // If another process still owns the database, preserve the original error.
-        let _ = sqlx::query(
-            "UPDATE scan_jobs SET status='failed', errors_json=?, finished_at=? WHERE id=?",
-        )
-        .bind(serde_json::to_string(&vec![error.to_string()])?)
-        .bind(Utc::now().to_rfc3339())
-        .bind(&job_id)
-        .execute(pool)
+        let recorded: AppResult<()> = async {
+            let (_write_guard, mut failed_transaction) = crate::db::begin_write(pool).await?;
+            sqlx::query(
+                "UPDATE scan_jobs SET status='failed', errors_json=?, finished_at=? WHERE id=?",
+            )
+            .bind(serde_json::to_string(&vec![error.to_string()])?)
+            .bind(Utc::now().to_rfc3339())
+            .bind(&job_id)
+            .execute(&mut *failed_transaction)
+            .await?;
+            failed_transaction.commit().await?;
+            Ok(())
+        }
         .await;
+        if let Err(error) = recorded {
+            eprintln!("无法记录扫描失败：{error}");
+        }
+    }
+    task.update(|state| {
+        state.stage = if task.check().is_err() {
+            "cancelled"
+        } else if result.is_err() {
+            "failed"
+        } else {
+            "completed"
+        }
+        .into();
+        if let Err(error) = &result {
+            state.errors.push(error.to_string());
+        }
+    });
+    if let Err(error) = crate::scan_tasks::persist(pool, &task).await {
+        eprintln!("无法保存扫描任务摘要：{error}");
     }
     result
 }
@@ -724,12 +888,69 @@ async fn collect_remote_files(
     pool: &SqlitePool,
     root: &LibraryRoot,
     hidden: bool,
-) -> AppResult<Vec<ScannedFile>> {
+    directories: Option<Vec<String>>,
+    known: &FingerprintCache,
+    task: &crate::scan_tasks::TaskHandle,
+) -> AppResult<WalkOutput> {
     let source = crate::remote_storage::source(pool, &root.id).await?;
     let client = crate::remote_storage::client(&source)?;
     let directory = client.directory_url(&source.directory)?;
     let base = crate::webdav::decoded_path(directory.path())?;
-    let entries = crate::remote_storage::collect(pool, root, hidden).await?;
+    let remote_versions: HashMap<String, (String, Option<String>)> = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT m.path,r.href,r.etag FROM remote_files r JOIN media_files m ON m.id=r.media_file_id WHERE r.source_id=?")
+        .bind(&root.id).fetch_all(pool).await?.into_iter()
+        .map(|(path,href,etag)| (path.to_lowercase(),(href,etag))).collect();
+    let mut pending = std::collections::VecDeque::from(
+        directories.unwrap_or_else(|| vec![directory.path().into()]),
+    );
+    let mut seen = HashSet::new();
+    let mut entries = Vec::new();
+    let mut output = WalkOutput::default();
+    while let Some(path) = pending.pop_front() {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let url = client.resource_url(&path)?;
+        if !crate::webdav::decoded_path(url.path())?.starts_with(&base) {
+            return Err(AppError::Validation("重试目录超出媒体源范围".into()));
+        }
+        task.update(|state| {
+            state.current_directory =
+                crate::webdav::decoded_path(&path).unwrap_or_else(|_| path.clone());
+            state.pending_directories = pending.len();
+        });
+        if seen.len() > 20_000 || entries.len() > 200_000 {
+            output.errors.push("扫描范围过大，请拆分媒体源目录".into());
+            output.failed_directories.push(path);
+            output.failed_directories.extend(pending);
+            break;
+        }
+        match client.list(&path).await {
+            Ok(rows) => {
+                for entry in rows {
+                    if !hidden && entry.name.starts_with('.') {
+                        continue;
+                    }
+                    if entry.directory {
+                        pending.push_back(entry.href);
+                    } else {
+                        entries.push(entry);
+                    }
+                }
+            }
+            Err(error) => {
+                output
+                    .errors
+                    .push(format!("{}：{error}", crate::webdav::decoded_path(&path)?));
+                output.failed_directories.push(path);
+            }
+        }
+        task.update(|state| {
+            state.visited_directories += 1;
+            state.discovered = entries.len();
+            state.errors = output.errors.clone();
+        });
+    }
     let mut files = Vec::new();
     for entry in entries {
         let extension = Path::new(&entry.name)
@@ -748,27 +969,63 @@ async fn collect_remote_files(
         let relative = decoded
             .strip_prefix(&base)
             .ok_or_else(|| AppError::Validation("文件超出扫描目录".into()))?;
+        let path = crate::remote_storage::virtual_path(&root.id, relative);
+        let reused = remote_unchanged(
+            known.get(&path.to_lowercase()),
+            remote_versions.get(&path.to_lowercase()),
+            &entry,
+        );
         files.push(ScannedFile {
-            path: crate::remote_storage::virtual_path(&root.id, relative),
+            path,
             file_name: entry.name.clone(),
             extension,
             media_type: media_type.into(),
             size: entry.size,
             modified_at: entry.modified_at,
-            parsed_anime: (media_type == "video" || subtitle).then(|| {
+            parsed_anime: (!reused && (media_type == "video" || subtitle)).then(|| {
                 crate::anime_parser::parse_media_path(&entry.name, Path::new(&decoded), None)
             }),
             content_fingerprint: None,
             remote: Some((entry.href, entry.etag)),
+            reused,
         });
     }
-    Ok(files)
+    output.files = files;
+    sort_scanned_files(&mut output);
+    Ok(output)
 }
 
 fn normalized_directory(path: &str) -> String {
-    path.trim_end_matches(['\\', '/'])
+    let normalized = path
+        .trim_end_matches(['\\', '/'])
         .replace('/', "\\")
-        .to_lowercase()
+        .to_lowercase();
+    if let Some(unc) = normalized.strip_prefix("\\\\?\\unc\\") {
+        format!("\\\\{unc}")
+    } else {
+        normalized
+            .strip_prefix("\\\\?\\")
+            .unwrap_or(&normalized)
+            .to_string()
+    }
+}
+
+fn remote_unchanged(
+    known: Option<&(i64, Option<String>, Option<String>)>,
+    remote: Option<&(String, Option<String>)>,
+    entry: &crate::webdav::DavEntry,
+) -> bool {
+    let (Some((size, modified, _)), Some((href, etag))) = (known, remote) else {
+        return false;
+    };
+    if *size != entry.size || *modified != entry.modified_at || *href != entry.href {
+        return false;
+    }
+    match (etag.as_deref(), entry.etag.as_deref()) {
+        (Some(old), Some(new)) if !old.is_empty() && !new.is_empty() => old == new,
+        (None, None) => entry.modified_at.is_some(),
+        _ => false,
+    }
 }
 
 fn is_more_specific_root(candidate: &str, owner: &str) -> bool {
@@ -972,6 +1229,7 @@ mod tests {
         sqlx::query("INSERT INTO library_roots(id,path,kind,enabled,created_at,updated_at) VALUES('r',?,'video',1,'now','now')").bind(path).execute(&pool).await.unwrap();
         scan_library_root(&pool, "r").await.unwrap();
         sqlx::query("CREATE TRIGGER reject_file_update BEFORE UPDATE OF file_name ON media_files BEGIN SELECT RAISE(ABORT, 'injected write failure'); END").execute(&pool).await.unwrap();
+        fs::write(directory.path().join("01.mkv"), b"changed fixture").unwrap();
         assert!(scan_library_root(&pool, "r").await.is_err());
         let missing: bool = sqlx::query_scalar("SELECT missing FROM media_files")
             .fetch_one(&pool)
@@ -1218,3 +1476,6 @@ mod tests {
         assert_eq!(owner_after_parent, "child");
     }
 }
+#[cfg(test)]
+#[path = "scanner/tests_incremental.rs"]
+mod incremental_tests;

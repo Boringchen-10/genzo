@@ -2,7 +2,6 @@ use crate::{
     credentials::{self, Credentials},
     db::AppState,
     error::{AppError, AppResult},
-    models::LibraryRoot,
     webdav::{DavClient, DavEntry},
 };
 use chrono::Utc;
@@ -161,40 +160,6 @@ pub fn serialize_display_path<S: serde::Serializer>(
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&display_path(path))
-}
-
-pub async fn collect(
-    pool: &SqlitePool,
-    root: &LibraryRoot,
-    include_hidden: bool,
-) -> AppResult<Vec<DavEntry>> {
-    let source = source(pool, &root.id).await?;
-    let client = client(&source)?;
-    let start = client.directory_url(&source.directory)?;
-    let mut pending = vec![start.path().to_string()];
-    let mut seen = std::collections::HashSet::new();
-    let mut files = Vec::new();
-    while let Some(path) = pending.pop() {
-        if !seen.insert(path.clone()) {
-            continue;
-        }
-        if seen.len() > 20_000 || files.len() > 200_000 {
-            return Err(AppError::Validation(
-                "扫描范围过大，请拆分媒体源目录".into(),
-            ));
-        }
-        for entry in client.list(&path).await? {
-            if !include_hidden && entry.name.starts_with('.') {
-                continue;
-            }
-            if entry.directory {
-                pending.push(entry.href);
-            } else {
-                files.push(entry);
-            }
-        }
-    }
-    Ok(files)
 }
 
 #[tauri::command]

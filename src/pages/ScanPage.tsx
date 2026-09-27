@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, FolderOpen, Plus, RefreshCw, ScanSearch, Trash2 } from "lucide-react";
 import { dataProvider as api } from "../data";
 import { remoteApi } from "../api";
+import { ScanTaskPanel } from "../components/ScanTaskPanel";
 import { RemoteStoragePanel } from "../components/RemoteStoragePanel";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal } from "../components/common";
 import { useToasts } from "../store";
@@ -87,7 +88,8 @@ export function ScanPage() {
       toast(result.errors.length ? `扫描完成，记录了 ${result.errors.length} 个错误` : "扫描完成", result.errors.length ? "info" : "success");
       await load();
     } catch (scanError: unknown) {
-      toast(getErrorMessage(scanError), "error");
+      const message = getErrorMessage(scanError);
+      toast(message, message.includes("扫描已取消") ? "info" : "error");
     } finally {
       setScanningId(null);
     }
@@ -152,6 +154,7 @@ export function ScanPage() {
         </div>
       ) : null}
 
+      <ScanTaskPanel onFinished={load} />
       <RemoteStoragePanel />
       {jobs.length ? (
         <section className="content-section">

@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import type { ScanTask } from "./scanTasks";
 import type {
   WebdavConnection, RemoteSource, RemoteEntry, RemoteCacheEntry,
   AppInfo,
@@ -29,6 +30,12 @@ import type {
   WorkInput,
   WorkListItem,
 } from "./types";
+
+export const scanTaskApi = {
+  list: () => call<ScanTask[]>("list_scan_tasks"),
+  cancel: (id: string) => call<void>("cancel_scan_task", { id }),
+  retry: (id: string) => call<ScanResult>("retry_scan_task", { id }),
+};
 
 export const remoteApi = {
   listSources: () => call<RemoteSource[]>("list_remote_sources"),
