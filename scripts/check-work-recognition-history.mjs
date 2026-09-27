@@ -2,12 +2,16 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright-core";
 import { mkdir } from "node:fs/promises";
-const now = "2026-09-27T00:00:00Z";
+const now = new Date(Date.now() - 60_000).toISOString();
+const daysAgo = days => new Date(Date.now() - days * 86400_000).toISOString();
 const works = ["first", "second"].map(id => ({ id, title: "同名作品", type: "video", category: "anime", originalTitle: null, description: "隔离测试简介", coverPath: null, bannerPath: null, status: "planned", favorite: false, rating: null, notes: "", tags: [], mediaFiles: [], mediaCount: 0, missingCount: 0, metadata: null, fieldLocks: [], candidates: [], subtitleLinks: [], createdAt: now, updatedAt: now }));
 const history = [
   { id: "a", targetWorkId: "first", targetTitle: "同名作品", fileCount: 2, createdAt: now, undoneAt: null },
   { id: "b", targetWorkId: "second", targetTitle: "同名作品", fileCount: 3, createdAt: now, undoneAt: null },
   { id: "c", targetWorkId: "first", targetTitle: "同名作品", fileCount: 1, createdAt: now, undoneAt: now },
+  { id: "week", targetWorkId: "first", targetTitle: "三天前识别", fileCount: 1, createdAt: daysAgo(3), undoneAt: null },
+  { id: "month", targetWorkId: "first", targetTitle: "二十天前识别", fileCount: 1, createdAt: daysAgo(20), undoneAt: now },
+  { id: "old", targetWorkId: "first", targetTitle: "久远识别", fileCount: 1, createdAt: daysAgo(90), undoneAt: null },
 ];
 const browser = await chromium.launch({ executablePath: process.env.GENZO_BROWSER_PATH || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", headless: true });
 try {
@@ -34,9 +38,21 @@ try {
     await page.goto(`${base}/#/library/first`);
     await page.getByRole("button", { name: "识别记录", exact: true }).click();
     let modal = page.getByRole("dialog", { name: "本作品识别记录" });
-    await page.waitForFunction(() => document.querySelectorAll(".recognition-history-row").length === 2);
+    await page.waitForFunction(() => document.querySelectorAll(".recognition-history-row").length === 3);
     assert.equal(await page.evaluate(() => window.__historyQueries.at(-1)), "first");
-    assert.equal(await modal.getByRole("button", { name: "撤销", exact: true }).count(), 1);
+    assert.equal(await modal.getByRole("button", { name: "撤销", exact: true }).count(), 2);
+    const range = modal.getByLabel("时间范围");
+    assert.equal(await range.inputValue(), "7");
+    assert.equal(await modal.getByText("久远识别", { exact: true }).count(), 0);
+    await range.selectOption("1");
+    assert.equal(await modal.locator(".recognition-history-row").count(), 2);
+    await range.selectOption("30");
+    assert.equal(await modal.locator(".recognition-history-row").count(), 4);
+    await range.selectOption("all");
+    assert.equal(await modal.locator(".recognition-history-row").count(), 5);
+    assert.equal(await modal.locator(".recognition-history-row").last().getByText("久远识别", { exact: true }).count(), 1);
+    assert.equal(await modal.getByText(/^撤销于 /).count(), 2);
+    await range.selectOption("7");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: `artifacts/screenshots/work-recognition-history-${width}.png` });
     await modal.getByRole("button", { name: "关闭", exact: true }).click();
@@ -52,10 +68,10 @@ try {
     await page.getByRole("tab", { name: "待整理", exact: true }).click();
     await page.getByRole("button", { name: "识别记录", exact: true }).click();
     await page.getByRole("dialog", { name: "识别记录与撤销" }).waitFor();
-    await page.waitForFunction(() => document.querySelectorAll(".recognition-history-row").length === 3);
+    await page.waitForFunction(() => document.querySelectorAll(".recognition-history-row").length === 4);
     assert.equal(await page.evaluate(() => window.__historyQueries.at(-1)), null);
     assert.deepEqual(errors, []);
-    console.log(`${width}x${height}: work ID isolation, same-title works, scope switch, undo refresh and global inbox history passed`);
+    console.log(`${width}x${height}: time ranges, old records, chronological order, scope isolation, undo refresh and global history passed`);
     await page.close();
   }
 } finally { await browser.close(); }

@@ -11,6 +11,7 @@
 .recognition-history-row > div:first-child { min-width:0; }
 .recognition-history-row strong { overflow-wrap:anywhere; }
 .recognition-history-row small { display:block; color:var(--muted); }
+.recognition-history-day { margin:16px 0 0; font-size:13px; color:var(--muted); }
 .recognition-batch-row { padding:12px 0; border-bottom:1px solid var(--border); }
 .recognition-batch-heading { display:flex; gap:8px; align-items:center; }
 .recognition-batch-heading strong { overflow-wrap:anywhere; min-width:0; }
