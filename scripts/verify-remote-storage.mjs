@@ -7,7 +7,7 @@ const browser = await chromium.launch({ executablePath: process.env.GENZO_BROWSE
 await mkdir("artifacts/screenshots/remote-storage", { recursive: true });
 try {
   for (const [width, height] of [[1024,640],[1366,768],[1920,1080]]) {
-    const page = await browser.newPage({ viewport: { width, height } });
+    const page = await browser.newPage({ viewport: { width, height }, colorScheme: width === 1366 ? "light" : "dark" });
     const errors = [];
     page.on("pageerror", e => errors.push(e.message));
     await page.addInitScript(() => {
@@ -29,7 +29,14 @@ try {
           if (command === "get_work") return {id:"work",title:"示例动画",type:"video",description:"WebDAV 分集界面测试",status:"planned",favorite:false,rating:null,notes:"",tags:[],coverPath:null,bannerPath:null,metadataStatus:"matched",createdAt:now,updatedAt:now,mediaFiles:[detailFile],subtitleLinks:[],fieldLocks:[],candidates:[],metadata:{provider:"bangumi",externalId:"1",title:"示例动画",fetchedAt:now}};
           if (command === "get_anime_work_structure") return {workId:"work",bangumiId:"1",seasons:[],staff:[],characters:[],warnings:[],unmatchedFiles:[],episodes:[{provider:"bangumi",externalId:"ep",episodeNumber:1,sortNumber:1,title:"第一集",originalTitle:null,description:"",airDate:null,duration:null,fetchedAt:now,localFiles:[detailFile]}]};
           if (["list_works","list_unassigned_media_groups","list_unassigned_media","list_scan_jobs","list_remote_cache","list_external_tools"].includes(command)) return [];
-          if (command === "browse_webdav") return [{href:"/dav/动漫/",name:"动漫",directory:true,size:0}];
+          if (command === "get_playback_progress") return { items: [], sessions: [] };
+          if (command === "browse_webdav") {
+            const directory = args.input.directory;
+            await new Promise(resolve => setTimeout(resolve, 50));
+            if (directory === "不可访问") throw new Error("模拟目录无权访问");
+            const names = directory === "" ? ["夸克网盘", "不可访问", "很长的中文文件夹名称用于检查文件夹选择区域是否能够正确换行以及保持控件完整显示"] : directory === "夸克网盘" ? ["动漫", "电影"] : directory === "夸克网盘/动漫" ? ["第一季"] : [];
+            return names.map(name => ({ href: `/dav/${directory}/${name}/`, name, directory: true, size: 0 }));
+          }
           if (command === "add_webdav_source") {
             sources.push({id:"dav",name:args.input.name,endpoint:args.input.endpoint,directory:args.input.directory});
             roots.push({id:"dav",displayName:args.input.name,path:"webdav://dav",kind:"video",sourceType:"webdav",availability:"online",enabled:true,createdAt:now,updatedAt:now});
@@ -47,12 +54,54 @@ try {
     await page.getByLabel("WebDAV 服务地址").fill("http://127.0.0.1:5244/dav/");
     await page.getByLabel("用户名", { exact:true }).fill("fixture-user");
     await page.getByLabel("密码 / 应用密码").fill("fixture-password");
-    await page.getByRole("button", { name:"测试连接并浏览" }).click();
-    await page.getByRole("button", { name:"动漫", exact:true }).click();
-    assert.equal(await page.getByLabel("扫描目录（相对于服务地址）").inputValue(), "动漫");
+    const confirm = page.getByRole("button", { name:"确认扫描此文件夹" });
+    assert.equal(await confirm.isDisabled(), true);
+    assert.equal(await page.getByLabel("目录路径（相对于服务地址）").isVisible(), false);
+    await page.getByRole("button", { name:"连接并选择文件夹" }).click();
+    await page.getByRole("button", { name:"打开文件夹 夸克网盘", exact:true }).waitFor();
+    assert.equal(await confirm.isEnabled(), true);
+    assert.equal(await page.locator('.remote-selected-folder strong').textContent(), "根目录 /");
+    await page.screenshot({path:`artifacts/screenshots/remote-storage/folders-${width}.png`});
+    await page.getByRole("button", { name:"打开文件夹 不可访问", exact:true }).click();
+    await page.locator('.modal-body').getByRole('alert').waitFor();
+    assert.equal(await confirm.isDisabled(), true);
+    await page.getByRole("button", { name:"连接并选择文件夹" }).click();
+    await page.getByRole("button", { name:"打开文件夹 夸克网盘", exact:true }).click();
+    await page.getByRole("button", { name:"打开文件夹 动漫", exact:true }).click();
+    await page.getByRole("button", { name:"打开文件夹 第一季", exact:true }).click();
+    await page.getByText('没有子文件夹，可直接扫描此文件夹。', {exact:true}).waitFor();
+    assert.equal(await page.locator('.remote-selected-folder strong').textContent(), "/夸克网盘/动漫/第一季");
+    await page.getByRole("button", {name:"返回上一级",exact:true}).click();
+    await page.getByRole("button", { name:"打开文件夹 第一季", exact:true }).waitFor();
+    await page.getByRole("navigation", {name:"WebDAV 文件夹路径"}).getByRole("button", {name:"根目录",exact:true}).click();
+    await page.getByRole("button", { name:"打开文件夹 夸克网盘", exact:true }).waitFor();
+    // Direct paths remain optional and must be browsed before confirmation.
+    await page.getByText('高级：直接输入目录', {exact:true}).click();
+    await page.getByLabel("目录路径（相对于服务地址）").fill("/夸克网盘/动漫/第一季/");
+    await page.getByRole("button", {name:"打开指定目录",exact:true}).click();
+    await page.getByText('没有子文件夹，可直接扫描此文件夹。', {exact:true}).waitFor();
+    await page.getByText('高级：直接输入目录', {exact:true}).click();
+    // Renaming doesn't invalidate the folder, but changing credentials does.
+    await page.getByLabel("名称", {exact:true}).fill("重命名的媒体盘");
+    assert.equal(await confirm.isEnabled(), true);
+    await page.getByLabel("名称", {exact:true}).fill("我的 Alist 媒体盘");
+    await page.getByLabel("用户名", {exact:true}).fill("fixture-user-2");
+    assert.equal(await confirm.isDisabled(), true);
+    await page.getByRole("button", { name:"连接并选择文件夹" }).click();
+    await page.getByRole("button", { name:"打开文件夹 夸克网盘", exact:true }).click();
+    await page.getByRole("button", { name:"打开文件夹 动漫", exact:true }).click();
+    await page.getByRole("button", { name:"打开文件夹 第一季", exact:true }).click();
+    await page.getByText('没有子文件夹，可直接扫描此文件夹。', {exact:true}).waitFor();
+    const confirmPlacement = await confirm.evaluate(button => {
+      const box = button.getBoundingClientRect();
+      return box.top >= 0 && box.bottom <= innerHeight && button.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+    });
+    assert(confirmPlacement, "Confirmation must remain visible at the modal bottom without scrolling");
+    assert(await page.locator('.remote-selected-folder strong').evaluate(node => { const box = node.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }), "Selected path must remain visible with confirmation");
     await page.screenshot({path:`artifacts/screenshots/remote-storage/connect-${width}.png`});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
-    await page.getByRole("button", { name:"选择当前目录并扫描" }).click();
+    assert.equal((await page.evaluate(() => globalThis.__remoteCalls)).some(c => c.command === 'scan_library_root'), false);
+    await confirm.click();
     await page.getByText("已扫描 12 个文件", {exact:true}).waitFor();
     await page.locator(".remote-source").getByRole("button", {name:"停用",exact:true}).click();
     await page.locator(".remote-source").getByRole("button", {name:"启用",exact:true}).waitFor();
@@ -61,7 +110,7 @@ try {
     await page.getByRole("tab",{name:/待整理/}).click();
     await page.getByText("我的 Alist 媒体盘", {exact:true}).first().waitFor();
     const calls = await page.evaluate(() => globalThis.__remoteCalls);
-    assert(calls.some(c => c.command === "add_webdav_source" && c.args.input.directory === "动漫"));
+    assert(calls.some(c => c.command === "add_webdav_source" && c.args.input.directory === "夸克网盘/动漫/第一季"));
     assert(calls.some(c => c.command === "update_library_root" && c.args.enabled === false));
     await page.goto(`${process.env.GENZO_PREVIEW_URL || "http://127.0.0.1:4177"}/#/library/work`);
     await page.locator(".episode-file-line").waitFor();

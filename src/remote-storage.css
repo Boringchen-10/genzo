@@ -11,4 +11,19 @@
 .episode-file-line > .remote-file-actions { grid-column:1 / -1; grid-row:3; margin-top:6px; }
 .file-actions:has(.remote-file-actions) { flex-wrap:wrap; }
 .remote-form input { min-width:0; width:100%; }
+.remote-folder-picker { min-width:0; }
+.remote-breadcrumbs, .remote-breadcrumbs > span { display:flex; align-items:center; gap:4px; flex-wrap:wrap; min-width:0; }
+.remote-breadcrumbs { margin-bottom:8px; }
+.remote-breadcrumbs button { padding:4px 6px; text-align:left; overflow-wrap:anywhere; min-width:0; }
+.remote-folder-row { width:100%; }
+.remote-folder-row > span { flex:1; min-width:0; }
+.remote-folder-row > svg { flex-shrink:0; }
+.remote-selected-folder { display:flex; flex-direction:column; gap:4px; margin-bottom:10px; overflow-wrap:anywhere; }
+.remote-selected-folder strong { max-height:60px; overflow:auto; }
+.remote-selected-folder > span, .remote-selected-folder small { font-size:12px; color:var(--muted); }
+.remote-directory-advanced { font-size:12px; }
+.remote-directory-advanced > summary { cursor:pointer; color:var(--muted); }
+.remote-directory-advanced .field { margin:10px 0 8px; }
+.modal:has(.remote-form) > .modal-footer { flex-shrink:0; border-top:1px solid var(--border); padding:12px 19px; }
+.remote-form-actions { margin:0; flex-wrap:wrap; }
 @media(max-width:1100px) { .remote-source, .remote-cache-row { align-items:flex-start; flex-direction:column; } }

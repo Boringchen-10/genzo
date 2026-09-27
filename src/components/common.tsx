@@ -132,11 +132,13 @@ export function Modal({
   children,
   onClose,
   width = "medium",
+  footer,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   width?: "small" | "medium" | "large";
+  footer?: ReactNode;
 }) {
   const portal = document.getElementById("portal-root");
   const dialogRef = useRef<HTMLElement>(null);
@@ -152,6 +154,7 @@ export function Modal({
           </IconButton>
         </header>
         <div className="modal-body">{children}</div>
+        {footer ? <footer className="modal-footer">{footer}</footer> : null}
       </section>
     </div>,
     portal,
