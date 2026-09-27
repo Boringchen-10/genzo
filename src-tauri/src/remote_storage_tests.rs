@@ -84,6 +84,8 @@ async fn fixture() -> Fixture {
                         return;
                     }
                     let mut xml = String::from("<d:multistatus xmlns:d=\"DAV:\">");
+                    // AList returns empty, unavailable size/ETag properties for directories.
+                    xml.push_str("<d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat><d:propstat><d:prop><d:getcontentlength/><d:getetag/></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response>");
                     for name in [
                         "Show%20-%2001.mkv",
                         "show%20-%2001.mkv",

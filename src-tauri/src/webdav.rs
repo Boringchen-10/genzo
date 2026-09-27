@@ -43,7 +43,9 @@ struct PropStat {
 #[derive(Deserialize, Default)]
 struct Prop {
     resourcetype: Option<ResourceType>,
-    getcontentlength: Option<i64>,
+    // A directory's unavailable properties may be empty in a 404 propstat.
+    // Parse the number only after selecting successful properties.
+    getcontentlength: Option<String>,
     getlastmodified: Option<String>,
     getetag: Option<String>,
 }
@@ -277,6 +279,18 @@ fn parse_listing(client: &DavClient, requested: &Url, xml: &str) -> AppResult<Ve
             return Err(invalid("目录响应不是直接子项"));
         }
         let directory = prop.resourcetype.and_then(|r| r.collection).is_some();
+        let size = if directory {
+            0
+        } else {
+            match prop.getcontentlength.as_deref().map(str::trim) {
+                None | Some("") => 0,
+                Some(value) => value
+                    .parse::<i64>()
+                    .ok()
+                    .filter(|size| *size >= 0)
+                    .ok_or_else(|| invalid("WebDAV 文件大小无效，已保留原有索引"))?,
+            }
+        };
         let mut href = url.path().to_string();
         if directory && !href.ends_with('/') {
             href.push('/');
@@ -288,7 +302,7 @@ fn parse_listing(client: &DavClient, requested: &Url, xml: &str) -> AppResult<Ve
             href,
             name: relative.into(),
             directory,
-            size: prop.getcontentlength.unwrap_or(0).max(0),
+            size,
             modified_at: prop.getlastmodified,
             etag: prop.getetag,
         });
@@ -304,6 +318,46 @@ fn parse_listing(client: &DavClient, requested: &Url, xml: &str) -> AppResult<Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn accepts_empty_length_on_unavailable_directory_properties() {
+        let c = DavClient::new("https://example.test/dav/", Credentials::default()).unwrap();
+        let xml = r#"<D:multistatus xmlns:D="DAV:"><D:response><D:href>/dav/</D:href><D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype><D:getlastmodified>Sun, 27 Sep 2026 00:00:00 GMT</D:getlastmodified></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat><D:propstat><D:prop><D:getcontentlength/><D:getetag/></D:prop><D:status>HTTP/1.1 404 Not Found</D:status></D:propstat></D:response></D:multistatus>"#;
+        assert!(parse_listing(&c, &c.base, xml).unwrap().is_empty());
+    }
+    #[test]
+    fn lists_chinese_directories_and_files_with_empty_failed_properties() {
+        let c = DavClient::new("https://example.test/dav/", Credentials::default()).unwrap();
+        let xml = r#"<multistatus xmlns="DAV:"><response><href>/dav/动漫/</href><propstat><prop><resourcetype><collection/></resourcetype></prop><status>HTTP/1.1 200 OK</status></propstat><propstat><prop><getcontentlength></getcontentlength><getetag/></prop><status>HTTP/1.1 404 Not Found</status></propstat></response><response><href>/dav/01.mkv</href><propstat><prop><resourcetype/><getcontentlength> 42 </getcontentlength></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>"#;
+        let rows = parse_listing(&c, &c.base, xml).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "动漫");
+        assert!(rows[0].directory);
+        assert_eq!(rows[0].size, 0);
+        assert_eq!(rows[1].size, 42);
+        let directory = c.directory_url("动漫/").unwrap();
+        let nested = xml.replace("/dav/01.mkv", "/dav/动漫/01.mkv");
+        let rows = parse_listing(&c, &directory, &nested).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "01.mkv");
+    }
+    #[test]
+    fn rejects_invalid_successful_file_size_but_ignores_failed_property_values() {
+        let c = DavClient::new("https://example.test/dav/", Credentials::default()).unwrap();
+        let xml = r#"<d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/01.mkv</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>42</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat><d:propstat><d:prop><d:getcontentlength>unavailable</d:getcontentlength></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response></d:multistatus>"#;
+        assert_eq!(parse_listing(&c, &c.base, xml).unwrap()[0].size, 42);
+        for value in ["invalid", "-1", "9223372036854775808"] {
+            assert!(
+                parse_listing(&c, &c.base, &xml.replace(">42<", &format!(">{value}<"))).is_err()
+            );
+        }
+        for value in ["", "0"] {
+            assert_eq!(
+                parse_listing(&c, &c.base, &xml.replace(">42<", &format!(">{value}<"))).unwrap()[0]
+                    .size,
+                0
+            );
+        }
+    }
     #[test]
     fn handles_namespaces_escaped_names_and_partial_property_failures() {
         let c = DavClient::new("https://example.test/dav/", Credentials::default()).unwrap();
