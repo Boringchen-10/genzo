@@ -34,6 +34,7 @@ import type {
 export const correctionApi = {
   suggestions: (mediaFileId: string, kind: string) => call<import("./recognitionPreferences").RecognitionPreference[]>("list_recognition_preferences", { mediaFileId, kind }),
   forget: (id: string) => call<void>("forget_recognition_preference", { id }),
+  inspect: (input: import("./recognitionPreferences").CorrectionInput) => call<import("./recognitionPreferences").CorrectionPreview>("inspect_media_correction", { input }),
   preview: (input: import("./recognitionPreferences").CorrectionInput) => call<import("./recognitionPreferences").CorrectionPreview>("preview_media_correction", { input }),
   apply: (input: import("./recognitionPreferences").CorrectionInput, token: string) => call<string>("apply_media_correction", { input, token }),
 };

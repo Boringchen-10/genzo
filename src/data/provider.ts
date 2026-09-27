@@ -47,6 +47,7 @@ export interface GenzoDataProvider {
   readonly meta: ProviderMeta;
   recognitionPreferences?(mediaFileId: string, kind: string): Promise<import("../recognitionPreferences").RecognitionPreference[]>;
   forgetRecognitionPreference?(id: string): Promise<void>;
+  inspectMediaCorrection?(input: import("../recognitionPreferences").CorrectionInput): Promise<import("../recognitionPreferences").CorrectionPreview>;
   previewMediaCorrection?(input: import("../recognitionPreferences").CorrectionInput): Promise<import("../recognitionPreferences").CorrectionPreview>;
   applyMediaCorrection?(input: import("../recognitionPreferences").CorrectionInput, token: string): Promise<string>;
   inspectLibrary?(): Promise<import("../libraryMaintenance").IssueGroup[]>;

@@ -37,6 +37,7 @@ try {
         if (command==="get_anime_work_structure" || command==="refresh_work_metadata") return {workId:args.workId,bangumiId:"",seasons:[],staff:[],characters:[],warnings:[],episodes:args.workId==="movie"?[]:[episode],unmatchedFiles:args.workId==="movie"?movie.mediaFiles:files.slice(1)};
         if (command==="list_recognition_group_members") return {scope:"season",title:"Show",members:files,linkedWorkId:null,linkedWorkTitle:null};
         if (command==="list_match_candidates") return [candidate];
+        if (command==="list_recognition_preferences") return [];
         if (command==="recognize_media_file") {window.__filmCalls.push(args);return {mediaFileId:args.mediaFileId,status:"candidate_pending",candidates:[candidate],error:null};}
         if (command==="confirm_match_candidate") {window.__filmCalls.push(args);return "tv";}
         if (command==="list_external_tools" || command==="list_remote_sources" || command==="list_library_roots") return [];

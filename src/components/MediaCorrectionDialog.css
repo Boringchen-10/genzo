@@ -11,4 +11,8 @@
 .correction-files input, .correction-ack input { width: auto; flex-shrink: 0; }
 .correction-preview p { margin: 0; padding: 10px; border-bottom: 1px solid var(--border); }
 .correction-ack { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; }
+.correction-preview-row { padding: 10px; border-bottom: 1px solid var(--border); min-width: 0; }
+.correction-mapping { display: grid; gap: 3px; min-width: 0; }
+.correction-mapping small { margin-top: 0; opacity: .9; }
+.correction-selection-head select { max-width: 100%; width: auto; }
 @media (max-width: 700px) { .correction-fields { grid-template-columns: minmax(0, 1fr); } }

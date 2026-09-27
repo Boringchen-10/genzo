@@ -9,6 +9,7 @@ export function createTauriProvider(): GenzoDataProvider {
     meta: META,
     recognitionPreferences: correctionApi.suggestions,
     forgetRecognitionPreference: correctionApi.forget,
+    inspectMediaCorrection: correctionApi.inspect,
     previewMediaCorrection: correctionApi.preview,
     applyMediaCorrection: correctionApi.apply,
     inspectLibrary: api.inspectLibrary,

@@ -73,6 +73,7 @@ pub fn run() {
             episode_artwork::cache_episode_artwork,
             recognition_preferences::list_recognition_preferences,
             recognition_preferences::forget_recognition_preference,
+            recognition_preferences::inspect_media_correction,
             recognition_preferences::preview_media_correction,
             recognition_preferences::apply_media_correction,
             library_maintenance::inspect_library,

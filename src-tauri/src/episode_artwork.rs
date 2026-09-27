@@ -40,9 +40,9 @@ pub struct Artwork {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Correspondence {
-    episode_key: String,
+    pub(crate) episode_key: String,
     local_number: u32,
-    tmdb_number: i64,
+    pub(crate) tmdb_number: i64,
     has_still: bool,
 }
 fn correspondence(
