@@ -7,11 +7,15 @@ import { MediaVisual } from "../components/MediaVisual";
 import { WorkCard } from "../components/WorkCard";
 import { WorkForm } from "../components/WorkForm";
 import { RecognitionDialog } from "../components/RecognitionDialog";
+import { BatchRecognitionDialog } from "../components/BatchRecognitionDialog";
+import { AttachExistingDialog } from "../components/AttachExistingDialog";
+import { remainingQueue, uniqueTargets } from "../recognitionSelection";
+import { RecognitionHistory } from "../components/RecognitionHistory";
 import { ScanPage } from "./ScanPage";
 import { libraryCategories, matchesLibraryCategory, parseLibraryCategory } from "../libraryCategory";
 import { workCategoryLabels } from "../utils";
 import { usePreferences, useToasts } from "../store";
-import type { LibraryRoot, MediaFile, MediaType, RecognitionGroupScope, RecognitionStatus, RecognitionSummary, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
+import type { LibraryRoot, MediaFile, MediaType, RecognitionGroupScope, RecognitionStatus, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, workCategoryLabel, recognitionActionLabel, recognitionEntryGroup, recognisableGroups, unassignedStatusRank } from "../utils";
 import { normalizePath, pathBaseName, pathDirName, pathChildSegment } from "../mediaPaths";
 
@@ -79,10 +83,10 @@ export function LibraryPage() {
   const [organizingSeed, setOrganizingSeed] = useState<{ media: MediaFile; title: string; mediaType: MediaType } | null>(null);
   const [saving, setSaving] = useState(false);
   const [linkingFiles, setLinkingFiles] = useState<MediaFile[] | null>(null);
-  const [workSearch, setWorkSearch] = useState("");
+  const [batchTargets, setBatchTargets] = useState<RecognitionTarget[] | null>(null);
   /** 识别会话：单项处理或连续处理队列。 */
   const [session, setSession] = useState<{ targets: RecognitionTarget[]; index: number } | null>(null);
-  const [batchRecognizing, setBatchRecognizing] = useState(false);
+
   const [recognitionKind, setRecognitionKind] = useState<import("../types").RecognitionKind>("anime");
   const [unassignedLimit, setUnassignedLimit] = useState(100);
   const [inboxPath, setInboxPath] = useState<string | null>(null);
@@ -92,8 +96,8 @@ export function LibraryPage() {
   const setView = usePreferences((state) => state.setLibraryView);
   const toast = useToasts((state) => state.push);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (background = false) => {
+    if (!background) setLoading(true);
     setError("");
     try {
       const [nextWorks, nextUnassignedGroups, nextRoots] = await Promise.all([
@@ -113,6 +117,7 @@ export function LibraryPage() {
   useEffect(() => { void load(); }, [load, activeSection]);
 
   const tags = useMemo(() => Array.from(new Set(works.flatMap((work) => work.tags))).sort((a, b) => a.localeCompare(b, "zh-CN")), [works]);
+
   const filtered = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("zh-CN");
     const recentThreshold = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -146,18 +151,16 @@ export function LibraryPage() {
 
   const filteredUnassigned = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("zh-CN");
-    const recentThreshold = Date.now() - 30 * 24 * 60 * 60 * 1000;
     return scopedUnassigned
       .filter((group) => !normalizedSearch || group.title.toLocaleLowerCase("zh-CN").includes(normalizedSearch) || (group.folderPath ?? group.representative.path).toLocaleLowerCase("zh-CN").includes(normalizedSearch))
       .filter((group) => mediaType === "all" || group.mediaType === mediaType)
-      .filter(() => !favoriteOnly && tag === "all")
-      .filter((group) => scope === "all" || (scope === "missing" && group.missingCount > 0) || (scope === "recent" && new Date(group.representative.createdAt).getTime() >= recentThreshold))
+
       .sort((left, right) => {
         if (unassignedSort === "fileCount") return right.fileCount - left.fileCount || left.title.localeCompare(right.title, "zh-CN", { numeric: true });
         if (unassignedSort === "title") return left.title.localeCompare(right.title, "zh-CN", { numeric: true });
         return unassignedStatusRank(left.recognitionStatus, left.missingCount, left.fileCount) - unassignedStatusRank(right.recognitionStatus, right.missingCount, right.fileCount) || left.title.localeCompare(right.title, "zh-CN", { numeric: true });
       });
-  }, [scopedUnassigned, search, mediaType, favoriteOnly, tag, scope, unassignedSort]);
+  }, [scopedUnassigned, search, mediaType, unassignedSort]);
   const visibleUnassigned = filteredUnassigned.slice(0, unassignedLimit);
   const unassignedFileCount = filteredUnassigned.reduce((total, group) => total + group.fileCount, 0);
   const comicContainers = useMemo(() => {
@@ -193,7 +196,7 @@ export function LibraryPage() {
     });
   }, [comicBrowsePath, comicContainers, filteredUnassigned]);
 
-  /* 进入待整理或作品组刷新后重新取文件列表，避免关联成功后仍显示旧文件。
+  /* 进入待整理时取文件列表；关联后的后台刷新由 refreshAfterRecognition 统一更新。
      listUnassignedMedia 目前无过滤、无分页（后端为 WHERE work_id IS NULL），大库下会传输全部记录；
      已登记后端需求（INBOX-007）：提供按媒体源 / 路径过滤与分页的查询。 */
   useEffect(() => {
@@ -205,7 +208,7 @@ export function LibraryPage() {
       .catch((mediaError: unknown) => { if (!cancelled) toast(getErrorMessage(mediaError), "error"); })
       .finally(() => { if (!cancelled) setInboxMediaLoading(false); });
     return () => { cancelled = true; };
-  }, [activeSection, unassignedGroups, toast]);
+  }, [activeSection, toast]);
 
   const rootIds = useMemo(() => new Set(roots.map((root) => root.id)), [roots]);
   const scopedFiles = useMemo(
@@ -357,32 +360,16 @@ export function LibraryPage() {
     const entry = group ? recognitionEntryGroup([group]) : null;
     return entry ? { media: entry.representative, scope: "season", label: file.fileName } : null;
   };
-  /** 当前层级里按现有排序待处理的识别目标，用于连续处理。 */
-  const inboxTargets = useMemo(() => {
-    const targets: RecognitionTarget[] = [];
-    // 当前文件夹本身就是作品组时，先处理它，再看下面的子文件夹与文件。
-    const ownGroup = recognitionEntryGroup(inboxGroupsHere);
-    if (ownGroup) targets.push(recognitionTargetForGroup(ownGroup, "folder"));
-    for (const entry of inboxLevel) {
-      if (entry.folder) {
-        const group = recognitionEntryGroup(entry.groups);
-        if (group) targets.push(recognitionTargetForGroup(group, "folder"));
-        continue;
-      }
-      if (!entry.file || entry.missingCount > 0) continue;
-      if (entry.status === "matched") continue;
-      const target = recognitionTargetForFile(entry.file);
-      if (target) targets.push(target);
-    }
-    return targets;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inboxLevel, inboxGroupsHere, scopedFiles, filteredUnassigned]);
+  /** 当前层级里及子目录里按现有排序待处理的识别目标，用于连续处理。 */
+  const inboxTargets = useMemo(() => uniqueTargets(recognisableGroups(filteredUnassigned)
+    .filter(group => !inboxPath || pathChildSegment(inboxPath, group.representative.path) !== null)
+    .map(group => recognitionTargetForGroup(group, "season"))), [filteredUnassigned, inboxPath]);
 
   const currentTarget = session ? session.targets[session.index] ?? null : null;
 
   const startRecognition = (targets: RecognitionTarget[]) => {
     if (!targets.length) return;
-    setSession({ targets, index: 0 });
+    setSession({ targets: uniqueTargets(targets), index: 0 });
   };
   const closeSession = () => setSession(null);
   const advanceSession = () => setSession((current) => {
@@ -393,18 +380,14 @@ export function LibraryPage() {
 
   /** 确认 / 识别之后重新取数，并把已经处理过的项从连续处理队列里移除。 */
   const refreshAfterRecognition = async () => {
-    await load();
+    await load(true);
     try {
       const files = await api.listUnassignedMedia();
       setInboxMedia(files);
       const pendingIds = new Set(files.map((file) => file.id));
       setSession((current) => {
         if (!current) return null;
-        const targets = current.targets.filter((target) => pendingIds.has(target.media.id));
-        if (!targets.length) return null;
-        const currentId = current.targets[current.index]?.media.id;
-        const index = currentId ? Math.max(0, targets.findIndex((target) => target.media.id === currentId)) : 0;
-        return { targets, index };
+        return remainingQueue(current, pendingIds);
       });
     } catch (mediaError: unknown) {
       toast(getErrorMessage(mediaError), "error");
@@ -420,15 +403,15 @@ export function LibraryPage() {
     closeSession();
   };
 
-  const attachToExisting = async (workId: string) => {
+  const attachToExisting = async (workId: string, ids: string[]) => {
     if (!linkingFiles) return;
     setSaving(true);
     try {
-      await api.attachMediaFiles(workId, linkingFiles.map(file => file.id));
-      setInboxMedia(files => files.filter(file => !linkingFiles.some(selected => selected.id === file.id)));
+      await api.attachMediaFiles(workId, ids);
+      setInboxMedia(files => files.filter(file => !ids.includes(file.id)));
       setLinkingFiles(null);
-      toast(`已关联 ${linkingFiles.length} 个文件到已有作品`, "success");
-      await load();
+      toast(`已关联 ${ids.length} 个文件到已有作品`, "success");
+      await load(true);
     } catch (error: unknown) { toast(getErrorMessage(error), "error"); }
     finally { setSaving(false); }
   };
@@ -472,19 +455,10 @@ export function LibraryPage() {
 
   const suggestedTitle = organizingSeed?.title ?? "";
 
-  const recognizeAll = async () => {
-    setBatchRecognizing(true);
-    try {
-      const targets = filteredUnassigned.filter(group => group.mediaType === "video" && group.missingCount < group.fileCount
-        && (!inboxPath || pathChildSegment(normalizePath(inboxPath), normalizePath(group.representative.path)) !== null)).map(group => group.representative.id);
-      const result: RecognitionSummary = await api.recognizeUnmatched(recognitionKind, targets);
-      toast(`处理 ${result.scanned} 项：匹配 ${result.matched}，待确认 ${result.pending}，未匹配 ${result.unmatched}，失败 ${result.errors}`, result.errors ? "info" : "success");
-      await load();
-    } catch (recognizeError: unknown) {
-      toast(getErrorMessage(recognizeError), "error");
-    } finally {
-      setBatchRecognizing(false);
-    }
+  const recognizeAll = () => {
+    const targets = inboxTargets.slice(0, 50);
+    if (inboxTargets.length > 50) toast("本次先预览前 50 个作品组，整理后可继续下一批。", "info");
+    if (targets.length) setBatchTargets(targets);
   };
 
   return (
@@ -493,7 +467,7 @@ export function LibraryPage() {
         title="媒体库"
         description={`${works.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
         actions={activeSection === "inbox"
-          ? <div className="film-tv-batch"><select aria-label="批量识别类型" value={recognitionKind} disabled={batchRecognizing} onChange={event => setRecognitionKind(event.target.value as import("../types").RecognitionKind)}><option value="anime">动漫</option><option value="movie">电影</option><option value="tv">电视剧</option></select><button type="button" className="button secondary icon-text" disabled={batchRecognizing || !scopedUnassigned.some((group) => group.mediaType === "video" && group.missingCount < group.fileCount)} onClick={() => void recognizeAll()}><Sparkles size={17} />{batchRecognizing ? "正在按作品组识别" : "批量识别"}</button></div>
+          ? <div className="film-tv-batch"><select aria-label="批量识别类型" value={recognitionKind} disabled={!!batchTargets} onChange={event => setRecognitionKind(event.target.value as import("../types").RecognitionKind)}><option value="anime">动漫</option><option value="movie">电影</option><option value="tv">电视剧</option></select><button type="button" className="button secondary icon-text" disabled={!inboxTargets.length} onClick={recognizeAll}><Sparkles size={17} />批量预览与确认</button></div>
           : activeSection === "sources"
             ? undefined
             : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
@@ -509,6 +483,7 @@ export function LibraryPage() {
           <Search size={17} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索标题或原始标题" aria-label="搜索作品" />
         </div>
+        {activeSection === "inbox" ? <RecognitionHistory onChanged={() => void refreshAfterRecognition()} /> : null}
         {activeSection === "library" ? <select value={category} aria-label="作品分类" onChange={(event) => {
           const value = parseLibraryCategory(event.target.value);
           setParams(previous => {
@@ -551,7 +526,7 @@ export function LibraryPage() {
           <div className="section-heading">
             <div><h2>待整理内容</h2><span>{inboxPath === null ? `${roots.length} 个媒体源，共 ${unassignedFileCount} 个待整理文件；逐级打开文件夹即可看到文件。` : `${inboxBreadcrumb.map((crumb) => crumb.name).join(" / ")} · ${inboxLevel.filter((entry) => entry.folder).length} 个子文件夹 · ${inboxLevel.filter((entry) => !entry.folder).length} 个文件`}</span></div>
             <div className="inbox-heading-actions">
-              {inboxPath === null ? null : <button type="button" className="button secondary compact icon-text" disabled={!inboxTargets.length} onClick={() => startRecognition(inboxTargets)}><Sparkles size={15} />连续处理{inboxTargets.length ? ` ${inboxTargets.length}` : ""}</button>}
+              <button type="button" className="button secondary compact icon-text" disabled={!inboxTargets.length} onClick={() => startRecognition(inboxTargets)}><Sparkles size={15} />连续处理{inboxTargets.length ? ` ${inboxTargets.length}` : ""}</button>
               <select className="unassigned-sort" value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as UnassignedSortKey)} aria-label="待整理内容排序">
                 <option value="status">按识别状态</option>
                 <option value="title">按标题</option>
@@ -570,7 +545,7 @@ export function LibraryPage() {
             ))}
           </nav>
 
-          {currentInboxFiles.length ? <div className="inbox-group-row"><span>当前目录及子目录：{currentInboxFiles.length} 个待整理文件</span><button type="button" className="button secondary compact" disabled={inboxMediaLoading} onClick={() => { setWorkSearch(""); setLinkingFiles(currentInboxFiles); }}>关联已有作品</button></div> : null}
+          {currentInboxFiles.length ? <div className="inbox-group-row"><span>当前目录及子目录：{currentInboxFiles.length} 个待整理文件</span><button type="button" className="button secondary compact" disabled={inboxMediaLoading} onClick={() => { setLinkingFiles(currentInboxFiles); }}>关联已有作品</button></div> : null}
 
           {inboxGroupsHere.length ? (() => {
             const primary = inboxGroupsHere[0];
@@ -638,7 +613,7 @@ export function LibraryPage() {
                     const target = entry.file && entry.missingCount === 0 && entry.status !== "matched" ? recognitionTargetForFile(entry.file) : null;
                     return target ? <button type="button" className="button secondary compact" onClick={() => startRecognition([target])}>{entry.status === "candidate_pending" ? "查看候选" : "识别"}</button> : null;
                   })()}
-                  <button type="button" className="button secondary compact" onClick={() => { if (entry.file) { setWorkSearch(""); setLinkingFiles([entry.file]); } }}>关联作品</button>
+                  <button type="button" className="button secondary compact" onClick={() => { if (entry.file) { setLinkingFiles([entry.file]); } }}>关联作品</button>
                   <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void openInboxFile(entry.file); }}>打开</button>
                   <button type="button" className="button secondary compact" disabled={entry.missingCount > 0} onClick={() => { if (entry.file) void revealInboxFile(entry.file); }}>所在目录</button>
                 </span>
@@ -680,12 +655,8 @@ export function LibraryPage() {
       ) : null}
 
       {showCreate ? <Modal title="新建作品" width="large" onClose={() => setShowCreate(false)}><WorkForm busy={saving} onCancel={() => setShowCreate(false)} onSubmit={create} /></Modal> : null}
-      {linkingFiles ? <Modal title="关联已有作品" width="large" onClose={() => { if (!saving) setLinkingFiles(null); }}>
-        <p className="quiet-inline">将 {linkingFiles.length} 个文件关联到所选作品，不会新建重复作品。个人记录保持不变。</p>
-        <div className="search-box modal-search"><input value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="搜索媒体库中的作品" /></div>
-        <div className="attach-list">{works.filter(work => `${work.title} ${work.originalTitle ?? ""}`.toLowerCase().includes(workSearch.trim().toLowerCase())).map(work => <div className="attach-row" key={work.id}><div><strong>{work.title}</strong><small>{work.originalTitle}</small></div><span>{workCategoryLabel(work)}</span><button type="button" className="button primary compact" disabled={saving} onClick={() => void attachToExisting(work.id)}>关联到此作品</button></div>)}</div>
-        {!works.length ? <p className="quiet-inline">媒体库暂无作品，请先手动创建作品。</p> : null}
-      </Modal> : null}
+      {linkingFiles ? <AttachExistingDialog files={linkingFiles} works={works} busy={saving} onClose={() => setLinkingFiles(null)} onConfirm={(workId, ids) => void attachToExisting(workId, ids)} /> : null}
+      {batchTargets ? <BatchRecognitionDialog targets={batchTargets} kind={recognitionKind} onClose={() => { setBatchTargets(null); void refreshAfterRecognition(); }} onChanged={() => void refreshAfterRecognition()} /> : null}
       {organizingSeed ? (
         <Modal title="整理为作品" width="large" onClose={() => setOrganizingSeed(null)}>
           <WorkForm

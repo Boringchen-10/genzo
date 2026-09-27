@@ -45,6 +45,8 @@ export function createTauriProvider(): GenzoDataProvider {
     recognizeUnmatched: api.recognizeUnmatched,
     listMatchCandidates: api.listMatchCandidates,
     confirmMatch: api.confirmMatch,
+    listRecognitionHistory: api.listRecognitionHistory,
+    undoRecognition: api.undoRecognition,
     cancelMatch: api.cancelMatch,
     setFieldLock: api.setFieldLock,
     exploreOverview: api.exploreOverview,

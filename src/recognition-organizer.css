@@ -1,0 +1,24 @@
+.recognition-selection-tools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0; }
+.recognition-selection-tools > span { font-size:12px; color:var(--muted); }
+.recognition-selection-group { border:1px solid var(--border); border-radius:6px; margin:8px 0; overflow:hidden; }
+.recognition-selection-heading { display:flex; align-items:center; gap:8px; padding:10px; font-size:13px; font-weight:600; }
+.recognition-selection-files { max-height:180px; overflow:auto; }
+.recognition-selection-files .recognition-member { padding:8px 10px; }
+.recognition-selection-files strong { overflow-wrap:anywhere; }
+.recognition-selection-files small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; display:block; }
+.recognition-history-row, .recognition-history-actions { display:flex; gap:10px; align-items:center; }
+.recognition-history-row { justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--border); }
+.recognition-history-row > div:first-child { min-width:0; }
+.recognition-history-row strong { overflow-wrap:anywhere; }
+.recognition-history-row small { display:block; color:var(--muted); }
+.recognition-batch-row { padding:12px 0; border-bottom:1px solid var(--border); }
+.recognition-batch-heading { display:flex; gap:8px; align-items:center; }
+.recognition-batch-heading strong { overflow-wrap:anywhere; min-width:0; }
+.recognition-batch-row select { width:100%; margin:8px 0; }
+.recognition-batch-row details > summary { cursor:pointer; padding:8px 0; }
+.recognition-batch-status { margin-left:auto; white-space:nowrap; font-size:12px; }
+@media(max-width:1100px) { .inbox-heading-actions { flex-wrap:wrap; } .recognition-history-row { align-items:flex-start; flex-wrap:wrap; } }
+
+.modal:has(.recognition-selection-tools, .recognition-members) > .modal-footer { flex-shrink:0; border-top:1px solid var(--border); padding:12px 19px; }
+.modal:has(.recognition-selection-tools, .recognition-members) > .modal-footer .form-actions { margin:0; align-items:center; flex-wrap:wrap; }
+.modal:has(.recognition-selection-tools, .recognition-members) > .modal-footer .form-actions > span { flex:1; min-width:140px; overflow-wrap:anywhere; font-size:12px; }

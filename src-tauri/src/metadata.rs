@@ -867,6 +867,7 @@ async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candi
         .bind(&work_id)
         .fetch_one(&mut *transaction)
         .await?;
+    let undo = crate::recognition_history::begin(&mut transaction, &work_id, &group_member_ids).await?;
     if !exists {
         sqlx::query("INSERT INTO works (id, title, original_title, type, description, cover_path, banner_path, status, favorite, notes, created_at, updated_at, metadata_status, metadata_year, last_recognized_at) VALUES (?, ?, ?, 'video', ?, ?, ?, 'planned', 0, '', ?, ?, 'matched', ?, ?)")
             .bind(&work_id).bind(&metadata.title).bind(&metadata.original_title).bind(&metadata.description).bind(&cover_path).bind(&banner_path).bind(&now).bind(&now).bind(metadata.year).bind(&now).execute(&mut *transaction).await?;
@@ -900,6 +901,7 @@ async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candi
         .bind(media_file_id)
         .execute(&mut *transaction)
         .await?;
+    crate::recognition_history::finish(&mut transaction, undo, &work_id, &metadata.title).await?;
     transaction.commit().await?;
     Ok(work_id)
 }
@@ -964,16 +966,25 @@ pub async fn enrich_confirmed_work(state: &AppState, work_id: &str, metadata: Wo
         return crate::film_tv::enrich(state, work_id, &metadata.external_id, false).await;
     }
     let anchor = metadata.external_id.clone();
+    let operation: Option<String> = sqlx::query_scalar("SELECT id FROM recognition_history WHERE target_work_id=? ORDER BY created_at DESC,id DESC LIMIT 1")
+        .bind(work_id).fetch_optional(&state.pool).await?;
     let (metadata, aggregation, cover, banner) = enrich_candidate_metadata(state, metadata).await?;
     let (_guard, mut tx) = crate::db::begin_write(&state.pool).await?;
+    if let Some(operation) = operation {
+        let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM recognition_history WHERE id=? AND undone_at IS NULL)")
+            .bind(operation).fetch_one(&mut *tx).await?;
+        if !active { return Ok(Vec::new()); }
+    }
     let current: Option<String> = sqlx::query_scalar("SELECT external_id FROM work_external_ids WHERE work_id = ? AND provider = 'bangumi'")
         .bind(work_id).fetch_optional(&mut *tx).await?;
     if current.as_deref() != Some(&anchor) { return Ok(Vec::new()); }
+    let undo = crate::recognition_history::before_enrichment(&mut tx, work_id).await?;
     apply_metadata(&mut tx, work_id, &metadata, cover.clone(), banner.clone(), &Utc::now().to_rfc3339()).await?;
     if let Some(aggregation) = aggregation {
         crate::metadata_aggregator::persist_for_work(&mut tx, work_id, &aggregation).await?;
     }
     crate::anime_details::rebuild_episode_links(&mut tx, work_id).await?;
+    crate::recognition_history::after_enrichment(&mut tx, undo).await?;
     tx.commit().await?;
     Ok([cover, banner].into_iter().flatten().collect())
 }
@@ -1273,6 +1284,14 @@ mod tests {
                     .fetch_one(&pool).await.unwrap();
                 assert_eq!(manual, "manual");
             }
+            let history = crate::recognition_history::list(&pool).await.unwrap();
+            let entry = serde_json::to_value(&history[0]).unwrap();
+            assert_eq!(entry["fileCount"], 2);
+            crate::recognition_history::undo(&pool, entry["id"].as_str().unwrap()).await.unwrap();
+            let restored: Option<String> = sqlx::query_scalar("SELECT work_id FROM media_files WHERE id='13'").fetch_one(&pool).await.unwrap();
+            assert_eq!(restored.as_deref(), assigned.then_some("s1"));
+            let original: String = sqlx::query_scalar("SELECT notes FROM works WHERE id='s1'").fetch_one(&pool).await.unwrap();
+            assert_eq!(original, "保留笔记");
         }
     }
 

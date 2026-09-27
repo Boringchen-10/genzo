@@ -19,6 +19,7 @@ import type {
   UnassignedMediaGroup,
   MatchCandidate,
   RecognitionGroupInfo,
+  RecognitionHistoryEntry,
   RecognitionGroupScope,
   RecognitionResult,
   RecognitionSummary,
@@ -148,6 +149,8 @@ export const api = {
     call<MatchCandidate[]>("list_match_candidates", { mediaFileId }),
   confirmMatch: (mediaFileId: string, candidateId: string, selectedMediaIds?: string[], groupScope?: RecognitionGroupScope) =>
     call<string>("confirm_match_candidate", { mediaFileId, candidateId, selectedMediaIds, groupScope }),
+  listRecognitionHistory: () => call<RecognitionHistoryEntry[]>("list_recognition_history"),
+  undoRecognition: (id: string) => call<void>("undo_recognition", { id }),
   cancelMatch: (mediaFileId: string) =>
     call<void>("cancel_match_candidates", { mediaFileId }),
   setFieldLock: (workId: string, field: string, locked: boolean) =>

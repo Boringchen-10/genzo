@@ -374,6 +374,7 @@ async fn attach_unassigned_media_in_pool(
         return Err(AppError::Validation("请选择文件".into()));
     }
     let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
+    let undo = crate::recognition_history::begin(&mut transaction, work_id, ids).await?;
     // Start with a write so a concurrent scan cannot invalidate a read snapshot.
     let exists = sqlx::query("UPDATE works SET updated_at = ? WHERE id = ?")
         .bind(Utc::now().to_rfc3339())
@@ -394,6 +395,9 @@ async fn attach_unassigned_media_in_pool(
     }
     media_mapping::rebuild_subtitle_links(&mut transaction, work_id).await?;
     crate::anime_details::rebuild_episode_links(&mut transaction, work_id).await?;
+    let title: String = sqlx::query_scalar("SELECT title FROM works WHERE id=?")
+        .bind(work_id).fetch_one(&mut *transaction).await?;
+    crate::recognition_history::finish(&mut transaction, undo, work_id, &title).await?;
     transaction.commit().await?;
     Ok(())
 }
@@ -1139,6 +1143,16 @@ pub async fn cancel_match_candidates(
 }
 
 #[tauri::command]
+pub async fn list_recognition_history(state: State<'_, AppState>) -> AppResult<Vec<crate::recognition_history::HistoryEntry>> {
+    crate::recognition_history::list(&state.pool).await
+}
+
+#[tauri::command]
+pub async fn undo_recognition(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    crate::recognition_history::undo(&state.pool, &id).await
+}
+
+#[tauri::command]
 pub async fn set_work_field_lock(
     work_id: String,
     field: String,
@@ -1428,6 +1442,13 @@ mod tests {
         attach_unassigned_media_in_pool(&pool, "w", &["a".into(), "b".into()])
             .await
             .unwrap();
+        let records = crate::recognition_history::list(&pool).await.unwrap();
+        let record = serde_json::to_value(&records[0]).unwrap();
+        assert_eq!(record["fileCount"], 2);
+        crate::recognition_history::undo(&pool, record["id"].as_str().unwrap()).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_files WHERE work_id='w'").fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 0);
+        attach_unassigned_media_in_pool(&pool, "w", &["a".into(), "b".into()]).await.unwrap();
         sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,sort_number,title,description,fetched_at) VALUES ('w','bangumi','e1',1,1,'第一集','','now')").execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO media_episode_links(media_file_id,work_id,provider,episode_external_id,match_method,confidence,updated_at) VALUES ('a','w','bangumi','e1','manual',1,'now')").execute(&pool).await.unwrap();
         attach_unassigned_media_in_pool(&pool, "w", &["a".into(), "b".into()])

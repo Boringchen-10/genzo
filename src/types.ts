@@ -190,6 +190,15 @@ export interface RemoteSource { id: string; name: string; endpoint: string; dire
 export interface RemoteEntry { href: string; name: string; directory: boolean; size: number; modifiedAt: string | null; etag: string | null }
 export interface RemoteCacheEntry { mediaFileId: string; fileName: string; size: number; completed: boolean; pinned: boolean; accessedAt: string }
 
+export interface RecognitionHistoryEntry {
+  id: string;
+  targetWorkId: string;
+  targetTitle: string;
+  fileCount: number;
+  createdAt: string;
+  undoneAt: string | null;
+}
+
 export interface ScanResult {
   id: string;
   libraryRootId: string;

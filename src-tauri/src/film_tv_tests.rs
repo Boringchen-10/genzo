@@ -380,3 +380,19 @@ async fn tmdb_retries_502_and_429_then_recovers() {
     assert_eq!(result, json!({}));
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn confirmed_movie_can_be_undone_without_losing_playback() {
+    let (state, _dir) = fixture().await;
+    file(&state, "movie", "Interstellar.2014.mkv").await;
+    let c = candidate(&state, "movie", Kind::Movie, None).await;
+    let work = confirm(&state, &c, &["movie".into()]).await.unwrap();
+    let records = crate::recognition_history::list(&state.pool).await.unwrap();
+    let record = serde_json::to_value(&records[0]).unwrap();
+    assert_eq!(record["targetWorkId"], work);
+    crate::recognition_history::undo(&state.pool, record["id"].as_str().unwrap()).await.unwrap();
+    let owner: Option<String> = sqlx::query_scalar("SELECT work_id FROM media_files WHERE id='movie'").fetch_one(&state.pool).await.unwrap();
+    assert!(owner.is_none());
+    let candidates: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM match_candidates WHERE media_file_id='movie'").fetch_one(&state.pool).await.unwrap();
+    assert_eq!(candidates, 1);
+}

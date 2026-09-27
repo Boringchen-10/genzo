@@ -19,6 +19,7 @@ mod metadata_aggregator;
 mod metadata_provider;
 mod models;
 mod providers;
+mod recognition_history;
 mod remote_storage;
 #[cfg(all(test, windows))]
 mod remote_storage_tests;
@@ -105,6 +106,8 @@ pub fn run() {
             commands::recognize_unmatched_media,
             commands::list_match_candidates,
             commands::confirm_match_candidate,
+            commands::list_recognition_history,
+            commands::undo_recognition,
             commands::cancel_match_candidates,
             commands::set_work_field_lock,
             commands::get_explore_overview,

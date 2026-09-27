@@ -4,6 +4,8 @@ import { dataProvider as api } from "../data";
 import type { MatchCandidate, MediaFile, RecognitionGroupInfo, RecognitionGroupScope } from "../types";
 import { getErrorMessage } from "../utils";
 import { EmptyState, Modal } from "./common";
+import { RecognitionFileSelection } from "./RecognitionFileSelection";
+import { selectedVideo, selectionGroups } from "../recognitionSelection";
 import { candidateKind, fileSeason, initialFilmSelection } from "../filmTvRecognition";
 import type { RecognitionKind } from "../types";
 
@@ -89,23 +91,19 @@ export function RecognitionDialog({ media, scope = "season", initialCandidates =
     [members, media.workId],
   );
   const linkedMembers = useMemo(() => members.filter(file => file.workId && file.workId !== media.workId), [members, media.workId]);
-  const seasons = useMemo(() => new Set(selectable.map(file => file.parsedSpecialType ?? `season:${file.parsedSeason ?? 0}`)), [selectable]);
-  /* 整部作品文件夹会跨季度：自动匹配无法判断该用哪一季的条目，必须人工确认。 */
-  const multiSeason = scope === "folder" && seasons.size > 1;
+  const seasons = useMemo(() => selectionGroups(selectable.filter(file => selectedIds.includes(file.id))), [selectable, selectedIds]);
+  /* 只按实际勾选文件提示混季；查找候选不直接写入关联。 */
+  const multiSeason = scope === "folder" && seasons.length > 1;
   const mergeTarget = !media.workId && group?.linkedWorkId ? (group.linkedWorkTitle ?? "已识别作品") : null;
-  const allSelected = selectable.length > 0 && selectedIds.length === selectable.length;
+
+  const representative = selectedVideo(selectable, selectedIds, media.id);
 
   const search = async (manual: boolean) => {
+    if (!representative) { setError("请先勾选至少一个可用视频文件。"); return; }
     setPreview(null);
-    if (kind === "anime" && !manual && (!allSelected || multiSeason)) {
-      setError(multiSeason
-        ? "所选文件跨多个季度。请先手动搜索并确认候选，自动识别无法判断应该匹配哪一季。"
-        : "已排除部分文件。请先手动搜索并确认候选，自动识别会处理整个识别组。");
-      return;
-    }
     setBusy(true); setError("");
     try {
-      const result = await api.recognizeMedia(media.id, manual ? query : null, kind, kind === "tv" ? season : undefined);
+      const result = await api.recognizeMedia(representative.id, manual ? query : representative.parsedTitle || representative.fileName.replace(/\.[^.]+$/, ""), kind, kind === "tv" ? season : undefined);
       setCandidates(result.candidates);
       if (result.parsedTitle && !manual) setQuery(result.parsedTitle);
       if (result.status === "matched") {
@@ -136,7 +134,7 @@ export function RecognitionDialog({ media, scope = "season", initialCandidates =
   };
 
   return (
-    <Modal title={kind === "anime" ? "识别动漫作品" : "识别影视作品"} width="large" onClose={onClose}>
+    <Modal title={kind === "anime" ? "识别动漫作品" : "识别影视作品"} width="large" onClose={() => { if (!busy) onClose(); }} footer={preview ? <div className="form-actions"><span>《{preview.title}》 · {selectedIds.length} 个文件</span><button type="button" className="button secondary" disabled={busy} onClick={() => setPreview(null)}>返回调整</button><button type="button" className="button primary" disabled={busy} onClick={() => void confirm(preview)}>{confirmingId ? "正在保存…" : "确认关联"}</button></div> : undefined}>
       <div className="recognition-file"><strong>{media.fileName}</strong><small>{media.path}</small></div>
       <div className="recognition-members">
         <div className="recognition-members-head">
@@ -148,27 +146,8 @@ export function RecognitionDialog({ media, scope = "season", initialCandidates =
         {mergeTarget ? <span className="recognition-merge"><Link2 size={13} />同目录已有《{mergeTarget}》；选择不同季度的条目时会分别归档。</span> : null}
         {media.workId ? <small className="quiet-inline">从未匹配文件重新识别时，已有官方分集或手动分集关联的文件会保留在原作品。</small> : null}
         {multiSeason && selectedIds.length > 1 ? <span className="warning-text"><AlertTriangle size={13} />所选文件跨多个季度，将一起关联到同一部作品。</span> : null}
-        {members.length ? (
-          <div className="recognition-member-list">
-            {members.map((file) => {
-              const selectableFile = !file.workId || file.workId === media.workId;
-              return (
-                <label key={file.id} className={`recognition-member ${selectableFile ? "" : "linked"}`}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(file.id)}
-                    disabled={busy || !selectableFile}
-                    onChange={(event) => { setPreview(null); setSelectedIds((ids) => event.target.checked ? [...ids, file.id] : ids.filter((id) => id !== file.id)); }}
-                  />
-                  <span>
-                    <strong>{file.fileName}{selectableFile ? null : <em className="recognition-linked-tag">已关联{file.workId === group?.linkedWorkId && group?.linkedWorkTitle ? `《${group.linkedWorkTitle}》` : ""}</em>}</strong>
-                    <small title={file.path}>{file.path} · {seasonLabel(file)}{file.missing ? " · 文件缺失" : ""}</small>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        ) : null}
+        {selectable.length ? <RecognitionFileSelection files={selectable} selected={selectedIds} disabled={busy} onChange={ids => { setPreview(null); setSelectedIds(ids); }} /> : null}
+        {linkedMembers.length ? <details><summary>保留其他作品的 {linkedMembers.length} 个已关联文件</summary>{linkedMembers.map(file => <p className="quiet-inline" key={file.id}>{file.fileName} · {seasonLabel(file)}</p>)}</details> : null}
         {linkedMembers.length && !mergeTarget ? <small className="quiet-inline">已识别过的文件作为参照列出，不会重复关联。</small> : null}
       </div>
       <div className="recognition-search">
@@ -177,8 +156,8 @@ export function RecognitionDialog({ media, scope = "season", initialCandidates =
         </select>
         {kind === "tv" ? <label className="recognition-season">第 <input aria-label="电视剧季度" type="number" min="0" max="999" value={season} disabled={busy} onChange={event => { setSeason(Math.max(0, Math.min(999, Number(event.target.value) || 0))); setCandidates([]); }} /> 季</label> : null}
         <div className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={kind === "anime" ? "输入 Bangumi 搜索关键词" : "输入电影或电视剧名称"} /></div>
-        <button type="button" className="button primary icon-text" disabled={busy || loadingCandidates || !query.trim()} onClick={() => void search(true)}><Search size={16} />搜索</button>
-        <button type="button" className="button secondary icon-text" disabled={busy || loadingCandidates || loadingGroup || !!groupError || (kind === "anime" && (!allSelected || multiSeason))} onClick={() => void search(false)}><RefreshCw size={16} className={busy ? "spin" : ""} />按文件名识别</button>
+        <button type="button" className="button primary icon-text" disabled={busy || loadingCandidates || loadingGroup || !representative || !query.trim()} onClick={() => void search(true)}><Search size={16} />搜索</button>
+        <button type="button" className="button secondary icon-text" disabled={busy || loadingCandidates || loadingGroup || !!groupError || !representative} onClick={() => void search(false)}><RefreshCw size={16} className={busy ? "spin" : ""} />按文件名识别</button>
       </div>
       {kind !== "anime" ? <p className="quiet-inline">需要在设置中配置 TMDB API Read Access Token。{kind === "movie" ? "默认只选择当前视频，可勾选同一电影的其他版本与字幕。" : "请核对季度和勾选文件；0 表示特别篇。未标注季度的文件需要人工核对。"}</p> : null}
       {error ? <div className="recognition-error"><AlertTriangle size={16} /><span>{error}</span></div> : null}
@@ -203,7 +182,6 @@ export function RecognitionDialog({ media, scope = "season", initialCandidates =
         <strong>将 {selectedIds.length} 个文件关联到《{preview.title}》</strong>
         <p>{preview.provider === "tmdb" ? "TMDB" : "Bangumi"} #{preview.externalId}{preview.season != null ? ` · 第 ${preview.season} 季` : ""} · {selectable.length - selectedIds.length} 个未勾选文件保留原归属。请核对文件范围后确认。</p>
         <ul>{members.filter(file => selectedIds.includes(file.id)).map(file => <li key={file.id} title={file.path}>{file.fileName}</li>)}</ul>
-        <div className="form-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => setPreview(null)}>返回调整</button><button type="button" className="button primary" disabled={busy} onClick={() => void confirm(preview)}>{confirmingId ? "正在保存…" : "确认关联"}</button></div>
       </section> : null}
       <div className="recognition-footer">
         <span>{queue ? `连续处理 ${queue.index + 1} / ${queue.total}：确认或跳过后自动进入下一项。` : media.workId ? "确认前保留现有作品关联，本地文件不会移动。" : "季度与特别篇可以分别整理；取消候选后仍保留在待整理区。"}</span>

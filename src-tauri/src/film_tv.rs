@@ -542,6 +542,7 @@ pub async fn confirm(
     }
     let is_existing = existing.is_some();
     let target = existing.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let undo = crate::recognition_history::begin(&mut tx, &target, ids).await?;
     // Do not reuse or rename the original work when only some files are selected.
     sqlx::query(
         "INSERT OR IGNORE INTO works(id,title,type,created_at,updated_at) VALUES (?,?,'video',?,?)",
@@ -574,6 +575,7 @@ pub async fn confirm(
     }
     crate::media_mapping::rebuild_subtitle_links(&mut tx, &target).await?;
     rebuild_links(&mut tx, &target).await?;
+    crate::recognition_history::finish(&mut tx, undo, &target, &m.title).await?;
     tx.commit().await?;
     Ok(target)
 }
@@ -661,6 +663,7 @@ async fn enrich_inner(
     expected: &str,
     fresh: bool,
 ) -> AppResult<Vec<String>> {
+    let operation = crate::recognition_history::background_operation(&state.pool, work, fresh).await?;
     let a = Anchor::parse(expected)?;
     let response = request(
         &state.pool,
@@ -727,6 +730,12 @@ async fn enrich_inner(
     if current.as_deref() != Some(expected) {
         return Ok(Vec::new());
     }
+    if let Some(operation) = operation {
+        let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM recognition_history WHERE id=? AND undone_at IS NULL)")
+            .bind(operation).fetch_one(&mut *tx).await?;
+        if !active { return Ok(Vec::new()); }
+    }
+    let undo = crate::recognition_history::before_enrichment(&mut tx, work).await?;
     // A missing translation or partial detail response must not erase saved text.
     let previous: Option<String> = sqlx::query_scalar(
         "SELECT response_json FROM metadata_provider_records WHERE work_id=? AND provider='tmdb'",
@@ -767,6 +776,7 @@ async fn enrich_inner(
     persist_metadata(&mut tx, work, &m).await?;
     persist_episodes(&mut tx, work, &episodes).await?;
     rebuild_links(&mut tx, work).await?;
+    crate::recognition_history::after_enrichment(&mut tx, undo).await?;
     // Warnings are local metadata, never mixed with user notes.
     sqlx::query("INSERT INTO metadata_cache(provider,cache_key,response_json,fetched_at,expires_at) VALUES('tmdb',?,?,?,?) ON CONFLICT(provider,cache_key) DO UPDATE SET response_json=excluded.response_json,fetched_at=excluded.fetched_at,expires_at=excluded.expires_at")
         .bind(format!("warnings:{work}")).bind(serde_json::to_string(&warnings)?).bind(&m.fetched_at).bind(&m.fetched_at).execute(&mut *tx).await?;
