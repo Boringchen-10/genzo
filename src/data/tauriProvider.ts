@@ -1,5 +1,5 @@
 /** Genzo 正式运行期 Tauri Provider。 */
-import { api, correctionApi } from "../api";
+import { api, correctionApi, episodeArtworkApi } from "../api";
 import type { GenzoDataProvider, ProviderMeta } from "./provider";
 
 const META: ProviderMeta = { kind: "tauri", label: "Tauri 后端", mock: false };
@@ -62,6 +62,7 @@ export function createTauriProvider(): GenzoDataProvider {
     getExploreSubject: api.getExploreSubject,
     saveExploreSubject: api.saveExploreSubject,
     getAnimeWorkStructure: api.getAnimeWorkStructure,
+    episodeArtwork: episodeArtworkApi,
     refreshWorkMetadata: api.refreshWorkMetadata,
     setMediaEpisode: api.setMediaEpisode,
     getMediaThumbnail: api.getMediaThumbnail,

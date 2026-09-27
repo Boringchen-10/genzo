@@ -6,6 +6,7 @@ mod credentials;
 mod db;
 mod error;
 mod explore;
+mod episode_artwork;
 mod film_tv;
 mod grouping;
 mod launcher;
@@ -63,6 +64,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            episode_artwork::get_episode_artwork,
+            episode_artwork::refresh_episode_artwork,
+            episode_artwork::preview_episode_artwork_source,
+            episode_artwork::set_episode_artwork_source,
+            episode_artwork::cache_episode_artwork,
             recognition_preferences::list_recognition_preferences,
             recognition_preferences::forget_recognition_preference,
             recognition_preferences::preview_media_correction,

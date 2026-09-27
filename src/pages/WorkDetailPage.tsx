@@ -2,6 +2,7 @@ import { availableForWork, firstWorkFile } from "../workSelection";
 import { usePlaybackProgress } from "../usePlaybackProgress";
 import { latestPlayback } from "../playback";
 import { EpisodePlaybackProgress } from "../components/EpisodePlaybackProgress";
+import { EpisodeStill, EpisodeArtworkControl, useEpisodeArtwork } from "../components/EpisodeArtwork";
 import { PlaybackHistory } from "../components/PlaybackHistory";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
@@ -169,7 +170,7 @@ function LocalFileThumb({ file, provider, className = "local-file-thumb" }: { fi
   return (
     <span className={className} ref={holder}>
       {thumb
-        ? <img src={thumb} alt="" loading="lazy" onError={() => { setThumb(null); setFailed(true); }} />
+        ? <img src={thumb} alt="" loading="lazy" onError={() => { requested.current = true; setThumb(null); setFailed(true); }} />
         : <MediaVisual type={file.mediaType} coverPath={null} alt="无视频缩略图" />}
       {!thumb && failed && provider ? <button type="button" className="thumbnail-retry" aria-label={`重试 ${file.fileName} 的缩略图`} onClick={() => { requested.current = false; setFailed(false); setRetry((value) => value + 1); }}>重试缩略图</button> : null}
     </span>
@@ -213,6 +214,7 @@ export function WorkDetailPage() {
   /** 离线只作低干扰提示：网络元数据 / 缩略图可能取不到，本地文件操作不受影响。 */
   const offline = useOffline();
   const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
+  const episodeArtwork = useEpisodeArtwork(id, structure?.episodes.map(e => `${e.provider}:${e.externalId}:${e.episodeNumber}:${e.airDate}`).join("|") ?? "");
   const [structureError, setStructureError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   /** 分集结构（官方分集 / 关联作品 / 制作人员）单独加载：不阻塞本地作品详情的首屏。 */
@@ -689,6 +691,7 @@ export function WorkDetailPage() {
 
               {hasStructure ? (
                 <>
+                  <EpisodeArtworkControl key={id} workId={id} artwork={episodeArtwork.artwork} warning={episodeArtwork.warning} onChange={episodeArtwork.update} />
                   {officialEpisodes.length === 0 ? (
                     <EmptyState title="没有分集信息" description={structure?.warnings[0] ?? "这部作品还没有可用的官方分集。"} />
                   ) : (
@@ -709,11 +712,7 @@ export function WorkDetailPage() {
                         return (
                           <article className="official-episode" key={episode.externalId}>
                             <div className="episode-snapshot">
-                              {episode.imageUrl ? <span className="episode-snapshot-visual"><SafeImage src={episode.imageUrl} alt={episode.title} fallback={snapshotFile ? <LocalFileThumb file={snapshotFile} provider={detailProvider} /> : <MediaVisual type="video" coverPath={null} alt="无分集剧照" />} /></span> : snapshotFile ? (
-                                <LocalFileThumb file={snapshotFile} provider={detailProvider} className="episode-snapshot-visual" />
-                              ) : (
-                                <span className="episode-snapshot-visual"><MediaVisual type="video" coverPath={null} alt="无视频快照" /></span>
-                              )}
+                              <EpisodeStill workId={id} episodeKey={`${episode.provider}:${episode.externalId}`} url={episodeArtwork.artwork?.images[`${episode.provider}:${episode.externalId}`] ?? episode.imageUrl} cachedUrl={episodeArtwork.artwork?.cachedImages[`${episode.provider}:${episode.externalId}`]} fallback={snapshotFile ? <LocalFileThumb file={snapshotFile} className="episode-snapshot-visual" provider={episodeArtwork.pending ? null : detailProvider} /> : <MediaVisual type="video" coverPath={null} alt="无分集剧照" />} />
                               <EpisodePlaybackProgress progress={fileProgress} />
                               <span className="episode-snapshot-badge">
                                 {episode.localFiles.length ? `已关联 ${episode.localFiles.length} 个版本` : "未关联文件"}

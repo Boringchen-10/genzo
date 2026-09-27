@@ -38,6 +38,18 @@ export const correctionApi = {
   apply: (input: import("./recognitionPreferences").CorrectionInput, token: string) => call<string>("apply_media_correction", { input, token }),
 };
 
+function artworkAssets(value: import("./episodeArtwork").EpisodeArtwork): import("./episodeArtwork").EpisodeArtwork {
+  return { ...value, cachedImages: Object.fromEntries(Object.entries(value.cachedImages).map(([key, path]) => [key, localAssetUrl(path) ?? path])) };
+}
+
+export const episodeArtworkApi: import("./episodeArtwork").EpisodeArtworkProvider = {
+  get: async (workId) => artworkAssets(await call("get_episode_artwork", { workId })),
+  refresh: async (workId, fresh = false) => artworkAssets(await call("refresh_episode_artwork", { workId, fresh })),
+  preview: (workId, seriesId, seasonNumber) => call("preview_episode_artwork_source", { workId, seriesId, seasonNumber }),
+  set: (workId, seriesId, seasonNumber, expectedAnchor) => call("set_episode_artwork_source", { workId, seriesId, seasonNumber, expectedAnchor }),
+  cache: async (workId, episodeKey) => localAssetUrl(await call<string | null>("cache_episode_artwork", { workId, episodeKey })) ?? null,
+};
+
 export const scanTaskApi = {
   list: () => call<ScanTask[]>("list_scan_tasks"),
   cancel: (id: string) => call<void>("cancel_scan_task", { id }),

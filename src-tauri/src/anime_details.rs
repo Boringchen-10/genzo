@@ -555,20 +555,29 @@ where
         .as_deref()
         .filter(|value| *value != "__unsupported__")
     {
-        if Path::new(cached).is_file() {
+        if Path::new(cached).is_file() && (!force || missing) {
             return Ok(Some(cached.to_string()));
         }
     }
     let mounted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media_files m JOIN library_roots r ON r.id=m.library_root_id WHERE m.id=? AND r.source_type='mounted')")
         .bind(media_file_id).fetch_one(&state.pool).await?;
-    if missing || path.starts_with("webdav://") {
+    if missing {
         return Ok(None);
     }
+    let remote = path.starts_with("webdav://");
+    let remote_identity: Option<(String, Option<String>)> = if remote {
+        sqlx::query_as("SELECT href,etag FROM remote_files WHERE media_file_id=?").bind(media_file_id).fetch_optional(&state.pool).await?
+    } else { None };
+    // WebDAV thumbnails may use an already completed app-local media cache.
+    // Never start a remote transfer just to draw a card.
+    let source = if remote {
+        let Some(source) = crate::remote_transfer::cached_path(state, media_file_id).await? else { return Ok(None); };
+        source
+    } else { PathBuf::from(&path) };
     // A mount failure must not become a permanent negative cache entry.
-    if !mounted && cached.as_deref() == Some("__unsupported__") {
+    if !mounted && !remote && !force && cached.as_deref() == Some("__unsupported__") {
         return Ok(None);
     }
-    let source = PathBuf::from(&path);
     let destination = state
         .thumbnail_cache_path
         .join(format!("media-{media_file_id}.jpg"));
@@ -579,7 +588,7 @@ where
         return Ok(None);
     };
     if !created {
-        if !mounted {
+        if !mounted && !remote {
             sqlx::query("UPDATE media_files SET thumbnail_path = '__unsupported__' WHERE id = ? AND path = ? AND modified_at IS ?")
                 .bind(media_file_id).bind(&path).bind(&modified_at)
                 .execute(&state.pool).await?;
@@ -587,16 +596,19 @@ where
         return Ok(None);
     }
     let stored = destination.to_string_lossy().to_string();
-    sqlx::query(
-        "UPDATE media_files SET thumbnail_path = ? WHERE id = ? AND path = ? AND modified_at IS ?",
+    let updated = sqlx::query(
+        "UPDATE media_files SET thumbnail_path = ? WHERE id = ? AND path = ? AND modified_at IS ? AND (? = 0 OR EXISTS(SELECT 1 FROM remote_files r WHERE r.media_file_id=media_files.id AND r.href=? AND r.etag IS ?))",
     )
     .bind(&stored)
     .bind(media_file_id)
     .bind(&path)
     .bind(&modified_at)
+    .bind(remote)
+    .bind(remote_identity.as_ref().map(|r| &r.0))
+    .bind(remote_identity.as_ref().and_then(|r| r.1.as_ref()))
     .execute(&state.pool)
     .await?;
-    Ok(Some(stored))
+    Ok((updated.rows_affected() == 1).then_some(stored))
 }
 
 async fn cache_artwork(url: Option<&str>, destination: PathBuf, cover: bool) -> Option<String> {
@@ -741,6 +753,46 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(links, vec![("tv".into(), "manual".into())]);
+    }
+
+    #[tokio::test]
+    async fn webdav_thumbnail_only_reads_completed_matching_local_media_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState { pool: db::test_pool().await.unwrap(), database_path: dir.path().join("test.db"), data_directory: dir.path().into(), cover_cache_path: dir.path().join("covers"), thumbnail_cache_path: dir.path().join("thumbnails") };
+        let id = uuid::Uuid::new_v4().to_string();
+        sqlx::raw_sql("INSERT INTO library_roots(id,path,kind,source_type,created_at,updated_at) VALUES('r','webdav://fixture','video','webdav','t','t'); INSERT INTO remote_sources(id,name,endpoint,directory,credential_id) VALUES('r','fixture','http://127.0.0.1:1/dav','/','unused');").execute(&state.pool).await.unwrap();
+        sqlx::query("INSERT INTO media_files(id,library_root_id,path,file_name,extension,media_type,size,created_at,updated_at) VALUES(?,'r','webdav://r/01.mkv','01.mkv','mkv','video',4,'t','t')").bind(&id).execute(&state.pool).await.unwrap();
+        sqlx::query("INSERT INTO remote_files(media_file_id,source_id,href,etag) VALUES(?,'r','/01.mkv','e')").bind(&id).execute(&state.pool).await.unwrap();
+        let no_cache = media_thumbnail_with(&state,&id,false,|_,_,_| async { panic!("uncached WebDAV must not download/extract") }).await.unwrap(); assert!(no_cache.is_none());
+        std::fs::create_dir_all(dir.path().join("remote-cache")).unwrap();
+        let source = dir.path().join("remote-cache").join(format!("{id}.mkv")); std::fs::write(&source,b"fake").unwrap();
+        sqlx::query("INSERT INTO remote_cache(media_file_id,revision,size,completed,accessed_at) VALUES(?,'old|4|',4,1,'t')").bind(&id).execute(&state.pool).await.unwrap();
+        assert!(media_thumbnail_with(&state,&id,false,|_,_,_| async { panic!("stale media cache must not be read") }).await.unwrap().is_none());
+        sqlx::query("UPDATE remote_cache SET revision='e|4|' WHERE media_file_id=?").bind(&id).execute(&state.pool).await.unwrap();
+        let result = media_thumbnail_with(&state,&id,false,|path,destination,cache_only| async move {
+            assert_eq!(path,source); assert!(!cache_only);
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap(); image::RgbImage::new(160,90).save(destination).unwrap(); Ok(Some(true))
+        }).await.unwrap(); assert!(result.is_some());
+        let path: String = sqlx::query_scalar("SELECT path FROM media_files WHERE id=?").bind(&id).fetch_one(&state.pool).await.unwrap(); assert_eq!(path,"webdav://r/01.mkv");
+        sqlx::query("UPDATE media_files SET thumbnail_path=NULL WHERE id=?").bind(&id).execute(&state.pool).await.unwrap();
+        let next_pool=state.pool.clone(); let changed_id=id.clone();
+        let stale=media_thumbnail_with(&state,&id,false,|_,dest,_| async move {
+            sqlx::query("UPDATE remote_files SET etag='new' WHERE media_file_id=?").bind(changed_id).execute(&next_pool).await.unwrap();
+            image::RgbImage::new(160,90).save(dest).unwrap(); Ok(Some(true))
+        }).await.unwrap(); assert!(stale.is_none());
+    }
+
+    #[tokio::test]
+    async fn explicit_thumbnail_retry_regenerates_failed_local_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState { pool: db::test_pool().await.unwrap(), database_path: dir.path().join("test.db"), data_directory: dir.path().into(), cover_cache_path: dir.path().join("covers"), thumbnail_cache_path: dir.path().join("thumbnails") };
+        let broken = dir.path().join("broken.jpg"); std::fs::write(&broken,b"invalid-image").unwrap();
+        sqlx::query("INSERT INTO media_files(id,path,file_name,extension,media_type,thumbnail_path,created_at,updated_at) VALUES('retry-f','X:/fixture/01.mkv','01.mkv','mkv','video',?,'t','t')").bind(broken.to_string_lossy().as_ref()).execute(&state.pool).await.unwrap();
+        let fresh = media_thumbnail_with(&state,"retry-f",true,|_,dest,cache_only| async move {
+            assert!(!cache_only); std::fs::create_dir_all(dest.parent().unwrap()).unwrap(); image::RgbImage::new(160,90).save(dest).unwrap(); Ok(Some(true))
+        }).await.unwrap().unwrap(); assert_ne!(fresh,broken.to_string_lossy());
+        sqlx::query("UPDATE media_files SET thumbnail_path='__unsupported__' WHERE id='retry-f'").execute(&state.pool).await.unwrap();
+        assert!(media_thumbnail_with(&state,"retry-f",true,|_,dest,_| async move { image::RgbImage::new(160,90).save(dest).unwrap(); Ok(Some(true)) }).await.unwrap().is_some());
     }
 
     #[tokio::test]

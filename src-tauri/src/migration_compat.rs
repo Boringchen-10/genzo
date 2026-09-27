@@ -220,7 +220,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(version, 17);
+        assert_eq!(version, sqlx::migrate!("./migrations").iter().map(|m| m.version).max().unwrap());
     }
 
     #[tokio::test]

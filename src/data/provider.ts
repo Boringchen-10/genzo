@@ -137,6 +137,8 @@ export interface GenzoDataProvider {
    * `getAnimeDetailProvider()` 访问，未补齐时显示明确的「尚未接入」状态，不伪造数据。
    */
   getAnimeWorkStructure?(workId: string): Promise<AnimeWorkStructure>;
+  /** 分集剧照补源独立于作品归属；未实现时沿用文件缩略图，不伪造成功。 */
+  episodeArtwork?: import("../episodeArtwork").EpisodeArtworkProvider;
   refreshWorkMetadata?(workId: string): Promise<AnimeWorkStructure>;
   setMediaEpisode?(mediaFileId: string, episodeExternalId: string | null): Promise<void>;
   getMediaThumbnail?(mediaFileId: string, force?: boolean): Promise<string | null>;

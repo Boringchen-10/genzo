@@ -129,12 +129,12 @@ pub fn parse_video(file: &MediaFile, kind: Kind) -> ParsedAnime {
     parsed
 }
 
-struct Response {
-    data: Value,
-    warning: Option<String>,
+pub(crate) struct Response {
+    pub(crate) data: Value,
+    pub(crate) warning: Option<String>,
 }
 
-async fn request(
+pub(crate) async fn request(
     pool: &SqlitePool,
     path: &str,
     params: &[(&str, String)],
