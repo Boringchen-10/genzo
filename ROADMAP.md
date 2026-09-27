@@ -1,5 +1,16 @@
 # Genzo 路线记录
 
+## 下一步需求：漫画与小说书架（2026-09-27，方案待确认）
+
+- 用户希望在现有动漫、电影与电视剧识别基础上建设漫画和小说书架，并了解可借鉴的开源项目与刮削可行性；本次为调研，不代表已确认实现范围或已经交付。
+- 建议先覆盖日系漫画与轻小说：复用现有作品、文件、存储来源、收藏及字段锁定，增量增加卷 / 话与文件版本关联。书架按作品展示，详情展开卷册；单行本、连载话、合集与不同译本不能仅凭同名自动合并。
+- 本地资料优先：漫画读取 ComicInfo.xml、目录 / 文件名及本地封面；EPUB 读取 OPF 与封面，PDF / TXT 信息不足时保留手动整理。PDF、固定布局 EPUB 不仅凭扩展名判断为小说；ComicInfo 的 Volume 不直接等同于日漫卷号，须结合 Number、文件名和人工确认。
+- 联网阶段建议先适配 Bangumi 书籍条目，区分系列主条目、单卷、漫画和小说，按标题、作者、卷号及可用 ISBN 生成候选并预览确认；AniList 漫画 / NOVEL 格式作为后续补源评估。逐卷封面、完整卷册与章节资料的覆盖需用样本验证，不承诺仅靠文件名全自动识别。
+- 推荐学习 [Komga](https://github.com/gotson/komga) 的系列 / 书籍管理、[Kavita](https://github.com/Kareadita/Kavita) 的 EPUB / 漫画元数据处理及 [Komf](https://github.com/Snd-R/komf) 的多源候选匹配；沿用 Tauri / React / Rust / SQLite，本次不引入独立服务器。
+- 建议顺序：本地书架与卷册整理 → Bangumi 候选确认与缓存 → 阅读记录适配。前期调用外部阅读器，手动标记读到第几卷 / 话；打开文件不等于已读，页码 / EPUB 阅读位置自动采集单独评估。远程扫描仍只索引属性，正文与封面分析按需缓存后进行。
+- 验收建议：图片目录与 CBZ / EPUB 正确归档、自然排序、漫画 / 小说同名不混合、单卷与合集不误并、离线可浏览与打开、人工资料不被刷新覆盖；迁移同时验证存量数据库，UI 检查三种常用 Windows 尺寸。首版具体格式、用户目录样本与阅读器选择在实现前明确。
+- 数据源依据：[Bangumi 官方 API](https://github.com/bangumi/api/blob/master/open-api/v0.yaml)、[AniList Media 查询](https://docs.anilist.co/guide/graphql/queries/media)、[ComicInfo 字段说明](https://anansi-project.github.io/docs/comicinfo/documentation)、[Kavita EPUB 元数据](https://wiki.kavitareader.com/guides/metadata/epubs/)。
+
 ## 当前实施范围：统一分集核对与可靠文件批量确认（2026-09-27）
 
 - 用户确认四项一并实现，继续放入 Unreleased：文件季集 / 主源分集 / TMDB 剧照对应放在同一预览；优先选择可靠正片；错误给出处理建议；覆盖识别、拆季、关联、剧照和续播回归。
