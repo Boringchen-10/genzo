@@ -104,6 +104,7 @@ pub async fn rebuild_episode_links(
     let tmdb_primary: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_external_ids WHERE work_id=? AND provider='tmdb') AND NOT EXISTS(SELECT 1 FROM work_external_ids WHERE work_id=? AND provider='bangumi')")
         .bind(work_id).bind(work_id).fetch_one(&mut **transaction).await?;
     if tmdb_primary { return crate::film_tv::rebuild_links(transaction, work_id).await; }
+    let overrides = crate::recognition_preferences::restore_overrides(transaction, work_id).await?;
     sqlx::query("DELETE FROM media_episode_links WHERE work_id = ? AND match_method = 'parsed'")
         .bind(work_id)
         .execute(&mut **transaction)
@@ -158,7 +159,7 @@ pub async fn rebuild_episode_links(
     let parsed_files = files
         .iter()
         .filter(|file| {
-            file.media_type == "video" && !file.missing && !manual_media_ids.contains(&file.id)
+            file.media_type == "video" && !file.missing && !manual_media_ids.contains(&file.id) && !overrides.contains(&file.id)
         })
         .map(|file| {
             let parsed = crate::anime_parser::parse_media_path(
@@ -284,6 +285,13 @@ pub async fn set_episode_link(
         .bind(media_file_id)
         .execute(&mut *transaction)
         .await?;
+    // A new explicit single-file mapping supersedes earlier batch overrides.
+    sqlx::query("DELETE FROM media_episode_overrides WHERE media_file_id=?")
+        .bind(media_file_id).execute(&mut *transaction).await?;
+    if episode_external_id.is_none() {
+        sqlx::query("INSERT INTO media_episode_overrides(media_file_id,work_id,episode_type,updated_at) VALUES(?,?,0,?)")
+            .bind(media_file_id).bind(&work_id).bind(Utc::now().to_rfc3339()).execute(&mut *transaction).await?;
+    }
     if let Some(episode_external_id) = episode_external_id {
         let provider: Option<String> = sqlx::query_scalar("SELECT provider FROM anime_episodes WHERE work_id = ? AND provider IN ('bangumi','tmdb') AND external_id = ?")
             .bind(&work_id)

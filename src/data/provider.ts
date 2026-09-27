@@ -45,6 +45,10 @@ export interface ProviderMeta {
 
 export interface GenzoDataProvider {
   readonly meta: ProviderMeta;
+  recognitionPreferences?(mediaFileId: string, kind: string): Promise<import("../recognitionPreferences").RecognitionPreference[]>;
+  forgetRecognitionPreference?(id: string): Promise<void>;
+  previewMediaCorrection?(input: import("../recognitionPreferences").CorrectionInput): Promise<import("../recognitionPreferences").CorrectionPreview>;
+  applyMediaCorrection?(input: import("../recognitionPreferences").CorrectionInput, token: string): Promise<string>;
   inspectLibrary?(): Promise<import("../libraryMaintenance").IssueGroup[]>;
   relocationFiles?(rootId: string): Promise<import("../libraryMaintenance").Location[]>;
   previewRelocation?(pairs: import("../libraryMaintenance").RelocationPair[]): Promise<import("../libraryMaintenance").RelocationPreview>;

@@ -1,5 +1,5 @@
 /** Genzo 正式运行期 Tauri Provider。 */
-import { api } from "../api";
+import { api, correctionApi } from "../api";
 import type { GenzoDataProvider, ProviderMeta } from "./provider";
 
 const META: ProviderMeta = { kind: "tauri", label: "Tauri 后端", mock: false };
@@ -7,6 +7,10 @@ const META: ProviderMeta = { kind: "tauri", label: "Tauri 后端", mock: false }
 export function createTauriProvider(): GenzoDataProvider {
   return {
     meta: META,
+    recognitionPreferences: correctionApi.suggestions,
+    forgetRecognitionPreference: correctionApi.forget,
+    previewMediaCorrection: correctionApi.preview,
+    applyMediaCorrection: correctionApi.apply,
     inspectLibrary: api.inspectLibrary,
     relocationFiles: api.relocationFiles,
     previewRelocation: api.previewRelocation,

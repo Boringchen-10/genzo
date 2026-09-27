@@ -21,6 +21,7 @@ mod metadata_provider;
 mod models;
 mod providers;
 mod recognition_history;
+mod recognition_preferences;
 mod remote_storage;
 #[cfg(all(test, windows))]
 mod remote_storage_tests;
@@ -61,6 +62,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            recognition_preferences::list_recognition_preferences,
+            recognition_preferences::forget_recognition_preference,
+            recognition_preferences::preview_media_correction,
+            recognition_preferences::apply_media_correction,
             library_maintenance::inspect_library,
             library_maintenance::list_relocation_files,
             library_maintenance::preview_media_relocation,

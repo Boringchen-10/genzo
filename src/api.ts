@@ -31,6 +31,13 @@ import type {
   WorkListItem,
 } from "./types";
 
+export const correctionApi = {
+  suggestions: (mediaFileId: string, kind: string) => call<import("./recognitionPreferences").RecognitionPreference[]>("list_recognition_preferences", { mediaFileId, kind }),
+  forget: (id: string) => call<void>("forget_recognition_preference", { id }),
+  preview: (input: import("./recognitionPreferences").CorrectionInput) => call<import("./recognitionPreferences").CorrectionPreview>("preview_media_correction", { input }),
+  apply: (input: import("./recognitionPreferences").CorrectionInput, token: string) => call<string>("apply_media_correction", { input, token }),
+};
+
 export const scanTaskApi = {
   list: () => call<ScanTask[]>("list_scan_tasks"),
   cancel: (id: string) => call<void>("cancel_scan_task", { id }),

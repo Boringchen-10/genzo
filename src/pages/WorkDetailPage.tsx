@@ -33,6 +33,8 @@ import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, SafeImage, useOffline } from "../components/common";
 import { RemoteFileActions } from "../components/RemoteStoragePanel";
 import { MediaVisual } from "../components/MediaVisual";
+import { MediaCorrectionDialog } from "../components/MediaCorrectionDialog";
+import { RetryImagesButton } from "../components/ResilientImage";
 import { WorkForm } from "../components/WorkForm";
 import { MediaFileBrowser } from "../components/MediaFileBrowser";
 import { useToasts } from "../store";
@@ -186,6 +188,7 @@ export function WorkDetailPage() {
   const [error, setError] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notesSaving, setNotesSaving] = useState(false);
@@ -610,6 +613,8 @@ export function WorkDetailPage() {
                 {isCompleted ? "已完成" : "标记为已完成"}
               </button>
               <button type="button" className="button secondary icon-text" onClick={() => void openAttach()}><FilePlus2 size={16} />关联文件</button>
+              {work.type === "video" && api.previewMediaCorrection ? <button type="button" className="button secondary" onClick={() => setCorrectionOpen(true)}>批量纠错</button> : null}
+              <RetryImagesButton />
             </div>
           </div>
         </section>
@@ -1026,6 +1031,7 @@ export function WorkDetailPage() {
         </Modal>
       ) : null}
       {editOpen ? <Modal title="编辑作品" width="large" onClose={() => setEditOpen(false)}><WorkForm work={work} busy={saving} onCancel={() => setEditOpen(false)} onSubmit={update} /></Modal> : null}
+      {correctionOpen ? <MediaCorrectionDialog files={work.mediaFiles} sourceWorkId={work.id} onClose={() => setCorrectionOpen(false)} onSaved={() => { setCorrectionOpen(false); void load(); void reloadStructure(); }} /> : null}
       {attachOpen ? (
         <Modal title="关联媒体文件" width="large" onClose={() => setAttachOpen(false)}>
           {attachLoading ? <LoadingState label="正在读取可关联文件" /> : attachError ? <ErrorState message={attachError} retry={() => void openAttach()} /> : <MediaFileBrowser files={unassigned} roots={attachRoots} busy={busyFile === "attach-batch"} onAttach={attach} />}

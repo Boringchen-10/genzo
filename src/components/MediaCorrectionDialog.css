@@ -1,0 +1,14 @@
+.media-correction { min-width: 0; }
+.media-correction p { overflow-wrap: anywhere; }
+.correction-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0; border: 0; }
+.correction-fields label { display: grid; gap: 6px; min-width: 0; }
+.correction-fields input, .correction-fields select { width: 100%; min-width: 0; }
+.correction-selection-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 8px; flex-wrap: wrap; }
+.correction-files, .correction-preview { max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.correction-files label { display: flex; gap: 10px; padding: 10px; border-bottom: 1px solid var(--border); }
+.correction-files span, .correction-preview span { min-width: 0; overflow-wrap: anywhere; }
+.correction-files small, .correction-preview small { display: block; margin-top: 4px; opacity: .7; overflow-wrap: anywhere; }
+.correction-files input, .correction-ack input { width: auto; flex-shrink: 0; }
+.correction-preview p { margin: 0; padding: 10px; border-bottom: 1px solid var(--border); }
+.correction-ack { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; }
+@media (max-width: 700px) { .correction-fields { grid-template-columns: minmax(0, 1fr); } }

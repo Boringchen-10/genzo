@@ -4,6 +4,8 @@ import { dataProvider as api } from "../data";
 import type { MatchCandidate, MediaFile, RecognitionGroupInfo, RecognitionGroupScope } from "../types";
 import { getErrorMessage } from "../utils";
 import { EmptyState, Modal } from "./common";
+import { MediaCorrectionDialog } from "./MediaCorrectionDialog";
+import type { RecognitionPreference } from "../recognitionPreferences";
 import { RecognitionFileSelection } from "./RecognitionFileSelection";
 import { selectedVideo, selectionGroups } from "../recognitionSelection";
 import { candidateKind, fileSeason, initialFilmSelection } from "../filmTvRecognition";
@@ -45,6 +47,20 @@ export function RecognitionDialog({ media, scope = "season", initialCandidates =
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<MatchCandidate | null>(null);
+  const [preferences, setPreferences] = useState<RecognitionPreference[]>([]);
+  const [rememberedTarget, setRememberedTarget] = useState<string | null>(null);
+  const [preferenceError, setPreferenceError] = useState("");
+  useEffect(() => {
+    let active = true; setPreferences([]); setPreferenceError("");
+    void api.recognitionPreferences?.(media.id, kind).then(value => { if (active) setPreferences(value); })
+      .catch(e => { if (active) setPreferenceError(getErrorMessage(e)); });
+    return () => { active = false; };
+  }, [media.id, kind]);
+  const forget = async (id: string) => {
+    setBusy(true);
+    try { await api.forgetRecognitionPreference?.(id); setPreferences(previous => previous.filter(p => p.id !== id)); }
+    catch (e) { setPreferenceError(getErrorMessage(e)); } finally { setBusy(false); }
+  };
 
   useEffect(() => {
     if (initialCandidates.length) return;
@@ -150,6 +166,13 @@ export function RecognitionDialog({ media, scope = "season", initialCandidates =
         {linkedMembers.length ? <details><summary>保留其他作品的 {linkedMembers.length} 个已关联文件</summary>{linkedMembers.map(file => <p className="quiet-inline" key={file.id}>{file.fileName} · {seasonLabel(file)}</p>)}</details> : null}
         {linkedMembers.length && !mergeTarget ? <small className="quiet-inline">已识别过的文件作为参照列出，不会重复关联。</small> : null}
       </div>
+      {preferences.length ? <section className="recognition-preview" aria-label="已确认识别推荐">
+        <strong>同来源、同标题与季度的历史确认</strong>
+        <p>{preferences.length > 1 ? "存在多个确认结果，可能同目录混装不同季度，请核对所选文件。" : "这只是推荐，不会自动修改关联。"}</p>
+        {preferences.map(p => <div className="form-actions" key={p.id}><span>{p.title}</span><button type="button" className="button secondary compact" disabled={busy || !selectedIds.length || !api.previewMediaCorrection} onClick={() => setRememberedTarget(p.workId)}>核对并关联</button><button type="button" className="button secondary compact" disabled={busy} onClick={() => void forget(p.id)}>忘记推荐</button></div>)}
+      </section> : null}
+      {preferenceError ? <p className="warning-text" role="alert">识别记忆读取失败：{preferenceError}</p> : null}
+      {rememberedTarget ? <MediaCorrectionDialog files={selectable.filter(f => selectedIds.includes(f.id))} sourceWorkId={media.workId} initialTarget={rememberedTarget} initialSelected={selectedIds} onClose={() => setRememberedTarget(null)} onSaved={onMatched} /> : null}
       <div className="recognition-search">
         <select aria-label="识别类型" disabled={busy || loadingCandidates} value={kind} onChange={event => { setKind(event.target.value as RecognitionKind); setCandidates([]); setPreview(null); setError(""); }}>
           <option value="anime">动漫 · Bangumi</option><option value="movie">电影 · TMDB</option><option value="tv">电视剧 · TMDB</option>

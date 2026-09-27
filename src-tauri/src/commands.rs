@@ -397,6 +397,7 @@ async fn attach_unassigned_media_in_pool(
     crate::anime_details::rebuild_episode_links(&mut transaction, work_id).await?;
     let title: String = sqlx::query_scalar("SELECT title FROM works WHERE id=?")
         .bind(work_id).fetch_one(&mut *transaction).await?;
+    crate::recognition_preferences::learn(&mut transaction, work_id, ids).await?;
     crate::recognition_history::finish(&mut transaction, undo, work_id, &title).await?;
     transaction.commit().await?;
     Ok(())

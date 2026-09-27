@@ -575,6 +575,7 @@ pub async fn confirm(
     }
     crate::media_mapping::rebuild_subtitle_links(&mut tx, &target).await?;
     rebuild_links(&mut tx, &target).await?;
+    crate::recognition_preferences::learn(&mut tx, &target, ids).await?;
     crate::recognition_history::finish(&mut tx, undo, &target, &m.title).await?;
     tx.commit().await?;
     Ok(target)
@@ -604,6 +605,7 @@ pub async fn rebuild_links(tx: &mut Transaction<'_, Sqlite>, work: &str) -> AppR
     if anchor.kind != Kind::Tv {
         return Ok(());
     }
+    let overrides = crate::recognition_preferences::restore_overrides(tx, work).await?;
     let files = sqlx::query_as::<_, MediaFile>(
         "SELECT * FROM media_files WHERE work_id=? AND media_type='video'",
     )
@@ -619,6 +621,7 @@ pub async fn rebuild_links(tx: &mut Transaction<'_, Sqlite>, work: &str) -> AppR
         .execute(&mut **tx)
         .await?;
     for file in files {
+        if overrides.contains(&file.id) { continue; }
         let p = parse_video(&file, Kind::Tv);
         if p.season.is_some_and(|s| Some(s) != anchor.season)
             || p.special_type.is_some()

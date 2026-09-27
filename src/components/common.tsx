@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type RefObject } from "react";
+import { ResilientImage } from "./ResilientImage";
 import { createPortal } from "react-dom";
 import { AlertCircle, Inbox, LoaderCircle, X } from "lucide-react";
 
@@ -220,10 +221,7 @@ export function SafeImage({
   alt?: string;
   fallback: ReactNode;
 }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => { setFailed(false); }, [src]);
-  if (!src || failed) return <>{fallback}</>;
-  return <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />;
+  return <ResilientImage sources={[src]} alt={alt} fallback={fallback} />;
 }
 
 /**

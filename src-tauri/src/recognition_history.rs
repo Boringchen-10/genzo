@@ -10,9 +10,14 @@ use std::collections::BTreeMap;
 const TABLES: &[&str] = &[
     "works", "media_files", "work_external_ids",
     "work_field_sources", "work_field_locks", "work_tags", "metadata_provider_records",
-    "anime_episodes", "media_episode_links", "subtitle_links", "match_candidates",
+    "anime_episodes", "media_episode_links", "subtitle_links", "match_candidates", "recognition_preferences", "media_episode_overrides",
 ];
 type Snapshot = BTreeMap<String, Vec<Value>>;
+fn read_snapshot(json: &str) -> AppResult<Snapshot> {
+    let mut snapshot: Snapshot = serde_json::from_str(json)?;
+    for table in ["recognition_preferences", "media_episode_overrides"] { snapshot.entry(table.into()).or_default(); }
+    Ok(snapshot)
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Scope {
@@ -31,6 +36,7 @@ fn filter(table: &str) -> &'static str {
         "works" => "id IN (SELECT value FROM json_each(?1))",
         "media_files" => "work_id IN (SELECT value FROM json_each(?1)) OR id IN (SELECT value FROM json_each(?2))",
         "remote_files" | "remote_cache" => "media_file_id IN (SELECT id FROM media_files WHERE work_id IN (SELECT value FROM json_each(?1)) OR id IN (SELECT value FROM json_each(?2)))",
+        "media_episode_overrides" => "work_id IN (SELECT value FROM json_each(?1)) OR media_file_id IN (SELECT value FROM json_each(?2))",
         "match_candidates" => "media_file_id IN (SELECT value FROM json_each(?2)) AND ?1 IS NOT NULL",
         _ => "work_id IN (SELECT value FROM json_each(?1)) AND ?2 IS NOT NULL",
     }
@@ -103,7 +109,7 @@ pub async fn before_enrichment(tx: &mut Transaction<'_, Sqlite>, work: &str) -> 
     let mut valid = Vec::new();
     for (id, scope, expected) in rows {
         let scope: Scope = serde_json::from_str(&scope)?;
-        let expected: Snapshot = serde_json::from_str(&expected)?;
+        let expected = read_snapshot(&expected)?;
         if capture(tx, &scope).await? == expected { valid.push((id, scope)); }
     }
     Ok(valid)
@@ -145,8 +151,8 @@ pub async fn undo(pool: &SqlitePool, id: &str) -> AppResult<()> {
         .bind(id).fetch_optional(&mut *tx).await?;
     let (scope, before, after) = row.ok_or_else(|| AppError::Validation("该记录已撤销或不再保留".into()))?;
     let scope: Scope = serde_json::from_str(&scope)?;
-    let before: Snapshot = serde_json::from_str(&before)?;
-    let after: Snapshot = serde_json::from_str(&after)?;
+    let before = read_snapshot(&before)?;
+    let after = read_snapshot(&after)?;
     if capture(&mut tx, &scope).await? != after {
         return Err(AppError::Validation("相关作品、文件或分集在识别后已有其他修改，无法直接撤销。请手动调整归属。".into()));
     }

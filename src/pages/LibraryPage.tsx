@@ -1,3 +1,4 @@
+import { RetryImagesButton } from "../components/ResilientImage";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { LibraryMaintenance } from "../components/LibraryMaintenance";
 import { ChevronDown, ChevronRight, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
@@ -464,6 +465,7 @@ export function LibraryPage() {
 
   return (
     <div className="page workspace-page page-library">
+      <div className="page-actions"><RetryImagesButton /></div>
       <PageHeader
         title="媒体库"
         description={`${works.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}

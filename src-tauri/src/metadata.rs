@@ -901,6 +901,9 @@ async fn confirm_candidate_internal(state: &AppState, media_file_id: &str, candi
         .bind(media_file_id)
         .execute(&mut *transaction)
         .await?;
+    if selected_media_ids.is_some() {
+        crate::recognition_preferences::learn(&mut transaction, &work_id, &group_member_ids).await?;
+    }
     crate::recognition_history::finish(&mut transaction, undo, &work_id, &metadata.title).await?;
     transaction.commit().await?;
     Ok(work_id)
