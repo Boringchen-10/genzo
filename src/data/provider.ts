@@ -45,6 +45,10 @@ export interface ProviderMeta {
 
 export interface GenzoDataProvider {
   readonly meta: ProviderMeta;
+  inspectLibrary?(): Promise<import("../libraryMaintenance").IssueGroup[]>;
+  relocationFiles?(rootId: string): Promise<import("../libraryMaintenance").Location[]>;
+  previewRelocation?(pairs: import("../libraryMaintenance").RelocationPair[]): Promise<import("../libraryMaintenance").RelocationPreview>;
+  applyRelocation?(pairs: import("../libraryMaintenance").RelocationPair[], token: string): Promise<number>;
 
   listWorks(): Promise<WorkListItem[]>;
   getWork(id: string): Promise<WorkDetail>;

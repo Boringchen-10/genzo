@@ -32,6 +32,11 @@ fn leased(id: &str) -> bool {
         .get(id)
         .is_some_and(|t| *t > std::time::Instant::now())
 }
+pub fn relocation_leased(id: &str) -> bool { leased(id) }
+pub async fn relocation_lock() -> AppResult<tokio::sync::MutexGuard<'static, ()>> {
+    tokio::time::timeout(Duration::from_secs(5), TRANSFER_LOCK.get_or_init(|| Mutex::new(())).lock())
+        .await.map_err(|_| AppError::Validation("正在处理远程传输，请稍后重试迁移".into()))
+}
 
 #[derive(Clone, FromRow)]
 struct Resource {

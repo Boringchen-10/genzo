@@ -9,6 +9,7 @@ mod explore;
 mod film_tv;
 mod grouping;
 mod launcher;
+mod library_maintenance;
 mod playback;
 #[cfg(windows)]
 mod potplayer;
@@ -59,6 +60,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            library_maintenance::inspect_library,
+            library_maintenance::list_relocation_files,
+            library_maintenance::preview_media_relocation,
+            library_maintenance::apply_media_relocation,
             remote_storage::list_remote_sources,
             remote_storage::browse_webdav,
             remote_storage::add_webdav_source,

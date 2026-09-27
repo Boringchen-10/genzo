@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { LibraryMaintenance } from "../components/LibraryMaintenance";
 import { ChevronDown, ChevronRight, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { dataProvider as api } from "../data";
@@ -478,6 +479,7 @@ export function LibraryPage() {
         <button type="button" role="tab" aria-selected={activeSection === "inbox"} className={activeSection === "inbox" ? "active" : ""} onClick={() => setActiveSection("inbox")}>待整理{scopedUnassigned.length ? <span className="tab-count">{scopedUnassigned.length}</span> : null}</button>
       </div>
       {activeSection === "sources" ? <ScanPage /> : null}
+      <LibraryMaintenance onChanged={() => void load(true)} />
       {activeSection !== "sources" ? <div className="library-toolbar">
         <div className="search-box">
           <Search size={17} />

@@ -99,6 +99,10 @@ function withAnimeStructureAssets(structure: AnimeWorkStructure): AnimeWorkStruc
 }
 
 export const api = {
+  inspectLibrary: () => call<import("./libraryMaintenance").IssueGroup[]>("inspect_library"),
+  relocationFiles: (rootId: string) => call<import("./libraryMaintenance").Location[]>("list_relocation_files", { rootId }),
+  previewRelocation: (pairs: import("./libraryMaintenance").RelocationPair[]) => call<import("./libraryMaintenance").RelocationPreview>("preview_media_relocation", { pairs }),
+  applyRelocation: (pairs: import("./libraryMaintenance").RelocationPair[], token: string) => call<number>("apply_media_relocation", { pairs, token }),
   listWorks: () => call<WorkListItem[]>("list_works"),
   getWork: (id: string) => call<WorkDetail>("get_work", { id }),
   createWork: (input: WorkInput) => call<WorkDetail>("create_work", { input }),

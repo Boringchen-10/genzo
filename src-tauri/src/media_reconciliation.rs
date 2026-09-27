@@ -65,18 +65,33 @@ pub async fn reconcile(
         if conflicting {
             continue;
         }
+        if crate::playback::relocation_busy(&pair.old_id) || crate::playback::relocation_busy(&pair.current_id) {
+            continue;
+        }
+        let remote: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM remote_files WHERE media_file_id IN (?,?))")
+            .bind(&pair.old_id).bind(&pair.current_id).fetch_one(&mut **transaction).await?;
+        if remote { continue; }
         sqlx::query(
             "INSERT INTO media_episode_links (media_file_id, work_id, provider, episode_external_id, match_method, confidence, updated_at) SELECT ?, work_id, provider, episode_external_id, match_method, confidence, updated_at FROM media_episode_links WHERE media_file_id = ? ON CONFLICT(media_file_id) DO UPDATE SET match_method = CASE WHEN excluded.match_method = 'manual' THEN 'manual' ELSE media_episode_links.match_method END",
-        ).bind(&pair.current_id).bind(&pair.old_id).execute(&mut **transaction).await?;
+        ).bind(&pair.old_id).bind(&pair.current_id).execute(&mut **transaction).await?;
         sqlx::query(
             "UPDATE subtitle_links SET video_media_file_id = ? WHERE video_media_file_id = ?",
         )
-        .bind(&pair.current_id)
         .bind(&pair.old_id)
+        .bind(&pair.current_id)
         .execute(&mut **transaction)
         .await?;
-        removed += sqlx::query("DELETE FROM media_files WHERE id = ? AND missing = 1")
-            .bind(&pair.old_id)
+        sqlx::query("INSERT INTO playback_progress(media_file_id,tool_id,position_ms,duration_ms,completed,updated_at) SELECT ?,tool_id,position_ms,duration_ms,completed,updated_at FROM playback_progress WHERE media_file_id=? ON CONFLICT(media_file_id) DO UPDATE SET tool_id=excluded.tool_id,position_ms=excluded.position_ms,duration_ms=excluded.duration_ms,completed=excluded.completed,updated_at=excluded.updated_at WHERE julianday(excluded.updated_at)>julianday(playback_progress.updated_at)")
+            .bind(&pair.old_id).bind(&pair.current_id).execute(&mut **transaction).await?;
+        sqlx::query("UPDATE match_candidates SET media_file_id=? WHERE media_file_id=?")
+            .bind(&pair.old_id).bind(&pair.current_id).execute(&mut **transaction).await?;
+        // Release the unique path before giving it to the stable original ID.
+        sqlx::query("UPDATE media_files SET path=? WHERE id=?")
+            .bind(format!("genzo-relocating://{}", uuid::Uuid::new_v4())).bind(&pair.current_id).execute(&mut **transaction).await?;
+        sqlx::query("UPDATE media_files SET path=?,file_name=?,library_root_id=(SELECT library_root_id FROM media_files WHERE id=?),modified_at=(SELECT modified_at FROM media_files WHERE id=?),missing=0,thumbnail_path=COALESCE((SELECT thumbnail_path FROM media_files WHERE id=?),thumbnail_path),content_fingerprint=COALESCE(content_fingerprint,(SELECT content_fingerprint FROM media_files WHERE id=?)),updated_at=? WHERE id=?")
+            .bind(&pair.current_path).bind(&pair.current_name).bind(&pair.current_id).bind(&pair.current_id).bind(&pair.current_id).bind(&pair.current_id).bind(chrono::Utc::now().to_rfc3339()).bind(&pair.old_id).execute(&mut **transaction).await?;
+        removed += sqlx::query("DELETE FROM media_files WHERE id = ?")
+            .bind(&pair.current_id)
             .execute(&mut **transaction)
             .await?
             .rows_affected();
@@ -135,6 +150,8 @@ mod tests {
             sqlx::query("INSERT INTO media_episode_links (media_file_id, work_id, provider, episode_external_id, match_method, confidence, updated_at) VALUES (?, 'work', 'bangumi', ?, ?, 1, ?)")
                 .bind(media).bind(episode).bind(method).bind(&now).execute(&pool).await.unwrap();
         }
+        sqlx::query("INSERT INTO playback_progress(media_file_id,position_ms,duration_ms,completed,updated_at) VALUES ('old1',100,1000,0,'2026-09-27T00:00:00Z'),('old2',200,1000,0,'2026-09-27T00:00:00Z'),('new2',300,1000,0,'2026-09-27T01:00:00Z')")
+            .execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, created_at, updated_at) VALUES ('sub', 'work', 'C:\\fixture.ass', 'fixture.ass', 'ass', 'other', ?, ?)")
             .bind(&now).bind(&now).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO subtitle_links (subtitle_media_file_id, video_media_file_id, work_id, match_method, created_at, updated_at) VALUES ('sub', 'old2', 'work', 'episode', ?, ?)")
@@ -142,6 +159,8 @@ mod tests {
         let mut tx = pool.begin().await.unwrap();
         assert_eq!(reconcile(&mut tx, Some("work")).await.unwrap(), 12);
         tx.commit().await.unwrap();
+        let progress: Vec<(String,i64)> = sqlx::query_as("SELECT media_file_id,position_ms FROM playback_progress ORDER BY media_file_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(progress, vec![("old1".into(),100),("old2".into(),300)]);
         let links: Vec<(String, String)> = sqlx::query_as(
             "SELECT media_file_id, match_method FROM media_episode_links ORDER BY media_file_id",
         )
@@ -151,8 +170,8 @@ mod tests {
         assert_eq!(
             links,
             vec![
-                ("new1".into(), "parsed".into()),
-                ("new2".into(), "manual".into())
+                ("old1".into(), "parsed".into()),
+                ("old2".into(), "manual".into())
             ]
         );
         assert_eq!(
@@ -160,7 +179,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap(),
-            "new2"
+            "old2"
         );
         assert_eq!(
             sqlx::query_scalar::<_, i64>(
@@ -266,13 +285,13 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let before: Vec<(String, String)> = sqlx::query_as("SELECT m.id, l.episode_external_id FROM media_files m JOIN media_episode_links l ON l.media_file_id = m.id WHERE m.work_id = ? AND m.missing = 0 ORDER BY m.id")
+        let before: Vec<(String, String)> = sqlx::query_as("SELECT m.file_name, l.episode_external_id FROM media_files m JOIN media_episode_links l ON l.media_file_id = m.id WHERE m.work_id = ? AND m.missing = 0 ORDER BY m.file_name,l.episode_external_id")
             .bind(&work).fetch_all(&pool).await.unwrap();
         let mut tx = pool.begin().await.unwrap();
         let removed = reconcile(&mut tx, Some(&work)).await.unwrap();
         assert!(removed > 0);
         tx.commit().await.unwrap();
-        let after: Vec<(String, String)> = sqlx::query_as("SELECT m.id, l.episode_external_id FROM media_files m JOIN media_episode_links l ON l.media_file_id = m.id WHERE m.work_id = ? AND m.missing = 0 ORDER BY m.id")
+        let after: Vec<(String, String)> = sqlx::query_as("SELECT m.file_name, l.episode_external_id FROM media_files m JOIN media_episode_links l ON l.media_file_id = m.id WHERE m.work_id = ? AND m.missing = 0 ORDER BY m.file_name,l.episode_external_id")
             .bind(&work).fetch_all(&pool).await.unwrap();
         assert_eq!(before, after);
         let remaining: i64 = sqlx::query_scalar(

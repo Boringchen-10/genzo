@@ -1,0 +1,18 @@
+.library-maintenance-entry { margin:10px 0; }
+.maintenance-issue-tabs { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.maintenance-inputs { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
+.maintenance-inputs label, .modal:has(.maintenance-inputs) .modal-body > label { display:block; min-width:0; margin:8px 0; }
+.maintenance-inputs select, .modal:has(.maintenance-inputs) .modal-body > label select, .modal:has(.maintenance-inputs) .modal-body > label input { display:block; width:100%; max-width:100%; margin-top:6px; }
+.maintenance-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 0; border-bottom:1px solid var(--border); }
+.maintenance-row > div { min-width:0; }
+.maintenance-row small { display:block; overflow-wrap:anywhere; color:var(--muted); }
+.maintenance-row strong { overflow-wrap:anywhere; }
+.modal .modal-body label.maintenance-row { display:flex; flex-direction:row; flex-wrap:nowrap; justify-content:flex-start; align-items:flex-start; }
+.modal .modal-body label.maintenance-row > input { width:auto; flex-shrink:0; margin:3px 0 0; }
+.modal .modal-body label.maintenance-row > div { flex:1; }
+.maintenance-row-actions { display:flex; gap:6px; flex-shrink:0; }
+.maintenance-confirm { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 18px; border-top:1px solid var(--border); }
+.maintenance-confirm label { flex:1; min-width:180px; }
+.maintenance-confirm button { flex-shrink:0; }
+.modal:has(.maintenance-confirm) > .modal-footer { flex-shrink:0; }
+@media(max-width:1100px) { .maintenance-inputs { grid-template-columns:minmax(0,1fr); } .maintenance-row { flex-wrap:wrap; } }

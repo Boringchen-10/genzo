@@ -24,6 +24,9 @@ static SESSIONS: OnceLock<Mutex<HashMap<String, Session>>> = OnceLock::new();
 fn sessions() -> &'static Mutex<HashMap<String, Session>> {
     SESSIONS.get_or_init(Default::default)
 }
+pub fn relocation_busy(id: &str) -> bool {
+    sessions().lock().map(|s| s.get(id).is_some_and(|entry| matches!(entry.status.as_str(), "connecting" | "tracking"))).unwrap_or(true)
+}
 fn status(id: &str, owner: &str, state: &str, message: &str) {
     if let Ok(mut entries) = sessions().lock() {
         if let Some(entry) = entries.get_mut(id).filter(|entry| entry.owner == owner) {

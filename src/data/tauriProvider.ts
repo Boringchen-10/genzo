@@ -7,6 +7,10 @@ const META: ProviderMeta = { kind: "tauri", label: "Tauri 后端", mock: false }
 export function createTauriProvider(): GenzoDataProvider {
   return {
     meta: META,
+    inspectLibrary: api.inspectLibrary,
+    relocationFiles: api.relocationFiles,
+    previewRelocation: api.previewRelocation,
+    applyRelocation: api.applyRelocation,
     listWorks: api.listWorks,
     getWork: api.getWork,
     createWork: api.createWork,
