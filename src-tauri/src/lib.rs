@@ -18,6 +18,7 @@ mod media_reconciliation;
 mod metadata;
 mod metadata_aggregator;
 mod metadata_provider;
+mod migration_compat;
 mod models;
 mod providers;
 mod recognition_history;

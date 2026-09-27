@@ -41,7 +41,7 @@ pub async fn initialize(app: &tauri::AppHandle) -> AppResult<AppState> {
         .connect_with(options)
         .await?;
 
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    crate::migration_compat::run(&pool).await?;
     backfill_cached_banner_paths(&pool, &cover_cache_path).await?;
 
     Ok(AppState {
@@ -152,7 +152,7 @@ pub async fn test_pool() -> AppResult<SqlitePool> {
         .max_connections(1)
         .connect("sqlite::memory:")
         .await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    crate::migration_compat::run(&pool).await?;
     Ok(pool)
 }
 
