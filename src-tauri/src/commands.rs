@@ -1143,8 +1143,11 @@ pub async fn cancel_match_candidates(
 }
 
 #[tauri::command]
-pub async fn list_recognition_history(state: State<'_, AppState>) -> AppResult<Vec<crate::recognition_history::HistoryEntry>> {
-    crate::recognition_history::list(&state.pool).await
+pub async fn list_recognition_history(work_id: Option<String>, state: State<'_, AppState>) -> AppResult<Vec<crate::recognition_history::HistoryEntry>> {
+    match work_id {
+        Some(work_id) => crate::recognition_history::list_for_work(&state.pool, &work_id).await,
+        None => crate::recognition_history::list(&state.pool).await,
+    }
 }
 
 #[tauri::command]

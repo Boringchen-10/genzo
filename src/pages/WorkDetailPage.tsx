@@ -28,6 +28,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { dataProvider as api, getAnimeDetailProvider, type GenzoAnimeDetailProvider } from "../data";
+import { RecognitionHistory } from "../components/RecognitionHistory";
 import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, SafeImage, useOffline } from "../components/common";
 import { RemoteFileActions } from "../components/RemoteStoragePanel";
@@ -580,6 +581,7 @@ export function WorkDetailPage() {
           <Link className="icon-button detail-back" to="/library" aria-label="返回媒体库" data-tooltip="返回媒体库"><ArrowLeft size={17} /></Link>
           <strong>作品详情</strong>
           <span className="detail-topbar-fill" />
+          <RecognitionHistory key={work.id} workId={work.id} onChanged={() => navigate("/library")} />
           <IconButton tooltip={work.favorite ? "取消收藏" : "加入收藏"} aria-pressed={work.favorite} onClick={() => void updateInline(workInput(work, { favorite: !work.favorite }), work.favorite ? "已取消收藏" : "已加入收藏")} disabled={saving}>
             <Heart size={17} fill={work.favorite ? "currentColor" : "none"} />
           </IconButton>

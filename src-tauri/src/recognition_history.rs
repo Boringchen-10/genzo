@@ -134,6 +134,11 @@ pub async fn list(pool: &SqlitePool) -> AppResult<Vec<HistoryEntry>> {
         .fetch_all(pool).await?)
 }
 
+pub async fn list_for_work(pool: &SqlitePool, work_id: &str) -> AppResult<Vec<HistoryEntry>> {
+    Ok(sqlx::query_as("SELECT id,target_work_id,target_title,file_count,created_at,undone_at FROM recognition_history WHERE target_work_id=? ORDER BY created_at DESC,id DESC LIMIT 50")
+        .bind(work_id).fetch_all(pool).await?)
+}
+
 pub async fn undo(pool: &SqlitePool, id: &str) -> AppResult<()> {
     let (_guard, mut tx) = db::begin_write(pool).await?;
     let row: Option<(String, String, String)> = sqlx::query_as("SELECT scope_json,before_json,after_json FROM recognition_history WHERE id=? AND undone_at IS NULL")
@@ -314,6 +319,21 @@ mod tests {
         sqlx::query("INSERT INTO recognition_history(id,target_work_id,target_title,file_count,scope_json,before_json,after_json,created_at,undone_at) VALUES('old','w','作品',1,'{}','{}','{}','now','later')").execute(&pool).await.unwrap();
         assert_eq!(background_operation(&pool, "w", false).await.unwrap(), Some("old".into()));
         assert_eq!(background_operation(&pool, "w", true).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn work_history_filters_by_identity_and_keeps_global_history() {
+        let pool = db::test_pool().await.unwrap();
+        for (id, target, timestamp, undone) in [("a", "first", "2026-01-01", None), ("b", "second", "2026-01-02", None), ("c", "first", "2026-01-03", Some("later"))] {
+            sqlx::query("INSERT INTO recognition_history(id,target_work_id,target_title,file_count,scope_json,before_json,after_json,created_at,undone_at) VALUES(?,?,'同名作品',1,'{}','{}','{}',?,?)")
+                .bind(id).bind(target).bind(timestamp).bind(undone).execute(&pool).await.unwrap();
+        }
+        let first = list_for_work(&pool, "first").await.unwrap();
+        assert_eq!(first.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), vec!["c", "a"]);
+        assert!(first[0].undone_at.is_some());
+        assert_eq!(list_for_work(&pool, "second").await.unwrap().len(), 1);
+        assert!(list_for_work(&pool, "missing").await.unwrap().is_empty());
+        assert_eq!(list(&pool).await.unwrap().len(), 3);
     }
 
 }

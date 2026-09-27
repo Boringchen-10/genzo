@@ -89,7 +89,7 @@ export interface GenzoDataProvider {
   recognizeUnmatched(kind?: import("../types").RecognitionKind, mediaFileIds?: string[]): Promise<RecognitionSummary>;
   listMatchCandidates(mediaFileId: string): Promise<MatchCandidate[]>;
   confirmMatch(mediaFileId: string, candidateId: string, selectedMediaIds?: string[], groupScope?: RecognitionGroupScope): Promise<string>;
-  listRecognitionHistory?(): Promise<RecognitionHistoryEntry[]>;
+  listRecognitionHistory?(workId?: string): Promise<RecognitionHistoryEntry[]>;
   undoRecognition?(id: string): Promise<void>;
   cancelMatch(mediaFileId: string): Promise<void>;
   setFieldLock(workId: string, field: string, locked: boolean): Promise<void>;
