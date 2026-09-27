@@ -7,3 +7,14 @@
 .episode-artwork-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .episode-artwork-preview img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; }
 .episode-artwork-actions { padding: 0 20px 16px; flex-wrap: wrap; }
+.episode-artwork-search { display: flex; align-items: end; gap: 8px; margin: 12px 0; }
+.episode-artwork-search > input, .episode-artwork-search > label { flex: 1; min-width: 0; }
+.episode-artwork-candidates { display: grid; gap: 6px; max-height: 180px; overflow: auto; }
+.episode-artwork-candidates button { display: grid; justify-items: start; text-align: left; white-space: normal; }
+.episode-artwork-candidates span { color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
+.episode-artwork-candidates .selected { border-color: var(--accent); }
+.episode-artwork-offset { margin-top: 12px; }
+.episode-artwork-advanced { margin: 12px 0; font-size: 12px; color: var(--muted); }
+.episode-artwork-advanced summary { cursor: pointer; }
+.episode-artwork-correspondence { max-height: 160px; overflow: auto; margin-top: 12px; font-size: 12px; }
+.episode-artwork-correspondence > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 5px 0; }

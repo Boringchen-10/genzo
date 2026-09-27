@@ -45,8 +45,10 @@ function artworkAssets(value: import("./episodeArtwork").EpisodeArtwork): import
 export const episodeArtworkApi: import("./episodeArtwork").EpisodeArtworkProvider = {
   get: async (workId) => artworkAssets(await call("get_episode_artwork", { workId })),
   refresh: async (workId, fresh = false) => artworkAssets(await call("refresh_episode_artwork", { workId, fresh })),
-  preview: (workId, seriesId, seasonNumber) => call("preview_episode_artwork_source", { workId, seriesId, seasonNumber }),
-  set: (workId, seriesId, seasonNumber, expectedAnchor) => call("set_episode_artwork_source", { workId, seriesId, seasonNumber, expectedAnchor }),
+  search: (workId, query) => call("search_episode_artwork_sources", { workId, query: query ?? null }),
+  seasons: (seriesId) => call("list_episode_artwork_seasons", { seriesId }),
+  preview: (workId, seriesId, seasonNumber, episodeOffset) => call("preview_episode_artwork_source", { workId, seriesId, seasonNumber, episodeOffset: episodeOffset ?? null }),
+  set: (workId, seriesId, seasonNumber, expectedAnchor, episodeOffset) => call("set_episode_artwork_source", { workId, seriesId, seasonNumber, expectedAnchor, episodeOffset: episodeOffset ?? null }),
   cache: async (workId, episodeKey) => localAssetUrl(await call<string | null>("cache_episode_artwork", { workId, episodeKey })) ?? null,
 };
 

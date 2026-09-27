@@ -3,7 +3,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { mkdir } from "node:fs/promises";
 import assert from "node:assert/strict";
-const output = "artifacts/episode-artwork";
+const output = "artifacts/episode-alignment";
 await mkdir(output, { recursive: true });
 const imageMiddleware = (req, res, next) => {
   if (req.url === "/qa-broken") { res.statusCode = 404; return res.end(); }
@@ -29,7 +29,7 @@ try {
     const files = [1,2,3,4].map(n => ({ id:'f'+n, workId:'w', libraryRootId:'r', path:'\\\\?\\UNC\\server\\Show\\0'+n+'.mkv', fileName:'Show S02E0'+n+'.mkv', extension:'mkv', mediaType:'video', size:1000000, missing:false, createdAt:now, updatedAt:now, parsedEpisode:String(n), thumbnailPath:n===4?'/qa-blue':null, recognitionStatus:'matched' }));
     const work = { id:'w', title:'多源分集剧照回退测试', type:'video', category:'anime', status:'planned', favorite:false, rating:null, description:'', notes:'', tags:[], coverPath:null, mediaFiles:files, subtitleLinks:[], fieldLocks:[], candidates:[], metadataStatus:'matched', metadata:{provider:'bangumi',externalId:'subject',title:'主源作品'} };
     const structure = {workId:'w', bangumiId:'subject', seasons:[], staff:[], characters:[], warnings:[], unmatchedFiles:[], episodes:files.map((f,i)=>({provider:'bangumi',externalId:'ep'+(i+1),episodeNumber:i+1,sortNumber:i+1,episodeType:0,title:'官方分集 '+(i+1),description:'',airDate:'2024-01-01',fetchedAt:now,imageUrl:null,localFiles:[f]}))};
-    const result = () => ({anchor:'bangumi:subject', source:window.__savedSource ?? {anchor:'bangumi:subject',seriesId:42,seasonNumber:2,method:'verified'}, images:window.__savedSource ? {'bangumi:ep1':'/qa-green','bangumi:ep2':'/qa-green'} : {'bangumi:ep1':'/qa-broken','bangumi:ep2':'/qa-broken'}, cachedImages:{'bangumi:ep1':'/qa-green'},warnings:[],sourceTitle:'测试来源'});
+    const result = () => ({anchor:'bangumi:subject', source:window.__savedSource ?? {anchor:'bangumi:subject',seriesId:42,seasonNumber:2,method:'verified'}, images:window.__savedSource ? {'bangumi:ep1':'/qa-green','bangumi:ep2':'/qa-green'} : {'bangumi:ep1':'/qa-broken','bangumi:ep2':'/qa-broken'}, cachedImages:{'bangumi:ep1':'/qa-green'},warnings:[],sourceTitle:'测试来源',correspondence:window.__savedSource?[{episodeKey:'bangumi:ep1',localNumber:1,tmdbNumber:13,hasStill:true},{episodeKey:'bangumi:ep2',localNumber:2,tmdbNumber:14,hasStill:true}]:[]});
     window.__TAURI_INTERNALS__ = {convertFileSrc:p=>p, transformCallback:()=>1, unregisterCallback:()=>{}, invoke:async (cmd,args) => {
       window.__artCalls.push({cmd,args});
       if(cmd==='get_work') return args.id==='b'?{...work,id:'b',title:'另一作品',mediaFiles:[{...files[0],id:'bf',workId:'b',thumbnailPath:'/qa-blue'}]}:work;
@@ -41,8 +41,10 @@ try {
       }
       if(cmd==='get_media_thumbnail') return args.mediaFileId==='f2'?'/qa-blue':null;
       if(cmd==='cache_episode_artwork') return null;
-      if(cmd==='preview_episode_artwork_source') return {...result(),source:{anchor:'bangumi:subject',seriesId:args.seriesId,seasonNumber:args.seasonNumber,method:'manual'},images:{'bangumi:ep1':'/qa-green','bangumi:ep2':'/qa-green'},sourceTitle:'已核对的测试作品 · 第 '+args.seasonNumber+' 季'};
-      if(cmd==='set_episode_artwork_source') { if(location.search.includes('manual-delay')) await new Promise(r=>setTimeout(r,650)); window.__savedSource={anchor:args.expectedAnchor,seriesId:args.seriesId,seasonNumber:args.seasonNumber,method:'manual'}; return result(); }
+      if(cmd==='search_episode_artwork_sources') { if(location.search.includes('search-delay')) await new Promise(r=>setTimeout(r,650)); return {candidates:[{seriesId:43,title:'已核对的测试作品',originalTitle:'Test series',airDate:'2023-04-01',confidence:1}],warnings:[]}; }
+      if(cmd==='list_episode_artwork_seasons') return {title:'已核对的测试作品',seasons:[{seasonNumber:3,name:'第 3 季',episodeCount:25,airDate:'2023-04-01'}],warnings:[]};
+      if(cmd==='preview_episode_artwork_source') return {...result(),source:{anchor:'bangumi:subject',seriesId:args.seriesId,seasonNumber:args.seasonNumber,episodeOffset:args.episodeOffset ?? 12,method:'manual'},images:{'bangumi:ep1':'/qa-green','bangumi:ep2':'/qa-green'},sourceTitle:'已核对的测试作品 · 第 '+args.seasonNumber+' 季',correspondence:[{episodeKey:'bangumi:ep1',localNumber:1,tmdbNumber:13,hasStill:true},{episodeKey:'bangumi:ep2',localNumber:2,tmdbNumber:14,hasStill:true}]};
+      if(cmd==='set_episode_artwork_source') { if(location.search.includes('manual-delay')) await new Promise(r=>setTimeout(r,650)); window.__savedSource={anchor:args.expectedAnchor,seriesId:args.seriesId,seasonNumber:args.seasonNumber,episodeOffset:args.episodeOffset ?? 12,method:'manual'}; return result(); }
       if(cmd==='get_playback_progress') return {items:[],sessions:[]};
       if(cmd==='get_setting') return 'dark';
       if(cmd.startsWith('list_')) return [];
@@ -67,18 +69,20 @@ try {
     assert.equal(calls.some(c=>c.cmd==='get_media_thumbnail'&&c.args.mediaFileId==='f1'),false,'TMDB cache prevents mount reads');
     assert.equal(calls.some(c=>c.cmd==='get_media_thumbnail'&&c.args.mediaFileId==='f4'),false,'existing thumbnail needs no extraction');
     await page.getByRole('button',{name:'选择剧照来源',exact:true}).click();
-    await page.getByLabel('TMDB 电视剧 ID').fill('43');
-    await page.getByLabel('TMDB 季数').fill('3');
+    await page.getByRole('button',{name:/已核对的测试作品.*Test series/}).click();
+    assert.equal(await page.getByLabel('TMDB 实际季度').inputValue(),'3');
     assert.equal(await page.getByRole('button',{name:'使用此来源'}).isEnabled(),false);
-    await page.getByRole('button',{name:'预览剧照'}).click();
+    await page.getByRole('button',{name:'预览对应'}).click();
     await page.getByText('已核对的测试作品 · 第 3 季 · 2 集有剧照').waitFor();
+    await page.getByText('本作品第 1 集 → TMDB 第 3 季第 13 集',{exact:true}).waitFor();
     assert.equal(await page.evaluate(()=>window.__artCalls.some(c=>c.cmd==='set_episode_artwork_source')),false);
     assert.equal(await page.evaluate(()=>[...document.querySelectorAll('.modal,.modal-body')].some(e=>e.scrollWidth>e.clientWidth+2)),false);
     await page.screenshot({path:output+'/'+width+'x'+height+'.png'});
     await page.getByRole('button',{name:'使用此来源'}).click();
-    await page.getByText('分集剧照：TMDB · 第 3 季（手动）',{exact:true}).waitFor();
+    await page.getByText('分集剧照：TMDB · 第 3 季 · 第 13–14 集（手动）',{exact:true}).waitFor();
     await page.screenshot({path:output+'/cards-'+width+'.png'});
     assert.equal(await page.evaluate(()=>window.__artCalls.filter(c=>c.cmd==='set_episode_artwork_source').at(-1).args.expectedAnchor),'bangumi:subject');
+    assert.equal(await page.evaluate(()=>window.__artCalls.filter(c=>c.cmd==='set_episode_artwork_source').at(-1).args.episodeOffset),12);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false);
     console.log(width+'x'+height+': cache, thumbnail, placeholder and explicit source selection passed');
   }
@@ -93,8 +97,11 @@ try {
   console.log('late work-A supplementation cannot replace work-B images');
   await page.goto('http://127.0.0.1:4194/?manual-delay#/library/w',{waitUntil:'domcontentloaded'});
   await page.getByRole('button',{name:'选择剧照来源',exact:true}).click();
+  await page.getByRole('button',{name:/已核对的测试作品.*Test series/}).waitFor();
+  await page.getByText('按 TMDB ID 指定来源',{exact:true}).click();
   await page.getByLabel('TMDB 电视剧 ID').fill('43');
-  await page.getByRole('button',{name:'预览剧照'}).click();
+  await page.getByRole('button',{name:'读取季度'}).click();
+  await page.getByRole('button',{name:'预览对应'}).click();
   await page.getByRole('button',{name:'使用此来源'}).click();
   await page.evaluate(()=>{location.hash='/library/b';});
   await page.getByText('另一作品',{exact:true}).first().waitFor();
@@ -102,6 +109,14 @@ try {
   assert.equal(await page.locator('.official-episode img').first().getAttribute('src'),'/qa-blue');
   assert.equal(await page.getByText('分集封面：文件缩略图',{exact:true}).count(),1);
   console.log('late manual confirmation cannot overwrite work-B artwork');
+  await page.goto('http://127.0.0.1:4194/?search-delay#/library/w',{waitUntil:'domcontentloaded'});
+  await page.getByRole('button',{name:'选择剧照来源',exact:true}).click();
+  await page.evaluate(()=>{location.hash='/library/b';});
+  await page.getByText('另一作品',{exact:true}).first().waitFor();
+  await page.waitForTimeout(800);
+  assert.equal(await page.getByRole('button',{name:'搜索作品'}).count(),0);
+  assert.equal(await page.getByText('分集封面：文件缩略图',{exact:true}).count(),1);
+  console.log('late source search cannot reopen another work dialog');
 } catch (error) {
   if (failurePage) { console.error(await failurePage.evaluate(()=>({calls:window.__artCalls,images:[...document.querySelectorAll('.official-episode img')].map(e=>e.getAttribute('src')),body:document.body.innerText.slice(-4000)}))); await failurePage.screenshot({path:output+'/failure.png'}); }
   throw error;

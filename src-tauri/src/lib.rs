@@ -65,6 +65,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             episode_artwork::get_episode_artwork,
+            episode_artwork::search_episode_artwork_sources,
+            episode_artwork::list_episode_artwork_seasons,
             episode_artwork::refresh_episode_artwork,
             episode_artwork::preview_episode_artwork_source,
             episode_artwork::set_episode_artwork_source,
