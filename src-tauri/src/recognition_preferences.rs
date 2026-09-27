@@ -246,7 +246,9 @@ async fn prepare(
         .bind(&input.target_work_id).bind(provider).fetch_all(&mut **tx).await?;
     if let Some((_, id)) = anchors
         .iter()
-        .find(|(p, id)| p == "tmdb" && id.starts_with("tv/"))
+        // A Bangumi work may have a series-only TMDB supplement or a different
+        // TMDB season layout. Only a TMDB primary can constrain its season.
+        .find(|(p, id)| provider == "tmdb" && p == "tmdb" && id.starts_with("tv/"))
     {
         let anchor = crate::film_tv::Anchor::parse(id)?;
         expected_season = anchor.season;
@@ -546,6 +548,37 @@ mod tests {
     async fn preview(pool: &SqlitePool, i: &CorrectionInput) -> CorrectionPreview {
         let mut tx = pool.begin().await.unwrap();
         prepare(&mut tx, i).await.unwrap().0
+    }
+    #[tokio::test]
+    async fn bangumi_batch_ignores_tmdb_series_supplement_and_different_supplement_season() {
+        for supplement in ["tv/42", "tv/42/season/2"] {
+            let pool = fixture().await;
+            sqlx::query("INSERT INTO work_external_ids(work_id,provider,external_id,created_at,updated_at) VALUES('s1','tmdb',?,'now','now')").bind(supplement).execute(&pool).await.unwrap();
+            sqlx::query("UPDATE media_files SET file_name='想要成为影之实力者！ - S01E05 - 吾为.mkv' WHERE id='a'").execute(&pool).await.unwrap();
+            sqlx::query("UPDATE media_files SET file_name='想要成为影之实力者！ - S01E06 - 假冒者.mkv' WHERE id='b'").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,episode_type,sort_number,title,fetched_at) VALUES('s1','bangumi','ep5',5,0,5,'第五集','now'),('s1','bangumi','ep6',6,0,6,'第六集','now'),('s1','tmdb','other5',5,0,5,'补源第五集','now')").execute(&pool).await.unwrap();
+            let mut i=input(); i.target_work_id="s1".into(); i.mode="parsed".into(); i.season=Some(1);
+            let p=preview(&pool,&i).await;
+            assert_eq!(p.rows.iter().map(|r| r.episode).collect::<Vec<_>>(),vec![Some(5),Some(6)]);
+            assert!(p.rows.iter().all(|r| r.official_title.as_deref().is_some_and(|s| !s.starts_with("补源"))));
+            let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM media_episode_links").fetch_one(&pool).await.unwrap(); assert_eq!(count,0,"preview must not write links");
+            apply(&pool,&i,&p.token).await.unwrap();
+            let links:Vec<(String,String)>=sqlx::query_as("SELECT provider,episode_external_id FROM media_episode_links ORDER BY media_file_id").fetch_all(&pool).await.unwrap();
+            assert_eq!(links,vec![("bangumi".into(),"ep5".into()),("bangumi".into(),"ep6".into())]);
+            let position:i64=sqlx::query_scalar("SELECT position_ms FROM playback_progress WHERE media_file_id='a'").fetch_one(&pool).await.unwrap(); assert_eq!(position,12345);
+            let id:String=sqlx::query_scalar("SELECT external_id FROM work_external_ids WHERE work_id='s1' AND provider='tmdb'").fetch_one(&pool).await.unwrap(); assert_eq!(id,supplement);
+        }
+    }
+    #[tokio::test]
+    async fn tmdb_primary_batch_still_validates_anchor_and_season() {
+        let pool=fixture().await;
+        sqlx::query("UPDATE work_external_ids SET provider='tmdb',external_id='tv/42/season/2' WHERE work_id='s1'").execute(&pool).await.unwrap();
+        let mut i=input(); i.target_work_id="s1".into(); i.mode="parsed".into(); i.season=Some(1);
+        let mut tx=pool.begin().await.unwrap();
+        assert!(prepare(&mut tx,&i).await.err().unwrap().to_string().contains("季度")); tx.rollback().await.unwrap();
+        sqlx::query("UPDATE work_external_ids SET external_id='tv/42' WHERE work_id='s1'").execute(&pool).await.unwrap();
+        let mut tx=pool.begin().await.unwrap();
+        assert!(prepare(&mut tx,&i).await.err().unwrap().to_string().contains("影视条目 ID 无效"));
     }
     #[tokio::test]
     async fn filename_batch_reparses_stale_columns_and_keeps_unselected_progress() {
