@@ -155,6 +155,7 @@ pub struct CorrectionRow {
     pub file_name: String,
     pub from_title: Option<String>,
     pub episode: Option<i64>,
+    pub season: Option<i64>,
     pub episode_type: i64,
     pub old_episode: Option<String>,
     pub official_title: Option<String>,
@@ -176,7 +177,7 @@ async fn prepare(
     if input.media_file_ids.is_empty()
         || input.media_file_ids.len() > 500
         || input.media_file_ids.iter().collect::<HashSet<_>>().len() != input.media_file_ids.len()
-        || !["keep", "sequence", "unlink"].contains(&input.mode.as_str())
+        || !["keep", "sequence", "parsed", "unlink"].contains(&input.mode.as_str())
         || !(0..=9999).contains(&input.start_episode)
         || !(0..=6).contains(&input.episode_type)
         || input.season.is_some_and(|s| !(0..=999).contains(&s))
@@ -228,11 +229,13 @@ async fn prepare(
     .bind(provider)
     .fetch_optional(&mut **tx)
     .await?;
+    let mut expected_season = None;
     if provider == "bangumi" {
         let expected = metadata
             .as_deref()
             .and_then(|s| serde_json::from_str::<crate::models::WorkMetadata>(s).ok())
-            .and_then(|m| m.season);
+            .and_then(|m| crate::anime_details::metadata_season(&m));
+        expected_season = expected;
         if input.season.is_some() && expected.is_some() && input.season != expected {
             return Err(AppError::Validation(
                 "目标动漫条目的季度与填写的季度不一致，请选择正确作品".into(),
@@ -246,6 +249,7 @@ async fn prepare(
         .find(|(p, id)| p == "tmdb" && id.starts_with("tv/"))
     {
         let anchor = crate::film_tv::Anchor::parse(id)?;
+        expected_season = anchor.season;
         if input.season.is_some() && input.season != anchor.season {
             return Err(AppError::Validation(
                 "目标作品季度与填写的季度不一致，请选择正确季度的作品".into(),
@@ -266,8 +270,24 @@ async fn prepare(
             .await?;
     let mut rows = Vec::new();
     let mut unmatched = 0;
+    let mut parsed_seasons = HashSet::new();
     for (index, file) in files.iter().enumerate() {
+        let parsed = crate::anime_parser::parse_media_path(&file.file_name,
+            Path::new(&crate::remote_storage::display_path(&file.path)), None);
+        if input.mode == "parsed" {
+            let target_season = input.season.or(expected_season);
+            if target_season.is_some() && parsed.season.is_some() && target_season != parsed.season {
+                return Err(AppError::Validation(format!("{} 的季度与目标作品不一致，请取消勾选并分季处理", file.file_name)));
+            }
+            if let Some(season) = parsed.season { parsed_seasons.insert(season); }
+            if parsed.episode_start.is_none() || parsed.invalid_episode_range
+                || parsed.episode_end.is_some_and(|end| Some(end) != parsed.episode_start)
+                || parsed.episode.as_deref().is_some_and(|number| number.parse::<i64>().is_err()) {
+                return Err(AppError::Validation(format!("{} 没有明确的单集编号，请取消勾选后单独处理", file.file_name)));
+            }
+        }
         let episode = match input.mode.as_str() {
+            "parsed" => parsed.episode_start.map(i64::from),
             "sequence" => Some(input.start_episode + index as i64),
             "unlink" => None,
             _ => {
@@ -290,7 +310,14 @@ async fn prepare(
                 }
             }
         };
-        let episode_type = if input.mode == "keep" {
+        let episode_type = if input.mode == "parsed" {
+            match parsed.special_type.as_deref() {
+                Some("NCOP" | "OP") => 2,
+                Some("NCED" | "ED") => 3,
+                Some(_) => 1,
+                None => 0,
+            }
+        } else if input.mode == "keep" {
             old_numbers
                 .iter()
                 .find(|r| r.0 == file.id)
@@ -328,12 +355,19 @@ async fn prepare(
                 .find(|o| Some(&o.0) == file.work_id.as_ref())
                 .map(|o| o.1.clone()),
             episode,
+            season: if input.mode == "parsed" { input.season.or(parsed.season).or(expected_season) } else { input.season },
             episode_type,
             old_episode: file.parsed_episode.clone(),
             official_title,
         });
     }
     let mut warnings = vec![];
+    if input.mode == "parsed" {
+        if parsed_seasons.len() > 1 {
+            return Err(AppError::Validation("勾选的视频包含不同季度，请分季选择目标作品，不会把整组归为同一季".into()));
+        }
+        warnings.push("重新读取文件名与所在目录的季集标记；只修改勾选文件，请核对季度、集号及特别篇类型。".into());
+    }
     if unmatched > 0 {
         warnings.push(format!("{unmatched} 个文件没有唯一的官方分集，将保存人工集号，元数据恢复后再关联；不会创建占位分集。"));
     }
@@ -428,7 +462,7 @@ async fn apply(pool: &SqlitePool, input: &CorrectionInput, token: &str) -> AppRe
             .bind(&input.target_work_id).bind(&now).bind(&now).bind(&row.id).execute(&mut *tx).await?;
         // Freeze precisely the reviewed mapping, including an explicitly unmapped result.
         sqlx::query("INSERT INTO media_episode_overrides(media_file_id,work_id,season,episode,episode_type,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(media_file_id) DO UPDATE SET work_id=excluded.work_id,season=excluded.season,episode=excluded.episode,episode_type=excluded.episode_type,updated_at=excluded.updated_at")
-            .bind(&row.id).bind(&input.target_work_id).bind(input.season).bind(row.episode).bind(row.episode_type).bind(&now).execute(&mut *tx).await?;
+            .bind(&row.id).bind(&input.target_work_id).bind(row.season).bind(row.episode).bind(row.episode_type).bind(&now).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM match_candidates WHERE media_file_id=?")
             .bind(&row.id)
             .execute(&mut *tx)
@@ -512,6 +546,73 @@ mod tests {
     async fn preview(pool: &SqlitePool, i: &CorrectionInput) -> CorrectionPreview {
         let mut tx = pool.begin().await.unwrap();
         prepare(&mut tx, i).await.unwrap().0
+    }
+    #[tokio::test]
+    async fn filename_batch_reparses_stale_columns_and_keeps_unselected_progress() {
+        let pool = fixture().await;
+        sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,episode_type,sort_number,title,fetched_at) VALUES('s1','bangumi','ep1',1,0,1,'第一集','now'),('s1','bangumi','ep2',2,0,2,'第二集','now'),('s1','bangumi','ed1',1,3,3,'片尾','now')")
+            .execute(&pool).await.unwrap();
+        let mut i = input();
+        i.target_work_id = "s1".into();
+        i.mode = "parsed".into();
+        i.season = Some(1);
+        i.media_file_ids.push("e".into());
+        let p = preview(&pool, &i).await;
+        let rows: Vec<_> = p.rows.iter().map(|r| (r.id.as_str(),r.episode,r.episode_type)).collect();
+        assert!(rows.contains(&("b",Some(2),0)));
+        assert!(rows.contains(&("e",Some(1),3)));
+        assert!(p.rows.iter().all(|r| r.official_title.is_some()));
+        apply(&pool, &i, &p.token).await.unwrap();
+        let links: Vec<(String,String)> = sqlx::query_as("SELECT media_file_id,episode_external_id FROM media_episode_links ORDER BY media_file_id")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(links, vec![("a".into(),"ep1".into()),("b".into(),"ep2".into()),("e".into(),"ed1".into())]);
+        let position: i64 = sqlx::query_scalar("SELECT position_ms FROM playback_progress WHERE media_file_id='a'").fetch_one(&pool).await.unwrap();
+        assert_eq!(position,12345);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_episode_overrides WHERE media_file_id IN ('c','d')").fetch_one(&pool).await.unwrap();
+        assert_eq!(count,0);
+    }
+
+    #[tokio::test]
+    async fn filename_batch_rejects_mixed_seasons_and_ambiguous_ranges() {
+        let pool = fixture().await;
+        let mut i = input();
+        i.mode = "parsed".into();
+        i.target_work_id = "s1".into();
+        i.season = None;
+        i.media_file_ids = vec!["a".into(),"d".into()];
+        let mut tx = pool.begin().await.unwrap();
+        assert!(prepare(&mut tx,&i).await.is_err());
+        tx.rollback().await.unwrap();
+        i.media_file_ids = vec!["d".into()];
+        i.season = Some(1);
+        let mut tx = pool.begin().await.unwrap();
+        assert!(prepare(&mut tx,&i).await.is_err());
+        tx.rollback().await.unwrap();
+        sqlx::query("UPDATE media_files SET file_name='Show [01-02].mkv' WHERE id='a'").execute(&pool).await.unwrap();
+        i.media_file_ids = vec!["a".into()];
+        let mut tx = pool.begin().await.unwrap();
+        assert!(prepare(&mut tx,&i).await.is_err());
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn filename_batch_retains_offline_numbers_until_unique_episodes_return() {
+        let pool = fixture().await;
+        let mut i = input();
+        i.mode = "parsed".into();
+        i.target_work_id = "s1".into();
+        i.season = Some(1);
+        let p = preview(&pool,&i).await;
+        assert!(p.rows.iter().all(|r| r.official_title.is_none()));
+        apply(&pool,&i,&p.token).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM anime_episodes").fetch_one(&pool).await.unwrap();
+        assert_eq!(count,0);
+        sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,episode_type,sort_number,title,fetched_at) VALUES('s1','bangumi','ep1',1,0,1,'第一集','now'),('s1','bangumi','ep2',2,0,2,'第二集','now')").execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        crate::anime_details::rebuild_episode_links(&mut tx,"s1").await.unwrap();
+        tx.commit().await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_episode_links").fetch_one(&pool).await.unwrap();
+        assert_eq!(count,2);
     }
     #[tokio::test]
     async fn offline_correction_preserves_progress_restores_official_links_and_can_undo() {

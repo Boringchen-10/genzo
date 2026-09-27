@@ -530,19 +530,20 @@ fn extract_aliases(value: &Value, title: &str, original: Option<&str>) -> Vec<St
 }
 
 fn extract_season(value: &Value) -> Option<i64> {
-    let name = value
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let re = regex::Regex::new(r"(?i)(?:season\s*|\sS)(\d{1,2})\b").expect("static regex");
-    re.captures(name)
-        .and_then(|captures| captures.get(1))
-        .and_then(|m| m.as_str().parse().ok())
+    ["name_cn", "name"].into_iter().filter_map(|key| value.get(key).and_then(Value::as_str))
+        .find_map(|name| crate::anime_parser::parse_folder_name(name).season)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preserves_explicit_chinese_and_ordinal_seasons() {
+        for (name, name_cn) in [("Show 2nd season", "作品 第二季"), ("Show Season 2", "作品"), ("Show", "作品 第2季")] {
+            assert_eq!(extract_season(&json!({"name": name, "name_cn": name_cn})), Some(2));
+        }
+        assert_eq!(extract_season(&json!({"name": "Show", "name_cn": "作品"})), None);
+    }
     #[test]
     fn maps_subject_json() {
         let value = json!({"id": 123, "name": "Sousou no Frieren", "name_cn": "葬送的芙莉莲", "summary": "简介", "date": "2023-09-29", "platform": "TV", "images": {"large": "https://lain.bgm.tv/pic/cover/l/test.jpg"}, "tags": [{"name": "奇幻"}], "rating": {"rank": 42, "total": 36198, "score": 8.5}, "collection": {"wish": 10, "collect": 20, "doing": 5}});

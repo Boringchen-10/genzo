@@ -189,6 +189,7 @@ export function WorkDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionSelection, setCorrectionSelection] = useState<string[] | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notesSaving, setNotesSaving] = useState(false);
@@ -613,7 +614,7 @@ export function WorkDetailPage() {
                 {isCompleted ? "已完成" : "标记为已完成"}
               </button>
               <button type="button" className="button secondary icon-text" onClick={() => void openAttach()}><FilePlus2 size={16} />关联文件</button>
-              {work.type === "video" && api.previewMediaCorrection ? <button type="button" className="button secondary" onClick={() => setCorrectionOpen(true)}>批量纠错</button> : null}
+              {work.type === "video" && api.previewMediaCorrection ? <button type="button" className="button secondary" onClick={() => { setCorrectionSelection(null); setCorrectionOpen(true); }}>批量纠错</button> : null}
               <RetryImagesButton />
             </div>
           </div>
@@ -803,6 +804,7 @@ export function WorkDetailPage() {
                   <div className="unmatched-block">
                     <div className="unmatched-head">
                       <h3>未匹配文件</h3>
+                      {api.previewMediaCorrection && structure?.unmatchedFiles.some(file => !file.missing) ? <button type="button" className="button compact secondary" onClick={() => { setCorrectionSelection(structure.unmatchedFiles.filter(file => !file.missing).slice(0, 500).map(file => file.id)); setCorrectionOpen(true); }}>批量按文件名关联</button> : null}
                       <span>
                         {structure?.unmatchedFiles.length ?? 0} 个
                         {unmatchedStaleCount ? ` · ${unmatchedStaleCount} 个记录已失效` : ""}
@@ -1031,7 +1033,7 @@ export function WorkDetailPage() {
         </Modal>
       ) : null}
       {editOpen ? <Modal title="编辑作品" width="large" onClose={() => setEditOpen(false)}><WorkForm work={work} busy={saving} onCancel={() => setEditOpen(false)} onSubmit={update} /></Modal> : null}
-      {correctionOpen ? <MediaCorrectionDialog files={work.mediaFiles} sourceWorkId={work.id} onClose={() => setCorrectionOpen(false)} onSaved={() => { setCorrectionOpen(false); void load(); void reloadStructure(); }} /> : null}
+      {correctionOpen ? <MediaCorrectionDialog files={correctionSelection == null ? work.mediaFiles : structure?.unmatchedFiles ?? []} sourceWorkId={work.id} initialSelected={correctionSelection ?? []} initialMode={correctionSelection == null ? "keep" : "parsed"} onClose={() => setCorrectionOpen(false)} onSaved={() => { setCorrectionOpen(false); void load(); void reloadStructure(); }} /> : null}
       {attachOpen ? (
         <Modal title="关联媒体文件" width="large" onClose={() => setAttachOpen(false)}>
           {attachLoading ? <LoadingState label="正在读取可关联文件" /> : attachError ? <ErrorState message={attachError} retry={() => void openAttach()} /> : <MediaFileBrowser files={unassigned} roots={attachRoots} busy={busyFile === "attach-batch"} onAttach={attach} />}

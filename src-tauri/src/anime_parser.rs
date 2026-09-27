@@ -152,11 +152,13 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
     if text.contains("劇場版") || text.contains("剧场版") || text.contains("映画") {
         parsed.special_type = Some("MOVIE".to_string());
     }
-    let combined = cached_regex!(r"(?i)\bS(\d{1,2})E(\d{1,4})\b");
+    let combined = cached_regex!(r"(?i)(?:^|[^a-z0-9])(?P<marker>S(?P<season>\d{1,2})E(?P<episode>\d{1,4}))(?:$|[^a-z0-9])");
+    let has_explicit_episode = combined.is_match(&text);
     if let Some(caps) = combined.captures(&text) {
-        parsed.season = caps[1].parse().ok();
-        set_episode_range(&mut parsed, caps[2].parse().ok(), None);
-        text = combined.replace_all(&text, " ").to_string();
+        parsed.season = caps["season"].parse().ok();
+        set_episode_range(&mut parsed, caps["episode"].parse().ok(), None);
+        let marker = caps.name("marker").expect("season/episode marker");
+        text.replace_range(marker.start()..marker.end(), " ");
     }
     let chinese_season = cached_regex!(r"第([一二三四五六七八九十\d]+)季");
     if let Some(caps) = chinese_season.captures(&text) {
@@ -180,7 +182,7 @@ pub fn parse_file_name(file_name: &str) -> ParsedAnime {
     text = collection_count_re.replace_all(&text, " ").to_string();
     let episode_re =
         cached_regex!(r"(?i)(?:^|\s|[-])(?:EP?|#)?\s*(\d{1,4})(?:\s*[-~]\s*(\d{1,4}))?(?:\s|$)");
-    if let Some(caps) = episode_re.captures_iter(&text).last() {
+    if let Some(caps) = episode_re.captures_iter(&text).last().filter(|_| !has_explicit_episode) {
         set_episode_range(
             &mut parsed,
             caps.get(1).and_then(|value| value.as_str().parse().ok()),
@@ -481,6 +483,24 @@ pub fn score_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_season_episode_survives_collection_directory_and_episode_title() {
+        for season in [1, 2] {
+            for episode in [5, 6, 7, 8, 9, 10] {
+                let name = format!("想要成为影之实力者！ - S{season:02}E{episode:02} - 假冒者.mkv");
+                let path = format!(r"\\?\UNC\RaiDrive-Administrator\电影\【 4k 】x 想要成为影之实力者！1-2季+剧场版\Season {season}\{name}");
+                let parsed = parse_media_path(&name, Path::new(&path), None);
+                assert_eq!(parsed.season, Some(season), "{parsed:?}");
+                assert_eq!(parsed.episode_start, Some(episode), "{parsed:?}");
+                assert_eq!(parsed.special_type, None, "{parsed:?}");
+            }
+        }
+        let adjacent = parse_file_name("想要成为影之实力者！S02E05假冒者.mkv");
+        assert_eq!((adjacent.season, adjacent.episode_start), (Some(2), Some(5)));
+        assert!(adjacent.title.unwrap().contains("假冒者"));
+        let numbered_title = parse_file_name("Show S01E05 - 2024.mkv");
+        assert_eq!(numbered_title.episode_start, Some(5));
+    }
     #[test]
     fn bracketed_credits_and_fractional_episodes_do_not_become_normal_episodes() {
         for (token, kind, number) in [("NCED01", "NCED", 1), ("NCOP02", "NCOP", 2), ("OAD01", "OAD", 1)] {

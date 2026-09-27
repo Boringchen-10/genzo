@@ -18,7 +18,9 @@ function App(){
  const [saved,setSaved]=useState(''); const [source,setSource]=useState('/qa-image?one');
  const images=new URLSearchParams(location.search).has('images');
  const memory=new URLSearchParams(location.search).has('memory');
- return images ? React.createElement('div',{},React.createElement(RetryImagesButton),React.createElement('button',{onClick:()=>setSource(previous=>previous==='/qa-image?one'?'/qa-image?two':'/qa-image?one')},'切换图片'),React.createElement(ResilientImage,{sources:[source,'/qa-cache'],alt:'测试封面',fallback:React.createElement('span',{},'图片占位')})) : React.createElement(React.Fragment,{},React.createElement('p',{'data-testid':'saved'},saved),memory?React.createElement(RecognitionDialog,{media:files[0],onClose:()=>{},onMatched:setSaved}):React.createElement(MediaCorrectionDialog,{files,sourceWorkId:'s1',onClose:()=>{},onSaved:setSaved}));
+ const filename=new URLSearchParams(location.search).has('filename');
+ const candidates=filename?files.map((f,i)=>({...f,fileName:'想要成为影之实力者！ - S0'+(i===2?2:1)+'E0'+(i+5)+' - 测试分集.mkv',parsedEpisode:'1',parsedEpisodeStart:1})):files;
+ return images ? React.createElement('div',{},React.createElement(RetryImagesButton),React.createElement('button',{onClick:()=>setSource(previous=>previous==='/qa-image?one'?'/qa-image?two':'/qa-image?one')},'切换图片'),React.createElement(ResilientImage,{sources:[source,'/qa-cache'],alt:'测试封面',fallback:React.createElement('span',{},'图片占位')})) : React.createElement(React.Fragment,{},React.createElement('p',{'data-testid':'saved'},saved),memory?React.createElement(RecognitionDialog,{media:files[0],onClose:()=>{},onMatched:setSaved}):React.createElement(MediaCorrectionDialog,{files:candidates,sourceWorkId:'s1',initialMode:filename?'parsed':'keep',initialSelected:filename?candidates.map(f=>f.id):[],onClose:()=>{},onSaved:setSaved}));
 } createRoot(document.getElementById('root')).render(React.createElement(App));`;
 const server = await createServer({ server: { host: "127.0.0.1", port: 4193, strictPort: true }, plugins: [{
   name: "isolated-recognition-ui", resolveId(id) { if (id === "virtual:recognition-qa") return "\0recognition-qa"; },
@@ -42,8 +44,8 @@ try {
       if(cmd==='list_recognition_group_members') return {members:[{id:'f0',workId:'s1',fileName:'Show [01].mkv',path:'C:/Show/01.mkv',mediaType:'video',parsedEpisode:'1',parsedSeason:1,missing:false}],linkedWorkId:null};
       if(cmd==='list_recognition_preferences') return [{id:'p1',workId:'s1',title:'第一季',kind:'anime',updatedAt:'now'},{id:'p2',workId:'s2',title:'第二季',kind:'anime',updatedAt:'now'}];
       if(cmd==='forget_recognition_preference') return null;
-      if(cmd==='preview_media_correction') return {token:'preview-token',title:'第二季',warnings:['暂无官方分集，将保留人工集号。'],rows:args.input.mediaFileIds.map((id,i)=>({id,fileName:'Show ['+(i+1)+'].mkv',episode:i+1,oldEpisode:'13',fromTitle:'第一季',officialTitle:null}))};
-      if(cmd==='apply_media_correction') return 's2';
+      if(cmd==='preview_media_correction') return {token:'preview-token',title:args.input.targetWorkId==='s1'?'第一季':'第二季',warnings:['暂无官方分集，将保留人工集号。'],rows:args.input.mediaFileIds.map((id,i)=>({id,fileName:'Show ['+(i+1)+'].mkv',season:args.input.season,episode:args.input.mode==='parsed'?i+5:i+1,oldEpisode:'13',fromTitle:'第一季',officialTitle:null}))};
+      if(cmd==='apply_media_correction') return args.input.targetWorkId;
       throw new Error('Unexpected mock command: '+cmd);
     }};
   });
@@ -65,6 +67,30 @@ try {
     await page.getByRole('button',{name:'确认保存'}).click();
     await page.getByTestId('saved').filter({hasText:'s2'}).waitFor();
     const calls=await page.evaluate(()=>window.__qaCalls); assert.equal(calls.filter(c=>c.cmd==='apply_media_correction').at(-1).args.token,'preview-token');
+  }
+  for(const [width,height] of [[1024,640],[1366,768],[1920,1080]]) {
+    await page.setViewportSize({width,height});
+    await page.goto('http://127.0.0.1:4193/__qa_recognition?filename');
+    await page.getByLabel('编号方式').selectOption('parsed');
+    await page.getByRole('button',{name:'仅选第 1 季'}).click();
+    assert.match(await page.locator('.correction-selection-head').first().innerText(),/已勾选 2 \/ 3/);
+    await page.getByLabel('目标季度（可选）').fill('1');
+    await page.getByRole('button',{name:'预览调整'}).click();
+    await page.getByLabel('批量纠错预览').waitFor();
+    assert.match(await page.locator('.correction-preview').innerText(),/第 1 季 · 第 5 集/);
+    assert.match(await page.locator('.correction-preview').innerText(),/第 1 季 · 第 6 集/);
+    assert.equal(await page.getByRole('button',{name:'确认保存'}).isEnabled(),false);
+    assert.equal(await page.evaluate(()=>window.__qaCalls.some(c=>c.cmd==='apply_media_correction')),false);
+    const overflow=await page.evaluate(()=>[...document.querySelectorAll('.modal,.modal-body,.media-correction')].some(e=>e.scrollWidth>e.clientWidth+2));
+    assert.equal(overflow,false);
+    await page.screenshot({path:artifactDir+'/filename-'+width+'x'+height+'.png'});
+    await page.getByText('我已核对文件范围、目标作品与逐行集号').click();
+    await page.getByRole('button',{name:'确认保存'}).click();
+    await page.getByTestId('saved').filter({hasText:'s1'}).waitFor();
+    const call=await page.evaluate(()=>window.__qaCalls.find(c=>c.cmd==='apply_media_correction'));
+    assert.equal(call.args.input.mode,'parsed');
+    assert.equal(call.args.input.season,1);
+    assert.deepEqual(call.args.input.mediaFileIds,['f0','f1']);
   }
   await page.goto('http://127.0.0.1:4193/__qa_recognition?memory');
   await page.getByLabel('已确认识别推荐').waitFor();

@@ -82,6 +82,13 @@ fn creditless_marker(file_name: &str) -> Option<u32> {
 }
 
 /// 作品锚定的 Bangumi 条目季数：同一文件夹里其它季度的文件不能算进本作品分集。
+pub(crate) fn metadata_season(metadata: &crate::models::WorkMetadata) -> Option<i64> {
+    metadata.season.or_else(|| {
+        std::iter::once(metadata.title.as_str()).chain(metadata.original_title.as_deref())
+            .find_map(|title| crate::anime_parser::parse_folder_name(title).season)
+    })
+}
+
 async fn work_anchor_season(
     transaction: &mut Transaction<'_, Sqlite>,
     work_id: &str,
@@ -94,7 +101,7 @@ async fn work_anchor_season(
     .await?;
     Ok(json
         .and_then(|value| serde_json::from_str::<crate::models::WorkMetadata>(&value).ok())
-        .and_then(|metadata| metadata.season))
+        .and_then(|metadata| metadata_season(&metadata)))
 }
 
 pub async fn rebuild_episode_links(
@@ -834,6 +841,35 @@ mod tests {
             sqlx::query_as("SELECT media_file_id, episode_external_id FROM media_episode_links")
                 .fetch_all(&pool).await.expect("links");
         assert_eq!(links, vec![("s1".to_string(), "ep2".to_string())]);
+    }
+
+    #[tokio::test]
+    async fn cached_chinese_season_maps_explicit_unc_episodes_without_touching_manual_links() {
+        let pool = db::test_pool().await.unwrap();
+        sqlx::query("INSERT INTO works(id,title,type,created_at,updated_at) VALUES('work','第二季','video','now','now')")
+            .execute(&pool).await.unwrap();
+        let mut metadata = crate::explore::lookup_title("葬送的芙莉莲").unwrap().remove(0);
+        metadata.season = None;
+        metadata.title = "想要成为影之实力者！ 第二季".into();
+        metadata.original_title = None;
+        sqlx::query("INSERT INTO metadata_provider_records(work_id,provider,external_id,title,confidence,response_json,fetched_at) VALUES('work','bangumi','test','第二季',1,?,'now')")
+            .bind(serde_json::to_string(&metadata).unwrap()).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO anime_episodes(work_id,provider,external_id,episode_number,episode_type,sort_number,title,fetched_at) VALUES('work','bangumi','ep5',5,0,5,'第五集','now')")
+            .execute(&pool).await.unwrap();
+        for (id, season) in [("s1",1),("s2",2),("manual",2)] {
+            let name = format!("想要成为影之实力者！ - S{season:02}E05 - 假冒者 [{id}].mkv");
+            let path = format!(r"\\?\UNC\RaiDrive-Administrator\电影\想要成为影之实力者！ 1-2季+剧场版\Season {season}\{name}");
+            sqlx::query("INSERT INTO media_files(id,work_id,path,file_name,extension,media_type,created_at,updated_at) VALUES(?,'work',?,?,'mkv','video','now','now')")
+                .bind(id).bind(path).bind(name).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO media_episode_links(media_file_id,work_id,provider,episode_external_id,match_method,confidence,updated_at) VALUES('manual','work','bangumi','ep5','manual',1,'now')")
+            .execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        rebuild_episode_links(&mut tx,"work").await.unwrap();
+        tx.commit().await.unwrap();
+        let links: Vec<(String,String)> = sqlx::query_as("SELECT media_file_id,match_method FROM media_episode_links ORDER BY media_file_id")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(links,vec![("manual".into(),"manual".into()),("s2".into(),"parsed".into())]);
     }
 
     #[tokio::test]
