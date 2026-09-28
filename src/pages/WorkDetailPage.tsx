@@ -8,6 +8,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import {
   AlertTriangle,
   ArrowLeft,
+  BookOpen,
   Check,
   ChevronRight,
   ExternalLink,
@@ -38,6 +39,7 @@ import { MediaCorrectionDialog } from "../components/MediaCorrectionDialog";
 import { RetryImagesButton } from "../components/ResilientImage";
 import { WorkForm } from "../components/WorkForm";
 import { MediaFileBrowser } from "../components/MediaFileBrowser";
+import { BookDetailSection } from "../components/BookDetailSection";
 import { useToasts } from "../store";
 import type { AnimeCharacter, AnimeCredit, AnimeEpisodeEntry, AnimeWorkStructure, ExternalTool, LibraryRoot, MediaFile, WorkDetail, WorkInput } from "../types";
 import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, workCategoryLabel, statusLabels } from "../utils";
@@ -602,9 +604,13 @@ export function WorkDetailPage() {
             <h1>{work.title}</h1>
             {work.originalTitle ? <p className="original-title">{work.originalTitle}</p> : null}
             <div className="detail-actions">
-              <button type="button" className="button primary icon-text" disabled={!continueFile || (continueFile.missing && !continueFile.path.startsWith("webdav://")) || busyFile !== null || continueActive || (work.type === "video" && !playback.loaded)} title={continueFile?.fileName} onClick={() => continueFile && void launch(continueFile)}>
-                <Play size={17} fill="currentColor" />{work.type === "game" ? "启动游戏" : continueActive ? "播放中" : lastPlayed ? (lastPlayed.completed ? "重新观看" : "继续观看") : "打开"}
-              </button>
+              {work.type === "comic" || work.type === "novel" ? (
+                <a className="button primary icon-text" href="#bookshelf-entries"><BookOpen size={17} />查看卷册</a>
+              ) : (
+                <button type="button" className="button primary icon-text" disabled={!continueFile || (continueFile.missing && !continueFile.path.startsWith("webdav://")) || busyFile !== null || continueActive || (work.type === "video" && !playback.loaded)} title={continueFile?.fileName} onClick={() => continueFile && void launch(continueFile)}>
+                  <Play size={17} fill="currentColor" />{work.type === "game" ? "启动游戏" : continueActive ? "播放中" : lastPlayed ? (lastPlayed.completed ? "重新观看" : "继续观看") : "打开"}
+                </button>
+              )}
               <button
                 type="button"
                 className={`button secondary icon-text ${isCompleted ? "is-completed" : ""}`}
@@ -689,7 +695,9 @@ export function WorkDetailPage() {
                 <p className="quiet-inline">尚未缓存官方分集与制作人员。点击右上角「刷新元数据」联网更新后即可看到。</p>
               ) : null}
 
-              {hasStructure ? (
+              {work.type === "comic" || work.type === "novel" ? (
+                <BookDetailSection key={work.id} workId={work.id} onMetadataChanged={() => void load()} />
+              ) : hasStructure ? (
                 <>
                   <EpisodeArtworkControl key={id} workId={id} artwork={episodeArtwork.artwork} warning={episodeArtwork.warning} onChange={episodeArtwork.update} />
                   {officialEpisodes.length === 0 ? (

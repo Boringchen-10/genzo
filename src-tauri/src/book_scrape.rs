@@ -1,0 +1,199 @@
+use crate::db::AppState;
+use crate::error::{AppError, AppResult};
+use chrono::{Duration as ChronoDuration, Utc};
+use reqwest::Client;
+use serde::Serialize;
+use serde_json::{json, Value};
+use sqlx::SqlitePool;
+use std::time::Duration;
+use tauri::State;
+
+const API_ROOT: &str = "https://api.bgm.tv/v0";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookCandidate {
+    pub external_id: String,
+    pub title: String,
+    pub original_title: Option<String>,
+    pub summary: String,
+    pub cover_url: Option<String>,
+    pub category: Option<String>,
+    pub series: Option<bool>,
+    pub confidence: f64,
+    pub stale: bool,
+}
+
+fn category(value: &Value) -> Option<&'static str> {
+    match value.get("platform").and_then(Value::as_str) {
+        Some("漫画" | "Manga" | "manga") => Some("comic"),
+        Some("小说" | "轻小说" | "Novel" | "novel") => Some("novel"),
+        Some("画集" | "Illustration") => Some("comic"),
+        _ => None,
+    }
+}
+
+fn candidate(value: &Value, query: &str, stale: bool) -> Option<BookCandidate> {
+    if value.get("type").and_then(Value::as_i64) != Some(1) { return None; }
+    let id = value.get("id")?.as_i64()?;
+    let original = value.get("name").and_then(Value::as_str).filter(|text| !text.trim().is_empty());
+    let chinese = value.get("name_cn").and_then(Value::as_str).filter(|text| !text.trim().is_empty());
+    let title = chinese.or(original)?.to_string();
+    let cover_url = value.get("images")
+        .and_then(|images| images.get("large").or_else(|| images.get("common")))
+        .and_then(Value::as_str).map(str::to_string);
+    let confidence = [chinese, original].into_iter().flatten()
+        .map(|name| strsim::jaro_winkler(&crate::anime_parser::normalize_title(query), &crate::anime_parser::normalize_title(name)))
+        .fold(0.0_f64, f64::max);
+    Some(BookCandidate {
+        external_id: id.to_string(), title,
+        original_title: original.map(str::to_string),
+        summary: value.get("summary").or_else(|| value.get("short_summary")).and_then(Value::as_str).unwrap_or_default().to_string(),
+        cover_url, category: category(value).map(str::to_string),
+        series: value.get("series").and_then(Value::as_bool),
+        confidence, stale,
+    })
+}
+
+fn client() -> AppResult<Client> {
+    Client::builder().timeout(Duration::from_secs(12))
+        .user_agent("Genzo/0.5.0 (local media library)")
+        .build().map_err(|error| AppError::Network(format!("无法初始化 Bangumi 书籍客户端：{error}")))
+}
+
+async fn search_response(pool: &SqlitePool, query: &str) -> AppResult<(Value, bool)> {
+    let key = format!("book-search:{}", query.to_lowercase());
+    let cached: Option<(String, String)> = sqlx::query_as("SELECT response_json, expires_at FROM metadata_cache WHERE provider = 'bangumi_book' AND cache_key = ?")
+        .bind(&key).fetch_optional(pool).await?;
+    if let Some((body, expires_at)) = &cached {
+        if expires_at.as_str() > Utc::now().to_rfc3339().as_str() {
+            if let Ok(value) = serde_json::from_str(body) { return Ok((value, false)); }
+        }
+    }
+    let response = client()?.post(format!("{API_ROOT}/search/subjects"))
+        .query(&[("limit", "20")])
+        .json(&json!({ "keyword": query, "sort": "match", "filter": { "type": [1] } }))
+        .send().await;
+    let result = match response {
+        Ok(response) if response.status().is_success() => response.json::<Value>().await
+            .map_err(|error| AppError::Network(format!("Bangumi 书籍搜索响应无效：{error}"))),
+        Ok(response) if response.status().as_u16() == 429 => Err(AppError::Network("Bangumi 请求过于频繁，请稍后重试".into())),
+        Ok(response) => Err(AppError::Network(format!("Bangumi 书籍搜索失败（HTTP {}）", response.status()))),
+        Err(error) => Err(AppError::Network(format!("无法搜索 Bangumi 书籍：{error}"))),
+    };
+    match result {
+        Ok(value) => {
+            let now = Utc::now();
+            if let Ok((_guard, mut transaction)) = crate::db::begin_write(pool).await {
+                let _ = sqlx::query("INSERT INTO metadata_cache (provider, cache_key, response_json, fetched_at, expires_at) VALUES ('bangumi_book', ?, ?, ?, ?) ON CONFLICT(provider, cache_key) DO UPDATE SET response_json = excluded.response_json, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at")
+                    .bind(&key).bind(value.to_string()).bind(now.to_rfc3339()).bind((now + ChronoDuration::days(7)).to_rfc3339())
+                    .execute(&mut *transaction).await;
+                let _ = transaction.commit().await;
+            }
+            Ok((value, false))
+        }
+        Err(error) => cached.and_then(|(body, _)| serde_json::from_str(&body).ok().map(|value| (value, true)))
+            .ok_or(error),
+    }
+}
+
+pub async fn search_in_pool(pool: &SqlitePool, work_id: &str, query: Option<&str>) -> AppResult<Vec<BookCandidate>> {
+    let work: Option<(String, String)> = sqlx::query_as("SELECT type, title FROM works WHERE id = ?")
+        .bind(work_id).fetch_optional(pool).await?;
+    let (kind, title) = work.ok_or_else(|| AppError::NotFound("作品不存在".into()))?;
+    if !matches!(kind.as_str(), "comic" | "novel") { return Err(AppError::Validation("请选择漫画或小说作品".into())); }
+    let query = query.unwrap_or(&title).trim();
+    if query.is_empty() || query.chars().count() > 100 { return Err(AppError::Validation("请输入不超过 100 字的书名".into())); }
+    let (body, stale) = search_response(pool, query).await?;
+    let mut candidates = body.get("data").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|value| candidate(value, query, stale))
+        .filter(|candidate| candidate.category.as_deref().is_none_or(|category| category == kind))
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| right.confidence.total_cmp(&left.confidence));
+    Ok(candidates)
+}
+
+#[tauri::command]
+pub async fn search_book_candidates(work_id: String, query: Option<String>, state: State<'_, AppState>) -> AppResult<Vec<BookCandidate>> {
+    search_in_pool(&state.pool, &work_id, query.as_deref()).await
+}
+
+async fn fetch_details(external_id: &str) -> AppResult<Value> {
+    if external_id.is_empty() || !external_id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(AppError::Validation("Bangumi 书籍 ID 无效".into()));
+    }
+    let response = client()?.get(format!("{API_ROOT}/subjects/{external_id}"))
+        .send().await.map_err(|error| AppError::Network(format!("无法读取 Bangumi 书籍详情：{error}")))?;
+    if !response.status().is_success() { return Err(AppError::Network(format!("Bangumi 书籍详情失败（HTTP {}）", response.status()))); }
+    response.json().await.map_err(|error| AppError::Network(format!("Bangumi 书籍详情响应无效：{error}")))
+}
+
+pub async fn confirm_in_state(state: &AppState, work_id: &str, external_id: &str) -> AppResult<()> {
+    let work_type: Option<String> = sqlx::query_scalar("SELECT type FROM works WHERE id = ?")
+        .bind(work_id).fetch_optional(&state.pool).await?;
+    let kind = work_type.ok_or_else(|| AppError::NotFound("作品不存在".into()))?;
+    if !matches!(kind.as_str(), "comic" | "novel") { return Err(AppError::Validation("只能为漫画或小说匹配书籍资料".into())); }
+    let details = fetch_details(external_id).await?;
+    if details.get("type").and_then(Value::as_i64) != Some(1) {
+        return Err(AppError::Validation("候选不是 Bangumi 书籍条目".into()));
+    }
+    if let Some(candidate_kind) = category(&details) {
+        if candidate_kind != kind { return Err(AppError::Validation("候选书籍品类与当前作品不符".into())); }
+    }
+    let unit_count = crate::bookshelf::entries_in_pool(&state.pool, work_id).await?.len();
+    if details.get("series").and_then(Value::as_bool) == Some(false) && unit_count > 1 {
+        return Err(AppError::Validation("该候选是单册条目，当前作品包含多册；请选择系列条目或先拆分作品".into()));
+    }
+    let mut metadata = crate::bangumi::subject_to_metadata(&details)
+        .ok_or_else(|| AppError::Validation("Bangumi 书籍资料缺少标题或 ID".into()))?;
+    metadata.subject_type = kind.clone();
+    metadata.season = None;
+    let cover_path = if let Some(url) = metadata.cover_url.as_deref() {
+        let destination = crate::metadata_aggregator::artwork_cache_path(&state.cover_cache_path, &format!("bangumi-book-{external_id}"), "cover", url);
+        if destination.is_file() || crate::metadata_aggregator::cache_cover(url, &destination).await.is_ok() {
+            Some(destination.to_string_lossy().to_string())
+        } else { None }
+    } else { None };
+    let now = Utc::now().to_rfc3339();
+    let (_guard, mut transaction) = crate::db::begin_write(&state.pool).await?;
+    let current_kind: Option<String> = sqlx::query_scalar("SELECT type FROM works WHERE id = ?")
+        .bind(work_id).fetch_optional(&mut *transaction).await?;
+    if current_kind.as_deref() != Some(kind.as_str()) { return Err(AppError::Validation("作品类型已变化，请刷新后重试".into())); }
+    let owner: Option<String> = sqlx::query_scalar("SELECT work_id FROM work_external_ids WHERE provider = 'bangumi' AND external_id = ?")
+        .bind(external_id).fetch_optional(&mut *transaction).await?;
+    if owner.as_deref().is_some_and(|owner| owner != work_id) {
+        return Err(AppError::Validation("该 Bangumi 条目已关联另一部作品".into()));
+    }
+    sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES (?, 'bangumi', ?, ?, ?) ON CONFLICT(work_id, provider) DO UPDATE SET external_id = excluded.external_id, updated_at = excluded.updated_at")
+        .bind(work_id).bind(external_id).bind(&now).bind(&now).execute(&mut *transaction).await?;
+    crate::metadata::apply_metadata(&mut transaction, work_id, &metadata, cover_path, None, &now).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn confirm_book_candidate(work_id: String, external_id: String, state: State<'_, AppState>) -> AppResult<()> {
+    confirm_in_state(&state, &work_id, &external_id).await
+}
+
+#[tauri::command]
+pub async fn refresh_book_metadata(work_id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let external_id: Option<String> = sqlx::query_scalar("SELECT external_id FROM work_external_ids WHERE work_id = ? AND provider = 'bangumi'")
+        .bind(&work_id).fetch_optional(&state.pool).await?;
+    let external_id = external_id.ok_or_else(|| AppError::Validation("此书尚未关联 Bangumi 条目".into()))?;
+    confirm_in_state(&state, &work_id, &external_id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_books_are_candidates() {
+        let anime = json!({"id": 1, "type": 2, "name": "同名动画"});
+        assert!(candidate(&anime, "同名", false).is_none());
+        let novel = json!({"id": 2, "type": 1, "name": "小说", "platform": "小说", "series": true});
+        let candidate = candidate(&novel, "小说", false).unwrap();
+        assert_eq!(candidate.category.as_deref(), Some("novel"));
+        assert_eq!(candidate.series, Some(true));
+    }
+}

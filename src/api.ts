@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { ScanTask } from "./scanTasks";
+import type { BookCandidate, BookEntry, BookEntryInput, BookImportGroup, EmbeddedBookMetadata } from "./bookData";
 import type {
   WebdavConnection, RemoteSource, RemoteEntry, RemoteCacheEntry,
   AppInfo,
@@ -37,6 +38,21 @@ export const correctionApi = {
   inspect: (input: import("./recognitionPreferences").CorrectionInput) => call<import("./recognitionPreferences").CorrectionPreview>("inspect_media_correction", { input }),
   preview: (input: import("./recognitionPreferences").CorrectionInput) => call<import("./recognitionPreferences").CorrectionPreview>("preview_media_correction", { input }),
   apply: (input: import("./recognitionPreferences").CorrectionInput, token: string) => call<string>("apply_media_correction", { input, token }),
+};
+
+export const bookApi = {
+  entries: (workId: string) => call<BookEntry[]>("list_book_entries", { workId }),
+  saveEntry: (workId: string, entryId: string, input: BookEntryInput) => call<BookEntry[]>("save_book_entry", { workId, entryId, input }),
+  open: (workId: string, entryId: string, toolId?: string | null) => call<void>("open_book_entry", { workId, entryId, toolId: toolId ?? null }),
+  importGroups: () => call<BookImportGroup[]>("list_book_import_groups"),
+  createWork: (title: string, mediaType: "comic" | "novel", mediaFileIds: string[]) => call<string>("create_book_work", { title, mediaType, mediaFileIds }),
+  embedded: async (mediaFileId: string): Promise<EmbeddedBookMetadata> => {
+    const metadata = await call<EmbeddedBookMetadata>("get_embedded_book_metadata", { mediaFileId });
+    return { ...metadata, coverPath: localAssetUrl(metadata.coverPath) ?? null };
+  },
+  search: (workId: string, query?: string) => call<BookCandidate[]>("search_book_candidates", { workId, query: query ?? null }),
+  confirm: (workId: string, externalId: string) => call<void>("confirm_book_candidate", { workId, externalId }),
+  refresh: (workId: string) => call<void>("refresh_book_metadata", { workId }),
 };
 
 function artworkAssets(value: import("./episodeArtwork").EpisodeArtwork): import("./episodeArtwork").EpisodeArtwork {

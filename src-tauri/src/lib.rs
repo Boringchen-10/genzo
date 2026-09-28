@@ -1,6 +1,9 @@
 mod anime_details;
 mod anime_parser;
 mod bangumi;
+mod book_metadata;
+mod book_scrape;
+mod bookshelf;
 mod commands;
 mod credentials;
 mod db;
@@ -64,6 +67,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            book_scrape::search_book_candidates,
+            book_scrape::confirm_book_candidate,
+            book_scrape::refresh_book_metadata,
+            book_metadata::get_embedded_book_metadata,
+            bookshelf::list_book_entries,
+            bookshelf::save_book_entry,
+            bookshelf::open_book_entry,
+            bookshelf::list_book_import_groups,
+            bookshelf::create_book_work,
             episode_artwork::get_episode_artwork,
             episode_artwork::search_episode_artwork_sources,
             episode_artwork::list_episode_artwork_seasons,
