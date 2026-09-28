@@ -5,8 +5,8 @@
 .resource-routing-tools { margin: 18px 0 12px; }
 .resource-routing-tools input { width: min(100%, 320px); }
 .resource-routing-list { display: grid; gap: 8px; }
-.resource-routing-row { padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
-.resource-routing-row > div { min-width: 0; }
+.resource-routing-row { flex-wrap: wrap; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.resource-routing-row > div { flex: 1 1 250px; min-width: 0; }
 .resource-routing-row strong, .resource-routing-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .resource-routing-row small { color: var(--muted); margin-top: 4px; }
 .resource-routing-row label { flex: none; display: grid; gap: 4px; }

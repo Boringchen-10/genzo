@@ -3,8 +3,8 @@ use crate::error::{AppError, AppResult};
 use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
-use std::collections::HashMap;
+use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::OnceLock;
 use tauri::State;
@@ -56,8 +56,20 @@ struct UnassignedBookFile {
     id: String,
     path: String,
     file_name: String,
+    extension: String,
     media_type: String,
+    missing: bool,
     root_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookImportFile {
+    pub id: String,
+    pub path: String,
+    pub file_name: String,
+    pub extension: String,
+    pub missing: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,6 +79,7 @@ pub struct BookImportGroup {
     pub media_type: String,
     pub folder_path: Option<String>,
     pub media_file_ids: Vec<String>,
+    pub files: Vec<BookImportFile>,
 }
 
 fn import_groups(files: Vec<UnassignedBookFile>) -> Vec<BookImportGroup> {
@@ -75,26 +88,33 @@ fn import_groups(files: Vec<UnassignedBookFile>) -> Vec<BookImportGroup> {
         let root = file.root_path.trim_end_matches(['/', '\\']);
         let relative = file.path.get(root.len()..).filter(|_| file.path.get(..root.len()).is_some_and(|head| head.eq_ignore_ascii_case(root)))
             .unwrap_or(&file.file_name).trim_start_matches(['/', '\\']);
-        let folder = relative.split(['/', '\\']).next().unwrap_or(relative);
-        let (key, title, folder_path) = if relative.contains(['/', '\\']) && !folder.is_empty() {
-            (format!("{}:{}:{}", root.to_lowercase(), file.media_type, folder.to_lowercase()), folder.to_string(), Some(format!("{root}{}{}", if root.contains('/') { '/' } else { '\\' }, folder)))
+        let parts = relative.split(['/', '\\']).filter(|part| !part.is_empty()).collect::<Vec<_>>();
+        let directory_count = parts.len().saturating_sub(1);
+        let group_depth = if image_extension(&file.extension.to_ascii_lowercase()) && directory_count > 1 { directory_count - 1 } else { directory_count };
+        let (key, title, folder_path) = if group_depth > 0 {
+            let separator = if root.contains('/') { '/' } else { '\\' };
+            let folder = format!("{root}{separator}{}", parts[..group_depth].join(&separator.to_string()));
+            (format!("{}:{}", file.media_type, folder.to_lowercase()), parts[group_depth - 1].to_string(), Some(folder))
         } else {
             (format!("file:{}", file.id), file.file_name.rsplit_once('.').map_or(file.file_name.as_str(), |(stem, _)| stem).to_string(), None)
         };
-        let group = groups.entry(key).or_insert_with(|| BookImportGroup { title, media_type: file.media_type, folder_path, media_file_ids: Vec::new() });
-        group.media_file_ids.push(file.id);
+        let group = groups.entry(key).or_insert_with(|| BookImportGroup { title, media_type: file.media_type, folder_path, media_file_ids: Vec::new(), files: Vec::new() });
+        group.media_file_ids.push(file.id.clone());
+        group.files.push(BookImportFile { id: file.id, path: file.path, file_name: file.file_name, extension: file.extension, missing: file.missing });
     }
     let mut groups = groups.into_values().collect::<Vec<_>>();
+    for group in &mut groups {
+        group.files.sort_by(|left, right| natord::compare(&left.path, &right.path));
+    }
     groups.sort_by(|left, right| natord::compare(&left.title, &right.title));
     groups
 }
 
 pub async fn import_groups_in_pool(pool: &SqlitePool) -> AppResult<Vec<BookImportGroup>> {
-    let files = sqlx::query_as::<_, UnassignedBookFile>("SELECT m.id, m.path, m.file_name, m.media_type, r.path AS root_path FROM media_files m JOIN library_roots r ON r.id = m.library_root_id WHERE m.work_id IS NULL AND m.media_type IN ('comic', 'novel') ORDER BY m.path LIMIT 10001")
+    let files = sqlx::query_as::<_, UnassignedBookFile>("SELECT m.id, m.path, m.file_name, m.extension, m.media_type, m.missing, r.path AS root_path FROM media_files m JOIN library_roots r ON r.id = m.library_root_id WHERE m.work_id IS NULL AND m.media_type IN ('comic', 'novel') AND r.destination = 'bookshelf' ORDER BY m.path LIMIT 10001")
         .fetch_all(pool).await?;
     if files.len() > 10000 { return Err(AppError::Validation("待读物超过 10000 个文件，请缩小资源目录范围".into())); }
-    let destinations = crate::grouping::unassigned_file_destinations(pool).await?;
-    Ok(import_groups(files.into_iter().filter(|file| destinations.get(&file.id).is_some_and(|value| value == "bookshelf")).collect()))
+    Ok(import_groups(files))
 }
 
 #[tauri::command]
@@ -102,34 +122,77 @@ pub async fn list_book_import_groups(state: State<'_, AppState>) -> AppResult<Ve
     import_groups_in_pool(&state.pool).await
 }
 
-pub async fn create_book_work_in_pool(pool: &SqlitePool, title: &str, media_type: &str, media_file_ids: &[String]) -> AppResult<String> {
+fn unit_count(files: impl IntoIterator<Item = (String, String, String)>) -> usize {
+    let mut units = HashSet::new();
+    for (id, path, extension) in files {
+        let key = if image_extension(&extension.to_ascii_lowercase()) {
+            format!("folder:{}", parent_key(&path).to_lowercase())
+        } else { format!("file:{id}") };
+        units.insert(key);
+    }
+    units.len()
+}
+
+async fn selected_unit_count(pool: &SqlitePool, media_file_ids: &[String]) -> AppResult<usize> {
+    let mut files = Vec::new();
+    for chunk in media_file_ids.chunks(400) {
+        let mut query = QueryBuilder::<Sqlite>::new("SELECT id, path, extension FROM media_files WHERE id IN (");
+        let mut ids = query.separated(",");
+        for id in chunk { ids.push_bind(id); }
+        ids.push_unseparated(")");
+        files.extend(query.build_query_as::<(String, String, String)>().fetch_all(pool).await?);
+    }
+    Ok(unit_count(files))
+}
+
+async fn create_book_work_with_match_in_pool(pool: &SqlitePool, title: &str, media_type: &str, media_file_ids: &[String], prepared: Option<crate::book_scrape::PreparedBookMatch>, local_cover_path: Option<String>) -> AppResult<String> {
     let title = title.trim();
     if title.is_empty() || title.chars().count() > 300 { return Err(AppError::Validation("书籍标题不能为空且最多 300 字".into())); }
     if !matches!(media_type, "comic" | "novel") { return Err(AppError::Validation("请选择漫画或小说类型".into())); }
     if media_file_ids.is_empty() || media_file_ids.len() > 1000 { return Err(AppError::Validation("请选择 1–1000 个书籍文件".into())); }
     let mut unique = std::collections::HashSet::new();
     if media_file_ids.iter().any(|id| !unique.insert(id)) { return Err(AppError::Validation("文件列表存在重复项".into())); }
-    let destinations = crate::grouping::unassigned_file_destinations(pool).await?;
-    if media_file_ids.iter().any(|id| destinations.get(id).is_none_or(|value| value != "bookshelf")) {
-        return Err(AppError::Validation("所选文件已不在书架待整理区，请刷新后重试".into()));
-    }
     let work_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let (_guard, mut transaction) = crate::db::begin_write(pool).await?;
-    sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(&work_id).bind(title).bind(media_type).bind(&now).bind(&now).execute(&mut *transaction).await?;
+    sqlx::query("INSERT INTO works (id, title, type, cover_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(&work_id).bind(title).bind(media_type).bind(local_cover_path).bind(&now).bind(&now).execute(&mut *transaction).await?;
     for id in media_file_ids {
-        let result = sqlx::query("UPDATE media_files SET work_id = ?, updated_at = ? WHERE id = ? AND work_id IS NULL AND media_type IN ('comic', 'novel')")
-            .bind(&work_id).bind(&now).bind(id).execute(&mut *transaction).await?;
-        if result.rows_affected() != 1 { return Err(AppError::Validation("有文件已归档、类型不符或被移除，请刷新后重试".into())); }
+        let result = sqlx::query("UPDATE media_files SET work_id = ?, updated_at = ? WHERE id = ? AND work_id IS NULL AND (media_type = ? OR (? = 'comic' AND extension = 'pdf')) AND EXISTS (SELECT 1 FROM library_roots r WHERE r.id = media_files.library_root_id AND r.destination = 'bookshelf')")
+            .bind(&work_id).bind(&now).bind(id).bind(media_type).bind(media_type).execute(&mut *transaction).await?;
+        if result.rows_affected() != 1 { return Err(AppError::Validation("有文件已归档、类型不符、离开书架目录或被移除，请刷新后重试".into())); }
+    }
+    if let Some(prepared) = prepared {
+        if prepared.single_volume {
+            let files = sqlx::query_as::<_, (String, String, String)>("SELECT id, path, extension FROM media_files WHERE work_id = ?")
+                .bind(&work_id).fetch_all(&mut *transaction).await?;
+            if unit_count(files) > 1 { return Err(AppError::Validation("该候选是单册条目，所选文件包含多册；请选择系列条目或减少文件".into())); }
+        }
+        crate::book_scrape::apply_prepared_match(&mut transaction, &work_id, prepared, &now).await?;
     }
     transaction.commit().await?;
     Ok(work_id)
 }
 
+pub async fn create_book_work_in_pool(pool: &SqlitePool, title: &str, media_type: &str, media_file_ids: &[String]) -> AppResult<String> {
+    create_book_work_with_match_in_pool(pool, title, media_type, media_file_ids, None, None).await
+}
+
 #[tauri::command]
-pub async fn create_book_work(title: String, media_type: String, media_file_ids: Vec<String>, state: State<'_, AppState>) -> AppResult<String> {
-    create_book_work_in_pool(&state.pool, &title, &media_type, &media_file_ids).await
+pub async fn create_book_work(title: String, media_type: String, media_file_ids: Vec<String>, external_id: Option<String>, cover_media_file_id: Option<String>, state: State<'_, AppState>) -> AppResult<String> {
+    if external_id.is_none() && cover_media_file_id.is_none() {
+        return create_book_work_in_pool(&state.pool, &title, &media_type, &media_file_ids).await;
+    }
+    let local_cover_path = if let Some(cover_id) = cover_media_file_id {
+        if !media_file_ids.contains(&cover_id) { return Err(AppError::Validation("封面文件不在所选书籍文件中".into())); }
+        crate::book_metadata::embedded_in_pool(&state.pool, &state.cover_cache_path, &cover_id).await.ok().and_then(|metadata| metadata.cover_path)
+    } else { None };
+    let prepared = if let Some(external_id) = external_id {
+        if media_file_ids.is_empty() || media_file_ids.len() > 1000 { return Err(AppError::Validation("请选择 1–1000 个书籍文件".into())); }
+        let unit_count = selected_unit_count(&state.pool, &media_file_ids).await?;
+        Some(crate::book_scrape::prepare_match(&state, &external_id, &media_type, unit_count).await?)
+    } else { None };
+    create_book_work_with_match_in_pool(&state.pool, &title, &media_type, &media_file_ids, prepared, local_cover_path).await
 }
 
 fn image_extension(extension: &str) -> bool {
@@ -330,12 +393,23 @@ mod tests {
     #[test]
     fn import_group_keeps_series_and_types_separate() {
         let group = import_groups(vec![
-            UnassignedBookFile { id: "1".into(), path: r"C:\Books\Series\01.cbz".into(), file_name: "01.cbz".into(), media_type: "comic".into(), root_path: r"C:\Books".into() },
-            UnassignedBookFile { id: "2".into(), path: r"C:\Books\Series\02.cbz".into(), file_name: "02.cbz".into(), media_type: "comic".into(), root_path: r"C:\Books".into() },
-            UnassignedBookFile { id: "3".into(), path: r"C:\Books\Series\01.epub".into(), file_name: "01.epub".into(), media_type: "novel".into(), root_path: r"C:\Books".into() },
+            UnassignedBookFile { id: "1".into(), path: r"C:\Books\Series\01.cbz".into(), file_name: "01.cbz".into(), extension: "cbz".into(), media_type: "comic".into(), missing: false, root_path: r"C:\Books".into() },
+            UnassignedBookFile { id: "2".into(), path: r"C:\Books\Series\02.cbz".into(), file_name: "02.cbz".into(), extension: "cbz".into(), media_type: "comic".into(), missing: true, root_path: r"C:\Books".into() },
+            UnassignedBookFile { id: "3".into(), path: r"C:\Books\Series\01.epub".into(), file_name: "01.epub".into(), extension: "epub".into(), media_type: "novel".into(), missing: false, root_path: r"C:\Books".into() },
         ]);
         assert_eq!(group.len(), 2);
-        assert_eq!(group.iter().find(|item| item.media_type == "comic").unwrap().media_file_ids.len(), 2);
+        let comic = group.iter().find(|item| item.media_type == "comic").unwrap();
+        assert_eq!(comic.media_file_ids.len(), 2);
+        assert_eq!(comic.files[0].file_name, "01.cbz");
+        assert!(comic.files[1].missing);
+        assert_eq!(unit_count(vec![("a".into(), r"C:\Books\Series\01.jpg".into(), "jpg".into()), ("b".into(), r"C:\Books\Series\02.jpg".into(), "jpg".into())]), 1);
+        let nested = import_groups(vec![
+            UnassignedBookFile { id: "4".into(), path: r"C:\Books\合集\甲\第1卷.cbz".into(), file_name: "第1卷.cbz".into(), extension: "cbz".into(), media_type: "comic".into(), missing: false, root_path: r"C:\Books".into() },
+            UnassignedBookFile { id: "5".into(), path: r"C:\Books\合集\乙\第1卷.cbz".into(), file_name: "第1卷.cbz".into(), extension: "cbz".into(), media_type: "comic".into(), missing: false, root_path: r"C:\Books".into() },
+            UnassignedBookFile { id: "6".into(), path: r"C:\Books\合集\甲\第2卷\001.jpg".into(), file_name: "001.jpg".into(), extension: "jpg".into(), media_type: "comic".into(), missing: false, root_path: r"C:\Books".into() },
+        ]);
+        assert_eq!(nested.len(), 2);
+        assert_eq!(nested.iter().find(|item| item.title == "甲").unwrap().files.len(), 2);
     }
 
     #[tokio::test]
@@ -358,6 +432,58 @@ mod tests {
         assert_eq!(entries[1].volume_number, Some(2.0));
         let other_work: Option<String> = sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = 'other'").fetch_one(&pool).await.unwrap();
         assert_eq!(other_work, None);
+    }
+
+    #[tokio::test]
+    async fn matched_import_rolls_back_conflicts_and_multiple_volumes() {
+        let pool = crate::db::test_pool().await.unwrap();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, destination, created_at, updated_at) VALUES ('root', 'C:\\Books', 'comic', 'bookshelf', 't', 't')")
+            .execute(&pool).await.unwrap();
+        for (id, name) in [("one", "第1卷.cbz"), ("two", "第2卷.cbz")] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, 'cbz', 'comic', 't', 't')")
+                .bind(id).bind(format!("C:\\Books\\系列\\{name}")).bind(name).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('existing', '现有作品', 'comic', 't', 't')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES ('existing', 'bangumi', '42', 't', 't')")
+            .execute(&pool).await.unwrap();
+        let prepared = |external_id: &str, single_volume: bool| {
+            let details = serde_json::json!({"id": external_id.parse::<i64>().unwrap(), "type": 1, "name": "系列", "platform": "漫画"});
+            let mut metadata = crate::bangumi::subject_to_metadata(&details).unwrap();
+            metadata.subject_type = "comic".into();
+            crate::book_scrape::PreparedBookMatch { external_id: external_id.into(), metadata, cover_path: None, single_volume }
+        };
+        let duplicate = create_book_work_with_match_in_pool(&pool, "系列", "comic", &["one".into()], Some(prepared("42", false)), None).await;
+        assert!(duplicate.is_err());
+        let multiple = create_book_work_with_match_in_pool(&pool, "系列", "comic", &["one".into(), "two".into()], Some(prepared("43", true)), None).await;
+        assert!(multiple.is_err());
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM works").fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 1);
+        let still_unassigned: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_files WHERE work_id IS NULL").fetch_one(&pool).await.unwrap();
+        assert_eq!(still_unassigned, 2);
+        let id = create_book_work_with_match_in_pool(&pool, "系列", "comic", &["one".into()], Some(prepared("43", true)), Some("cache/book.png".into())).await.unwrap();
+        let matched: (String, String, String) = sqlx::query_as("SELECT e.external_id, w.metadata_status, w.cover_path FROM works w JOIN work_external_ids e ON e.work_id = w.id WHERE w.id = ?")
+            .bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(matched, ("43".into(), "matched".into(), "cache/book.png".into()));
+        let other: Option<String> = sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = 'two'").fetch_one(&pool).await.unwrap();
+        assert_eq!(other, None);
+    }
+
+    #[tokio::test]
+    async fn pdf_can_be_classified_as_comic_without_accepting_novel_files() {
+        let pool = crate::db::test_pool().await.unwrap();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, destination, created_at, updated_at) VALUES ('root', 'C:\\Books', 'auto', 'bookshelf', 't', 't')")
+            .execute(&pool).await.unwrap();
+        for (id, name, extension) in [("pdf", "画集.pdf", "pdf"), ("epub", "小说.epub", "epub")] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, ?, 'novel', 't', 't')")
+                .bind(id).bind(format!("C:\\Books\\{name}")).bind(name).bind(extension).execute(&pool).await.unwrap();
+        }
+        assert!(create_book_work_in_pool(&pool, "错配", "comic", &["epub".into()]).await.is_err());
+        let work_id = create_book_work_in_pool(&pool, "画集", "comic", &["pdf".into()]).await.unwrap();
+        let kind: String = sqlx::query_scalar("SELECT type FROM works WHERE id = ?").bind(&work_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(kind, "comic");
+        let untouched: Option<String> = sqlx::query_scalar("SELECT work_id FROM media_files WHERE id = 'epub'").fetch_one(&pool).await.unwrap();
+        assert_eq!(untouched, None);
     }
 
     #[tokio::test]

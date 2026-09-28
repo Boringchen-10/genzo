@@ -121,6 +121,45 @@ fn opf_path(container: &str) -> Option<String> {
     }
 }
 
+fn opf_cover_path(opf: &str, opf_path: &str) -> Option<String> {
+    let mut reader = Reader::from_str(opf);
+    let mut cover_id = None;
+    let mut cover_href = None;
+    let mut items = Vec::new();
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(event) | Event::Empty(event)) => match event.local_name().as_ref() {
+                "meta" if attribute(&event, "name").as_deref() == Some("cover") => cover_id = attribute(&event, "content"),
+                "item" => {
+                    let id = attribute(&event, "id");
+                    let href = attribute(&event, "href");
+                    if attribute(&event, "properties").is_some_and(|value| value.split_whitespace().any(|item| item == "cover-image")) {
+                        cover_href = href.clone();
+                    }
+                    if let (Some(id), Some(href)) = (id, href) { items.push((id, href)); }
+                }
+                "reference" if attribute(&event, "type").as_deref() == Some("cover") => {
+                    if cover_href.is_none() { cover_href = attribute(&event, "href"); }
+                }
+                _ => {}
+            },
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    let href = cover_href.or_else(|| items.into_iter().find(|(id, _)| cover_id.as_deref() == Some(id)).map(|(_, href)| href))?;
+    let base = opf_path.rsplit_once('/').map_or("", |(base, _)| base);
+    let mut parts = Vec::new();
+    for part in format!("{base}/{href}").split(['/', '\\']) {
+        match part {
+            "" | "." => {}
+            ".." => { parts.pop()?; }
+            value => parts.push(value.to_string()),
+        }
+    }
+    Some(parts.join("/"))
+}
+
 fn cover_name(names: &[String], epub: bool, opf: Option<&str>) -> Option<String> {
     if epub {
         let base = opf.and_then(|path| path.rsplit_once('/')).map_or("", |(base, _)| base);
@@ -141,6 +180,7 @@ fn read_local(path: &Path, extension: &str, cache: &Path, media_id: &str) -> App
     let epub = extension.eq_ignore_ascii_case("epub");
     let mut metadata = EmbeddedBookMetadata::default();
     let mut opf = None;
+    let mut declared_cover = None;
     if epub {
         if let Some(container_name) = names.iter().find(|name| name.eq_ignore_ascii_case("META-INF/container.xml")) {
             let bytes = read_member(&mut archive, container_name, MAX_XML_BYTES)?;
@@ -148,13 +188,16 @@ fn read_local(path: &Path, extension: &str, cache: &Path, media_id: &str) -> App
         }
         if let Some(path) = opf.as_ref().filter(|path| names.contains(path)) {
             let bytes = read_member(&mut archive, path, MAX_XML_BYTES)?;
-            metadata = xml_fields(&String::from_utf8_lossy(&bytes), true);
+            let xml = String::from_utf8_lossy(&bytes);
+            metadata = xml_fields(&xml, true);
+            declared_cover = opf_cover_path(&xml, path)
+                .and_then(|declared| names.iter().find(|name| name.eq_ignore_ascii_case(&declared)).cloned());
         }
     } else if let Some(name) = names.iter().find(|name| name.rsplit('/').next().is_some_and(|part| part.eq_ignore_ascii_case("ComicInfo.xml"))) {
         let bytes = read_member(&mut archive, name, MAX_XML_BYTES)?;
         metadata = xml_fields(&String::from_utf8_lossy(&bytes), false);
     }
-    if let Some(name) = cover_name(&names, epub, opf.as_deref()) {
+    if let Some(name) = declared_cover.or_else(|| cover_name(&names, epub, opf.as_deref())) {
         let bytes = read_member(&mut archive, &name, MAX_COVER_BYTES)?;
         if image::guess_format(&bytes).is_ok() {
             let digest = format!("{:x}", Sha256::digest(format!("{media_id}:{}:{}", path.display(), name).as_bytes()));
@@ -204,6 +247,7 @@ mod tests {
         assert_eq!(epub.title.as_deref(), Some("某小说"));
         assert_eq!(epub.series.as_deref(), Some("系列名"));
         assert_eq!(epub.number.as_deref(), Some("3"));
+        assert_eq!(opf_cover_path("<package><metadata><meta name=\"cover\" content=\"front\"/></metadata><manifest><item id=\"front\" href=\"../Artwork/front.png\"/></manifest></package>", "OPS/content.opf").as_deref(), Some("Artwork/front.png"));
     }
 
     #[test]
@@ -225,5 +269,27 @@ mod tests {
         assert_eq!(metadata.number.as_deref(), Some("2"));
         assert!(Path::new(metadata.cover_path.as_deref().unwrap()).is_file());
         assert!(!directory.path().join("001.png").exists());
+    }
+
+    #[test]
+    fn epub_uses_declared_cover_even_without_cover_in_filename() {
+        let directory = tempfile::tempdir().unwrap();
+        let archive_path = directory.path().join("novel.epub");
+        let file = File::create(&archive_path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        archive.start_file("META-INF/container.xml", options).unwrap();
+        archive.write_all(br#"<container><rootfiles><rootfile full-path="OPS/content.opf"/></rootfiles></container>"#).unwrap();
+        archive.start_file("OPS/content.opf", options).unwrap();
+        archive.write_all(br#"<package><metadata><dc:title>Novel</dc:title></metadata><manifest><item id="front" href="Images/frontispiece.png" media-type="image/png" properties="cover-image"/></manifest></package>"#).unwrap();
+        archive.start_file("OPS/Images/frontispiece.png", options).unwrap();
+        let mut image = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(1, 1).write_to(&mut image, image::ImageFormat::Png).unwrap();
+        archive.write_all(image.get_ref()).unwrap();
+        archive.finish().unwrap();
+        let metadata = read_local(&archive_path, "epub", directory.path(), "novel-1").unwrap();
+        assert_eq!(metadata.title.as_deref(), Some("Novel"));
+        assert!(Path::new(metadata.cover_path.as_deref().unwrap()).is_file());
+        assert!(!directory.path().join("frontispiece.png").exists());
     }
 }

@@ -25,6 +25,7 @@ try {
           if (command === "list_library_roots") return roots;
           if (command === "list_unassigned_media_groups") return groups.map(group => ({ ...group, destination: roots.find(root => root.id === group.representative.libraryRootId).destination }));
           if (command === "list_unassigned_media") return files.filter(file => !args.destination || roots.find(root => root.id === file.libraryRootId).destination === args.destination);
+          if (command === "list_book_import_groups") return [];
           if (command === "set_root_destination") { roots.find(root => root.id === args.id).destination = args.destination; return null; }
           if (["list_scan_jobs", "list_scan_tasks", "list_remote_sources", "list_remote_cache"].includes(command)) return [];
           if (command === "get_setting") return "dark";

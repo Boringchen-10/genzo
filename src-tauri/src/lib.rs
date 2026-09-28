@@ -68,6 +68,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             book_scrape::search_book_candidates,
+            book_scrape::search_book_import_candidates,
             book_scrape::confirm_book_candidate,
             book_scrape::refresh_book_metadata,
             book_metadata::get_embedded_book_metadata,

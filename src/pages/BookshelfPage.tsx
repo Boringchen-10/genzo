@@ -16,6 +16,7 @@ export function BookshelfPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [focus, setFocus] = useState<{ id: string; request: number } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -43,8 +44,8 @@ export function BookshelfPage() {
     </div>
     <div className="bookshelf-toolbar"><input aria-label="搜索书架" placeholder={inbox ? "搜索待整理文件" : "搜索书架作品"} value={search} onChange={event => setSearch(event.target.value)} /><button type="button" className="button secondary compact" onClick={() => void load()} disabled={loading}>刷新</button></div>
     {loading ? <LoadingState /> : error ? <ErrorState message={error} retry={() => void load()} /> : inbox ? <>
-      <BookImportPanel />
-      {visibleGroups.length ? <div className="resource-routing-list">{visibleGroups.map(group => <div className="resource-routing-row" key={group.key}><div><strong>{group.title}</strong><small>{mediaLabels[group.mediaType]} · {group.fileCount} 个文件 · {group.folderPath ?? group.representative.path}</small></div><Link to="/sources">在资源库更改目录归属</Link></div>)}</div> : <EmptyState title="没有待整理的阅读文件" description="在资源库添加漫画或小说目录并扫描后，文件会显示在这里。" />}
+      <BookImportPanel focusMediaFileId={focus?.id} focusRequest={focus?.request} />
+      {visibleGroups.length ? <div className="resource-routing-list">{visibleGroups.map(group => <div className="resource-routing-row" key={group.key}><div><strong>{group.title}</strong><small>{mediaLabels[group.mediaType]} · {group.fileCount} 个文件 · {group.folderPath ?? group.representative.path}</small></div><button type="button" className="button compact secondary" onClick={() => setFocus(previous => ({ id: group.representative.id, request: (previous?.request ?? 0) + 1 }))}>识别并整理</button><Link to="/sources">在资源库更改目录归属</Link></div>)}</div> : <EmptyState title="没有待整理的阅读文件" description="在资源库添加漫画或小说目录并扫描后，文件会显示在这里。" />}
     </> : visibleWorks.length ? <div className="work-grid">{visibleWorks.map(work => <WorkCard key={work.id} work={work} />)}</div> : <EmptyState title="书架还没有作品" description="扫描阅读目录后，在待整理中建立漫画或小说作品。" />}
   </div>;
 }

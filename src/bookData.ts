@@ -21,6 +21,15 @@ export interface BookImportGroup {
   mediaType: "comic" | "novel";
   folderPath: string | null;
   mediaFileIds: string[];
+  files: BookImportFile[];
+}
+
+export interface BookImportFile {
+  id: string;
+  path: string;
+  fileName: string;
+  extension: string;
+  missing: boolean;
 }
 
 export interface EmbeddedBookMetadata {

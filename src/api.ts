@@ -46,12 +46,13 @@ export const bookApi = {
   saveEntry: (workId: string, entryId: string, input: BookEntryInput) => call<BookEntry[]>("save_book_entry", { workId, entryId, input }),
   open: (workId: string, entryId: string, toolId?: string | null) => call<void>("open_book_entry", { workId, entryId, toolId: toolId ?? null }),
   importGroups: () => call<BookImportGroup[]>("list_book_import_groups"),
-  createWork: (title: string, mediaType: "comic" | "novel", mediaFileIds: string[]) => call<string>("create_book_work", { title, mediaType, mediaFileIds }),
+  createWork: (title: string, mediaType: "comic" | "novel", mediaFileIds: string[], externalId?: string | null, coverMediaFileId?: string | null) => call<string>("create_book_work", { title, mediaType, mediaFileIds, externalId: externalId ?? null, coverMediaFileId: coverMediaFileId ?? null }),
   embedded: async (mediaFileId: string): Promise<EmbeddedBookMetadata> => {
     const metadata = await call<EmbeddedBookMetadata>("get_embedded_book_metadata", { mediaFileId });
     return { ...metadata, coverPath: localAssetUrl(metadata.coverPath) ?? null };
   },
   search: (workId: string, query?: string) => call<BookCandidate[]>("search_book_candidates", { workId, query: query ?? null }),
+  searchImport: (mediaType: "comic" | "novel", query: string) => call<BookCandidate[]>("search_book_import_candidates", { mediaType, query }),
   confirm: (workId: string, externalId: string) => call<void>("confirm_book_candidate", { workId, externalId }),
   refresh: (workId: string) => call<void>("refresh_book_metadata", { workId }),
 };
