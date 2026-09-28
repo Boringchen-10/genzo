@@ -9,51 +9,52 @@ try {
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.addInitScript(() => {
-      const root = { id: "root", path: "C:\\Resources", kind: "auto", enabled: true, createdAt: "t", updatedAt: "t", sourceType: "local" };
-      const file = (id, name, type) => ({ id, workId: null, libraryRootId: "root", path: `C:\\Resources\\${name}`, fileName: name, extension: name.split(".").pop(), mediaType: type, size: 100, modifiedAt: null, missing: false, createdAt: "t", updatedAt: "t", recognitionStatus: "unmatched", parsedTitle: null, parsedOriginalTitle: null, parsedSeason: null, parsedEpisode: null, parsedEpisodeStart: null, parsedEpisodeEnd: null, parsedYear: null, parsedReleaseGroup: null, parsedSpecialType: null, parsedMediaInfo: "[]", lastRecognizedAt: null, recognitionError: null });
-      const files = [file("video", "Show.mkv", "video"), file("book", "Book.cbz", "comic")];
-      const groups = [
-        { key: "video", destination: "media", title: "Show", folderPath: null, mediaType: "video", fileCount: 1, missingCount: 0, totalSize: 100, recognitionStatus: "unmatched", representative: files[0] },
-        { key: "book", destination: "bookshelf", title: "Book", folderPath: null, mediaType: "comic", fileCount: 1, missingCount: 0, totalSize: 100, recognitionStatus: "unmatched", representative: files[1] },
+      const roots = [
+        { id: "media", path: "C:\\Media", kind: "auto", destination: "media", enabled: true, createdAt: "t", updatedAt: "t", sourceType: "local" },
+        { id: "books", path: "C:\\Books", kind: "comic", destination: "bookshelf", enabled: true, createdAt: "t", updatedAt: "t", sourceType: "local" },
       ];
+      const file = (id, rootId, name, type) => ({ id, workId: null, libraryRootId: rootId, path: `C:\\${rootId === "books" ? "Books" : "Media"}\\${name}`, fileName: name, extension: name.split(".").pop(), mediaType: type, size: 100, modifiedAt: null, missing: false, createdAt: "t", updatedAt: "t", recognitionStatus: "unmatched", parsedTitle: null, parsedOriginalTitle: null, parsedSeason: null, parsedEpisode: null, parsedEpisodeStart: null, parsedEpisodeEnd: null, parsedYear: null, parsedReleaseGroup: null, parsedSpecialType: null, parsedMediaInfo: "[]", lastRecognizedAt: null, recognitionError: null });
+      const files = [file("video", "media", "Show.mkv", "video"), file("book", "books", "Book.cbz", "comic")];
+      const groups = files.map(file => ({ key: file.id, title: file.fileName.split(".")[0], folderPath: null, mediaType: file.mediaType, fileCount: 1, missingCount: 0, totalSize: 100, recognitionStatus: "unmatched", representative: file }));
       const work = (id, title, type) => ({ id, title, type, originalTitle: null, description: "", coverPath: null, status: "planned", favorite: false, rating: null, notes: "", tags: [], mediaCount: 1, missingCount: 0, createdAt: "2026-09-28T00:00:00Z", updatedAt: "2026-09-28T00:00:00Z", metadataStatus: "manually_created", metadataYear: null, lastRecognizedAt: null });
       const works = [work("film", "Movie", "video"), work("comic", "Comic", "comic")];
       Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {
         convertFileSrc: value => value, transformCallback: () => 1, unregisterCallback: () => {},
         invoke: async (command, args = {}) => {
           if (command === "list_works") return works;
-          if (command === "list_library_roots") return [root];
-          if (command === "list_unassigned_media_groups") return groups;
-          if (command === "list_unassigned_media") return files.filter(file => !args.destination || groups.find(group => group.representative.id === file.id)?.destination === args.destination);
-          if (command === "set_resource_group_destination") { groups.find(group => group.representative.id === args.mediaFileId).destination = args.destination; return null; }
-          if (command === "list_book_import_groups") return groups.filter(group => group.destination === "bookshelf" && group.mediaType === "comic").map(group => ({ title: group.title, mediaType: "comic", folderPath: null, mediaFileIds: [group.representative.id] }));
+          if (command === "list_library_roots") return roots;
+          if (command === "list_unassigned_media_groups") return groups.map(group => ({ ...group, destination: roots.find(root => root.id === group.representative.libraryRootId).destination }));
+          if (command === "list_unassigned_media") return files.filter(file => !args.destination || roots.find(root => root.id === file.libraryRootId).destination === args.destination);
+          if (command === "set_root_destination") { roots.find(root => root.id === args.id).destination = args.destination; return null; }
           if (["list_scan_jobs", "list_scan_tasks", "list_remote_sources", "list_remote_cache"].includes(command)) return [];
           if (command === "get_setting") return "dark";
           return null;
         },
       } });
     });
+    const noOverflow = async label => {
+      const layout = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
+      assert.ok(layout.scrollWidth <= layout.width, `${width} ${label} overflow: ${JSON.stringify(layout)}`);
+    };
     await page.goto(`${base}/#/resources`);
-    await page.getByRole("heading", { name: "扫描文件分流" }).waitFor();
-    await page.evaluate(() => { window.isTauri = true; });
-    await page.getByRole("button", { name: "刷新列表" }).click();
-    await page.getByRole("combobox", { name: "Book的待整理去向" }).selectOption("media");
+    await page.getByRole("combobox", { name: "C:\\Books的归属" }).selectOption("media");
+    await noOverflow("resources");
     await page.getByRole("link", { name: "媒体库" }).click();
     await page.getByRole("tab", { name: /待整理/ }).click();
-    await page.locator(".inbox-folder-link").first().click();
+    await page.locator(".inbox-folder-link").filter({ hasText: "Books" }).first().click();
     await page.getByText("Book.cbz").first().waitFor();
+    await noOverflow("media inbox");
     await page.getByRole("link", { name: "书架" }).click();
     await page.getByRole("tab", { name: /待整理/ }).click();
     await page.getByText("没有待整理的阅读文件").waitFor();
     await page.getByRole("link", { name: "资源库" }).click();
-    await page.getByRole("combobox", { name: "Book的待整理去向" }).selectOption("bookshelf");
+    await page.getByRole("combobox", { name: "C:\\Books的归属" }).selectOption("bookshelf");
     await page.getByRole("link", { name: "书架" }).click();
     await page.getByRole("tab", { name: /待整理/ }).click();
     await page.getByText("Book.cbz").first().waitFor();
-    const layout = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
-    assert.ok(layout.scrollWidth <= layout.width, `${width} overflow: ${JSON.stringify(layout)}`);
+    await noOverflow("bookshelf inbox");
     assert.deepEqual(errors, []);
     await page.close();
-    console.log(`${width}x${height}: resource routing, media inbox, bookshelf inbox passed`);
+    console.log(`${width}x${height}: directory routing and separate inboxes passed`);
   }
 } finally { await browser.close(); }

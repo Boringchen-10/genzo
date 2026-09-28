@@ -457,6 +457,8 @@ pub struct LibraryRoot {
     pub id: String,
     pub path: String,
     pub kind: String,
+    #[sqlx(default)]
+    pub destination: String,
     pub enabled: bool,
     pub last_scanned_at: Option<String>,
     pub created_at: String,
@@ -475,6 +477,8 @@ pub struct LibraryRootInput {
     pub path: String,
     pub kind: String,
     pub enabled: bool,
+    #[serde(default)]
+    pub destination: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]

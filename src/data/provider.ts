@@ -72,8 +72,9 @@ export interface GenzoDataProvider {
   importCover(sourcePath: string): Promise<string>;
 
   listRoots(): Promise<LibraryRoot[]>;
-  addRoot(path: string, kind: RootKind): Promise<LibraryRoot>;
+  addRoot(path: string, kind: RootKind, destination?: ResourceDestination): Promise<LibraryRoot>;
   updateRoot(id: string, kind: RootKind, enabled: boolean): Promise<void>;
+  setRootDestination(id: string, destination: ResourceDestination): Promise<void>;
   deleteRoot(id: string): Promise<void>;
   scanRoot(id: string): Promise<ScanResult>;
   listScanJobs(): Promise<ScanResult[]>;

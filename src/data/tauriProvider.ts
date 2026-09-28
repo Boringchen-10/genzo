@@ -32,6 +32,7 @@ export function createTauriProvider(): GenzoDataProvider {
     listRoots: api.listRoots,
     addRoot: api.addRoot,
     updateRoot: api.updateRoot,
+    setRootDestination: api.setRootDestination,
     deleteRoot: api.deleteRoot,
     scanRoot: api.scanRoot,
     listScanJobs: api.listScanJobs,

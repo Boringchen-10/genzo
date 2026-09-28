@@ -214,6 +214,7 @@ const roots = new Map<string, LibraryRoot>([
       id: "root-local",
       path: "H:\\Media\\动画",
       kind: "video",
+      destination: "media",
       enabled: true,
       lastScannedAt: now,
       createdAt: now,
@@ -721,15 +722,19 @@ export function createMockProvider(): GenzoDataProvider {
     async listRoots() {
       return clone([...roots.values()]);
     },
-    async addRoot(path, kind) {
+    async addRoot(path, kind, destination) {
       const id = `mock-root-${roots.size + 1}`;
-      const root: LibraryRoot = { id, path, kind, enabled: true, lastScannedAt: null, createdAt: now, updatedAt: now };
+      const root: LibraryRoot = { id, path, kind, destination: destination ?? (kind === "comic" || kind === "novel" ? "bookshelf" : "media"), enabled: true, lastScannedAt: null, createdAt: now, updatedAt: now };
       roots.set(id, root);
       return clone(root);
     },
     async updateRoot(id, kind, enabled) {
       const root = roots.get(id);
       if (root) roots.set(id, { ...root, kind, enabled, updatedAt: now });
+    },
+    async setRootDestination(id, destination) {
+      const root = roots.get(id);
+      if (root) roots.set(id, { ...root, destination, updatedAt: now });
     },
     async deleteRoot(id) {
       roots.delete(id);

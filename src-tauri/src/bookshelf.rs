@@ -341,7 +341,7 @@ mod tests {
     #[tokio::test]
     async fn import_creates_one_work_atomically_and_preserves_unselected_files() {
         let pool = crate::db::test_pool().await.unwrap();
-        sqlx::query("INSERT INTO library_roots (id, path, kind, created_at, updated_at) VALUES ('root', 'C:\\\\Books', 'auto', 't', 't')")
+        sqlx::query("INSERT INTO library_roots (id, path, kind, destination, created_at, updated_at) VALUES ('root', 'C:\\\\Books', 'auto', 'bookshelf', 't', 't')")
             .execute(&pool).await.unwrap();
         for (id, name) in [("one", "第1卷.cbz"), ("two", "第2卷.cbz"), ("other", "别的书.cbz")] {
             sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, 'cbz', 'comic', 't', 't')")

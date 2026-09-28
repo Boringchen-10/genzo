@@ -171,6 +171,7 @@ export interface LibraryRoot {
   id: string;
   path: string;
   kind: RootKind;
+  destination: ResourceDestination;
   enabled: boolean;
   lastScannedAt: string | null;
   createdAt: string;

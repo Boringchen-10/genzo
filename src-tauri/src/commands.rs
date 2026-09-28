@@ -338,15 +338,6 @@ pub async fn list_unassigned_media(destination: Option<String>, state: State<'_,
 }
 
 #[tauri::command]
-pub async fn set_resource_group_destination(
-    media_file_id: String,
-    destination: String,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
-    grouping::set_unassigned_group_destination(&state.pool, &media_file_id, &destination).await
-}
-
-#[tauri::command]
 pub async fn list_unassigned_media_groups(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<UnassignedMediaGroup>> {
@@ -517,7 +508,7 @@ pub async fn import_cover(
 #[tauri::command]
 pub async fn list_library_roots(state: State<'_, AppState>) -> AppResult<Vec<LibraryRoot>> {
     Ok(sqlx::query_as::<_, LibraryRoot>(
-        "SELECT id, path, kind, enabled, last_scanned_at, created_at, updated_at, source_type, availability, (SELECT name FROM remote_sources WHERE remote_sources.id=library_roots.id) AS display_name FROM library_roots ORDER BY created_at DESC",
+        "SELECT id, path, kind, destination, enabled, last_scanned_at, created_at, updated_at, source_type, availability, (SELECT name FROM remote_sources WHERE remote_sources.id=library_roots.id) AS display_name FROM library_roots ORDER BY created_at DESC",
     )
     .fetch_all(&state.pool)
     .await?)
@@ -531,6 +522,12 @@ pub async fn add_library_root(
     if !ROOT_KINDS.contains(&input.kind.as_str()) {
         return Err(AppError::Validation("无效的目录类型".to_string()));
     }
+    let destination = input.destination.unwrap_or_else(|| {
+        if matches!(input.kind.as_str(), "comic" | "novel") { "bookshelf" } else { "media" }.into()
+    });
+    if !matches!(destination.as_str(), "media" | "bookshelf") {
+        return Err(AppError::Validation("请选择媒体库或书架".into()));
+    }
     let raw_path = PathBuf::from(input.path.trim());
     input.path =
         tauri::async_runtime::spawn_blocking(move || scanner::normalize_existing_path(&raw_path))
@@ -542,11 +539,12 @@ pub async fn add_library_root(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "INSERT INTO library_roots (id, path, kind, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO library_roots (id, path, kind, destination, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&input.path)
     .bind(&input.kind)
+    .bind(&destination)
     .bind(input.enabled)
     .bind(&now)
     .bind(&now)
@@ -556,6 +554,7 @@ pub async fn add_library_root(
         id,
         path: input.path,
         kind: input.kind,
+        destination,
         enabled: input.enabled,
         last_scanned_at: None,
         created_at: now.clone(),
@@ -586,6 +585,24 @@ pub async fn update_library_root(
             .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("扫描目录不存在".to_string()));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_root_destination(id: String, destination: String, state: State<'_, AppState>) -> AppResult<()> {
+    set_root_destination_in_pool(&state.pool, &id, &destination).await
+}
+
+pub async fn set_root_destination_in_pool(pool: &SqlitePool, id: &str, destination: &str) -> AppResult<()> {
+    if !matches!(destination, "media" | "bookshelf") {
+        return Err(AppError::Validation("请选择媒体库或书架".into()));
+    }
+    let result = sqlx::query("UPDATE library_roots SET destination = ?, updated_at = ? WHERE id = ?")
+        .bind(destination).bind(Utc::now().to_rfc3339()).bind(id)
+        .execute(pool).await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("资源目录不存在".into()));
     }
     Ok(())
 }

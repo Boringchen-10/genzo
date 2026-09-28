@@ -158,8 +158,6 @@ export const api = {
   deleteWork: (id: string) => call<void>("delete_work", { id }),
   listUnassignedMedia: (destination?: ResourceDestination) => call<MediaFile[]>("list_unassigned_media", { destination: destination ?? null }),
   listUnassignedGroups: () => call<UnassignedMediaGroup[]>("list_unassigned_media_groups"),
-  setResourceGroupDestination: (mediaFileId: string, destination: ResourceDestination) =>
-    call<void>("set_resource_group_destination", { mediaFileId, destination }),
   listRecognitionGroupMembers: (mediaFileId: string, groupScope: RecognitionGroupScope = "season") =>
     call<RecognitionGroupInfo>("list_recognition_group_members", { mediaFileId, groupScope }),
   attachMedia: (workId: string, mediaFileId: string) =>
@@ -169,10 +167,12 @@ export const api = {
   detachMedia: (mediaFileId: string) => call<void>("detach_media_file", { mediaFileId }),
   importCover: (sourcePath: string) => call<string>("import_cover", { sourcePath }),
   listRoots: () => call<LibraryRoot[]>("list_library_roots"),
-  addRoot: (path: string, kind: RootKind) =>
-    call<LibraryRoot>("add_library_root", { input: { path, kind, enabled: true } }),
+  addRoot: (path: string, kind: RootKind, destination?: ResourceDestination) =>
+    call<LibraryRoot>("add_library_root", { input: { path, kind, destination, enabled: true } }),
   updateRoot: (id: string, kind: RootKind, enabled: boolean) =>
     call<void>("update_library_root", { id, kind, enabled }),
+  setRootDestination: (id: string, destination: ResourceDestination) =>
+    call<void>("set_root_destination", { id, destination }),
   deleteRoot: (id: string) => call<void>("delete_library_root", { id }),
   scanRoot: (id: string) => call<ScanResult>("scan_library_root", { id }),
   listScanJobs: () => call<ScanResult[]>("list_scan_jobs"),

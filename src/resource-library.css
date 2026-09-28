@@ -13,3 +13,6 @@
 @media (max-width: 700px) { .resource-routing-head, .resource-routing-tools, .resource-routing-row { align-items: stretch; flex-direction: column; } .resource-routing-tools input { width: 100%; } }
 .bookshelf-toolbar { display: flex; gap: 8px; margin-bottom: 18px; }
 .bookshelf-toolbar input { width: min(100%, 360px); }
+.root-kind-advanced { margin-top: 5px; color: var(--muted); font-size: 11px; }
+.root-kind-advanced summary { cursor: pointer; }
+.root-kind-advanced select { display: block; margin-top: 6px; max-width: 100%; }
