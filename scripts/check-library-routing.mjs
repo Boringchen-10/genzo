@@ -36,7 +36,7 @@ try {
       const layout = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
       assert.ok(layout.scrollWidth <= layout.width, `${width} ${label} overflow: ${JSON.stringify(layout)}`);
     };
-    await page.goto(`${base}/#/resources`);
+    await page.goto(`${base}/#/sources`);
     await page.getByRole("combobox", { name: "C:\\Books的归属" }).selectOption("media");
     await noOverflow("resources");
     await page.getByRole("link", { name: "媒体库" }).click();
@@ -46,12 +46,15 @@ try {
     await noOverflow("media inbox");
     await page.getByRole("link", { name: "书架" }).click();
     await page.getByRole("tab", { name: /待整理/ }).click();
-    await page.getByText("没有待整理的阅读文件").waitFor();
+    const detailedShelf = await page.locator(".gnz-bookshelf-page").count() > 0;
+    if (detailedShelf) await page.getByText("0 个待整理阅读物组").waitFor();
+    else await page.getByText("没有待整理的阅读文件").waitFor();
     await page.getByRole("link", { name: "资源库" }).click();
     await page.getByRole("combobox", { name: "C:\\Books的归属" }).selectOption("bookshelf");
     await page.getByRole("link", { name: "书架" }).click();
     await page.getByRole("tab", { name: /待整理/ }).click();
-    await page.getByText("Book.cbz").first().waitFor();
+    if (detailedShelf) await page.getByText("1 个待整理阅读物组").waitFor();
+    else await page.getByText("Book.cbz").first().waitFor();
     await noOverflow("bookshelf inbox");
     assert.deepEqual(errors, []);
     await page.close();

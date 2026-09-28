@@ -21,7 +21,7 @@ const navigation = [
   { to: "/explore", label: "探索", icon: Compass },
   { to: "/library", label: "媒体库", icon: Library },
   { to: "/bookshelf", label: "书架", icon: BookOpen },
-  { to: "/resources", label: "资源库", icon: FolderTree },
+  { to: "/sources", label: "资源库", icon: FolderTree },
   { to: "/favorites", label: "收藏", icon: Heart },
   { to: "/tools", label: "工具", icon: Wrench },
   { to: "/settings", label: "设置", icon: Settings },

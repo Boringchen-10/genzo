@@ -18,7 +18,7 @@ const router = createHashRouter([
       { path: "explore", element: <ExplorePage /> },
       { path: "library", element: <LibraryPage /> },
       { path: "bookshelf", element: <BookshelfPage /> },
-      { path: "resources", element: <ResourceLibraryPage /> },
+      { path: "sources", element: <ResourceLibraryPage /> },
       { path: "library/:id", element: <WorkDetailPage /> },
       { path: "favorites", element: <FavoritesPage /> },
       { path: "tools", element: <ToolsPage /> },

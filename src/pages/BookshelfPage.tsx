@@ -44,7 +44,7 @@ export function BookshelfPage() {
     <div className="bookshelf-toolbar"><input aria-label="搜索书架" placeholder={inbox ? "搜索待整理文件" : "搜索书架作品"} value={search} onChange={event => setSearch(event.target.value)} /><button type="button" className="button secondary compact" onClick={() => void load()} disabled={loading}>刷新</button></div>
     {loading ? <LoadingState /> : error ? <ErrorState message={error} retry={() => void load()} /> : inbox ? <>
       <BookImportPanel />
-      {visibleGroups.length ? <div className="resource-routing-list">{visibleGroups.map(group => <div className="resource-routing-row" key={group.key}><div><strong>{group.title}</strong><small>{mediaLabels[group.mediaType]} · {group.fileCount} 个文件 · {group.folderPath ?? group.representative.path}</small></div><Link to="/resources">在资源库改选去向</Link></div>)}</div> : <EmptyState title="没有待整理的阅读文件" description="在资源库添加漫画或小说目录并扫描后，文件会显示在这里。" />}
+      {visibleGroups.length ? <div className="resource-routing-list">{visibleGroups.map(group => <div className="resource-routing-row" key={group.key}><div><strong>{group.title}</strong><small>{mediaLabels[group.mediaType]} · {group.fileCount} 个文件 · {group.folderPath ?? group.representative.path}</small></div><Link to="/sources">在资源库更改目录归属</Link></div>)}</div> : <EmptyState title="没有待整理的阅读文件" description="在资源库添加漫画或小说目录并扫描后，文件会显示在这里。" />}
     </> : visibleWorks.length ? <div className="work-grid">{visibleWorks.map(work => <WorkCard key={work.id} work={work} />)}</div> : <EmptyState title="书架还没有作品" description="扫描阅读目录后，在待整理中建立漫画或小说作品。" />}
   </div>;
 }

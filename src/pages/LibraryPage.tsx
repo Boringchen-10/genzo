@@ -199,8 +199,7 @@ export function LibraryPage() {
   }, [comicBrowsePath, comicContainers, filteredUnassigned]);
 
   /* 进入待整理时取文件列表；关联后的后台刷新由 refreshAfterRecognition 统一更新。
-     listUnassignedMedia 目前无过滤、无分页（后端为 WHERE work_id IS NULL），大库下会传输全部记录；
-     已登记后端需求（INBOX-007）：提供按资源目录 / 路径过滤与分页的查询。 */
+     listUnassignedMedia 已按目录归属过滤，但仍无路径分页；大库下可继续补充按目录 / 路径查询（INBOX-007）。 */
   useEffect(() => {
     if (activeSection !== "inbox") return;
     let cancelled = false;
