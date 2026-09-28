@@ -1,4 +1,5 @@
 export type MediaType = "video" | "comic" | "novel" | "game" | "other";
+export type ResourceDestination = "media" | "bookshelf";
 export type WorkCategory = MediaType | "anime" | "movie" | "tv";
 export type RecognitionKind = "anime" | "movie" | "tv";
 export type WorkStatus = "planned" | "in_progress" | "completed" | "paused" | "dropped";
@@ -70,6 +71,7 @@ export interface MediaFile {
 
 export interface UnassignedMediaGroup {
   key: string;
+  destination: ResourceDestination;
   title: string;
   folderPath: string | null;
   mediaType: MediaType;

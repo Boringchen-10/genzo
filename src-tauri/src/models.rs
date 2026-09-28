@@ -80,6 +80,7 @@ pub struct MediaFile {
 #[serde(rename_all = "camelCase")]
 pub struct UnassignedMediaGroup {
     pub key: String,
+    pub destination: String,
     pub title: String,
     pub folder_path: Option<String>,
     pub media_type: String,

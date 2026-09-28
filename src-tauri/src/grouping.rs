@@ -1,9 +1,10 @@
 use crate::anime_parser::{normalize_title, parse_file_name, parse_media_path};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::{LibraryRoot, MediaFile, UnassignedMediaGroup};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::path::Path;
+use chrono::Utc;
 
 const MEDIA_COLUMNS: &str = "id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path";
 
@@ -288,8 +289,19 @@ async fn unassigned_media(pool: &SqlitePool) -> AppResult<Vec<MediaFile>> {
     .await?)
 }
 
+fn default_destination(media_type: &str) -> &'static str {
+    if matches!(media_type, "comic" | "novel") { "bookshelf" } else { "media" }
+}
+
+async fn route_overrides(pool: &SqlitePool) -> AppResult<HashMap<String, String>> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT group_key, destination FROM resource_group_routes")
+        .fetch_all(pool).await?;
+    Ok(rows.into_iter().collect())
+}
+
 pub async fn list_unassigned_groups(pool: &SqlitePool) -> AppResult<Vec<UnassignedMediaGroup>> {
     let roots = roots_by_id(pool).await?;
+    let overrides = route_overrides(pool).await?;
     let mut grouped: HashMap<GroupIdentity, Vec<MediaFile>> = HashMap::new();
     for media in unassigned_media(pool).await? {
         let root_path = media
@@ -308,8 +320,11 @@ pub async fn list_unassigned_groups(pool: &SqlitePool) -> AppResult<Vec<Unassign
         .map(|(identity, files)| {
             let media_type = dominant_media_type(&files);
             let representative = choose_representative(&files, &media_type);
+            let destination = overrides.get(&identity.key).cloned()
+                .unwrap_or_else(|| default_destination(&media_type).to_string());
             UnassignedMediaGroup {
                 key: identity.key,
+                destination,
                 title: identity.title,
                 folder_path: identity.folder_path,
                 media_type,
@@ -326,6 +341,45 @@ pub async fn list_unassigned_groups(pool: &SqlitePool) -> AppResult<Vec<Unassign
         .collect();
     result.sort_by(|left, right| natord::compare_ignore_case(&left.title, &right.title));
     Ok(result)
+}
+
+pub async fn unassigned_file_destinations(pool: &SqlitePool) -> AppResult<HashMap<String, String>> {
+    let groups = list_unassigned_groups(pool).await?;
+    let destinations: HashMap<_, _> = groups.into_iter()
+        .map(|group| (group.key, group.destination)).collect();
+    let roots = roots_by_id(pool).await?;
+    let mut result = HashMap::new();
+    for file in unassigned_media(pool).await? {
+        let root_path = file.library_root_id.as_ref().and_then(|id| roots.get(id)).map(String::as_str);
+        let key = group_identity(&file, root_path).key;
+        if let Some(destination) = destinations.get(&key) {
+            result.insert(file.id, destination.clone());
+        }
+    }
+    Ok(result)
+}
+
+pub async fn set_unassigned_group_destination(
+    pool: &SqlitePool,
+    media_file_id: &str,
+    destination: &str,
+) -> AppResult<()> {
+    if !matches!(destination, "media" | "bookshelf") {
+        return Err(AppError::Validation("请选择媒体库或书架".into()));
+    }
+    let group = list_unassigned_groups(pool).await?
+        .into_iter()
+        .find(|group| group.representative.id == media_file_id)
+        .ok_or_else(|| AppError::NotFound("待整理文件组不存在，请刷新后重试".into()))?;
+    if destination == "bookshelf" && !matches!(group.media_type.as_str(), "comic" | "novel") {
+        return Err(AppError::Validation("此文件组不是受支持的漫画或小说格式，不能放入书架".into()));
+    }
+    let (_guard, mut transaction) = crate::db::begin_write(pool).await?;
+    sqlx::query("INSERT INTO resource_group_routes (group_key, destination, updated_at) VALUES (?, ?, ?) ON CONFLICT(group_key) DO UPDATE SET destination = excluded.destination, updated_at = excluded.updated_at")
+        .bind(&group.key).bind(destination).bind(Utc::now().to_rfc3339())
+        .execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(())
 }
 
 pub async fn unassigned_group_context(
@@ -660,6 +714,43 @@ mod tests {
     use super::*;
     use crate::db;
     use chrono::Utc;
+
+    #[tokio::test]
+    async fn existing_index_upgrades_and_manual_route_survives_rescan() {
+        use std::borrow::Cow;
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+            .connect("sqlite::memory:").await.unwrap();
+        let mut previous = sqlx::migrate!("./migrations");
+        let mut migrations = previous.migrations.into_owned();
+        migrations.retain(|migration| migration.version <= 20);
+        previous.migrations = Cow::Owned(migrations);
+        previous.run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO library_roots (id, path, kind, created_at, updated_at) VALUES ('root', 'C:\\Resources', 'auto', 't', 't')")
+            .execute(&pool).await.unwrap();
+        for (id, path, name, extension, media_type) in [
+            ("comic", "C:\\Resources\\Book\\01.cbz", "01.cbz", "cbz", "comic"),
+            ("video", "C:\\Resources\\Show\\01.mkv", "01.mkv", "mkv", "video"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, library_root_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'root', ?, ?, ?, ?, 't', 't')")
+                .bind(id).bind(path).bind(name).bind(extension).bind(media_type).execute(&pool).await.unwrap();
+        }
+        crate::migration_compat::run(&pool).await.unwrap();
+        let groups = list_unassigned_groups(&pool).await.unwrap();
+        assert_eq!(groups.iter().find(|group| group.representative.id == "comic").unwrap().destination, "bookshelf");
+        assert_eq!(groups.iter().find(|group| group.representative.id == "video").unwrap().destination, "media");
+        assert!(set_unassigned_group_destination(&pool, "video", "bookshelf").await.is_err());
+        set_unassigned_group_destination(&pool, "comic", "media").await.unwrap();
+        assert!(crate::bookshelf::import_groups_in_pool(&pool).await.unwrap().is_empty());
+        sqlx::query("UPDATE media_files SET size = 123, updated_at = 'rescan' WHERE id = 'comic'")
+            .execute(&pool).await.unwrap();
+        crate::migration_compat::run(&pool).await.unwrap();
+        assert_eq!(unassigned_file_destinations(&pool).await.unwrap().get("comic").map(String::as_str), Some("media"));
+        set_unassigned_group_destination(&pool, "comic", "bookshelf").await.unwrap();
+        assert_eq!(crate::bookshelf::import_groups_in_pool(&pool).await.unwrap().len(), 1);
+        let retained: (String, i64) = sqlx::query_as("SELECT path, size FROM media_files WHERE id = 'comic'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(retained, ("C:\\Resources\\Book\\01.cbz".into(), 123));
+    }
 
     #[tokio::test]
     async fn separates_mixed_seasons_and_specials_with_their_subtitles() {

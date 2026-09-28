@@ -39,7 +39,7 @@ export function BookImportPanel() {
   return <details className="book-import">
     <summary>从待整理文件建立书架作品</summary>
     <div className="book-import-body">
-      <p>按媒体源的首层文件夹列出候选；确认标题和类型后才建立作品。不会移动或修改书籍文件。</p>
+      <p>按资源目录的首层文件夹列出书架待整理候选；确认标题和类型后才建立作品。不会移动或修改书籍文件。</p>
       <button type="button" className="button compact secondary" disabled={loading} onClick={() => void load()}>{loading ? "读取中…" : "刷新待整理读物"}</button>
       {error ? <p className="gnz-inline-error" role="alert">{error}</p> : null}
       {groups.length ? <div className="book-import-grid">

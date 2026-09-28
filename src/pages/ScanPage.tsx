@@ -61,7 +61,7 @@ export function ScanPage() {
       if (mounted) await remoteApi.sourceType(root.id, "mounted");
       setShowAdd(false);
       setSelectedPath("");
-      toast("扫描目录已添加", "success");
+      toast("资源目录已添加", "success");
       await load();
       await scan(root.id);
     } catch (addError: unknown) {
@@ -106,7 +106,7 @@ export function ScanPage() {
     setSaving(true);
     try {
       await api.deleteRoot(deleting.id);
-      toast("目录配置已删除，本地文件未作修改", "success");
+      toast("资源目录配置已删除，本地文件未作修改", "success");
       setDeleting(null);
       await load();
     } catch (deleteError: unknown) {
@@ -166,8 +166,8 @@ export function ScanPage() {
         </section>
       ) : null}
 
-      {showAdd ? <Modal title="添加媒体源" width="small" onClose={() => setShowAdd(false)}><div className="form-grid"><div className="field span-2"><span>本地或挂载目录</span><div className="readonly-path">{selectedPath}</div></div><label className="field span-2"><span>目录类型</span><select value={rootKind} onChange={(e) => setRootKind(e.target.value as RootKind)}>{(Object.keys(rootKindLabels) as RootKind[]).map((kind) => <option key={kind} value={kind}>{rootKindLabels[kind]}</option>)}</select></label><label className="field span-2"><span><input type="checkbox" checked={mounted} onChange={e => setMounted(e.target.checked)} /> 这是网盘或网络挂载目录（RaiDrive / rclone / NAS）</span></label><p className="field-hint span-2">自动识别和混合目录会记录无法分类的文件为“其他”；指定类型的目录只导入该类型。</p><div className="form-actions span-2"><button type="button" className="button secondary" onClick={() => setShowAdd(false)}>取消</button><button type="button" className="button primary" disabled={saving} onClick={() => void addRoot()}>{saving ? "正在添加…" : "添加并扫描"}</button></div></div></Modal> : null}
-      {deleting ? <ConfirmDialog title="删除媒体源配置？" description="这只会删除 Genzo 中的目录配置。磁盘上的文件不会被删除、移动或修改；已经扫描到的文件记录也会保留。" busy={saving} onCancel={() => setDeleting(null)} onConfirm={() => void deleteRoot()} /> : null}
+      {showAdd ? <Modal title="添加资源目录" width="small" onClose={() => setShowAdd(false)}><div className="form-grid"><div className="field span-2"><span>本地或挂载目录</span><div className="readonly-path">{selectedPath}</div></div><label className="field span-2"><span>目录类型</span><select value={rootKind} onChange={(e) => setRootKind(e.target.value as RootKind)}>{(Object.keys(rootKindLabels) as RootKind[]).map((kind) => <option key={kind} value={kind}>{rootKindLabels[kind]}</option>)}</select></label><label className="field span-2"><span><input type="checkbox" checked={mounted} onChange={e => setMounted(e.target.checked)} /> 这是网盘或网络挂载目录（RaiDrive / rclone / NAS）</span></label><p className="field-hint span-2">自动识别和混合目录会记录无法分类的文件为“其他”；指定类型的目录只导入该类型。</p><div className="form-actions span-2"><button type="button" className="button secondary" onClick={() => setShowAdd(false)}>取消</button><button type="button" className="button primary" disabled={saving} onClick={() => void addRoot()}>{saving ? "正在添加…" : "添加并扫描"}</button></div></div></Modal> : null}
+      {deleting ? <ConfirmDialog title="删除资源目录配置？" description="这只会删除 Genzo 中的目录配置。磁盘上的文件不会被删除、移动或修改；已经扫描到的文件记录也会保留。" busy={saving} onCancel={() => setDeleting(null)} onConfirm={() => void deleteRoot()} /> : null}
     </div>
   );
 }

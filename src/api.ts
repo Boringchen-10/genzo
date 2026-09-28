@@ -18,6 +18,7 @@ import type {
   AnimeWorkStructure,
   LibraryRoot,
   MediaFile,
+  ResourceDestination,
   UnassignedMediaGroup,
   MatchCandidate,
   RecognitionGroupInfo,
@@ -155,8 +156,10 @@ export const api = {
     call<WorkDetail>("create_work_from_media", { mediaFileId, input }),
   updateWork: (id: string, input: WorkInput) => call<WorkDetail>("update_work", { id, input }),
   deleteWork: (id: string) => call<void>("delete_work", { id }),
-  listUnassignedMedia: () => call<MediaFile[]>("list_unassigned_media"),
+  listUnassignedMedia: (destination?: ResourceDestination) => call<MediaFile[]>("list_unassigned_media", { destination: destination ?? null }),
   listUnassignedGroups: () => call<UnassignedMediaGroup[]>("list_unassigned_media_groups"),
+  setResourceGroupDestination: (mediaFileId: string, destination: ResourceDestination) =>
+    call<void>("set_resource_group_destination", { mediaFileId, destination }),
   listRecognitionGroupMembers: (mediaFileId: string, groupScope: RecognitionGroupScope = "season") =>
     call<RecognitionGroupInfo>("list_recognition_group_members", { mediaFileId, groupScope }),
   attachMedia: (workId: string, mediaFileId: string) =>

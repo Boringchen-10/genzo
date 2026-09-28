@@ -4,6 +4,7 @@ import type { UnassignedMediaGroup } from "./types";
 
 const group = (overrides: Partial<UnassignedMediaGroup>): UnassignedMediaGroup => ({
   key: "group",
+  destination: "media",
   title: "作品",
   folderPath: "C:\\Anime\\作品",
   mediaType: "video",

@@ -1,6 +1,5 @@
 import { RetryImagesButton } from "../components/ResilientImage";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { LibraryMaintenance } from "../components/LibraryMaintenance";
 import { ChevronDown, ChevronRight, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { dataProvider as api } from "../data";
@@ -13,7 +12,6 @@ import { BatchRecognitionDialog } from "../components/BatchRecognitionDialog";
 import { AttachExistingDialog } from "../components/AttachExistingDialog";
 import { remainingQueue, uniqueTargets } from "../recognitionSelection";
 import { RecognitionHistory } from "../components/RecognitionHistory";
-import { ScanPage } from "./ScanPage";
 import { libraryCategories, matchesLibraryCategory, parseLibraryCategory } from "../libraryCategory";
 import { workCategoryLabels } from "../utils";
 import { usePreferences, useToasts } from "../store";
@@ -25,7 +23,7 @@ type Scope = "all" | "recent" | "favorites" | "missing";
 type SortKey = "title" | "createdAt" | "updatedAt";
 type UnassignedSortKey = "status" | "title" | "fileCount";
 
-/* ---------- 待整理：按媒体源文件夹层级浏览 ---------- */
+/* ---------- 待整理：按资源目录文件夹层级浏览 ---------- */
 
 /** 待整理某一层级里的一行：文件夹或文件。 */
 interface InboxEntry {
@@ -67,7 +65,7 @@ export function LibraryPage() {
   const [params, setParams] = useSearchParams();
   const category = parseLibraryCategory(params.get("category"));
   const initialScope = (params.get("scope") as Scope | null) ?? "all";
-  const [activeSection, setActiveSection] = useState<"library" | "sources" | "inbox">(params.get("tab") === "inbox" ? "inbox" : params.get("tab") === "sources" ? "sources" : "library");
+  const [activeSection, setActiveSection] = useState<"library" | "inbox">(params.get("tab") === "inbox" ? "inbox" : "library");
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [unassignedGroups, setUnassignedGroups] = useState<UnassignedMediaGroup[]>([]);
   const [roots, setRoots] = useState<LibraryRoot[]>([]);
@@ -118,23 +116,24 @@ export function LibraryPage() {
   }, []);
   useEffect(() => { void load(); }, [load, activeSection]);
 
-  const tags = useMemo(() => Array.from(new Set(works.flatMap((work) => work.tags))).sort((a, b) => a.localeCompare(b, "zh-CN")), [works]);
+  const mediaWorks = useMemo(() => works.filter((work) => work.type !== "comic" && work.type !== "novel"), [works]);
+  const tags = useMemo(() => Array.from(new Set(mediaWorks.flatMap((work) => work.tags))).sort((a, b) => a.localeCompare(b, "zh-CN")), [mediaWorks]);
 
   const filtered = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("zh-CN");
     const recentThreshold = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    return works
+    return mediaWorks
       .filter((work) => !normalizedSearch || work.title.toLocaleLowerCase("zh-CN").includes(normalizedSearch) || (work.originalTitle ?? "").toLocaleLowerCase("zh-CN").includes(normalizedSearch))
       .filter((work) => matchesLibraryCategory(work, category))
       .filter((work) => !favoriteOnly || work.favorite)
       .filter((work) => tag === "all" || work.tags.includes(tag))
       .filter((work) => scope === "all" || (scope === "favorites" && work.favorite) || (scope === "missing" && work.missingCount > 0) || (scope === "recent" && new Date(work.createdAt).getTime() >= recentThreshold))
       .sort((left, right) => sort === "title" ? left.title.localeCompare(right.title, "zh-CN", { numeric: true }) : new Date(right[sort]).getTime() - new Date(left[sort]).getTime());
-  }, [works, search, category, favoriteOnly, tag, scope, sort]);
+  }, [mediaWorks, search, category, favoriteOnly, tag, scope, sort]);
 
-  /* 待整理只显示来自「媒体源」中已添加目录的作品组。早先扫描/导入、如今不属于任何已添加目录的
+  /* 待整理只显示来自「资源目录」中已添加目录的作品组。早先扫描/导入、如今不属于任何已添加目录的
      记录（libraryRootId 为空，或指向已移除的目录）属于历史数据，先不展示——把对应目录重新添加为
-     媒体源后即可恢复；要真正从库里清除这些历史记录，需要后端提供清理能力（本次未改后端）。 */
+     资源目录后即可恢复；要真正从库里清除这些历史记录，需要后端提供清理能力（本次未改后端）。 */
   const { scopedUnassigned, hiddenGroups, hiddenFiles } = useMemo(() => {
     const rootIds = new Set(roots.map((root) => root.id));
     const scoped: UnassignedMediaGroup[] = [];
@@ -142,8 +141,9 @@ export function LibraryPage() {
     let hiddenFileCount = 0;
     for (const group of unassignedGroups) {
       const rootId = group.representative.libraryRootId;
-      if (rootId !== null && rootIds.has(rootId)) scoped.push(group);
-      else {
+      if (rootId !== null && rootIds.has(rootId)) {
+        if (group.destination === "media") scoped.push(group);
+      } else {
         hiddenCount += 1;
         hiddenFileCount += group.fileCount;
       }
@@ -200,12 +200,12 @@ export function LibraryPage() {
 
   /* 进入待整理时取文件列表；关联后的后台刷新由 refreshAfterRecognition 统一更新。
      listUnassignedMedia 目前无过滤、无分页（后端为 WHERE work_id IS NULL），大库下会传输全部记录；
-     已登记后端需求（INBOX-007）：提供按媒体源 / 路径过滤与分页的查询。 */
+     已登记后端需求（INBOX-007）：提供按资源目录 / 路径过滤与分页的查询。 */
   useEffect(() => {
     if (activeSection !== "inbox") return;
     let cancelled = false;
     setInboxMediaLoading(true);
-    api.listUnassignedMedia()
+    api.listUnassignedMedia("media")
       .then((files) => { if (!cancelled) setInboxMedia(files); })
       .catch((mediaError: unknown) => { if (!cancelled) toast(getErrorMessage(mediaError), "error"); })
       .finally(() => { if (!cancelled) setInboxMediaLoading(false); });
@@ -218,7 +218,7 @@ export function LibraryPage() {
     [inboxMedia, rootIds],
   );
 
-  /* 面包屑：媒体源根目录 → 逐级子文件夹。 */
+  /* 面包屑：资源目录根目录 → 逐级子文件夹。 */
   const inboxBreadcrumb = useMemo(() => {
     if (inboxPath === null) return [] as { name: string; path: string }[];
     const target = normalizePath(inboxPath);
@@ -239,7 +239,7 @@ export function LibraryPage() {
     return crumbs;
   }, [inboxPath, roots]);
 
-  /* 当前层级：根层级 = 媒体源文件夹；进入后 = 子文件夹 + 直接位于该层的文件。 */
+  /* 当前层级：根层级 = 资源目录文件夹；进入后 = 子文件夹 + 直接位于该层的文件。 */
   const inboxLevel = useMemo<InboxEntry[]>(() => {
     const compare = (left: InboxEntry, right: InboxEntry) => {
       const primary = unassignedSort === "status"
@@ -384,7 +384,7 @@ export function LibraryPage() {
   const refreshAfterRecognition = async () => {
     await load(true);
     try {
-      const files = await api.listUnassignedMedia();
+      const files = await api.listUnassignedMedia("media");
       setInboxMedia(files);
       const pendingIds = new Set(files.map((file) => file.id));
       setSession((current) => {
@@ -468,21 +468,16 @@ export function LibraryPage() {
       <div className="page-actions"><RetryImagesButton /></div>
       <PageHeader
         title="媒体库"
-        description={`${works.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
+        description={`${mediaWorks.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
         actions={activeSection === "inbox"
           ? <div className="film-tv-batch"><select aria-label="批量识别类型" value={recognitionKind} disabled={!!batchTargets} onChange={event => setRecognitionKind(event.target.value as import("../types").RecognitionKind)}><option value="anime">动漫</option><option value="movie">电影</option><option value="tv">电视剧</option></select><button type="button" className="button secondary icon-text" disabled={!inboxTargets.length} onClick={recognizeAll}><Sparkles size={17} />批量预览与确认</button></div>
-          : activeSection === "sources"
-            ? undefined
-            : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
+          : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
       />
       <div className="gnz-primary-tabs gnz-library-tabs" role="tablist" aria-label="媒体库页面">
         <button type="button" role="tab" aria-selected={activeSection === "library"} className={activeSection === "library" ? "active" : ""} onClick={() => setActiveSection("library")}>媒体库</button>
-        <button type="button" role="tab" aria-selected={activeSection === "sources"} className={activeSection === "sources" ? "active" : ""} onClick={() => setActiveSection("sources")}>媒体源</button>
         <button type="button" role="tab" aria-selected={activeSection === "inbox"} className={activeSection === "inbox" ? "active" : ""} onClick={() => setActiveSection("inbox")}>待整理{scopedUnassigned.length ? <span className="tab-count">{scopedUnassigned.length}</span> : null}</button>
       </div>
-      {activeSection === "sources" ? <ScanPage /> : null}
-      <LibraryMaintenance onChanged={() => void load(true)} />
-      {activeSection !== "sources" ? <div className="library-toolbar">
+      <div className="library-toolbar">
         <div className="search-box">
           <Search size={17} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索标题或原始标题" aria-label="搜索作品" />
@@ -497,10 +492,10 @@ export function LibraryPage() {
             return next;
           }, { replace: true });
         }}>
-          {libraryCategories.map(value => <option key={value} value={value}>{value === "all" ? "全部分类" : value === "videos" ? "全部视频" : workCategoryLabels[value]}</option>)}
+          {libraryCategories.filter(value => value !== "comic" && value !== "novel").map(value => <option key={value} value={value}>{value === "all" ? "全部分类" : value === "videos" ? "全部视频" : workCategoryLabels[value]}</option>)}
         </select> : <select value={mediaType} onChange={(e) => setMediaType(e.target.value as MediaType | "all")} aria-label="媒体类型">
           <option value="all">全部类型</option>
-          {(Object.keys(mediaLabels) as MediaType[]).map((type) => <option key={type} value={type}>{mediaLabels[type]}</option>)}
+          {(Object.keys(mediaLabels) as MediaType[]).filter(type => type !== "comic" && type !== "novel").map((type) => <option key={type} value={type}>{mediaLabels[type]}</option>)}
         </select>}
         <select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="标签筛选">
           <option value="all">全部标签</option>
@@ -518,17 +513,17 @@ export function LibraryPage() {
           <button type="button" data-tooltip="海报网格" aria-label="海报网格" className={view === "grid" ? "active" : ""} onClick={() => setView("grid")}><Grid2X2 size={16} /></button>
           <button type="button" data-tooltip="列表" aria-label="列表" className={view === "list" ? "active" : ""} onClick={() => setView("list")}><List size={17} /></button>
         </div>
-      </div> : null}
+      </div>
       {activeSection === "library" ? <div className="scope-tabs" role="tablist" aria-label="媒体库范围">
         {([['all', '全部'], ['recent', '最近添加'], ['favorites', '收藏'], ['missing', '文件缺失']] as const).map(([value, label]) => (
           <button key={value} type="button" className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>
         ))}
-      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">按「媒体源」的文件夹层级浏览：从媒体源根目录逐级打开子文件夹，直到看到文件。识别与手动整理仍然按作品组进行；字幕会作为视频作品组的附属文件显示。{hiddenGroups > 0 ? <span className="gnz-inbox-hidden">已隐藏 {hiddenGroups} 个不属于任何媒体源的历史作品组（{hiddenFiles} 个文件）：它们来自已移除的目录。把该目录重新添加为媒体源后即可再次显示。</span> : null}</div> : null}
+      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">按「资源目录」的文件夹层级浏览：从资源目录根目录逐级打开子文件夹，直到看到文件。识别与手动整理仍然按作品组进行；字幕会作为视频作品组的附属文件显示。{hiddenGroups > 0 ? <span className="gnz-inbox-hidden">已隐藏 {hiddenGroups} 个不属于任何资源目录的历史作品组（{hiddenFiles} 个文件）：它们来自已移除的目录。把该目录重新添加为资源目录后即可再次显示。</span> : null}</div> : null}
 
       {activeSection === "inbox" && !loading && !error && filteredUnassigned.length > 0 ? (
         <section className="unassigned-section">
           <div className="section-heading">
-            <div><h2>待整理内容</h2><span>{inboxPath === null ? `${roots.length} 个媒体源，共 ${unassignedFileCount} 个待整理文件；逐级打开文件夹即可看到文件。` : `${inboxBreadcrumb.map((crumb) => crumb.name).join(" / ")} · ${inboxLevel.filter((entry) => entry.folder).length} 个子文件夹 · ${inboxLevel.filter((entry) => !entry.folder).length} 个文件`}</span></div>
+            <div><h2>待整理内容</h2><span>{inboxPath === null ? `${roots.length} 个资源目录，共 ${unassignedFileCount} 个待整理文件；逐级打开文件夹即可看到文件。` : `${inboxBreadcrumb.map((crumb) => crumb.name).join(" / ")} · ${inboxLevel.filter((entry) => entry.folder).length} 个子文件夹 · ${inboxLevel.filter((entry) => !entry.folder).length} 个文件`}</span></div>
             <div className="inbox-heading-actions">
               <button type="button" className="button secondary compact icon-text" disabled={!inboxTargets.length} onClick={() => startRecognition(inboxTargets)}><Sparkles size={15} />连续处理{inboxTargets.length ? ` ${inboxTargets.length}` : ""}</button>
               <select className="unassigned-sort" value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as UnassignedSortKey)} aria-label="待整理内容排序">
@@ -540,7 +535,7 @@ export function LibraryPage() {
           </div>
 
           <nav className="inbox-crumbs" aria-label="待整理文件夹路径">
-            <button type="button" onClick={() => setInboxPath(null)} disabled={inboxPath === null}>媒体源</button>
+            <button type="button" onClick={() => setInboxPath(null)} disabled={inboxPath === null}>资源目录</button>
             {inboxBreadcrumb.map((crumb, index) => (
               <Fragment key={crumb.path}>
                 <ChevronRight size={13} />

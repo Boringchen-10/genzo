@@ -23,6 +23,7 @@ import type {
   LibraryRoot,
   MatchCandidate,
   MediaFile,
+  ResourceDestination,
   RecognitionGroupInfo,
   RecognitionHistoryEntry,
   RecognitionGroupScope,
@@ -62,7 +63,7 @@ export interface GenzoDataProvider {
   updateWork(id: string, input: WorkInput): Promise<WorkDetail>;
   deleteWork(id: string): Promise<void>;
 
-  listUnassignedMedia(): Promise<MediaFile[]>;
+  listUnassignedMedia(destination?: ResourceDestination): Promise<MediaFile[]>;
   listUnassignedGroups(): Promise<UnassignedMediaGroup[]>;
   listRecognitionGroupMembers(mediaFileId: string, groupScope?: RecognitionGroupScope): Promise<RecognitionGroupInfo>;
   attachMedia(workId: string, mediaFileId: string): Promise<void>;

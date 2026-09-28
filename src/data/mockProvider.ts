@@ -683,6 +683,7 @@ export function createMockProvider(): GenzoDataProvider {
     async listUnassignedGroups() {
       const group: UnassignedMediaGroup = {
         key: "mock-group-1",
+        destination: "media",
         title: "未知作品（示例）",
         folderPath: "H:\\Media\\未整理\\示例目录",
         mediaType: "video",

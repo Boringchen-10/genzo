@@ -321,12 +321,29 @@ pub async fn delete_work(id: String, state: State<'_, AppState>) -> AppResult<()
 }
 
 #[tauri::command]
-pub async fn list_unassigned_media(state: State<'_, AppState>) -> AppResult<Vec<MediaFile>> {
-    Ok(sqlx::query_as::<_, MediaFile>(
+pub async fn list_unassigned_media(destination: Option<String>, state: State<'_, AppState>) -> AppResult<Vec<MediaFile>> {
+    if destination.as_deref().is_some_and(|value| !matches!(value, "media" | "bookshelf")) {
+        return Err(AppError::Validation("无效的待整理目标".into()));
+    }
+    let mut files = sqlx::query_as::<_, MediaFile>(
         "SELECT id, work_id, library_root_id, path, file_name, extension, media_type, size, modified_at, missing, created_at, updated_at, recognition_status, parsed_title, parsed_original_title, parsed_season, parsed_episode, parsed_episode_start, parsed_episode_end, parsed_year, parsed_release_group, parsed_special_type, parsed_media_info, last_recognized_at, recognition_error, content_fingerprint, thumbnail_path FROM media_files WHERE work_id IS NULL ORDER BY parsed_season, parsed_episode_start, file_name COLLATE NOCASE",
     )
     .fetch_all(&state.pool)
-    .await?)
+    .await?;
+    if let Some(destination) = destination {
+        let destinations = grouping::unassigned_file_destinations(&state.pool).await?;
+        files.retain(|file| destinations.get(&file.id).is_some_and(|value| value == &destination));
+    }
+    Ok(files)
+}
+
+#[tauri::command]
+pub async fn set_resource_group_destination(
+    media_file_id: String,
+    destination: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    grouping::set_unassigned_group_destination(&state.pool, &media_file_id, &destination).await
 }
 
 #[tauri::command]

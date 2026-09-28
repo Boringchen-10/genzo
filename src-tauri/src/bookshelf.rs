@@ -92,8 +92,9 @@ fn import_groups(files: Vec<UnassignedBookFile>) -> Vec<BookImportGroup> {
 pub async fn import_groups_in_pool(pool: &SqlitePool) -> AppResult<Vec<BookImportGroup>> {
     let files = sqlx::query_as::<_, UnassignedBookFile>("SELECT m.id, m.path, m.file_name, m.media_type, r.path AS root_path FROM media_files m JOIN library_roots r ON r.id = m.library_root_id WHERE m.work_id IS NULL AND m.media_type IN ('comic', 'novel') ORDER BY m.path LIMIT 10001")
         .fetch_all(pool).await?;
-    if files.len() > 10000 { return Err(AppError::Validation("待读物超过 10000 个文件，请缩小媒体源范围".into())); }
-    Ok(import_groups(files))
+    if files.len() > 10000 { return Err(AppError::Validation("待读物超过 10000 个文件，请缩小资源目录范围".into())); }
+    let destinations = crate::grouping::unassigned_file_destinations(pool).await?;
+    Ok(import_groups(files.into_iter().filter(|file| destinations.get(&file.id).is_some_and(|value| value == "bookshelf")).collect()))
 }
 
 #[tauri::command]
@@ -108,6 +109,10 @@ pub async fn create_book_work_in_pool(pool: &SqlitePool, title: &str, media_type
     if media_file_ids.is_empty() || media_file_ids.len() > 1000 { return Err(AppError::Validation("请选择 1–1000 个书籍文件".into())); }
     let mut unique = std::collections::HashSet::new();
     if media_file_ids.iter().any(|id| !unique.insert(id)) { return Err(AppError::Validation("文件列表存在重复项".into())); }
+    let destinations = crate::grouping::unassigned_file_destinations(pool).await?;
+    if media_file_ids.iter().any(|id| destinations.get(id).is_none_or(|value| value != "bookshelf")) {
+        return Err(AppError::Validation("所选文件已不在书架待整理区，请刷新后重试".into()));
+    }
     let work_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let (_guard, mut transaction) = crate::db::begin_write(pool).await?;

@@ -109,6 +109,7 @@ pub fn run() {
             commands::delete_work,
             commands::list_unassigned_media,
             commands::list_unassigned_media_groups,
+            commands::set_resource_group_destination,
             commands::list_recognition_group_members,
             commands::attach_media_file,
             commands::attach_media_files,
