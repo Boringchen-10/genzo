@@ -66,3 +66,14 @@ export interface BookVolumeCandidate {
   linkedToSeries: boolean;
   stale: boolean;
 }
+
+export interface BookVolumeBatchPreview {
+  seriesId: string;
+  proposals: { entryId: string; entryTitle: string; volumeNumber: number; candidate: BookVolumeCandidate }[];
+  skipped: { entryId: string; entryTitle: string; reason: string }[];
+}
+
+export interface BookVolumeBatchResult {
+  matched: number;
+  skipped: BookVolumeBatchPreview["skipped"];
+}

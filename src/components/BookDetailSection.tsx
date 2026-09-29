@@ -1,8 +1,8 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, RefreshCw, Search } from "lucide-react";
+import { BookOpen, ChevronRight, RefreshCw, Search } from "lucide-react";
 import { bookApi } from "../api";
-import type { BookCandidate, BookEntry, BookEntryInput, BookVolumeCandidate, EmbeddedBookMetadata } from "../bookData";
+import type { BookCandidate, BookEntry, BookEntryInput, BookVolumeBatchPreview, BookVolumeBatchResult, BookVolumeCandidate, EmbeddedBookMetadata } from "../bookData";
 import { Modal } from "./common";
 import { getErrorMessage } from "../utils";
 import "../book-detail.css";
@@ -24,6 +24,9 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const [matchError, setMatchError] = useState("");
   const [volumeSearch, setVolumeSearch] = useState<{ entryId: string; query: string; candidates: BookVolumeCandidate[]; error: string; loading: boolean } | null>(null);
   const volumeSearchRequest = useRef(0);
+  const [batchPreview, setBatchPreview] = useState<BookVolumeBatchPreview | null>(null);
+  const [batchResult, setBatchResult] = useState<BookVolumeBatchResult | null>(null);
+  const [batchError, setBatchError] = useState("");
   const entryIds = entries.map(entry => entry.id).join("|");
 
   const load = useCallback(async () => {
@@ -111,13 +114,40 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
     } finally { setBusy(false); }
   };
 
+  const previewBatch = async () => {
+    setBusy(true); setBatchError(""); setBatchResult(null);
+    try { setBatchPreview(await bookApi.previewVolumeBatch(workId)); }
+    catch (reason) { setBatchPreview(null); setBatchError(getErrorMessage(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const confirmBatch = async () => {
+    if (!batchPreview) return;
+    setBusy(true); setBatchError("");
+    try {
+      const result = await bookApi.confirmVolumeBatch(workId, batchPreview);
+      setEntries(await bookApi.entries(workId));
+      setBatchResult(result);
+      setBatchPreview(null);
+    } catch (reason) { setBatchError(getErrorMessage(reason)); }
+    finally { setBusy(false); }
+  };
+
   if (!isTauri()) return <p className="quiet-inline">书籍卷册与刮削需要在 Genzo 桌面应用中使用。</p>;
   return <div className="book-detail" id="bookshelf-entries">
     <div className="book-detail-toolbar">
       <strong>书籍与阅读记录</strong>
-      <button type="button" className="button compact secondary" onClick={() => void load()}><RefreshCw size={14} />刷新</button>
+      <div className="book-entry-actions"><button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => void previewBatch()}>批量识别卷册</button><button type="button" className="button compact secondary" onClick={() => void load()}><RefreshCw size={14} />刷新</button></div>
     </div>
     {error ? <p role="alert" className="gnz-inline-error">{error}</p> : null}
+    {batchError ? <p role="alert" className="gnz-inline-error">{batchError}</p> : null}
+    {batchResult ? <div role="status" className="quiet-inline">已匹配 {batchResult.matched} 卷；跳过 {batchResult.skipped.length} 卷，可按需逐卷核对。{batchResult.skipped.length ? <div className="book-volume-batch-list">{batchResult.skipped.map(item => <div key={item.entryId}><span>{item.entryTitle}</span><small>{item.reason}</small></div>)}</div> : null}</div> : null}
+    {batchPreview ? <div className="book-volume-batch">
+      <strong>批量匹配预览 · {batchPreview.proposals.length} 卷可关联，{batchPreview.skipped.length} 卷待核对</strong>
+      <p>仅按本地唯一卷号对应已关联 Bangumi 系列中的唯一单行本；保存前会再次核实每卷的类型和编号。</p>
+      <div className="book-volume-batch-list">{batchPreview.proposals.map(item => <div key={item.entryId}><span>{item.entryTitle} · 第 {item.volumeNumber} 卷</span><ChevronRight size={14} /><span>{item.candidate.title} · #{item.candidate.externalId}{item.candidate.stale ? " · 离线缓存" : ""}</span></div>)}{batchPreview.skipped.map(item => <div key={item.entryId}><span>{item.entryTitle}</span><small>{item.reason}</small></div>)}</div>
+      <div className="book-entry-actions"><button type="button" className="button compact secondary" onClick={() => setBatchPreview(null)}>取消</button><button type="button" className="button compact primary" disabled={busy || batchPreview.proposals.length === 0} onClick={() => void confirmBatch()}>{busy ? "核实中…" : `确认匹配 ${batchPreview.proposals.length} 卷`}</button></div>
+    </div> : null}
     {entries.length ? <div className="book-entry-list">{entries.map((entry) => {
       const local = volumeMetadata[entry.id];
       const localNumber = local?.number && /^\d+(?:\.\d+)?$/.test(local.number.trim()) ? Number(local.number) : null;

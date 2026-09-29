@@ -26,6 +26,7 @@ export function BookImportPanel({ focusMediaFileId, focusRequest, variant = "dis
   const previewRequest = useRef(0);
   const searchRequest = useRef(0);
   const manualWasSelected = useRef(false);
+  const lastManualTitle = useRef<string | undefined>(undefined);
   const [groups, setGroups] = useState<BookImportGroup[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -97,11 +98,13 @@ export function BookImportPanel({ focusMediaFileId, focusRequest, variant = "dis
 
   useEffect(() => {
     if (!manualMode) return;
-    if (firstManualFile && !manualWasSelected.current) {
+    if (firstManualFile && (!manualWasSelected.current || (selectionTitle && selectionTitle !== lastManualTitle.current))) {
       const suggestedTitle = selectionTitle || firstManualFile.file.fileName.replace(/\.[^.]+$/, "");
       setTitle(suggestedTitle);
       setQuery(suggestedTitle);
       setKind(firstManualFile.mediaType);
+      setCandidates([]);
+      setSelectedCandidate(null);
     }
     if (!manualFiles.length && manualWasSelected.current) {
       setEmbedded(null);
@@ -109,6 +112,7 @@ export function BookImportPanel({ focusMediaFileId, focusRequest, variant = "dis
       setSelectedCandidate(null);
     }
     manualWasSelected.current = manualFiles.length > 0;
+    lastManualTitle.current = manualFiles.length ? selectionTitle : undefined;
   }, [manualMode, manualFiles.length, selectionTitle]);
 
   const readEmbedded = async (file: BookImportFile, epoch = selectionEpoch.current) => {
@@ -133,7 +137,10 @@ export function BookImportPanel({ focusMediaFileId, focusRequest, variant = "dis
     setInspecting(false);
     setSearching(false);
     setSelectedKey(groupKey(group));
-    setSelectedIds(new Set(group.mediaFileIds));
+    const counts = new Map<string, number>();
+    for (const file of group.files) if (file.volumeNumber != null) counts.set(String(file.volumeNumber), (counts.get(String(file.volumeNumber)) ?? 0) + 1);
+    const numbered = group.files.some(file => file.volumeNumber != null);
+    setSelectedIds(new Set(group.files.filter(file => !numbered || (file.volumeNumber != null && counts.get(String(file.volumeNumber)) === 1)).map(file => file.id)));
     setTitle(group.title);
     setKind(group.mediaType);
     setQuery(group.title);

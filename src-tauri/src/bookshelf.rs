@@ -104,7 +104,12 @@ fn import_groups(files: Vec<UnassignedBookFile>) -> Vec<BookImportGroup> {
         let parts = relative.split(['/', '\\']).filter(|part| !part.is_empty()).collect::<Vec<_>>();
         let directory_count = parts.len().saturating_sub(1);
         let group_depth = if image_extension(&file.extension.to_ascii_lowercase()) && directory_count > 1 { directory_count - 1 } else { directory_count };
-        let (key, title, folder_path) = if group_depth > 0 {
+        let stem = file.file_name.rsplit_once('.').map_or(file.file_name.as_str(), |(stem, _)| stem);
+        let inferred = if image_extension(&file.extension.to_ascii_lowercase()) { None } else { infer_series_and_volume(stem) };
+        let (key, title, folder_path) = if let Some((title, _)) = &inferred {
+            let scope = parts[..directory_count].iter().find(|part| !structural_book_folder(part)).copied().unwrap_or(root);
+            (format!("series:{}:{}:{}:{}", file.media_type, root.to_lowercase(), scope.to_lowercase(), crate::anime_parser::normalize_title(title)), title.clone(), Some(root.to_string()))
+        } else if group_depth > 0 {
             let separator = if root.contains('/') { '/' } else { '\\' };
             let folder = format!("{root}{separator}{}", parts[..group_depth].join(&separator.to_string()));
             (format!("{}:{}", file.media_type, folder.to_lowercase()), parts[group_depth - 1].to_string(), Some(folder))
@@ -118,7 +123,7 @@ fn import_groups(files: Vec<UnassignedBookFile>) -> Vec<BookImportGroup> {
         } else {
             file.file_name.rsplit_once('.').map_or(file.file_name.as_str(), |(stem, _)| stem)
         };
-        let volume_number = parse_book_numbers(number_source).0;
+        let volume_number = inferred.as_ref().map(|(_, number)| *number).or_else(|| parse_book_numbers(number_source).0);
         group.files.push(BookImportFile { id: file.id, path: file.path, file_name: file.file_name, extension: file.extension, missing: file.missing, volume_number });
     }
     let mut groups = groups.into_values().collect::<Vec<_>>();
@@ -127,6 +132,37 @@ fn import_groups(files: Vec<UnassignedBookFile>) -> Vec<BookImportGroup> {
     }
     groups.sort_by(|left, right| natord::compare(&left.title, &right.title));
     groups
+}
+
+fn structural_book_folder(segment: &str) -> bool {
+    matches!(segment.to_ascii_lowercase().as_str(), "正文" | "日文" | "中文" | "英文" | "epub" | "cbz" | "zip")
+        || segment.parse::<f64>().is_ok() || parse_book_numbers(segment).0.is_some()
+}
+
+fn infer_series_and_volume(stem: &str) -> Option<(String, f64)> {
+    static TRAILING_TAG: OnceLock<Regex> = OnceLock::new();
+    static BARE: OnceLock<Regex> = OnceLock::new();
+    static PAREN: OnceLock<Regex> = OnceLock::new();
+    static EXPLICIT: OnceLock<Regex> = OnceLock::new();
+    static CHINESE: OnceLock<Regex> = OnceLock::new();
+    let tag = TRAILING_TAG.get_or_init(|| Regex::new(r"^(?P<body>.*?)\s*[（(\[【](?P<tag>[^（）()\[\]【】]+)[）)\]】]\s*$").unwrap());
+    let mut clean = stem.trim();
+    while let Some(found) = tag.captures(clean) {
+        let note = found.name("tag")?.as_str().trim();
+        if note.parse::<f64>().is_ok() && note.len() <= 5 { break; }
+        clean = found.name("body")?.as_str().trim_end();
+    }
+    let bare = BARE.get_or_init(|| Regex::new(r"^(?P<title>.+?)(?:\s+[-_]?|[-_])\s*(?P<number>\d{1,3}(?:\.\d+)?)$").unwrap());
+    let paren = PAREN.get_or_init(|| Regex::new(r"^(?P<title>.+?)\s*[（(]\s*(?P<number>\d{1,3}(?:\.\d+)?)\s*[）)]$").unwrap());
+    let explicit = EXPLICIT.get_or_init(|| Regex::new(r"(?i)^(?P<title>.+?)\s*(?:第\s*(?P<number>\d+(?:\.\d+)?)\s*[卷巻册冊]|vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?))$").unwrap());
+    let chinese = CHINESE.get_or_init(|| Regex::new(r"^(?P<title>.+?)\s*第\s*(?P<number>[零〇一二两兩三四五六七八九十百]+)\s*[卷巻册冊]$").unwrap());
+    let found = bare.captures(clean).or_else(|| paren.captures(clean)).or_else(|| explicit.captures(clean)).or_else(|| chinese.captures(clean))?;
+    let title = found.name("title")?.as_str().trim().trim_end_matches(['-', '_']).trim();
+    if title.chars().count() < 2 { return None; }
+    let number = found.name("number").or_else(|| found.name("vol"))?.as_str();
+    let number = number.parse::<f64>().ok().or_else(|| parse_chinese_number(number))?;
+    if !number.is_finite() || number > 1000.0 { return None; }
+    Some((title.to_string(), number))
 }
 
 pub async fn import_groups_in_pool(pool: &SqlitePool) -> AppResult<Vec<BookImportGroup>> {
@@ -238,7 +274,8 @@ pub(crate) fn parse_book_numbers(title: &str) -> (Option<f64>, Option<f64>) {
     let suffix_volume = SUFFIX_VOLUME.get_or_init(|| Regex::new(r"(?:\s+[-_]?|[-_])\s*(\d{1,3}(?:\.\d+)?)$").unwrap());
     let volume_number = parse_number(volume, title)
         .or_else(|| chinese_volume.captures(title).and_then(|found| parse_chinese_number(found.get(1)?.as_str())))
-        .or_else(|| suffix_volume.captures(title).and_then(|found| found.get(1)?.as_str().parse::<f64>().ok()));
+        .or_else(|| suffix_volume.captures(title).and_then(|found| found.get(1)?.as_str().parse::<f64>().ok()))
+        .or_else(|| infer_series_and_volume(title).map(|(_, number)| number));
     (
         volume_number,
         parse_number(chapter, title),
@@ -443,6 +480,26 @@ mod tests {
         assert_eq!(parse_book_numbers("第八卷"), (Some(8.0), None));
         assert_eq!(parse_book_numbers("第十二卷"), (Some(12.0), None));
         assert_eq!(parse_book_numbers("第百零二卷"), (Some(102.0), None));
+        assert_eq!(parse_book_numbers("败犬女主太多了！ 03 (雨森たきび) (Z-Library)"), (Some(3.0), None));
+        assert_eq!(parse_book_numbers("故事 2024 (作者)"), (None, None));
+    }
+
+    #[test]
+    fn numbered_epubs_share_one_series_group_without_merging_other_titles() {
+        let files = [
+            ("one", "败犬女主太多了！ 01 (雨森たきび) (Z-Library).epub"),
+            ("three", "败犬女主太多了！ 03 (雨森たきび) (Z-Library).epub"),
+            ("other", "另一部小说 03 (作者).epub"),
+        ].into_iter().map(|(id, name)| UnassignedBookFile {
+            id: id.into(), path: format!(r"C:\Books\epub\{name}"), file_name: name.into(), extension: "epub".into(),
+            media_type: "novel".into(), missing: false, root_path: r"C:\Books\epub".into(),
+        }).collect();
+        let groups = import_groups(files);
+        assert_eq!(groups.len(), 2);
+        let series = groups.iter().find(|group| group.title == "败犬女主太多了！").unwrap();
+        assert_eq!(series.files.iter().map(|file| file.volume_number).collect::<Vec<_>>(), vec![Some(1.0), Some(3.0)]);
+        assert_eq!(series.media_file_ids.len(), 2);
+        assert_eq!(groups.iter().find(|group| group.title == "另一部小说").unwrap().files.len(), 1);
     }
 
     #[test]

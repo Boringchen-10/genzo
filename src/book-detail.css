@@ -8,6 +8,12 @@
 .book-entry-main strong, .book-candidate strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .book-entry-main small, .book-candidate small { color: var(--text-muted, #999); }
 .book-entry-actions { flex-wrap: wrap; justify-content: flex-end; }
+.book-volume-batch { display: grid; gap: 8px; min-width: 0; border: 1px solid var(--border, rgba(128,128,128,.2)); border-radius: 6px; padding: 12px; }
+.book-volume-batch p { margin: 0; color: var(--text-muted, #999); font-size: .85rem; }
+.book-volume-batch-list { display: grid; gap: 6px; max-height: 280px; overflow: auto; }
+.book-volume-batch-list > div { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: .85rem; }
+.book-volume-batch-list span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.book-volume-batch-list small { color: var(--text-muted, #999); }
 .book-volume-search { flex: 1 0 100%; min-width: 0; display: grid; gap: 6px; padding: 8px 0 0 64px; }
 .book-volume-search .book-match-search { flex-wrap: wrap; }
 .book-entry-actions select, .book-match-search input, .book-edit-form input { min-width: 0; max-width: 100%; border: 1px solid var(--border, rgba(128,128,128,.3)); border-radius: 4px; background: var(--surface, #222); color: inherit; padding: 7px 9px; }

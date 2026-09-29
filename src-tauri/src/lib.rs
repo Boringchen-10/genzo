@@ -74,6 +74,8 @@ pub fn run() {
             book_scrape::search_book_volume_candidates,
             book_scrape::confirm_book_volume_candidate,
             book_scrape::clear_book_volume_candidate,
+            book_scrape::preview_book_volume_batch,
+            book_scrape::confirm_book_volume_batch,
             book_metadata::get_embedded_book_metadata,
             bookshelf::list_book_entries,
             bookshelf::save_book_entry,

@@ -58,6 +58,8 @@ export const bookApi = {
   searchVolume: (workId: string, entryId: string, query?: string) => call<import("./bookData").BookVolumeCandidate[]>("search_book_volume_candidates", { workId, entryId, query: query ?? null }),
   confirmVolume: (workId: string, entryId: string, externalId: string) => call<void>("confirm_book_volume_candidate", { workId, entryId, externalId }),
   clearVolume: (workId: string, entryId: string) => call<void>("clear_book_volume_candidate", { workId, entryId }),
+  previewVolumeBatch: (workId: string) => call<import("./bookData").BookVolumeBatchPreview>("preview_book_volume_batch", { workId }),
+  confirmVolumeBatch: (workId: string, preview: import("./bookData").BookVolumeBatchPreview) => call<import("./bookData").BookVolumeBatchResult>("confirm_book_volume_batch", { workId, seriesId: preview.seriesId, selections: preview.proposals.map(item => ({ entryId: item.entryId, externalId: item.candidate.externalId })) }),
 };
 
 function bookEntryAssets(entries: BookEntry[]): BookEntry[] {
