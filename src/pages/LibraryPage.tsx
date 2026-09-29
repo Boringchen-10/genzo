@@ -64,15 +64,15 @@ export function LibraryPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const category = parseLibraryCategory(params.get("category"));
-  const initialScope = (params.get("scope") as Scope | null) ?? "all";
-  const [activeSection, setActiveSection] = useState<"library" | "inbox">(params.get("tab") === "inbox" ? "inbox" : "library");
+  const scopeParam = params.get("scope");
+  const scope: Scope = scopeParam === "recent" || scopeParam === "favorites" || scopeParam === "missing" ? scopeParam : "all";
+  const activeSection = params.get("tab") === "inbox" ? "inbox" : "library";
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [unassignedGroups, setUnassignedGroups] = useState<UnassignedMediaGroup[]>([]);
   const [roots, setRoots] = useState<LibraryRoot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [scope, setScope] = useState<Scope>(["all", "recent", "favorites", "missing"].includes(initialScope) ? initialScope : "all");
   const [mediaType, setMediaType] = useState<MediaType | "all">("all");
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [tag, setTag] = useState("all");
@@ -95,6 +95,20 @@ export function LibraryPage() {
   const view = usePreferences((state) => state.libraryView);
   const setView = usePreferences((state) => state.setLibraryView);
   const toast = useToasts((state) => state.push);
+
+  const setActiveSection = (section: "library" | "inbox") => setParams(previous => {
+    const params = new URLSearchParams(previous);
+    if (section === "inbox") params.set("tab", "inbox");
+    else params.delete("tab");
+    return params;
+  }, { replace: true });
+
+  const setScope = (next: Scope) => setParams(previous => {
+    const params = new URLSearchParams(previous);
+    if (next === "all") params.delete("scope");
+    else params.set("scope", next);
+    return params;
+  }, { replace: true });
 
   const load = useCallback(async (background = false) => {
     if (!background) setLoading(true);

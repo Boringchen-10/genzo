@@ -581,12 +581,21 @@ export function WorkDetailPage() {
     }
   };
 
+  const goBack = () => {
+    if (typeof window.history.state?.idx === "number" && window.history.state.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    const category = work.category ?? work.type;
+    navigate(category === "comic" || category === "novel" ? "/bookshelf" : "/library", { replace: true });
+  };
+
   return (
     <div className={`detail-page ${detailBanner ? "has-detail-banner" : work.coverPath ? "has-detail-artwork" : ""}`} style={detailArtwork ? { "--detail-artwork": `url("${detailArtwork}")` } as CSSProperties : undefined}>
         <div className="detail-backdrop" aria-hidden="true" />
         <div className="detail-inner">
         <div className="detail-topbar">
-          <Link className="icon-button detail-back" to="/library" aria-label="返回媒体库" data-tooltip="返回媒体库"><ArrowLeft size={17} /></Link>
+          <button type="button" className="icon-button detail-back" aria-label="返回上一页" data-tooltip="返回上一页" onClick={goBack}><ArrowLeft size={17} /></button>
           <strong>作品详情</strong>
           <span className="detail-topbar-fill" />
           <RecognitionHistory key={work.id} workId={work.id} onChanged={() => navigate("/library")} />
