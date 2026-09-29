@@ -1,0 +1,21 @@
+.book-inbox { display: grid; gap: 14px; min-width: 0; }
+.book-inbox-note { margin: 0; color: var(--muted, #999); line-height: 1.6; }
+.book-inbox-split { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.book-inbox-browser { display: grid; gap: 10px; min-width: 0; padding: 12px; background: var(--surface, #222); border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: var(--ui-radius, 8px); }
+.book-inbox-search { display: flex; gap: 8px; }
+.book-inbox-search input { flex: 1; min-width: 0; padding: 8px; color: inherit; background: transparent; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: 5px; }
+.book-inbox-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+.book-inbox-crumbs button { min-width: 0; padding: 4px; color: inherit; background: none; border: 0; cursor: pointer; overflow-wrap: anywhere; }
+.book-inbox-crumbs button:disabled { cursor: default; font-weight: 600; opacity: 1; }
+.book-inbox-crumbs .book-inbox-recognize { margin-left: auto; padding: 5px 9px; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: 5px; font-size: 12px; white-space: nowrap; }
+.book-inbox-list { display: grid; gap: 2px; max-height: 62vh; overflow: auto; }
+.book-inbox-folder, .book-inbox-file { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 7px 8px; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 6px; text-align: left; }
+.book-inbox-folder { width: 100%; font: inherit; cursor: pointer; }
+.book-inbox-file { cursor: pointer; }
+.book-inbox-folder:hover, .book-inbox-file:hover { background: var(--tint-hover, rgba(128,128,128,.1)); }
+.book-inbox-folder > span, .book-inbox-file > span { flex: 1; min-width: 0; }
+.book-inbox-folder strong, .book-inbox-file strong, .book-inbox-folder small, .book-inbox-file small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.book-inbox-folder small, .book-inbox-file small { color: var(--muted, #999); font-size: 11px; }
+.book-inbox-file input { flex: none; width: 16px; height: 16px; margin: 0; }
+.book-inbox-panel { min-width: 0; }
+@media (max-width: 900px) { .book-inbox-split { grid-template-columns: 1fr; } .book-inbox-list { max-height: 45vh; } }

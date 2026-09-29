@@ -30,6 +30,7 @@ export interface BookImportFile {
   fileName: string;
   extension: string;
   missing: boolean;
+  volumeNumber: number | null;
 }
 
 export interface EmbeddedBookMetadata {

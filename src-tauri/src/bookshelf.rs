@@ -70,6 +70,7 @@ pub struct BookImportFile {
     pub file_name: String,
     pub extension: String,
     pub missing: bool,
+    pub volume_number: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -100,7 +101,13 @@ fn import_groups(files: Vec<UnassignedBookFile>) -> Vec<BookImportGroup> {
         };
         let group = groups.entry(key).or_insert_with(|| BookImportGroup { title, media_type: file.media_type, folder_path, media_file_ids: Vec::new(), files: Vec::new() });
         group.media_file_ids.push(file.id.clone());
-        group.files.push(BookImportFile { id: file.id, path: file.path, file_name: file.file_name, extension: file.extension, missing: file.missing });
+        let number_source = if image_extension(&file.extension.to_ascii_lowercase()) && directory_count > 0 {
+            parts[directory_count - 1]
+        } else {
+            file.file_name.rsplit_once('.').map_or(file.file_name.as_str(), |(stem, _)| stem)
+        };
+        let volume_number = parse_book_numbers(number_source).0;
+        group.files.push(BookImportFile { id: file.id, path: file.path, file_name: file.file_name, extension: file.extension, missing: file.missing, volume_number });
     }
     let mut groups = groups.into_values().collect::<Vec<_>>();
     for group in &mut groups {
@@ -211,12 +218,36 @@ fn parse_number(regex: &Regex, title: &str) -> Option<f64> {
 fn parse_book_numbers(title: &str) -> (Option<f64>, Option<f64>) {
     static VOLUME: OnceLock<Regex> = OnceLock::new();
     static CHAPTER: OnceLock<Regex> = OnceLock::new();
+    static CHINESE_VOLUME: OnceLock<Regex> = OnceLock::new();
+    static SUFFIX_VOLUME: OnceLock<Regex> = OnceLock::new();
     let volume = VOLUME.get_or_init(|| Regex::new(r"(?i)(?:第\s*(\d+(?:\.\d+)?)\s*[卷巻册冊]|\bvol(?:ume)?\.?\s*(\d+(?:\.\d+)?))").unwrap());
     let chapter = CHAPTER.get_or_init(|| Regex::new(r"(?i)(?:第\s*(\d+(?:\.\d+)?)\s*[话話章]|\b(?:ch|chapter)\.?\s*(\d+(?:\.\d+)?))").unwrap());
+    let chinese_volume = CHINESE_VOLUME.get_or_init(|| Regex::new(r"第\s*([零〇一二两兩三四五六七八九十百]+)\s*[卷巻册冊]").unwrap());
+    let suffix_volume = SUFFIX_VOLUME.get_or_init(|| Regex::new(r"(?:\s+[-_]?|[-_])\s*(\d{1,3}(?:\.\d+)?)$").unwrap());
+    let volume_number = parse_number(volume, title)
+        .or_else(|| chinese_volume.captures(title).and_then(|found| parse_chinese_number(found.get(1)?.as_str())))
+        .or_else(|| suffix_volume.captures(title).and_then(|found| found.get(1)?.as_str().parse::<f64>().ok()));
     (
-        parse_number(volume, title),
+        volume_number,
         parse_number(chapter, title),
     )
+}
+
+fn parse_chinese_number(value: &str) -> Option<f64> {
+    let mut total = 0_u32;
+    let mut digit = 0_u32;
+    for character in value.chars() {
+        match character {
+            '零' | '〇' => digit = 0,
+            '一' => digit = 1, '二' | '两' | '兩' => digit = 2,
+            '三' => digit = 3, '四' => digit = 4, '五' => digit = 5,
+            '六' => digit = 6, '七' => digit = 7, '八' => digit = 8, '九' => digit = 9,
+            '十' => { total += digit.max(1) * 10; digit = 0; }
+            '百' => { total += digit.max(1) * 100; digit = 0; }
+            _ => return None,
+        }
+    }
+    Some((total + digit) as f64)
 }
 
 fn make_entries(files: Vec<BookFile>, overrides: Vec<BookOverride>) -> Vec<BookEntry> {
@@ -388,6 +419,10 @@ mod tests {
         assert_eq!(parse_book_numbers("第2024年的故事 第2卷"), (Some(2.0), None));
         assert_eq!(parse_book_numbers("故事 2024.cbz"), (None, None));
         assert_eq!(parse_book_numbers("第12话"), (None, Some(12.0)));
+        assert_eq!(parse_book_numbers("败犬女主太多了！ -07"), (Some(7.0), None));
+        assert_eq!(parse_book_numbers("第八卷"), (Some(8.0), None));
+        assert_eq!(parse_book_numbers("第十二卷"), (Some(12.0), None));
+        assert_eq!(parse_book_numbers("第百零二卷"), (Some(102.0), None));
     }
 
     #[test]
@@ -410,6 +445,9 @@ mod tests {
         ]);
         assert_eq!(nested.len(), 2);
         assert_eq!(nested.iter().find(|item| item.title == "甲").unwrap().files.len(), 2);
+        assert_eq!(nested.iter().find(|item| item.title == "甲").unwrap().files.iter().find(|file| file.extension == "jpg").unwrap().volume_number, Some(2.0));
+        let novel = import_groups(vec![UnassignedBookFile { id: "7".into(), path: r"C:\Books\败犬女主太多了\正文\日文\败犬女主太多了 -07.epub".into(), file_name: "败犬女主太多了 -07.epub".into(), extension: "epub".into(), media_type: "novel".into(), missing: false, root_path: r"C:\Books".into() }]);
+        assert_eq!(novel[0].files[0].volume_number, Some(7.0));
     }
 
     #[tokio::test]

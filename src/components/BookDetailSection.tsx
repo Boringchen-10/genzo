@@ -1,5 +1,5 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BookOpen, RefreshCw, Search } from "lucide-react";
 import { bookApi } from "../api";
 import type { BookCandidate, BookEntry, BookEntryInput, EmbeddedBookMetadata } from "../bookData";
@@ -16,10 +16,13 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const [editing, setEditing] = useState<BookEntry | null>(null);
   const [draft, setDraft] = useState<BookEntryInput>({ title: null, volumeNumber: null, chapterNumber: null, readState: "unread" });
   const [embedded, setEmbedded] = useState<{ id: string; data: EmbeddedBookMetadata } | null>(null);
+  const [volumeMetadata, setVolumeMetadata] = useState<Record<string, EmbeddedBookMetadata>>({});
+  const requestedMetadata = useRef(new Set<string>());
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<BookCandidate[]>([]);
   const [searching, setSearching] = useState(false);
   const [matchError, setMatchError] = useState("");
+  const entryIds = entries.map(entry => entry.id).join("|");
 
   const load = useCallback(async () => {
     if (!isTauri()) return;
@@ -27,6 +30,29 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
     catch (reason) { setError(getErrorMessage(reason)); }
   }, [workId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    requestedMetadata.current.clear();
+    setVolumeMetadata({});
+  }, [workId]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    const pending = entries.filter(entry => !entry.missing && ["cbz", "zip", "epub"].includes(entry.format.toLowerCase()) && !requestedMetadata.current.has(entry.id));
+    pending.forEach(entry => requestedMetadata.current.add(entry.id));
+    let cancelled = false;
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < pending.length && !cancelled) {
+        const entry = pending[cursor++];
+        if (!entry) break;
+        try {
+          const data = await bookApi.embedded(entry.id);
+          if (!cancelled) setVolumeMetadata(previous => ({ ...previous, [entry.id]: data }));
+        } catch { /* 远程、缺失或无内嵌资料的单册仍可手动编辑。 */ }
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(3, pending.length) }, worker));
+    return () => { cancelled = true; };
+  }, [entryIds]);
 
   const changeReadState = async (entry: BookEntry, readState: BookEntry["readState"]) => {
     setBusy(true);
@@ -66,10 +92,14 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
       <button type="button" className="button compact secondary" onClick={() => void load()}><RefreshCw size={14} />刷新</button>
     </div>
     {error ? <p role="alert" className="gnz-inline-error">{error}</p> : null}
-    {entries.length ? <div className="book-entry-list">{entries.map((entry) => <article className="book-entry" key={entry.id}>
+    {entries.length ? <div className="book-entry-list">{entries.map((entry) => {
+      const local = volumeMetadata[entry.id];
+      const localNumber = local?.number && /^\d+(?:\.\d+)?$/.test(local.number.trim()) ? Number(local.number) : null;
+      return <article className="book-entry" key={entry.id}>
+      {local?.coverPath ? <img className="book-entry-cover" src={local.coverPath} alt={`${entry.title}的内嵌封面`} /> : null}
       <div className="book-entry-main">
         <strong title={entry.title}>{entry.title}</strong>
-        <small>{entry.volumeNumber != null ? `第 ${entry.volumeNumber} 卷 · ` : ""}{entry.chapterNumber != null ? `第 ${entry.chapterNumber} 话 · ` : ""}{entry.format === "images" ? `${entry.mediaFileIds.length} 页图片` : entry.format.toUpperCase()}{entry.missing ? " · 文件缺失" : ""}</small>
+        <small>{entry.volumeNumber != null ? `第 ${entry.volumeNumber} 卷 · ` : localNumber != null ? `第 ${localNumber} 卷（内嵌） · ` : ""}{entry.chapterNumber != null ? `第 ${entry.chapterNumber} 话 · ` : ""}{entry.format === "images" ? `${entry.mediaFileIds.length} 页图片` : entry.format.toUpperCase()}{entry.missing ? " · 文件缺失" : ""}</small>
       </div>
       <div className="book-entry-actions">
         <select aria-label={`${entry.title}的阅读状态`} value={entry.readState} disabled={busy} onChange={(event) => void changeReadState(entry, event.target.value as BookEntry["readState"])}>
@@ -77,7 +107,7 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         </select>
         <button type="button" className="button compact secondary" onClick={() => { setEditing(entry); setDraft({ title: entry.title, volumeNumber: entry.volumeNumber, chapterNumber: entry.chapterNumber, readState: entry.readState }); }}>编辑卷册</button>
         <button type="button" className="button compact secondary" disabled={busy || entry.format === "images" || !["cbz", "zip", "epub"].includes(entry.format.toLowerCase())} onClick={async () => {
-          try { setEmbedded({ id: entry.id, data: await bookApi.embedded(entry.id) }); setError(""); }
+          try { setEmbedded({ id: entry.id, data: local ?? await bookApi.embedded(entry.id) }); setError(""); }
           catch (reason) { setError(getErrorMessage(reason)); }
         }}>本地资料</button>
         <button type="button" className="button compact primary" disabled={busy || entry.missing} onClick={async () => {
@@ -95,7 +125,7 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
           }}>用作卷册信息并核对</button>
         </div>
       </div> : null}
-    </article>)}</div> : <p className="quiet-inline">这部作品还没有关联书籍文件。</p>}
+    </article>; })}</div> : <p className="quiet-inline">这部作品还没有关联书籍文件。</p>}
     <div className="book-match">
       <div className="book-detail-toolbar"><strong>Bangumi 书籍资料</strong><button type="button" className="button compact secondary" disabled={busy} onClick={async () => { try { setBusy(true); await bookApi.refresh(workId); onMetadataChanged(); setMatchError(""); } catch (reason) { setMatchError(getErrorMessage(reason)); } finally { setBusy(false); } }}>刷新已匹配资料</button></div>
       <div className="book-match-search"><input aria-label="搜索书籍资料" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void search()} placeholder="搜索漫画或小说标题" /><button type="button" className="button compact secondary" disabled={searching} onClick={() => void search()}><Search size={14} />{searching ? "搜索中…" : "搜索候选"}</button></div>

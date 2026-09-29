@@ -9,7 +9,8 @@
 - 联网阶段建议先适配 Bangumi 书籍条目，区分系列主条目、单卷、漫画和小说，按标题、作者、卷号及可用 ISBN 生成候选并预览确认；AniList 漫画 / NOVEL 格式作为后续补源评估。逐卷封面、完整卷册与章节资料的覆盖需用样本验证，不承诺仅靠文件名全自动识别。
 - 推荐学习 [Komga](https://github.com/gotson/komga) 的系列 / 书籍管理、[Kavita](https://github.com/Kareadita/Kavita) 的 EPUB / 漫画元数据处理及 [Komf](https://github.com/Snd-R/komf) 的多源候选匹配；沿用 Tauri / React / Rust / SQLite，本次不引入独立服务器。
 - 实施顺序：本地书架与卷册整理 → Bangumi 候选确认与缓存 → 阅读状态适配。前期调用外部阅读器，手动标记卷 / 话的未读、阅读中、已读；打开文件不等于已读，页码 / EPUB 阅读位置自动采集单独评估。远程扫描仍只索引属性，正文与封面分析待缓存能力完善后进行。
-- 当前迭代已把本地资料和 Bangumi 候选预览前移至书架待整理：按实际书籍文件夹分组，用户可搜索组、勾选文件、核对候选后原子建书；EPUB 按 OPF 声明优先定位封面。目录 / 文件名仍只是建议，不能替代人工确认；WebDAV 内嵌资料读取和移动端阅读仍待后续缓存 / 同步能力。
+- 当前迭代已把本地资料和 Bangumi 候选预览前移至书架待整理：按真实目录浏览，用户可跨子目录勾选文件、核对候选后原子建书；EPUB 按 OPF 声明优先定位封面。目录 / 文件名仍只是建议，不能替代人工确认；WebDAV 内嵌资料读取和移动端阅读仍待后续缓存 / 同步能力。
+- 待整理目录现按真实文件夹逐级展示文件；当前目录可递归选中，跨子目录选中的多卷在右侧逐册核对并归档。文件名明确卷号与本地 EPUB / CBZ 内嵌编号、封面分别显示；不同译本、番外与多作品仍由用户勾选确认，不自动合并。
 - 本版验收：图片目录与 CBZ / EPUB 正确归档、自然排序、漫画 / 小说同名不混合、单卷与合集不误并、离线可浏览与打开、人工资料不被刷新覆盖；迁移同时验证存量数据库，UI 检查三种常用 Windows 尺寸。首版不承诺 CBR / 7z / RAR 内嵌资料、PDF 正文解析或自动阅读位置；这些文件仍可索引并交给外部阅读器。
 - 数据源依据：[Bangumi 官方 API](https://github.com/bangumi/api/blob/master/open-api/v0.yaml)、[AniList Media 查询](https://docs.anilist.co/guide/graphql/queries/media)、[ComicInfo 字段说明](https://anansi-project.github.io/docs/comicinfo/documentation)、[Kavita EPUB 元数据](https://wiki.kavitareader.com/guides/metadata/epubs/)。
 
