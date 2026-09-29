@@ -7,6 +7,9 @@ export interface BookEntry {
   format: string;
   missing: boolean;
   readState: "unread" | "reading" | "read";
+  bangumiId: string | null;
+  bangumiTitle: string | null;
+  bangumiCoverPath: string | null;
 }
 
 export interface BookEntryInput {
@@ -52,5 +55,14 @@ export interface BookCandidate {
   category: "comic" | "novel" | null;
   series: boolean | null;
   confidence: number;
+  stale: boolean;
+}
+
+export interface BookVolumeCandidate {
+  externalId: string;
+  title: string;
+  coverUrl: string | null;
+  volumeNumber: number | null;
+  linkedToSeries: boolean;
   stale: boolean;
 }

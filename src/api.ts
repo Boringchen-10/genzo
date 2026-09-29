@@ -42,8 +42,8 @@ export const correctionApi = {
 };
 
 export const bookApi = {
-  entries: (workId: string) => call<BookEntry[]>("list_book_entries", { workId }),
-  saveEntry: (workId: string, entryId: string, input: BookEntryInput) => call<BookEntry[]>("save_book_entry", { workId, entryId, input }),
+  entries: (workId: string) => call<BookEntry[]>("list_book_entries", { workId }).then(bookEntryAssets),
+  saveEntry: (workId: string, entryId: string, input: BookEntryInput) => call<BookEntry[]>("save_book_entry", { workId, entryId, input }).then(bookEntryAssets),
   open: (workId: string, entryId: string, toolId?: string | null) => call<void>("open_book_entry", { workId, entryId, toolId: toolId ?? null }),
   importGroups: () => call<BookImportGroup[]>("list_book_import_groups"),
   createWork: (title: string, mediaType: "comic" | "novel", mediaFileIds: string[], externalId?: string | null, coverMediaFileId?: string | null) => call<string>("create_book_work", { title, mediaType, mediaFileIds, externalId: externalId ?? null, coverMediaFileId: coverMediaFileId ?? null }),
@@ -55,7 +55,14 @@ export const bookApi = {
   searchImport: (mediaType: "comic" | "novel", query: string) => call<BookCandidate[]>("search_book_import_candidates", { mediaType, query }),
   confirm: (workId: string, externalId: string) => call<void>("confirm_book_candidate", { workId, externalId }),
   refresh: (workId: string) => call<void>("refresh_book_metadata", { workId }),
+  searchVolume: (workId: string, entryId: string, query?: string) => call<import("./bookData").BookVolumeCandidate[]>("search_book_volume_candidates", { workId, entryId, query: query ?? null }),
+  confirmVolume: (workId: string, entryId: string, externalId: string) => call<void>("confirm_book_volume_candidate", { workId, entryId, externalId }),
+  clearVolume: (workId: string, entryId: string) => call<void>("clear_book_volume_candidate", { workId, entryId }),
 };
+
+function bookEntryAssets(entries: BookEntry[]): BookEntry[] {
+  return entries.map((entry) => ({ ...entry, bangumiCoverPath: localAssetUrl(entry.bangumiCoverPath) ?? null }));
+}
 
 function artworkAssets(value: import("./episodeArtwork").EpisodeArtwork): import("./episodeArtwork").EpisodeArtwork {
   return { ...value, cachedImages: Object.fromEntries(Object.entries(value.cachedImages).map(([key, path]) => [key, localAssetUrl(path) ?? path])) };

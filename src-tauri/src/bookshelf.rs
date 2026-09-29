@@ -29,6 +29,15 @@ struct BookOverride {
     read_state: String,
 }
 
+#[derive(Debug, Clone, FromRow)]
+struct BookVolumeMatch {
+    media_file_id: String,
+    external_id: String,
+    title: String,
+    volume_number: Option<f64>,
+    cover_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BookEntry {
@@ -40,6 +49,9 @@ pub struct BookEntry {
     pub format: String,
     pub missing: bool,
     pub read_state: String,
+    pub bangumi_id: Option<String>,
+    pub bangumi_title: Option<String>,
+    pub bangumi_cover_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,7 +227,7 @@ fn parse_number(regex: &Regex, title: &str) -> Option<f64> {
     captures.get(1).or_else(|| captures.get(2))?.as_str().parse::<f64>().ok()
 }
 
-fn parse_book_numbers(title: &str) -> (Option<f64>, Option<f64>) {
+pub(crate) fn parse_book_numbers(title: &str) -> (Option<f64>, Option<f64>) {
     static VOLUME: OnceLock<Regex> = OnceLock::new();
     static CHAPTER: OnceLock<Regex> = OnceLock::new();
     static CHINESE_VOLUME: OnceLock<Regex> = OnceLock::new();
@@ -250,8 +262,9 @@ fn parse_chinese_number(value: &str) -> Option<f64> {
     Some((total + digit) as f64)
 }
 
-fn make_entries(files: Vec<BookFile>, overrides: Vec<BookOverride>) -> Vec<BookEntry> {
+fn make_entries(files: Vec<BookFile>, overrides: Vec<BookOverride>, matches: Vec<BookVolumeMatch>) -> Vec<BookEntry> {
     let overrides: HashMap<_, _> = overrides.into_iter().map(|row| (row.media_file_id.clone(), row)).collect();
+    let matches: HashMap<_, _> = matches.into_iter().map(|row| (row.media_file_id.clone(), row)).collect();
     let mut grouped: HashMap<String, Vec<BookFile>> = HashMap::new();
     for file in files {
         let key = if image_extension(&file.extension.to_ascii_lowercase()) {
@@ -281,15 +294,19 @@ fn make_entries(files: Vec<BookFile>, overrides: Vec<BookOverride>) -> Vec<BookE
         };
         let (parsed_volume, parsed_chapter) = parse_book_numbers(&default_title);
         let manual = overrides.get(&representative.id);
+        let matched = members.iter().find_map(|file| matches.get(&file.id));
         entries.push(BookEntry {
             id: representative.id.clone(),
             title: manual.and_then(|value| value.title.clone()).unwrap_or(default_title),
-            volume_number: manual.and_then(|value| value.volume_number).or(parsed_volume),
+            volume_number: manual.and_then(|value| value.volume_number).or(parsed_volume).or_else(|| matched.and_then(|value| value.volume_number)),
             chapter_number: manual.and_then(|value| value.chapter_number).or(parsed_chapter),
             media_file_ids: members.iter().map(|file| file.id.clone()).collect(),
             format: if image_folder { "images".into() } else { representative.extension.clone() },
             missing: members.iter().all(|file| file.missing),
             read_state: manual.map_or("unread", |value| &value.read_state).to_string(),
+            bangumi_id: matched.map(|value| value.external_id.clone()),
+            bangumi_title: matched.map(|value| value.title.clone()),
+            bangumi_cover_path: matched.and_then(|value| value.cover_path.clone()),
         });
     }
     entries.sort_by(|left, right| {
@@ -310,7 +327,9 @@ pub async fn entries_in_pool(pool: &SqlitePool, work_id: &str) -> AppResult<Vec<
         .bind(work_id).fetch_all(pool).await?;
     let overrides = sqlx::query_as::<_, BookOverride>("SELECT o.media_file_id, o.title, o.volume_number, o.chapter_number, o.read_state FROM book_entry_overrides o JOIN media_files m ON m.id = o.media_file_id WHERE m.work_id = ?")
         .bind(work_id).fetch_all(pool).await?;
-    Ok(make_entries(files, overrides))
+    let matches = sqlx::query_as::<_, BookVolumeMatch>("SELECT v.media_file_id, v.external_id, v.title, v.volume_number, v.cover_path FROM book_volume_matches v JOIN media_files m ON m.id = v.media_file_id WHERE m.work_id = ?")
+        .bind(work_id).fetch_all(pool).await?;
+    Ok(make_entries(files, overrides, matches))
 }
 
 #[tauri::command]
@@ -407,10 +426,11 @@ mod tests {
             file("a", r"C:\Books\A\第2卷\001.jpg", "jpg", "1"),
             file("b", r"C:\Books\A\第2卷\002.jpg", "jpg", "2"),
             file("c", r"C:\Books\A\第10卷.cbz", "cbz", "3"),
-        ], vec![]);
+        ], vec![], vec![BookVolumeMatch { media_file_id: "b".into(), external_id: "200".into(), title: "第二卷".into(), volume_number: Some(2.0), cover_path: Some("cache/2.jpg".into()) }]);
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].media_file_ids, vec!["a", "b"]);
         assert_eq!(entries[0].volume_number, Some(2.0));
+        assert_eq!(entries[0].bangumi_id.as_deref(), Some("200"));
         assert_eq!(entries[1].volume_number, Some(10.0));
     }
 
@@ -423,6 +443,14 @@ mod tests {
         assert_eq!(parse_book_numbers("第八卷"), (Some(8.0), None));
         assert_eq!(parse_book_numbers("第十二卷"), (Some(12.0), None));
         assert_eq!(parse_book_numbers("第百零二卷"), (Some(102.0), None));
+    }
+
+    #[test]
+    fn matched_volume_number_fills_unlabelled_file() {
+        let entries = make_entries(vec![file("a", r"C:\Books\故事.epub", "epub", "1")], vec![], vec![BookVolumeMatch {
+            media_file_id: "a".into(), external_id: "7".into(), title: "故事 (7)".into(), volume_number: Some(7.0), cover_path: None,
+        }]);
+        assert_eq!(entries[0].volume_number, Some(7.0));
     }
 
     #[test]
@@ -545,6 +573,27 @@ mod tests {
         let entries = entries_in_pool(&pool, "book").await.unwrap();
         assert_eq!(entries[0].title, "第一卷");
         assert_eq!(entries[0].read_state, "reading");
+        crate::migration_compat::run(&pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn volume_match_migration_preserves_existing_overrides() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let mut previous = sqlx::migrate!("./migrations");
+        let mut migrations = previous.migrations.into_owned();
+        migrations.retain(|migration| migration.version <= 22);
+        previous.migrations = Cow::Owned(migrations);
+        previous.run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('book', '旧书', 'novel', 't', 't')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, created_at, updated_at) VALUES ('v7', 'book', 'C:\\Books\\第7卷.epub', '第7卷.epub', 'epub', 'novel', 't', 't')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO book_entry_overrides (media_file_id, title, volume_number, read_state, updated_at) VALUES ('v7', '自定义标题', 7, 'reading', 't')").execute(&pool).await.unwrap();
+        crate::migration_compat::run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO book_volume_matches (media_file_id, external_id, title, cover_path, updated_at) VALUES ('v7', '495572', '第七卷', 'cache/7.jpg', 't')").execute(&pool).await.unwrap();
+        let entries = entries_in_pool(&pool, "book").await.unwrap();
+        assert_eq!(entries[0].title, "自定义标题");
+        assert_eq!(entries[0].read_state, "reading");
+        assert_eq!(entries[0].bangumi_id.as_deref(), Some("495572"));
+        assert_eq!(entries[0].bangumi_cover_path.as_deref(), Some("cache/7.jpg"));
         crate::migration_compat::run(&pool).await.unwrap();
     }
 }

@@ -2,7 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BookOpen, RefreshCw, Search } from "lucide-react";
 import { bookApi } from "../api";
-import type { BookCandidate, BookEntry, BookEntryInput, EmbeddedBookMetadata } from "../bookData";
+import type { BookCandidate, BookEntry, BookEntryInput, BookVolumeCandidate, EmbeddedBookMetadata } from "../bookData";
 import { Modal } from "./common";
 import { getErrorMessage } from "../utils";
 import "../book-detail.css";
@@ -22,6 +22,8 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const [candidates, setCandidates] = useState<BookCandidate[]>([]);
   const [searching, setSearching] = useState(false);
   const [matchError, setMatchError] = useState("");
+  const [volumeSearch, setVolumeSearch] = useState<{ entryId: string; query: string; candidates: BookVolumeCandidate[]; error: string; loading: boolean } | null>(null);
+  const volumeSearchRequest = useRef(0);
   const entryIds = entries.map(entry => entry.id).join("|");
 
   const load = useCallback(async () => {
@@ -85,6 +87,30 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
     finally { setBusy(false); }
   };
 
+  const searchVolume = async (entryId: string, query?: string) => {
+    const request = ++volumeSearchRequest.current;
+    setVolumeSearch({ entryId, query: query ?? "", candidates: [], error: "", loading: true });
+    try {
+      const found = await bookApi.searchVolume(workId, entryId, query?.trim() || undefined);
+      if (request === volumeSearchRequest.current) setVolumeSearch({ entryId, query: query ?? "", candidates: found, error: "", loading: false });
+    } catch (reason) {
+      if (request === volumeSearchRequest.current) setVolumeSearch({ entryId, query: query ?? "", candidates: [], error: getErrorMessage(reason), loading: false });
+    }
+  };
+
+  const confirmVolume = async (entry: BookEntry, candidate: BookVolumeCandidate) => {
+    setBusy(true);
+    try {
+      await bookApi.confirmVolume(workId, entry.id, candidate.externalId);
+      setEntries(await bookApi.entries(workId));
+      volumeSearchRequest.current++;
+      setVolumeSearch(null);
+      setError("");
+    } catch (reason) {
+      setVolumeSearch(previous => previous?.entryId === entry.id ? { ...previous, error: getErrorMessage(reason) } : previous);
+    } finally { setBusy(false); }
+  };
+
   if (!isTauri()) return <p className="quiet-inline">书籍卷册与刮削需要在 Genzo 桌面应用中使用。</p>;
   return <div className="book-detail" id="bookshelf-entries">
     <div className="book-detail-toolbar">
@@ -96,16 +122,19 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
       const local = volumeMetadata[entry.id];
       const localNumber = local?.number && /^\d+(?:\.\d+)?$/.test(local.number.trim()) ? Number(local.number) : null;
       return <article className="book-entry" key={entry.id}>
-      {local?.coverPath ? <img className="book-entry-cover" src={local.coverPath} alt={`${entry.title}的内嵌封面`} /> : null}
+      {entry.bangumiCoverPath || local?.coverPath ? <img className="book-entry-cover" src={entry.bangumiCoverPath ?? local?.coverPath ?? ""} alt={`${entry.title}的封面`} /> : null}
       <div className="book-entry-main">
         <strong title={entry.title}>{entry.title}</strong>
         <small>{entry.volumeNumber != null ? `第 ${entry.volumeNumber} 卷 · ` : localNumber != null ? `第 ${localNumber} 卷（内嵌） · ` : ""}{entry.chapterNumber != null ? `第 ${entry.chapterNumber} 话 · ` : ""}{entry.format === "images" ? `${entry.mediaFileIds.length} 页图片` : entry.format.toUpperCase()}{entry.missing ? " · 文件缺失" : ""}</small>
+        {entry.bangumiId ? <small title={entry.bangumiTitle ?? undefined}>Bangumi 单册：{entry.bangumiTitle} · #{entry.bangumiId}</small> : null}
       </div>
       <div className="book-entry-actions">
         <select aria-label={`${entry.title}的阅读状态`} value={entry.readState} disabled={busy} onChange={(event) => void changeReadState(entry, event.target.value as BookEntry["readState"])}>
           {Object.entries(readLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
         <button type="button" className="button compact secondary" onClick={() => { setEditing(entry); setDraft({ title: entry.title, volumeNumber: entry.volumeNumber, chapterNumber: entry.chapterNumber, readState: entry.readState }); }}>编辑卷册</button>
+        <button type="button" className="button compact secondary" disabled={busy} onClick={() => void searchVolume(entry.id)}>{entry.bangumiId ? "更换单册匹配" : "识别此卷"}</button>
+        {entry.bangumiId ? <button type="button" className="button compact secondary" disabled={busy} onClick={async () => { try { setBusy(true); await bookApi.clearVolume(workId, entry.id); setEntries(await bookApi.entries(workId)); setError(""); } catch (reason) { setError(getErrorMessage(reason)); } finally { setBusy(false); } }}>清除单册匹配</button> : null}
         <button type="button" className="button compact secondary" disabled={busy || entry.format === "images" || !["cbz", "zip", "epub"].includes(entry.format.toLowerCase())} onClick={async () => {
           try { setEmbedded({ id: entry.id, data: local ?? await bookApi.embedded(entry.id) }); setError(""); }
           catch (reason) { setError(getErrorMessage(reason)); }
@@ -115,6 +144,19 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
           catch (reason) { setError(getErrorMessage(reason)); }
         }}><BookOpen size={14} />打开</button>
       </div>
+      {volumeSearch?.entryId === entry.id ? <div className="book-volume-search">
+        <div className="book-match-search"><input aria-label={`${entry.title}的单册搜索词`} value={volumeSearch.query} onChange={(event) => setVolumeSearch({ ...volumeSearch, query: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void searchVolume(entry.id, volumeSearch.query)} placeholder="按作品名和卷号搜索其他版本" /><button type="button" className="button compact secondary" disabled={volumeSearch.loading} onClick={() => void searchVolume(entry.id, volumeSearch.query)}><Search size={14} />搜索</button><button type="button" className="button compact secondary" onClick={() => { volumeSearchRequest.current++; setVolumeSearch(null); }}>收起</button></div>
+        {volumeSearch.error ? <p role="alert" className="gnz-inline-error">{volumeSearch.error}</p> : null}
+        {volumeSearch.loading ? <small>正在查找 Bangumi 单册…</small> : volumeSearch.candidates.length === 0 && !volumeSearch.error ? <small>没有找到单册候选，可换书名或卷号搜索。</small> : null}
+        {volumeSearch.candidates.map((candidate) => {
+          const mismatch = entry.volumeNumber != null && candidate.volumeNumber != null && Math.abs(entry.volumeNumber - candidate.volumeNumber) > 0.001;
+          return <div className="book-candidate" key={candidate.externalId}>
+            {candidate.coverUrl ? <img className="book-candidate-cover" src={candidate.coverUrl} alt="候选卷封面" /> : null}
+            <div><strong>{candidate.title}</strong><small>{candidate.volumeNumber != null ? `第 ${candidate.volumeNumber} 卷` : "卷号待核对"} · {candidate.linkedToSeries ? "系列关联单行本" : "搜索结果"}{candidate.stale ? " · 离线缓存" : ""}{mismatch ? " · 与本地卷号不符" : ""}</small></div>
+            <button type="button" className="button compact secondary" disabled={busy || mismatch} onClick={() => void confirmVolume(entry, candidate)}>核对并关联</button>
+          </div>;
+        })}
+      </div> : null}
       {embedded?.id === entry.id ? <div className="book-embedded">
         {embedded.data.coverPath ? <img src={embedded.data.coverPath} alt="本地封面" /> : null}
         <div><strong>{embedded.data.series ?? embedded.data.title ?? "无内嵌标题"}</strong><p>{[embedded.data.creator, embedded.data.number ? `编号 ${embedded.data.number}` : null, embedded.data.isbn ? `ISBN ${embedded.data.isbn}` : null].filter(Boolean).join(" · ") || "无作者与编号资料"}</p>{embedded.data.description ? <p>{embedded.data.description}</p> : null}

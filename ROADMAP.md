@@ -11,6 +11,7 @@
 - 实施顺序：本地书架与卷册整理 → Bangumi 候选确认与缓存 → 阅读状态适配。前期调用外部阅读器，手动标记卷 / 话的未读、阅读中、已读；打开文件不等于已读，页码 / EPUB 阅读位置自动采集单独评估。远程扫描仍只索引属性，正文与封面分析待缓存能力完善后进行。
 - 当前迭代已把本地资料和 Bangumi 候选预览前移至书架待整理：按真实目录浏览，用户可跨子目录勾选文件、核对候选后原子建书；EPUB 按 OPF 声明优先定位封面。目录 / 文件名仍只是建议，不能替代人工确认；WebDAV 内嵌资料读取和移动端阅读仍待后续缓存 / 同步能力。
 - 待整理目录现按真实文件夹逐级展示文件；当前目录可递归选中，跨子目录选中的多卷在右侧逐册核对并归档。文件名明确卷号与本地 EPUB / CBZ 内嵌编号、封面分别显示；不同译本、番外与多作品仍由用户勾选确认，不自动合并。
+- 作品详情已支持逐卷 Bangumi 单册候选：优先读取已关联系列的“单行本”关系，其他版本可按书名搜索；用户逐卷确认后单独保存条目 ID 和封面。明确卷号冲突或系列条目不写入单册；番外、译本和未标卷号的候选继续人工核对，不承诺自动批量匹配。
 - 本版验收：图片目录与 CBZ / EPUB 正确归档、自然排序、漫画 / 小说同名不混合、单卷与合集不误并、离线可浏览与打开、人工资料不被刷新覆盖；迁移同时验证存量数据库，UI 检查三种常用 Windows 尺寸。首版不承诺 CBR / 7z / RAR 内嵌资料、PDF 正文解析或自动阅读位置；这些文件仍可索引并交给外部阅读器。
 - 数据源依据：[Bangumi 官方 API](https://github.com/bangumi/api/blob/master/open-api/v0.yaml)、[AniList Media 查询](https://docs.anilist.co/guide/graphql/queries/media)、[ComicInfo 字段说明](https://anansi-project.github.io/docs/comicinfo/documentation)、[Kavita EPUB 元数据](https://wiki.kavitareader.com/guides/metadata/epubs/)。
 
