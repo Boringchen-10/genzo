@@ -20,8 +20,6 @@ type ShelfFilter = "all" | MediaType;
 const shelfFilterOptions: { key: ShelfFilter; label: string }[] = [
   { key: "all", label: "全部" },
   { key: "video", label: mediaLabels.video },
-  { key: "comic", label: mediaLabels.comic },
-  { key: "novel", label: mediaLabels.novel },
   { key: "game", label: mediaLabels.game },
 ];
 
@@ -140,7 +138,14 @@ export function HomePage() {
 
   useEffect(() => void load(), [load]);
 
-  const carouselWorks = useMemo(() => recentlyAdded(works).slice(0, 5), [works]);
+  const mediaWorks = useMemo(() => works.filter((work) => {
+    const category = work.category ?? work.type;
+    return category !== "comic" && category !== "novel";
+  }), [works]);
+  const carouselWorks = useMemo(() => recentlyAdded(mediaWorks).slice(0, 5), [mediaWorks]);
+  useEffect(() => {
+    setFeaturedIndex((index) => (index < carouselWorks.length ? index : 0));
+  }, [carouselWorks.length]);
   const featured = carouselWorks[featuredIndex] ?? carouselWorks[0];
   const featuredPlayback = usePlaybackProgress(featured?.id, !previewMode && Boolean(featured));
   const lastPlayed = featured ? latestPlayback(featuredPlayback.data.items, featured.id) : undefined;
@@ -156,8 +161,8 @@ export function HomePage() {
   /** 背景是否来自真实横版横幅（决定用清晰横幅还是模糊封面铺底）。 */
   const featuredHasBanner = Boolean(bannerArtwork(featured));
   const shelfWorks = useMemo(
-    () => recentlyAdded(shelfFilter === "all" ? works : works.filter((work) => work.type === shelfFilter)),
-    [works, shelfFilter],
+    () => recentlyAdded(shelfFilter === "all" ? mediaWorks : mediaWorks.filter((work) => work.type === shelfFilter)),
+    [mediaWorks, shelfFilter],
   );
 
   useEffect(() => {
@@ -176,7 +181,7 @@ export function HomePage() {
 
   const homeToolbar = (
     <div className="seanime-home-toolbar">
-      <span className="seanime-library-count">{data.totalWorks} 部作品 · 最近同步于今天</span>
+      <span className="seanime-library-count">{mediaWorks.length} 部作品 · 最近同步于今天</span>
       <Link className="icon-button" aria-label="打开媒体库" data-tooltip="打开媒体库" to="/library"><Library size={16} /></Link>
       <IconButton tooltip="刷新概览" onClick={() => void load()}><RefreshCw size={16} /></IconButton>
       <IconButton tooltip="打开设置" onClick={openSettings}><Settings size={16} /></IconButton>
@@ -203,8 +208,8 @@ export function HomePage() {
         </div> : null}
       </div>
       {!previewMode && <PlaybackHistory snapshot={playback} />}
-      {works.length ? <section className="gnz-home-shelf">
-        <div className="section-heading"><div><h2>我的书架</h2><span>{shelfFilter === "all" ? `${data.totalWorks} 部作品` : `${shelfWorks.length} 部作品`}</span></div><Link to="/library">查看全部</Link></div>
+      {mediaWorks.length ? <section className="gnz-home-shelf">
+        <div className="section-heading"><div><h2>最近添加</h2><span>{shelfFilter === "all" ? `${mediaWorks.length} 部作品` : `${shelfWorks.length} 部作品`}</span></div><Link to="/library">查看全部</Link></div>
         <div className="gnz-shelf-filters" role="group" aria-label="作品分类筛选">
           {shelfFilterOptions.map((option) => <button key={option.key} type="button" className={shelfFilter === option.key ? "active" : ""} aria-pressed={shelfFilter === option.key} onClick={() => setShelfFilter(option.key)}>{option.label}</button>)}
         </div>
