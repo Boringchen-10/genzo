@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { ScanTask } from "./scanTasks";
-import type { BookCandidate, BookEntry, BookEntryInput, BookImportGroup, EmbeddedBookMetadata } from "./bookData";
+import type { BookCandidate, BookEntry, BookEntryInput, BookEntryOrder, BookImportGroup, EmbeddedBookMetadata } from "./bookData";
 import type {
   WebdavConnection, RemoteSource, RemoteEntry, RemoteCacheEntry,
   AppInfo,
@@ -43,6 +43,8 @@ export const correctionApi = {
 
 export const bookApi = {
   entries: (workId: string) => call<BookEntry[]>("list_book_entries", { workId }).then(bookEntryAssets),
+  order: (workId: string) => call<BookEntryOrder>("get_book_entry_order", { workId }),
+  saveOrder: (workId: string, mode: BookEntryOrder["mode"], entryIds?: string[]) => call<BookEntryOrder>("save_book_entry_order", { workId, mode, entryIds: entryIds ?? null }),
   removeEntries: (workId: string, entryIds: string[]) => call<BookEntry[]>("remove_book_entries", { workId, entryIds }).then(bookEntryAssets),
   saveEntry: (workId: string, entryId: string, input: BookEntryInput) => call<BookEntry[]>("save_book_entry", { workId, entryId, input }).then(bookEntryAssets),
   open: (workId: string, entryId: string, toolId?: string | null) => call<void>("open_book_entry", { workId, entryId, toolId: toolId ?? null }),

@@ -29,6 +29,7 @@ try {
           if (command === "search_book_import_candidates") return [{ externalId: "42", title: "网络系列", originalTitle: "Original Series", summary: "", coverUrl: null, category: "comic", series: true, confidence: 0.88, stale: false }];
           if (command === "create_book_work") { window.__bookImportCalls.push(args); return "created"; }
           if (command === "list_book_entries") return [];
+          if (command === "get_book_entry_order") return { mode: "asc", entryIds: [] };
           if (["list_scan_jobs", "list_scan_tasks", "list_remote_sources", "list_remote_cache"].includes(command)) return [];
           if (command === "get_setting") return "dark";
           return null;

@@ -17,6 +17,7 @@ try {
       const entry8 = { ...entry, id: "v8", title: "败犬女主太多了 -08", volumeNumber: 8, mediaFileIds: ["v8"], readState: "unread" };
       window.__volumeCalls = [];
       window.__removedVolumeIds = [];
+      window.__bookOrder = JSON.parse(sessionStorage.getItem("bookOrder") || '{"mode":"asc","entryIds":[]}');
       window.isTauri = true;
       window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
       Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {
@@ -26,6 +27,8 @@ try {
           if (command === "get_work") return work;
           if (command === "list_works") return [work];
           if (command === "list_book_entries") return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item }));
+          if (command === "get_book_entry_order") return { ...window.__bookOrder };
+          if (command === "save_book_entry_order") { window.__bookOrder = { mode: args.mode, entryIds: args.entryIds ?? window.__bookOrder.entryIds }; sessionStorage.setItem("bookOrder", JSON.stringify(window.__bookOrder)); return { ...window.__bookOrder }; }
           if (command === "save_book_entry") { [entry, entry8].find(item => item.id === args.entryId).readState = args.input.readState; return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item })); }
           if (command === "remove_book_entries") { window.__removedVolumeIds.push(...args.entryIds); return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item })); }
           if (command === "get_embedded_book_metadata") return { title: "第七卷", creator: null, series: null, number: "7", description: null, isbn: null, coverPath: cover };
@@ -42,6 +45,28 @@ try {
       } });
     });
     await page.goto(`${base}/#/library/book`);
+    const order = () => page.locator(".book-entry-main strong").allTextContents();
+    await page.getByRole("button", { name: "按卷号升序" }).waitFor();
+    assert.deepEqual((await order()).map(value => value.slice(-3)), ["-07", "-08"]);
+    await page.getByRole("button", { name: "按卷号降序" }).click();
+    assert.deepEqual((await order()).map(value => value.slice(-3)), ["-08", "-07"]);
+    await page.reload();
+    await page.getByRole("button", { name: "按卷号降序" }).waitFor();
+    assert.deepEqual((await order()).map(value => value.slice(-3)), ["-08", "-07"]);
+    await page.locator(".book-entry").filter({ hasText: "-07" }).getByRole("button", { name: /拖动调整/ }).dragTo(page.locator(".book-entry").filter({ hasText: "-08" }));
+    await page.getByText("自定义顺序").waitFor();
+    assert.deepEqual((await order()).map(value => value.slice(-3)), ["-07", "-08"]);
+    if (process.env.GENZO_SCREENSHOT_DIR) {
+      await mkdir(process.env.GENZO_SCREENSHOT_DIR, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.GENZO_SCREENSHOT_DIR, `book-order-${width}.png`), fullPage: true });
+    }
+    await page.reload();
+    await page.getByText("自定义顺序").waitFor();
+    assert.deepEqual((await order()).map(value => value.slice(-3)), ["-07", "-08"]);
+    await page.locator(".book-entry").filter({ hasText: "-07" }).getByRole("button", { name: /拖动调整/ }).press("ArrowDown");
+    await page.waitForFunction(() => document.querySelector(".book-entry-main strong")?.textContent?.endsWith("-08"));
+    await page.getByRole("button", { name: "按卷号升序" }).click();
+    assert.deepEqual((await order()).map(value => value.slice(-3)), ["-07", "-08"]);
     const volume7 = page.locator(".book-entry").filter({ hasText: "-07" });
     await volume7.getByRole("button", { name: /阅读中，标记为已读/ }).click();
     await volume7.getByRole("button", { name: /已读，标记为未读/ }).waitFor();
@@ -92,6 +117,6 @@ try {
     assert.deepEqual(await page.evaluate(() => window.__removedVolumeIds), ["v7", "v8"]);
     assert.deepEqual(errors, []);
     await page.close();
-    console.log(`${width}x${height}: compact actions, reading toggle, matching, multi-select removal and layout passed`);
+    console.log(`${width}x${height}: persistent ascending, descending and manual order, matching and removal passed`);
   }
 } finally { await browser.close(); }

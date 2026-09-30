@@ -63,6 +63,13 @@ pub struct BookEntryInput {
     pub read_state: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookEntryOrder {
+    pub mode: String,
+    pub entry_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct UnassignedBookFile {
     id: String,
@@ -372,6 +379,61 @@ pub async fn entries_in_pool(pool: &SqlitePool, work_id: &str) -> AppResult<Vec<
 #[tauri::command]
 pub async fn list_book_entries(work_id: String, state: State<'_, AppState>) -> AppResult<Vec<BookEntry>> {
     entries_in_pool(&state.pool, &work_id).await
+}
+
+pub async fn order_in_pool(pool: &SqlitePool, work_id: &str) -> AppResult<BookEntryOrder> {
+    let kind: Option<String> = sqlx::query_scalar("SELECT type FROM works WHERE id = ?")
+        .bind(work_id).fetch_optional(pool).await?;
+    if !matches!(kind.as_deref(), Some("comic" | "novel")) {
+        return Err(AppError::Validation("请选择漫画或小说作品".into()));
+    }
+    let saved: Option<(String, String)> = sqlx::query_as("SELECT mode, entry_ids FROM book_entry_order WHERE work_id = ?")
+        .bind(work_id).fetch_optional(pool).await?;
+    match saved {
+        Some((mode, entry_ids)) => Ok(BookEntryOrder { mode, entry_ids: serde_json::from_str(&entry_ids)? }),
+        None => Ok(BookEntryOrder { mode: "asc".into(), entry_ids: vec![] }),
+    }
+}
+
+#[tauri::command]
+pub async fn get_book_entry_order(work_id: String, state: State<'_, AppState>) -> AppResult<BookEntryOrder> {
+    order_in_pool(&state.pool, &work_id).await
+}
+
+pub async fn save_order_in_pool(pool: &SqlitePool, work_id: &str, mode: &str, entry_ids: Option<&[String]>) -> AppResult<BookEntryOrder> {
+    if !matches!(mode, "asc" | "desc" | "custom") || (mode == "custom" && entry_ids.is_none()) {
+        return Err(AppError::Validation("无效的卷册排序方式".into()));
+    }
+    let (_guard, mut transaction) = crate::db::begin_write(pool).await?;
+    let kind: Option<String> = sqlx::query_scalar("SELECT type FROM works WHERE id = ?")
+        .bind(work_id).fetch_optional(&mut *transaction).await?;
+    if !matches!(kind.as_deref(), Some("comic" | "novel")) {
+        return Err(AppError::Validation("请选择漫画或小说作品".into()));
+    }
+    let previous: Option<String> = sqlx::query_scalar("SELECT entry_ids FROM book_entry_order WHERE work_id = ?")
+        .bind(work_id).fetch_optional(&mut *transaction).await?;
+    let saved_ids = if let Some(ids) = entry_ids {
+        let files = sqlx::query_as::<_, BookFile>("SELECT id, path, file_name, extension, missing, created_at FROM media_files WHERE work_id = ? AND media_type IN ('comic', 'novel')")
+            .bind(work_id).fetch_all(&mut *transaction).await?;
+        let current: HashSet<_> = make_entries(files, vec![], vec![]).into_iter().map(|entry| entry.id).collect();
+        let submitted: HashSet<_> = ids.iter().cloned().collect();
+        if ids.len() != current.len() || submitted != current {
+            return Err(AppError::Validation("卷册列表已变化，请刷新后重试".into()));
+        }
+        serde_json::to_string(ids)?
+    } else {
+        previous.unwrap_or_else(|| "[]".into())
+    };
+    sqlx::query("INSERT INTO book_entry_order (work_id, mode, entry_ids, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(work_id) DO UPDATE SET mode = excluded.mode, entry_ids = excluded.entry_ids, updated_at = excluded.updated_at")
+        .bind(work_id).bind(mode).bind(&saved_ids).bind(Utc::now().to_rfc3339())
+        .execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(BookEntryOrder { mode: mode.into(), entry_ids: serde_json::from_str(&saved_ids)? })
+}
+
+#[tauri::command]
+pub async fn save_book_entry_order(work_id: String, mode: String, entry_ids: Option<Vec<String>>, state: State<'_, AppState>) -> AppResult<BookEntryOrder> {
+    save_order_in_pool(&state.pool, &work_id, &mode, entry_ids.as_deref()).await
 }
 
 pub async fn remove_entries_in_pool(pool: &SqlitePool, work_id: &str, entry_ids: &[String]) -> AppResult<Vec<BookEntry>> {
@@ -719,5 +781,34 @@ mod tests {
         let kept: (String, String) = sqlx::query_as("SELECT o.read_state, v.external_id FROM book_entry_overrides o JOIN book_volume_matches v ON v.media_file_id = 'page-b' WHERE o.media_file_id = 'page-a'")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(kept, ("read".into(), "123".into()));
+    }
+
+    #[tokio::test]
+    async fn order_migration_keeps_old_data_and_rejects_stale_manual_order() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let mut previous = sqlx::migrate!("./migrations");
+        let mut migrations = previous.migrations.into_owned();
+        migrations.retain(|migration| migration.version <= 23);
+        previous.migrations = Cow::Owned(migrations);
+        previous.run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('book', '旧书', 'novel', 't', 't')")
+            .execute(&pool).await.unwrap();
+        for (id, name) in [("a", "第1卷.epub"), ("b", "第2卷.epub")] {
+            sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'book', ?, ?, 'epub', 'novel', 't', 't')")
+                .bind(id).bind(format!("C:/Books/{name}")).bind(name).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO book_entry_overrides (media_file_id, read_state, updated_at) VALUES ('a', 'reading', 't')")
+            .execute(&pool).await.unwrap();
+        crate::migration_compat::run(&pool).await.unwrap();
+        assert_eq!(order_in_pool(&pool, "book").await.unwrap().mode, "asc");
+        assert!(save_order_in_pool(&pool, "book", "custom", Some(&["b".into()])).await.is_err());
+        assert!(save_order_in_pool(&pool, "book", "custom", Some(&["a".into(), "a".into()])).await.is_err());
+        let saved = save_order_in_pool(&pool, "book", "custom", Some(&["b".into(), "a".into()])).await.unwrap();
+        assert_eq!(saved.entry_ids, vec!["b", "a"]);
+        save_order_in_pool(&pool, "book", "desc", None).await.unwrap();
+        let reloaded = order_in_pool(&pool, "book").await.unwrap();
+        assert_eq!(reloaded.mode, "desc");
+        assert_eq!(reloaded.entry_ids, vec!["b", "a"]);
+        assert_eq!(entries_in_pool(&pool, "book").await.unwrap()[0].read_state, "reading");
     }
 }

@@ -78,6 +78,8 @@ pub fn run() {
             book_scrape::confirm_book_volume_batch,
             book_metadata::get_embedded_book_metadata,
             bookshelf::list_book_entries,
+            bookshelf::get_book_entry_order,
+            bookshelf::save_book_entry_order,
             bookshelf::remove_book_entries,
             bookshelf::save_book_entry,
             bookshelf::open_book_entry,

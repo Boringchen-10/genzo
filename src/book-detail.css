@@ -2,8 +2,17 @@
 .book-detail-toolbar, .book-entry, .book-entry-actions, .book-match-search, .book-candidate { display: flex; align-items: center; gap: 10px; }
 .book-detail-toolbar, .book-candidate { justify-content: space-between; }
 .book-detail-toolbar { flex-wrap: wrap; }
+.book-order-controls { display: flex; gap: 3px; }
+.book-order-controls button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 5px; cursor: pointer; }
+.book-order-controls button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.book-order-controls button:disabled { opacity: .5; cursor: not-allowed; }
+.book-order-label { color: var(--muted); font-size: 12px; }
 .book-entry-list { display: grid; gap: 8px; }
 .book-entry { flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--border, rgba(128,128,128,.2)); }
+.book-entry.drop-target { background: var(--accent-soft); }
+.book-entry-drag { display: grid; place-items: center; width: 22px; height: 34px; flex: none; padding: 0; color: var(--muted); background: transparent; border: 0; cursor: grab; }
+.book-entry-drag:active { cursor: grabbing; }
+.book-entry-drag:disabled { opacity: .4; cursor: not-allowed; }
 .book-entry-cover { width: 54px; height: 76px; object-fit: cover; flex: none; border-radius: 3px; }
 .book-entry-main { min-width: 200px; flex: 1 1 240px; display: grid; gap: 3px; }
 .book-entry-main strong, .book-candidate strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

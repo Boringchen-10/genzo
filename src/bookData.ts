@@ -19,6 +19,11 @@ export interface BookEntryInput {
   readState: BookEntry["readState"];
 }
 
+export interface BookEntryOrder {
+  mode: "asc" | "desc" | "custom";
+  entryIds: string[];
+}
+
 export interface BookImportGroup {
   title: string;
   mediaType: "comic" | "novel";

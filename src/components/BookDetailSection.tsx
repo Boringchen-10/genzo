@@ -1,8 +1,8 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, BookOpenCheck, Check, ChevronRight, Circle, CircleCheck, FileText, MoreHorizontal, Pencil, RefreshCw, Search, Sparkles, Trash2, Unlink } from "lucide-react";
+import { ArrowDown01, ArrowDown10, BookOpen, BookOpenCheck, Check, ChevronRight, Circle, CircleCheck, FileText, GripVertical, MoreHorizontal, Pencil, RefreshCw, Search, Sparkles, Trash2, Unlink } from "lucide-react";
 import { bookApi } from "../api";
-import type { BookCandidate, BookEntry, BookEntryInput, BookVolumeBatchPreview, BookVolumeBatchResult, BookVolumeCandidate, EmbeddedBookMetadata } from "../bookData";
+import type { BookCandidate, BookEntry, BookEntryInput, BookEntryOrder, BookVolumeBatchPreview, BookVolumeBatchResult, BookVolumeCandidate, EmbeddedBookMetadata } from "../bookData";
 import { ConfirmDialog, Modal } from "./common";
 import { getErrorMessage } from "../utils";
 import "../book-detail.css";
@@ -30,11 +30,22 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const [selecting, setSelecting] = useState(false);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [sortMode, setSortMode] = useState<BookEntryOrder["mode"]>("asc");
+  const [manualOrderIds, setManualOrderIds] = useState<string[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const entryIds = entries.map(entry => entry.id).join("|");
+  const manualPositions = new Map(manualOrderIds.map((id, index) => [id, index]));
+  const visibleEntries = sortMode === "desc" ? [...entries].reverse() : sortMode === "custom"
+    ? [...entries].sort((left, right) => (manualPositions.get(left.id) ?? entries.length) - (manualPositions.get(right.id) ?? entries.length))
+    : entries;
 
   const load = useCallback(async () => {
     if (!isTauri()) return;
-    try { setEntries(await bookApi.entries(workId)); setError(""); }
+    try {
+      const [nextEntries, order] = await Promise.all([bookApi.entries(workId), bookApi.order(workId)]);
+      setEntries(nextEntries); setSortMode(order.mode); setManualOrderIds(order.entryIds); setError("");
+    }
     catch (reason) { setError(getErrorMessage(reason)); }
   }, [workId]);
   useEffect(() => { void load(); }, [load]);
@@ -151,6 +162,27 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
     finally { setBusy(false); }
   };
 
+  const saveOrder = async (mode: BookEntryOrder["mode"], ids?: string[]) => {
+    setBusy(true);
+    try {
+      const saved = await bookApi.saveOrder(workId, mode, ids);
+      setSortMode(saved.mode); setManualOrderIds(saved.entryIds); setError("");
+    } catch (reason) { setError(getErrorMessage(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const moveEntry = (fromId: string, toId: string) => {
+    if (fromId === toId || busy || selecting) return;
+    const ids = visibleEntries.map(entry => entry.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0) return;
+    const [moved] = ids.splice(from, 1);
+    if (!moved) return;
+    ids.splice(to, 0, moved);
+    void saveOrder("custom", ids);
+  };
+
   if (!isTauri()) return <p className="quiet-inline">书籍卷册与刮削需要在 Genzo 桌面应用中使用。</p>;
   return <div className="book-detail" id="bookshelf-entries">
     <div className="book-detail-toolbar">
@@ -161,6 +193,11 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         <button type="button" className="button compact danger" disabled={busy || selectedEntryIds.length === 0} onClick={() => setDeleteOpen(true)}><Trash2 size={14} />删除所选</button>
         <button type="button" className="button compact secondary" disabled={busy} onClick={() => { setSelecting(false); setSelectedEntryIds([]); }}>取消</button>
       </> : <>
+        <div className="book-order-controls" role="group" aria-label="卷册排序">
+          <button type="button" aria-label="按卷号升序" title="按卷号升序" aria-pressed={sortMode === "asc"} disabled={busy || entries.length === 0} onClick={() => void saveOrder("asc")}><ArrowDown01 size={17} /></button>
+          <button type="button" aria-label="按卷号降序" title="按卷号降序" aria-pressed={sortMode === "desc"} disabled={busy || entries.length === 0} onClick={() => void saveOrder("desc")}><ArrowDown10 size={17} /></button>
+        </div>
+        {sortMode === "custom" ? <span className="book-order-label">自定义顺序</span> : null}
         <button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => void previewBatch()}>批量识别卷册</button>
         <button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => setSelecting(true)}><Check size={14} />多选</button>
         <button type="button" className="button compact secondary" onClick={() => void load()}><RefreshCw size={14} />刷新</button>
@@ -175,11 +212,17 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
       <div className="book-volume-batch-list">{batchPreview.proposals.map(item => <div key={item.entryId}><span>{item.entryTitle} · 第 {item.volumeNumber} 卷</span><ChevronRight size={14} /><span>{item.candidate.title} · #{item.candidate.externalId}{item.candidate.stale ? " · 离线缓存" : ""}</span></div>)}{batchPreview.skipped.map(item => <div key={item.entryId}><span>{item.entryTitle}</span><small>{item.reason}</small></div>)}</div>
       <div className="book-entry-actions"><button type="button" className="button compact secondary" onClick={() => setBatchPreview(null)}>取消</button><button type="button" className="button compact primary" disabled={busy || batchPreview.proposals.length === 0} onClick={() => void confirmBatch()}>{busy ? "核实中…" : `确认匹配 ${batchPreview.proposals.length} 卷`}</button></div>
     </div> : null}
-    {entries.length ? <div className="book-entry-list">{entries.map((entry) => {
+    {entries.length ? <div className="book-entry-list">{visibleEntries.map((entry, index) => {
       const local = volumeMetadata[entry.id];
       const localNumber = local?.number && /^\d+(?:\.\d+)?$/.test(local.number.trim()) ? Number(local.number) : null;
-      return <article className="book-entry" key={entry.id}>
+      return <article className={`book-entry${dropTargetId === entry.id ? " drop-target" : ""}`} key={entry.id}
+        onDragOver={event => { if (draggingId && draggingId !== entry.id) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTargetId(entry.id); } }}
+        onDrop={event => { event.preventDefault(); const sourceId = event.dataTransfer.getData("text/plain"); setDraggingId(null); setDropTargetId(null); moveEntry(sourceId, entry.id); }}>
       {selecting ? <label className="book-entry-select"><input type="checkbox" aria-label={`选择${entry.title}`} checked={selectedEntryIds.includes(entry.id)} onChange={() => setSelectedEntryIds(ids => ids.includes(entry.id) ? ids.filter(id => id !== entry.id) : [...ids, entry.id])} /><span className="sr-only">选择{entry.title}</span></label> : null}
+      {!selecting ? <button type="button" className="book-entry-drag" draggable={!busy} disabled={busy} aria-label={`拖动调整${entry.title}的位置`} title="拖动调整位置；聚焦后可按上下方向键微调"
+        onDragStart={event => { event.dataTransfer.setData("text/plain", entry.id); event.dataTransfer.effectAllowed = "move"; setDraggingId(entry.id); }}
+        onDragEnd={() => { setDraggingId(null); setDropTargetId(null); }}
+        onKeyDown={event => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); const next = visibleEntries[index + (event.key === "ArrowUp" ? -1 : 1)]; if (next) moveEntry(entry.id, next.id); } }}><GripVertical size={16} /></button> : null}
       {entry.bangumiCoverPath || local?.coverPath ? <img className="book-entry-cover" src={entry.bangumiCoverPath ?? local?.coverPath ?? ""} alt={`${entry.title}的封面`} /> : null}
       <div className="book-entry-main">
         <strong title={entry.title}>{entry.title}</strong>
