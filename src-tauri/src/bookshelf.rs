@@ -43,6 +43,7 @@ struct BookVolumeMatch {
 pub struct BookEntry {
     pub id: String,
     pub title: String,
+    pub file_name: String,
     pub volume_number: Option<f64>,
     pub chapter_number: Option<f64>,
     pub media_file_ids: Vec<String>,
@@ -341,7 +342,8 @@ fn make_entries(files: Vec<BookFile>, overrides: Vec<BookOverride>, matches: Vec
         let matched = members.iter().find_map(|file| matches.get(&file.id));
         entries.push(BookEntry {
             id: representative.id.clone(),
-            title: manual.and_then(|value| value.title.clone()).unwrap_or(default_title),
+            title: manual.and_then(|value| value.title.clone()).unwrap_or_else(|| default_title.clone()),
+            file_name: if image_folder { default_title } else { representative.file_name.clone() },
             volume_number: manual.and_then(|value| value.volume_number).or(parsed_volume).or_else(|| matched.and_then(|value| value.volume_number)),
             chapter_number: manual.and_then(|value| value.chapter_number).or(parsed_chapter),
             media_file_ids: members.iter().map(|file| file.id.clone()).collect(),
@@ -471,6 +473,37 @@ pub async fn remove_entries_in_pool(pool: &SqlitePool, work_id: &str, entry_ids:
 #[tauri::command]
 pub async fn remove_book_entries(work_id: String, entry_ids: Vec<String>, state: State<'_, AppState>) -> AppResult<Vec<BookEntry>> {
     remove_entries_in_pool(&state.pool, &work_id, &entry_ids).await
+}
+
+pub async fn save_read_state_in_pool(pool: &SqlitePool, work_id: &str, entry_ids: &[String], read_state: &str) -> AppResult<Vec<BookEntry>> {
+    if !matches!(read_state, "unread" | "reading" | "read") || entry_ids.is_empty() {
+        return Err(AppError::Validation("请选择卷册和有效的阅读状态".into()));
+    }
+    let (_guard, mut transaction) = crate::db::begin_write(pool).await?;
+    let kind: Option<String> = sqlx::query_scalar("SELECT type FROM works WHERE id = ?")
+        .bind(work_id).fetch_optional(&mut *transaction).await?;
+    if !matches!(kind.as_deref(), Some("comic" | "novel")) {
+        return Err(AppError::Validation("请选择漫画或小说作品".into()));
+    }
+    let files = sqlx::query_as::<_, BookFile>("SELECT id, path, file_name, extension, missing, created_at FROM media_files WHERE work_id = ? AND media_type IN ('comic', 'novel')")
+        .bind(work_id).fetch_all(&mut *transaction).await?;
+    let current: HashSet<_> = make_entries(files, vec![], vec![]).into_iter().map(|entry| entry.id).collect();
+    let selected: HashSet<_> = entry_ids.iter().cloned().collect();
+    if selected.len() != entry_ids.len() || !selected.is_subset(&current) {
+        return Err(AppError::Validation("卷册列表已变化，请刷新后重试".into()));
+    }
+    let now = Utc::now().to_rfc3339();
+    for entry_id in entry_ids {
+        sqlx::query("INSERT INTO book_entry_overrides (media_file_id, read_state, updated_at) VALUES (?, ?, ?) ON CONFLICT(media_file_id) DO UPDATE SET read_state = excluded.read_state, updated_at = excluded.updated_at")
+            .bind(entry_id).bind(read_state).bind(&now).execute(&mut *transaction).await?;
+    }
+    transaction.commit().await?;
+    entries_in_pool(pool, work_id).await
+}
+
+#[tauri::command]
+pub async fn save_book_read_state(work_id: String, entry_ids: Vec<String>, read_state: String, state: State<'_, AppState>) -> AppResult<Vec<BookEntry>> {
+    save_read_state_in_pool(&state.pool, &work_id, &entry_ids, &read_state).await
 }
 
 pub async fn save_entry_in_pool(pool: &SqlitePool, work_id: &str, entry_id: &str, input: BookEntryInput) -> AppResult<Vec<BookEntry>> {
@@ -810,5 +843,52 @@ mod tests {
         assert_eq!(reloaded.mode, "desc");
         assert_eq!(reloaded.entry_ids, vec!["b", "a"]);
         assert_eq!(entries_in_pool(&pool, "book").await.unwrap()[0].read_state, "reading");
+    }
+
+    #[tokio::test]
+    async fn batch_read_state_is_atomic_and_preserves_volume_data() {
+        let pool = crate::db::test_pool().await.unwrap();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('book', '漫画', 'comic', 't', 't'), ('other', '其他作品', 'comic', 't', 't')")
+            .execute(&pool).await.unwrap();
+        for (id, work, path, name, extension) in [
+            ("page-a", "book", "C:/Books/第1卷/001.jpg", "001.jpg", "jpg"),
+            ("page-b", "book", "C:/Books/第1卷/002.jpg", "002.jpg", "jpg"),
+            ("v2", "book", "C:/Books/第2卷.cbz", "第2卷.cbz", "cbz"),
+            ("v3", "book", "C:/Books/第3卷.cbz", "第3卷.cbz", "cbz"),
+            ("other", "other", "C:/Other/第4卷.cbz", "第4卷.cbz", "cbz"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'comic', 't', 't')")
+                .bind(id).bind(work).bind(path).bind(name).bind(extension).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO book_entry_overrides (media_file_id, title, volume_number, chapter_number, read_state, updated_at) VALUES ('page-a', '自定义第一卷', 1, 2, 'reading', 't')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO book_volume_matches (media_file_id, external_id, title, cover_path, updated_at) VALUES ('page-b', '101', '第一卷', 'cache/1.jpg', 't')")
+            .execute(&pool).await.unwrap();
+        for ids in [vec![], vec!["page-a".into(), "other".into()], vec!["page-a".into(), "page-a".into()], vec!["page-b".into()]] {
+            assert!(save_read_state_in_pool(&pool, "book", &ids, "read").await.is_err());
+        }
+        assert!(save_read_state_in_pool(&pool, "book", &["page-a".into()], "invalid").await.is_err());
+        sqlx::query("CREATE TRIGGER fail_read BEFORE INSERT ON book_entry_overrides WHEN NEW.media_file_id = 'v2' BEGIN SELECT RAISE(ABORT, 'test write failure'); END")
+            .execute(&pool).await.unwrap();
+        assert!(save_read_state_in_pool(&pool, "book", &["page-a".into(), "v2".into()], "read").await.is_err());
+        let state: String = sqlx::query_scalar("SELECT read_state FROM book_entry_overrides WHERE media_file_id = 'page-a'").fetch_one(&pool).await.unwrap();
+        assert_eq!(state, "reading");
+        sqlx::query("DROP TRIGGER fail_read").execute(&pool).await.unwrap();
+        let entries = save_read_state_in_pool(&pool, "book", &["page-a".into(), "v2".into()], "read").await.unwrap();
+        let first = entries.iter().find(|entry| entry.id == "page-a").unwrap();
+        assert_eq!(first.read_state, "read");
+        assert_eq!(first.title, "自定义第一卷");
+        assert_eq!(first.file_name, "第1卷");
+        assert_eq!(first.volume_number, Some(1.0));
+        assert_eq!(first.chapter_number, Some(2.0));
+        assert_eq!(first.media_file_ids, vec!["page-a", "page-b"]);
+        assert_eq!(first.bangumi_id.as_deref(), Some("101"));
+        assert_eq!(first.bangumi_cover_path.as_deref(), Some("cache/1.jpg"));
+        assert_eq!(entries.iter().find(|entry| entry.id == "v2").unwrap().read_state, "read");
+        assert_eq!(entries.iter().find(|entry| entry.id == "v3").unwrap().read_state, "unread");
+        save_read_state_in_pool(&pool, "book", &["page-a".into(), "v2".into()], "unread").await.unwrap();
+        let preserved: (Option<String>, String, String) = sqlx::query_as("SELECT o.title, m.path, m.work_id FROM book_entry_overrides o JOIN media_files m ON m.id = o.media_file_id WHERE m.id = 'v2'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(preserved, (None, "C:/Books/第2卷.cbz".into(), "book".into()));
     }
 }

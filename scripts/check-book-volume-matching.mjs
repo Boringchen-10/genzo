@@ -10,12 +10,15 @@ try {
     const page = await browser.newPage({ viewport: { width, height } });
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
-    await page.addInitScript(() => {
+    await page.addInitScript(theme => {
+      localStorage.setItem("genzo-preferences", JSON.stringify({ state: { theme }, version: 0 }));
       const work = { id: "book", title: "败犬女主太多了", type: "novel", category: "novel", originalTitle: null, description: "", coverPath: null, status: "planned", favorite: false, rating: null, notes: "", tags: [], mediaCount: 1, missingCount: 0, createdAt: "t", updatedAt: "t", metadataStatus: "matched", metadataYear: null, lastRecognizedAt: null, mediaFiles: [], fieldLocks: [], candidates: [], subtitleLinks: [], metadata: null };
-      const cover = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
-      const entry = { id: "v7", title: "败犬女主太多了 -07", volumeNumber: 7, chapterNumber: null, mediaFileIds: ["v7"], format: "epub", missing: false, readState: "reading", bangumiId: null, bangumiTitle: null, bangumiCoverPath: null };
-      const entry8 = { ...entry, id: "v8", title: "败犬女主太多了 -08", volumeNumber: 8, mediaFileIds: ["v8"], readState: "unread" };
+      const cover = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="136"><rect width="96" height="136" fill="#77754a"/><text x="48" y="77" text-anchor="middle" fill="white" font-size="32">卷</text></svg>');
+      const entry = { id: "v7", title: "败犬女主太多了 -07", fileName: "败犬女主太多了！ 07 (雨森たきび) (Z-Library).epub", volumeNumber: 7, chapterNumber: null, mediaFileIds: ["v7"], format: "epub", missing: false, readState: "reading", bangumiId: null, bangumiTitle: null, bangumiCoverPath: null };
+      const entry8 = { ...entry, id: "v8", title: "败犬女主太多了 -08", fileName: "败犬女主太多了！ 08 (雨森たきび) (Z-Library).epub", volumeNumber: 8, mediaFileIds: ["v8"], readState: "unread" };
       window.__volumeCalls = [];
+      window.__readCalls = [];
+      window.__batchScopes = [];
       window.__removedVolumeIds = [];
       window.__bookOrder = JSON.parse(sessionStorage.getItem("bookOrder") || '{"mode":"asc","entryIds":[]}');
       window.isTauri = true;
@@ -30,11 +33,12 @@ try {
           if (command === "get_book_entry_order") return { ...window.__bookOrder };
           if (command === "save_book_entry_order") { window.__bookOrder = { mode: args.mode, entryIds: args.entryIds ?? window.__bookOrder.entryIds }; sessionStorage.setItem("bookOrder", JSON.stringify(window.__bookOrder)); return { ...window.__bookOrder }; }
           if (command === "save_book_entry") { [entry, entry8].find(item => item.id === args.entryId).readState = args.input.readState; return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item })); }
+          if (command === "save_book_read_state") { window.__readCalls.push(args); if (window.__failReadState) throw new Error("保存失败，请重试"); for (const item of [entry, entry8]) if (args.entryIds.includes(item.id)) item.readState = args.readState; return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item })); }
           if (command === "remove_book_entries") { window.__removedVolumeIds.push(...args.entryIds); return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item })); }
           if (command === "get_embedded_book_metadata") return { title: "第七卷", creator: null, series: null, number: "7", description: null, isbn: null, coverPath: cover };
           if (command === "search_book_volume_candidates") return [7, 8].map(number => ({ externalId: String(number), title: `败犬女主太多了! (${number})`, coverUrl: cover, volumeNumber: number, linkedToSeries: true, stale: false }));
-          if (command === "preview_book_volume_batch") return { seriesId: "series", proposals: [entry, entry8].filter(item => !item.bangumiId).map(item => ({ entryId: item.id, entryTitle: item.title, volumeNumber: item.volumeNumber, candidate: { externalId: String(item.volumeNumber), title: `败犬女主太多了! (${item.volumeNumber})`, coverUrl: cover, volumeNumber: item.volumeNumber, linkedToSeries: true, stale: false } })), skipped: [] };
-          if (command === "confirm_book_volume_batch") { window.__volumeCalls.push(args); for (const item of [entry, entry8]) { item.bangumiId = String(item.volumeNumber); item.bangumiTitle = `败犬女主太多了! (${item.volumeNumber})`; item.bangumiCoverPath = cover; } return { matched: 2, skipped: [] }; }
+          if (command === "preview_book_volume_batch") { window.__batchScopes.push(args.entryIds); const scope = [entry, entry8].filter(item => !args.entryIds || args.entryIds.includes(item.id)); return { seriesId: "series", proposals: scope.filter(item => !item.bangumiId).map(item => ({ entryId: item.id, entryTitle: item.title, volumeNumber: item.volumeNumber, candidate: { externalId: String(item.volumeNumber), title: `败犬女主太多了! (${item.volumeNumber})`, coverUrl: item.id === "v8" ? null : cover, volumeNumber: item.volumeNumber, linkedToSeries: true, stale: false } })), skipped: scope.filter(item => item.bangumiId).map(item => ({ entryId: item.id, entryTitle: item.title, reason: "已有单册匹配，保持不变" })) }; }
+          if (command === "confirm_book_volume_batch") { window.__volumeCalls.push(args); for (const item of [entry, entry8]) { if (!args.selections.some(selected => selected.entryId === item.id)) continue; item.bangumiId = String(item.volumeNumber); item.bangumiTitle = `败犬女主太多了! (${item.volumeNumber})`; item.bangumiCoverPath = cover; } return { matched: args.selections.length, skipped: [] }; }
           if (command === "confirm_book_volume_candidate") { window.__volumeCalls.push(args); entry.bangumiId = args.externalId; entry.bangumiTitle = "败犬女主太多了! (7)"; entry.bangumiCoverPath = cover; return null; }
           if (command === "clear_book_volume_candidate") { entry.bangumiId = null; entry.bangumiTitle = null; entry.bangumiCoverPath = null; return null; }
           if (command === "get_setting") return "dark";
@@ -43,7 +47,7 @@ try {
           return null;
         },
       } });
-    });
+    }, process.env.GENZO_TEST_THEME || "light");
     await page.goto(`${base}/#/library/book`);
     const order = () => page.locator(".book-entry-main strong").allTextContents();
     await page.getByRole("button", { name: "按卷号升序" }).waitFor();
@@ -96,12 +100,59 @@ try {
     await volume7.locator("summary").click();
     await volume7.getByRole("button", { name: "识别此卷" }).waitFor();
     await volume7.locator("summary").click();
+    await page.getByRole("button", { name: "多选" }).click();
+    assert.equal(await page.getByRole("button", { name: "标记所选为已读" }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "识别所选" }).isDisabled(), true);
+    await page.getByRole("checkbox", { name: "选择败犬女主太多了 -07" }).check();
+    await page.getByRole("button", { name: "标记所选为已读" }).click();
+    await page.getByText("已将 1 卷标记为已读").waitFor();
+    assert.equal(await page.locator(".book-read-toggle.read").count(), 2); // toolbar + selected row
+    assert.deepEqual(await page.evaluate(() => window.__readCalls.at(-1).entryIds), ["v7"]);
+    await page.evaluate(() => { window.__failReadState = true; });
+    await page.getByRole("button", { name: "标记所选为未读" }).click();
+    await page.getByText("保存失败，请重试").waitFor();
+    assert.equal(await volume7.getByRole("button", { name: /已读，标记为未读/ }).count(), 1);
+    assert.equal(await page.getByRole("checkbox", { name: "选择败犬女主太多了 -07" }).isChecked(), true);
+    await page.evaluate(() => { window.__failReadState = false; });
+    await page.getByRole("button", { name: "标记所选为未读" }).click();
+    await page.getByText("已将 1 卷标记为未读").waitFor();
+    await page.getByRole("checkbox", { name: "选择败犬女主太多了 -08" }).check();
+    await page.getByRole("button", { name: "标记所选为已读" }).click();
+    await page.getByText("已将 2 卷标记为已读").waitFor();
+    assert.equal(await page.locator(".book-entry .book-read-toggle.read").count(), 2);
+    await page.getByRole("button", { name: "标记所选为未读" }).click();
+    await page.getByText("已将 2 卷标记为未读").waitFor();
+    await page.getByRole("button", { name: "取消", exact: true }).click();
     await page.getByRole("button", { name: "批量识别卷册" }).click();
     await page.getByText("批量匹配预览 · 2 卷可关联，0 卷待核对").waitFor();
+    await page.locator(".book-volume-batch").scrollIntoViewIfNeeded();
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth)) <= width);
     if (process.env.GENZO_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.GENZO_SCREENSHOT_DIR, `book-volume-batch-${width}.png`), fullPage: true });
-    await page.getByRole("button", { name: "确认匹配 2 卷" }).click();
-    await page.getByText("已匹配 2 卷；跳过 0 卷，可按需逐卷核对。").waitFor();
+    assert.equal(await page.locator("img.book-volume-review-cover").count(), 1);
+    await page.locator(".book-volume-review").getByText("暂无封面").waitFor();
+    await page.locator(".book-volume-batch").getByRole("button", { name: "取消全选" }).click();
+    assert.equal(await page.getByRole("button", { name: "确认匹配 0 卷" }).isDisabled(), true);
+    await page.getByRole("button", { name: "全选可关联" }).click();
+    await page.getByRole("checkbox", { name: "匹配败犬女主太多了 -08" }).uncheck();
+    await page.getByRole("button", { name: "确认匹配 1 卷" }).click();
+    await page.getByText("已匹配 1 卷；跳过 0 卷，可按需逐卷核对。").waitFor();
+    assert.deepEqual(await page.evaluate(() => window.__volumeCalls.at(-1).selections), [{ entryId: "v7", externalId: "7" }]);
+    assert.equal(await page.getByText("Bangumi 单册：败犬女主太多了! (8) · #8").count(), 0);
+    await page.getByRole("button", { name: "多选" }).click();
+    await page.getByRole("checkbox", { name: "选择败犬女主太多了 -08" }).check();
+    await page.getByRole("button", { name: "识别所选" }).click();
+    await page.getByText("批量匹配预览 · 1 卷可关联，0 卷待核对").waitFor();
+    assert.deepEqual(await page.evaluate(() => window.__batchScopes.at(-1)), ["v8"]);
+    assert.equal(await page.locator(".book-volume-review").count(), 1);
+    await page.getByRole("button", { name: "确认匹配 1 卷" }).click();
+    await page.getByText("Bangumi 单册：败犬女主太多了! (8) · #8").waitFor();
+    assert.deepEqual(await page.evaluate(() => window.__volumeCalls.at(-1).selections), [{ entryId: "v8", externalId: "8" }]);
+    await page.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("button", { name: "批量识别卷册" }).click();
+    await page.getByText("批量匹配预览 · 0 卷可关联，2 卷待核对").waitFor();
+    assert.equal(await page.locator(".book-volume-review.skipped").count(), 2);
+    assert.equal(await page.getByRole("button", { name: "确认匹配 0 卷" }).isDisabled(), true);
+    await page.locator(".book-volume-batch").getByRole("button", { name: "取消", exact: true }).click();
     await page.getByRole("button", { name: "多选" }).click();
     await page.getByRole("checkbox", { name: "选择败犬女主太多了 -07" }).check();
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth)) <= width);
@@ -117,6 +168,6 @@ try {
     assert.deepEqual(await page.evaluate(() => window.__removedVolumeIds), ["v7", "v8"]);
     assert.deepEqual(errors, []);
     await page.close();
-    console.log(`${width}x${height}: persistent ascending, descending and manual order, matching and removal passed`);
+    console.log(`${width}x${height}: sorting, batch read/retry, selected matching, cover review and removal passed`);
   }
 } finally { await browser.close(); }

@@ -47,6 +47,7 @@ export const bookApi = {
   saveOrder: (workId: string, mode: BookEntryOrder["mode"], entryIds?: string[]) => call<BookEntryOrder>("save_book_entry_order", { workId, mode, entryIds: entryIds ?? null }),
   removeEntries: (workId: string, entryIds: string[]) => call<BookEntry[]>("remove_book_entries", { workId, entryIds }).then(bookEntryAssets),
   saveEntry: (workId: string, entryId: string, input: BookEntryInput) => call<BookEntry[]>("save_book_entry", { workId, entryId, input }).then(bookEntryAssets),
+  saveReadState: (workId: string, entryIds: string[], readState: BookEntry["readState"]) => call<BookEntry[]>("save_book_read_state", { workId, entryIds, readState }).then(bookEntryAssets),
   open: (workId: string, entryId: string, toolId?: string | null) => call<void>("open_book_entry", { workId, entryId, toolId: toolId ?? null }),
   importGroups: () => call<BookImportGroup[]>("list_book_import_groups"),
   createWork: (title: string, mediaType: "comic" | "novel", mediaFileIds: string[], externalId?: string | null, coverMediaFileId?: string | null) => call<string>("create_book_work", { title, mediaType, mediaFileIds, externalId: externalId ?? null, coverMediaFileId: coverMediaFileId ?? null }),
@@ -61,8 +62,8 @@ export const bookApi = {
   searchVolume: (workId: string, entryId: string, query?: string) => call<import("./bookData").BookVolumeCandidate[]>("search_book_volume_candidates", { workId, entryId, query: query ?? null }),
   confirmVolume: (workId: string, entryId: string, externalId: string) => call<void>("confirm_book_volume_candidate", { workId, entryId, externalId }),
   clearVolume: (workId: string, entryId: string) => call<void>("clear_book_volume_candidate", { workId, entryId }),
-  previewVolumeBatch: (workId: string) => call<import("./bookData").BookVolumeBatchPreview>("preview_book_volume_batch", { workId }),
-  confirmVolumeBatch: (workId: string, preview: import("./bookData").BookVolumeBatchPreview) => call<import("./bookData").BookVolumeBatchResult>("confirm_book_volume_batch", { workId, seriesId: preview.seriesId, selections: preview.proposals.map(item => ({ entryId: item.entryId, externalId: item.candidate.externalId })) }),
+  previewVolumeBatch: (workId: string, entryIds?: string[]) => call<import("./bookData").BookVolumeBatchPreview>("preview_book_volume_batch", { workId, entryIds: entryIds ?? null }),
+  confirmVolumeBatch: (workId: string, preview: import("./bookData").BookVolumeBatchPreview, selectedIds: string[]) => call<import("./bookData").BookVolumeBatchResult>("confirm_book_volume_batch", { workId, seriesId: preview.seriesId, entryIds: [...preview.proposals, ...preview.skipped].map(item => item.entryId), selections: preview.proposals.filter(item => selectedIds.includes(item.entryId)).map(item => ({ entryId: item.entryId, externalId: item.candidate.externalId })) }),
 };
 
 function bookEntryAssets(entries: BookEntry[]): BookEntry[] {

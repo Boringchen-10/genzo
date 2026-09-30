@@ -82,6 +82,7 @@ pub fn run() {
             bookshelf::save_book_entry_order,
             bookshelf::remove_book_entries,
             bookshelf::save_book_entry,
+            bookshelf::save_book_read_state,
             bookshelf::open_book_entry,
             bookshelf::list_book_import_groups,
             bookshelf::create_book_work,

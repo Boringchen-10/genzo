@@ -1,6 +1,7 @@
 export interface BookEntry {
   id: string;
   title: string;
+  fileName: string;
   volumeNumber: number | null;
   chapterNumber: number | null;
   mediaFileIds: string[];

@@ -478,13 +478,41 @@ fn build_volume_batch(series_id: String, entries: &[crate::bookshelf::BookEntry]
     preview
 }
 
-async fn volume_batch_in_state(state: &AppState, work_id: &str) -> AppResult<BookVolumeBatchPreview> {
+fn scope_volume_batch(mut preview: BookVolumeBatchPreview, entry_ids: Option<&[String]>) -> AppResult<BookVolumeBatchPreview> {
+    if let Some(ids) = entry_ids {
+        let selected: HashSet<_> = ids.iter().collect();
+        let current: HashSet<_> = preview.proposals.iter().map(|item| &item.entry_id).chain(preview.skipped.iter().map(|item| &item.entry_id)).collect();
+        if ids.is_empty() || selected.len() != ids.len() || !selected.is_subset(&current) {
+            return Err(AppError::Validation("卷册列表已变化，请刷新后重试".into()));
+        }
+        preview.proposals.retain(|item| selected.contains(&item.entry_id));
+        preview.skipped.retain(|item| selected.contains(&item.entry_id));
+    }
+    Ok(preview)
+}
+
+fn selected_volume_proposals(preview: &BookVolumeBatchPreview, selections: &[BookVolumeBatchSelection]) -> AppResult<Vec<BookVolumeBatchProposal>> {
+    let mut entry_ids = HashSet::new();
+    let mut external_ids = HashSet::new();
+    let mut proposals = Vec::new();
+    for selection in selections {
+        let proposal = preview.proposals.iter().find(|item| item.entry_id == selection.entry_id && item.candidate.external_id == selection.external_id);
+        if !entry_ids.insert(&selection.entry_id) || !external_ids.insert(&selection.external_id) || proposal.is_none() {
+            return Err(AppError::Validation("卷册候选已变化，请重新预览".into()));
+        }
+        proposals.push(proposal.unwrap().clone());
+    }
+    if proposals.is_empty() { return Err(AppError::Validation("请选择要匹配的卷册".into())); }
+    Ok(proposals)
+}
+
+async fn volume_batch_in_state(state: &AppState, work_id: &str, entry_ids: Option<&[String]>) -> AppResult<BookVolumeBatchPreview> {
     let entries = crate::bookshelf::entries_in_pool(&state.pool, work_id).await?;
     let series_id: Option<String> = sqlx::query_scalar("SELECT external_id FROM work_external_ids WHERE work_id = ? AND provider = 'bangumi'")
         .bind(work_id).fetch_optional(&state.pool).await?;
     let series_id = series_id.ok_or_else(|| AppError::Validation("请先为书架作品关联 Bangumi 系列条目".into()))?;
     let candidates = related_volume_candidates(&state.pool, &series_id).await?;
-    Ok(build_volume_batch(series_id, &entries, &candidates))
+    scope_volume_batch(build_volume_batch(series_id, &entries, &candidates), entry_ids)
 }
 
 async fn apply_volume_batch_in_pool(pool: &SqlitePool, work_id: &str, series_id: &str, prepared: &[PreparedVolumeBatchMatch]) -> AppResult<()> {
@@ -509,21 +537,21 @@ async fn apply_volume_batch_in_pool(pool: &SqlitePool, work_id: &str, series_id:
 }
 
 #[tauri::command]
-pub async fn preview_book_volume_batch(work_id: String, state: State<'_, AppState>) -> AppResult<BookVolumeBatchPreview> {
-    volume_batch_in_state(&state, &work_id).await
+pub async fn preview_book_volume_batch(work_id: String, entry_ids: Option<Vec<String>>, state: State<'_, AppState>) -> AppResult<BookVolumeBatchPreview> {
+    volume_batch_in_state(&state, &work_id, entry_ids.as_deref()).await
 }
 
 #[tauri::command]
-pub async fn confirm_book_volume_batch(work_id: String, series_id: String, selections: Vec<BookVolumeBatchSelection>, state: State<'_, AppState>) -> AppResult<BookVolumeBatchResult> {
-    let preview = volume_batch_in_state(&state, &work_id).await?;
-    if preview.series_id != series_id || preview.proposals.len() != selections.len() || preview.proposals.iter().zip(&selections).any(|(proposal, selected)| proposal.entry_id != selected.entry_id || proposal.candidate.external_id != selected.external_id) {
+pub async fn confirm_book_volume_batch(work_id: String, series_id: String, entry_ids: Option<Vec<String>>, selections: Vec<BookVolumeBatchSelection>, state: State<'_, AppState>) -> AppResult<BookVolumeBatchResult> {
+    let preview = volume_batch_in_state(&state, &work_id, entry_ids.as_deref()).await?;
+    if preview.series_id != series_id {
         return Err(AppError::Validation("卷册候选已变化，请重新预览".into()));
     }
-    if selections.is_empty() { return Ok(BookVolumeBatchResult { matched: 0, skipped: preview.skipped }); }
+    let proposals = selected_volume_proposals(&preview, &selections)?;
     let kind: String = sqlx::query_scalar("SELECT type FROM works WHERE id = ?").bind(&work_id).fetch_one(&state.pool).await?;
     let mut prepared = Vec::new();
     let mut skipped = preview.skipped;
-    for proposal in &preview.proposals {
+    for proposal in &proposals {
         let details = fetch_details(&proposal.candidate.external_id).await?;
         let (title, cover_url, number) = match validate_volume_details(&details, &kind, Some(proposal.volume_number)) {
             Ok(details) if details.2.is_some_and(|number| (number - proposal.volume_number).abs() < 0.001) => details,
@@ -539,7 +567,7 @@ pub async fn confirm_book_volume_batch(work_id: String, series_id: String, selec
         prepared.push(PreparedVolumeBatchMatch { entry_id: proposal.entry_id.clone(), member_ids: Vec::new(), external_id: proposal.candidate.external_id.clone(), title, number, cover_path });
     }
     let current = crate::bookshelf::entries_in_pool(&state.pool, &work_id).await?;
-    if preview.proposals.iter().any(|proposal| !current.iter().any(|entry| entry.id == proposal.entry_id && entry.bangumi_id.is_none() && entry.volume_number == Some(proposal.volume_number))) {
+    if proposals.iter().any(|proposal| !current.iter().any(|entry| entry.id == proposal.entry_id && entry.bangumi_id.is_none() && entry.volume_number == Some(proposal.volume_number))) {
         return Err(AppError::Validation("卷册已变化，请重新预览".into()));
     }
     for item in &mut prepared {
@@ -589,7 +617,7 @@ mod tests {
     #[test]
     fn batch_only_proposes_unique_unmatched_volume_numbers() {
         let entry = |id: &str, number: Option<f64>, matched: Option<&str>| crate::bookshelf::BookEntry {
-            id: id.into(), title: id.into(), volume_number: number, chapter_number: None, media_file_ids: vec![id.into()],
+            id: id.into(), title: id.into(), file_name: format!("{id}.epub"), volume_number: number, chapter_number: None, media_file_ids: vec![id.into()],
             format: "epub".into(), missing: false, read_state: "reading".into(), bangumi_id: matched.map(str::to_string),
             bangumi_title: None, bangumi_cover_path: None,
         };
@@ -606,6 +634,32 @@ mod tests {
         let mut duplicated = candidates;
         duplicated.push(volume_candidate(&json!({"id": 301, "type": 1, "name": "系列 (3)", "relation": "单行本"}), true, false).unwrap());
         assert!(build_volume_batch("series".into(), &entries, &duplicated).proposals.is_empty());
+        let scoped = scope_volume_batch(preview.clone(), Some(&["v8a".into()])).unwrap();
+        assert!(scoped.proposals.is_empty());
+        assert_eq!(scoped.skipped[0].reason, "本地存在重复卷号");
+        assert!(scope_volume_batch(preview.clone(), Some(&["v3".into(), "missing".into()])).is_err());
+        assert!(scope_volume_batch(preview.clone(), Some(&["v3".into(), "v3".into()])).is_err());
+        assert!(scope_volume_batch(preview, Some(&[])).is_err());
+    }
+
+    #[test]
+    fn batch_confirmation_accepts_only_valid_selected_proposals() {
+        let candidate = |id: &str, number: f64| BookVolumeBatchProposal {
+            entry_id: format!("v{number}"), entry_title: format!("第{number}卷"), volume_number: number,
+            candidate: BookVolumeCandidate { external_id: id.into(), title: format!("系列 ({number})"), cover_url: None, volume_number: Some(number), linked_to_series: true, stale: false },
+        };
+        let preview = BookVolumeBatchPreview { series_id: "series".into(), proposals: vec![candidate("101", 1.0), candidate("102", 2.0)], skipped: vec![] };
+        let selection = |entry: &str, external: &str| BookVolumeBatchSelection { entry_id: entry.into(), external_id: external.into() };
+        let selected = selected_volume_proposals(&preview, &[selection("v2", "102")]).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].entry_id, "v2");
+        assert_eq!(selected_volume_proposals(&preview, &[selection("v2", "102"), selection("v1", "101")]).unwrap().len(), 2);
+        assert!(selected_volume_proposals(&preview, &[selection("v1", "102")]).is_err());
+        assert!(selected_volume_proposals(&preview, &[selection("v3", "103")]).is_err());
+        assert!(selected_volume_proposals(&preview, &[selection("v2", "102"), selection("v2", "102")]).is_err());
+        assert!(selected_volume_proposals(&preview, &[]).is_err());
+        let scoped = scope_volume_batch(preview, Some(&["v2".into()])).unwrap();
+        assert!(selected_volume_proposals(&scoped, &[selection("v1", "101")]).is_err());
     }
 
     #[tokio::test]
@@ -624,7 +678,11 @@ mod tests {
         assert!(apply_volume_batch_in_pool(&pool, "book", "series", &[item("v1", "101"), item("missing", "102")]).await.is_err());
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM book_volume_matches").fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
-        apply_volume_batch_in_pool(&pool, "book", "series", &[item("v1", "101"), item("v2", "102")]).await.unwrap();
+        apply_volume_batch_in_pool(&pool, "book", "series", &[item("v2", "102")]).await.unwrap();
+        let entries = crate::bookshelf::entries_in_pool(&pool, "book").await.unwrap();
+        assert!(entries.iter().find(|entry| entry.id == "v1").unwrap().bangumi_id.is_none());
+        assert_eq!(entries.iter().find(|entry| entry.id == "v1").unwrap().read_state, "reading");
+        apply_volume_batch_in_pool(&pool, "book", "series", &[item("v1", "101")]).await.unwrap();
         let entries = crate::bookshelf::entries_in_pool(&pool, "book").await.unwrap();
         assert_eq!(entries.iter().filter(|entry| entry.bangumi_id.is_some()).count(), 2);
         assert_eq!(entries.iter().find(|entry| entry.id == "v1").unwrap().read_state, "reading");

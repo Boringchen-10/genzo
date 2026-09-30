@@ -4,6 +4,7 @@ import { ArrowDown01, ArrowDown10, BookOpen, BookOpenCheck, Check, ChevronRight,
 import { bookApi } from "../api";
 import type { BookCandidate, BookEntry, BookEntryInput, BookEntryOrder, BookVolumeBatchPreview, BookVolumeBatchResult, BookVolumeCandidate, EmbeddedBookMetadata } from "../bookData";
 import { ConfirmDialog, Modal } from "./common";
+import { ResilientImage } from "./ResilientImage";
 import { getErrorMessage } from "../utils";
 import "../book-detail.css";
 
@@ -25,11 +26,13 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const [volumeSearch, setVolumeSearch] = useState<{ entryId: string; query: string; candidates: BookVolumeCandidate[]; error: string; loading: boolean } | null>(null);
   const volumeSearchRequest = useRef(0);
   const [batchPreview, setBatchPreview] = useState<BookVolumeBatchPreview | null>(null);
+  const [batchEntryIds, setBatchEntryIds] = useState<string[]>([]);
   const [batchResult, setBatchResult] = useState<BookVolumeBatchResult | null>(null);
   const [batchError, setBatchError] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [readResult, setReadResult] = useState("");
   const [sortMode, setSortMode] = useState<BookEntryOrder["mode"]>("asc");
   const [manualOrderIds, setManualOrderIds] = useState<string[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -77,7 +80,19 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const changeReadState = async (entry: BookEntry, readState: BookEntry["readState"]) => {
     setBusy(true);
     try {
-      setEntries(await bookApi.saveEntry(workId, entry.id, { title: entry.title, volumeNumber: entry.volumeNumber, chapterNumber: entry.chapterNumber, readState }));
+      setEntries(await bookApi.saveReadState(workId, [entry.id], readState));
+      setReadResult("");
+      setError("");
+    } catch (reason) { setError(getErrorMessage(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const changeSelectedReadState = async (readState: "read" | "unread") => {
+    if (!selectedEntryIds.length) return;
+    setBusy(true); setReadResult("");
+    try {
+      setEntries(await bookApi.saveReadState(workId, selectedEntryIds, readState));
+      setReadResult(`已将 ${selectedEntryIds.length} 卷标记为${readLabels[readState]}`);
       setError("");
     } catch (reason) { setError(getErrorMessage(reason)); }
     finally { setBusy(false); }
@@ -129,18 +144,21 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
     } finally { setBusy(false); }
   };
 
-  const previewBatch = async () => {
+  const previewBatch = async (entryIds?: string[]) => {
     setBusy(true); setBatchError(""); setBatchResult(null);
-    try { setBatchPreview(await bookApi.previewVolumeBatch(workId)); }
+    try {
+      const preview = await bookApi.previewVolumeBatch(workId, entryIds);
+      setBatchPreview(preview); setBatchEntryIds(preview.proposals.map(item => item.entryId));
+    }
     catch (reason) { setBatchPreview(null); setBatchError(getErrorMessage(reason)); }
     finally { setBusy(false); }
   };
 
   const confirmBatch = async () => {
-    if (!batchPreview) return;
+    if (!batchPreview || !batchEntryIds.length) return;
     setBusy(true); setBatchError("");
     try {
-      const result = await bookApi.confirmVolumeBatch(workId, batchPreview);
+      const result = await bookApi.confirmVolumeBatch(workId, batchPreview, batchEntryIds);
       setEntries(await bookApi.entries(workId));
       setBatchResult(result);
       setBatchPreview(null);
@@ -190,6 +208,9 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
       <div className="book-entry-actions">{selecting ? <>
         <span className="quiet-inline">已选 {selectedEntryIds.length} 卷</span>
         <button type="button" className="button compact secondary" disabled={busy} onClick={() => setSelectedEntryIds(selectedEntryIds.length === entries.length ? [] : entries.map(entry => entry.id))}>{selectedEntryIds.length === entries.length ? "取消全选" : "全选"}</button>
+        <button type="button" className="book-read-toggle read" aria-label="标记所选为已读" title="标记所选为已读" disabled={busy || selectedEntryIds.length === 0} onClick={() => void changeSelectedReadState("read")}><CircleCheck size={18} /></button>
+        <button type="button" className="book-read-toggle unread" aria-label="标记所选为未读" title="标记所选为未读" disabled={busy || selectedEntryIds.length === 0} onClick={() => void changeSelectedReadState("unread")}><Circle size={18} /></button>
+        <button type="button" className="button compact secondary" disabled={busy || selectedEntryIds.length === 0} onClick={() => void previewBatch(selectedEntryIds)}><Sparkles size={14} />识别所选</button>
         <button type="button" className="button compact danger" disabled={busy || selectedEntryIds.length === 0} onClick={() => setDeleteOpen(true)}><Trash2 size={14} />删除所选</button>
         <button type="button" className="button compact secondary" disabled={busy} onClick={() => { setSelecting(false); setSelectedEntryIds([]); }}>取消</button>
       </> : <>
@@ -200,17 +221,30 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         {sortMode === "custom" ? <span className="book-order-label">自定义顺序</span> : null}
         <button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => void previewBatch()}>批量识别卷册</button>
         <button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => setSelecting(true)}><Check size={14} />多选</button>
-        <button type="button" className="button compact secondary" onClick={() => void load()}><RefreshCw size={14} />刷新</button>
+        <button type="button" className="button compact secondary" disabled={busy} onClick={() => void load()}><RefreshCw size={14} />刷新</button>
       </>}</div>
     </div>
     {error ? <p role="alert" className="gnz-inline-error">{error}</p> : null}
+    {readResult ? <p role="status" className="quiet-inline">{readResult}</p> : null}
     {batchError ? <p role="alert" className="gnz-inline-error">{batchError}</p> : null}
     {batchResult ? <div role="status" className="quiet-inline">已匹配 {batchResult.matched} 卷；跳过 {batchResult.skipped.length} 卷，可按需逐卷核对。{batchResult.skipped.length ? <div className="book-volume-batch-list">{batchResult.skipped.map(item => <div key={item.entryId}><span>{item.entryTitle}</span><small>{item.reason}</small></div>)}</div> : null}</div> : null}
     {batchPreview ? <div className="book-volume-batch">
       <strong>批量匹配预览 · {batchPreview.proposals.length} 卷可关联，{batchPreview.skipped.length} 卷待核对</strong>
       <p>仅按本地唯一卷号对应已关联 Bangumi 系列中的唯一单行本；保存前会再次核实每卷的类型和编号。</p>
-      <div className="book-volume-batch-list">{batchPreview.proposals.map(item => <div key={item.entryId}><span>{item.entryTitle} · 第 {item.volumeNumber} 卷</span><ChevronRight size={14} /><span>{item.candidate.title} · #{item.candidate.externalId}{item.candidate.stale ? " · 离线缓存" : ""}</span></div>)}{batchPreview.skipped.map(item => <div key={item.entryId}><span>{item.entryTitle}</span><small>{item.reason}</small></div>)}</div>
-      <div className="book-entry-actions"><button type="button" className="button compact secondary" onClick={() => setBatchPreview(null)}>取消</button><button type="button" className="button compact primary" disabled={busy || batchPreview.proposals.length === 0} onClick={() => void confirmBatch()}>{busy ? "核实中…" : `确认匹配 ${batchPreview.proposals.length} 卷`}</button></div>
+      <div className="book-volume-review-list">{batchPreview.proposals.map(item => {
+        const entry = entries.find(entry => entry.id === item.entryId);
+        return <div className="book-volume-review" key={item.entryId}>
+          <label className="book-entry-select"><input type="checkbox" aria-label={`匹配${item.entryTitle}`} disabled={busy} checked={batchEntryIds.includes(item.entryId)} onChange={() => setBatchEntryIds(ids => ids.includes(item.entryId) ? ids.filter(id => id !== item.entryId) : [...ids, item.entryId])} /></label>
+          <div className="book-volume-review-local"><small>本地文件{entry?.format === "images" ? `夹 · ${entry.mediaFileIds.length} 页` : ""}</small><strong title={entry?.fileName ?? item.entryTitle}>{entry?.fileName ?? item.entryTitle}</strong><span>第 {item.volumeNumber} 卷</span></div>
+          <ChevronRight className="book-volume-review-arrow" size={16} />
+          <div className="book-volume-review-match"><small>Bangumi 单行本 · #{item.candidate.externalId}{item.candidate.stale ? " · 离线缓存" : ""}</small><strong title={item.candidate.title}>{item.candidate.title}</strong><span>第 {item.candidate.volumeNumber} 卷 · 卷号一致</span></div>
+          <ResilientImage sources={[item.candidate.coverUrl]} className="book-volume-review-cover" alt={`${item.candidate.title}的候选封面`} fallback={<span className="book-volume-review-cover placeholder"><BookOpen size={20} /><small>暂无封面</small></span>} />
+        </div>;
+      })}{batchPreview.skipped.map(item => {
+        const entry = entries.find(entry => entry.id === item.entryId);
+        return <div className="book-volume-review skipped" key={item.entryId}><div className="book-volume-review-local"><small>待核对{entry?.volumeNumber != null ? ` · 第 ${entry.volumeNumber} 卷` : ""}</small><strong title={entry?.fileName ?? item.entryTitle}>{entry?.fileName ?? item.entryTitle}</strong></div><span className="book-volume-review-reason">{item.reason}</span></div>;
+      })}</div>
+      <div className="book-detail-toolbar"><button type="button" className="button compact secondary" disabled={busy || !batchPreview.proposals.length} onClick={() => setBatchEntryIds(batchEntryIds.length === batchPreview.proposals.length ? [] : batchPreview.proposals.map(item => item.entryId))}>{batchEntryIds.length === batchPreview.proposals.length ? "取消全选" : "全选可关联"}</button><div className="book-entry-actions"><button type="button" className="button compact secondary" disabled={busy} onClick={() => setBatchPreview(null)}>取消</button><button type="button" className="button compact primary" disabled={busy || batchEntryIds.length === 0} onClick={() => void confirmBatch()}>{busy ? "核实中…" : `确认匹配 ${batchEntryIds.length} 卷`}</button></div></div>
     </div> : null}
     {entries.length ? <div className="book-entry-list">{visibleEntries.map((entry, index) => {
       const local = volumeMetadata[entry.id];
@@ -218,7 +252,7 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
       return <article className={`book-entry${dropTargetId === entry.id ? " drop-target" : ""}`} key={entry.id}
         onDragOver={event => { if (draggingId && draggingId !== entry.id) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTargetId(entry.id); } }}
         onDrop={event => { event.preventDefault(); const sourceId = event.dataTransfer.getData("text/plain"); setDraggingId(null); setDropTargetId(null); moveEntry(sourceId, entry.id); }}>
-      {selecting ? <label className="book-entry-select"><input type="checkbox" aria-label={`选择${entry.title}`} checked={selectedEntryIds.includes(entry.id)} onChange={() => setSelectedEntryIds(ids => ids.includes(entry.id) ? ids.filter(id => id !== entry.id) : [...ids, entry.id])} /><span className="sr-only">选择{entry.title}</span></label> : null}
+      {selecting ? <label className="book-entry-select"><input type="checkbox" aria-label={`选择${entry.title}`} disabled={busy} checked={selectedEntryIds.includes(entry.id)} onChange={() => setSelectedEntryIds(ids => ids.includes(entry.id) ? ids.filter(id => id !== entry.id) : [...ids, entry.id])} /><span className="sr-only">选择{entry.title}</span></label> : null}
       {!selecting ? <button type="button" className="book-entry-drag" draggable={!busy} disabled={busy} aria-label={`拖动调整${entry.title}的位置`} title="拖动调整位置；聚焦后可按上下方向键微调"
         onDragStart={event => { event.dataTransfer.setData("text/plain", entry.id); event.dataTransfer.effectAllowed = "move"; setDraggingId(entry.id); }}
         onDragEnd={() => { setDraggingId(null); setDropTargetId(null); }}
@@ -240,7 +274,7 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         <details className="action-menu book-entry-more">
           <summary aria-label={`${entry.title}的更多操作`} title="更多操作"><MoreHorizontal size={17} /></summary>
           <div className="menu-popover" onClick={event => { const details = event.currentTarget.parentElement; if (details instanceof HTMLDetailsElement) details.open = false; }}>
-            <button type="button" onClick={() => { setEditing(entry); setDraft({ title: entry.title, volumeNumber: entry.volumeNumber, chapterNumber: entry.chapterNumber, readState: entry.readState }); }}><Pencil size={15} />编辑卷册</button>
+            <button type="button" disabled={busy} onClick={() => { setEditing(entry); setDraft({ title: entry.title, volumeNumber: entry.volumeNumber, chapterNumber: entry.chapterNumber, readState: entry.readState }); }}><Pencil size={15} />编辑卷册</button>
             <button type="button" disabled={busy} onClick={() => void searchVolume(entry.id)}><Sparkles size={15} />{entry.bangumiId ? "更换单册匹配" : "识别此卷"}</button>
             {entry.bangumiId ? <button type="button" disabled={busy} onClick={async () => { try { setBusy(true); await bookApi.clearVolume(workId, entry.id); setEntries(await bookApi.entries(workId)); setError(""); } catch (reason) { setError(getErrorMessage(reason)); } finally { setBusy(false); } }}><Unlink size={15} />清除单册匹配</button> : null}
             <button type="button" disabled={busy || entry.format === "images" || !["cbz", "zip", "epub"].includes(entry.format.toLowerCase())} onClick={async () => {
