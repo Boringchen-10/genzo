@@ -1,9 +1,9 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, ChevronRight, RefreshCw, Search } from "lucide-react";
+import { BookOpen, BookOpenCheck, Check, ChevronRight, Circle, CircleCheck, FileText, MoreHorizontal, Pencil, RefreshCw, Search, Sparkles, Trash2, Unlink } from "lucide-react";
 import { bookApi } from "../api";
 import type { BookCandidate, BookEntry, BookEntryInput, BookVolumeBatchPreview, BookVolumeBatchResult, BookVolumeCandidate, EmbeddedBookMetadata } from "../bookData";
-import { Modal } from "./common";
+import { ConfirmDialog, Modal } from "./common";
 import { getErrorMessage } from "../utils";
 import "../book-detail.css";
 
@@ -27,6 +27,9 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const [batchPreview, setBatchPreview] = useState<BookVolumeBatchPreview | null>(null);
   const [batchResult, setBatchResult] = useState<BookVolumeBatchResult | null>(null);
   const [batchError, setBatchError] = useState("");
+  const [selecting, setSelecting] = useState(false);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const entryIds = entries.map(entry => entry.id).join("|");
 
   const load = useCallback(async () => {
@@ -35,6 +38,7 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
     catch (reason) { setError(getErrorMessage(reason)); }
   }, [workId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setSelectedEntryIds(ids => ids.filter(id => entries.some(entry => entry.id === id))); }, [entryIds]);
   useEffect(() => {
     requestedMetadata.current.clear();
     setVolumeMetadata({});
@@ -133,11 +137,34 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
     finally { setBusy(false); }
   };
 
+  const removeSelected = async () => {
+    if (!selectedEntryIds.length) return;
+    setBusy(true);
+    try {
+      setEntries(await bookApi.removeEntries(workId, selectedEntryIds));
+      setSelectedEntryIds([]);
+      setSelecting(false);
+      setDeleteOpen(false);
+      setError("");
+      onMetadataChanged();
+    } catch (reason) { setError(getErrorMessage(reason)); }
+    finally { setBusy(false); }
+  };
+
   if (!isTauri()) return <p className="quiet-inline">书籍卷册与刮削需要在 Genzo 桌面应用中使用。</p>;
   return <div className="book-detail" id="bookshelf-entries">
     <div className="book-detail-toolbar">
       <strong>书籍与阅读记录</strong>
-      <div className="book-entry-actions"><button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => void previewBatch()}>批量识别卷册</button><button type="button" className="button compact secondary" onClick={() => void load()}><RefreshCw size={14} />刷新</button></div>
+      <div className="book-entry-actions">{selecting ? <>
+        <span className="quiet-inline">已选 {selectedEntryIds.length} 卷</span>
+        <button type="button" className="button compact secondary" disabled={busy} onClick={() => setSelectedEntryIds(selectedEntryIds.length === entries.length ? [] : entries.map(entry => entry.id))}>{selectedEntryIds.length === entries.length ? "取消全选" : "全选"}</button>
+        <button type="button" className="button compact danger" disabled={busy || selectedEntryIds.length === 0} onClick={() => setDeleteOpen(true)}><Trash2 size={14} />删除所选</button>
+        <button type="button" className="button compact secondary" disabled={busy} onClick={() => { setSelecting(false); setSelectedEntryIds([]); }}>取消</button>
+      </> : <>
+        <button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => void previewBatch()}>批量识别卷册</button>
+        <button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => setSelecting(true)}><Check size={14} />多选</button>
+        <button type="button" className="button compact secondary" onClick={() => void load()}><RefreshCw size={14} />刷新</button>
+      </>}</div>
     </div>
     {error ? <p role="alert" className="gnz-inline-error">{error}</p> : null}
     {batchError ? <p role="alert" className="gnz-inline-error">{batchError}</p> : null}
@@ -152,6 +179,7 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
       const local = volumeMetadata[entry.id];
       const localNumber = local?.number && /^\d+(?:\.\d+)?$/.test(local.number.trim()) ? Number(local.number) : null;
       return <article className="book-entry" key={entry.id}>
+      {selecting ? <label className="book-entry-select"><input type="checkbox" aria-label={`选择${entry.title}`} checked={selectedEntryIds.includes(entry.id)} onChange={() => setSelectedEntryIds(ids => ids.includes(entry.id) ? ids.filter(id => id !== entry.id) : [...ids, entry.id])} /><span className="sr-only">选择{entry.title}</span></label> : null}
       {entry.bangumiCoverPath || local?.coverPath ? <img className="book-entry-cover" src={entry.bangumiCoverPath ?? local?.coverPath ?? ""} alt={`${entry.title}的封面`} /> : null}
       <div className="book-entry-main">
         <strong title={entry.title}>{entry.title}</strong>
@@ -159,20 +187,25 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         {entry.bangumiId ? <small title={entry.bangumiTitle ?? undefined}>Bangumi 单册：{entry.bangumiTitle} · #{entry.bangumiId}</small> : null}
       </div>
       <div className="book-entry-actions">
-        <select aria-label={`${entry.title}的阅读状态`} value={entry.readState} disabled={busy} onChange={(event) => void changeReadState(entry, event.target.value as BookEntry["readState"])}>
-          {Object.entries(readLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-        <button type="button" className="button compact secondary" onClick={() => { setEditing(entry); setDraft({ title: entry.title, volumeNumber: entry.volumeNumber, chapterNumber: entry.chapterNumber, readState: entry.readState }); }}>编辑卷册</button>
-        <button type="button" className="button compact secondary" disabled={busy} onClick={() => void searchVolume(entry.id)}>{entry.bangumiId ? "更换单册匹配" : "识别此卷"}</button>
-        {entry.bangumiId ? <button type="button" className="button compact secondary" disabled={busy} onClick={async () => { try { setBusy(true); await bookApi.clearVolume(workId, entry.id); setEntries(await bookApi.entries(workId)); setError(""); } catch (reason) { setError(getErrorMessage(reason)); } finally { setBusy(false); } }}>清除单册匹配</button> : null}
-        <button type="button" className="button compact secondary" disabled={busy || entry.format === "images" || !["cbz", "zip", "epub"].includes(entry.format.toLowerCase())} onClick={async () => {
-          try { setEmbedded({ id: entry.id, data: local ?? await bookApi.embedded(entry.id) }); setError(""); }
-          catch (reason) { setError(getErrorMessage(reason)); }
-        }}>本地资料</button>
+        <button type="button" className={`book-read-toggle ${entry.readState}`} aria-label={`${entry.title}：${readLabels[entry.readState]}，标记为${entry.readState === "read" ? "未读" : "已读"}`} aria-pressed={entry.readState === "read"} title={`${readLabels[entry.readState]} · 点击标记为${entry.readState === "read" ? "未读" : "已读"}`} disabled={busy} onClick={() => void changeReadState(entry, entry.readState === "read" ? "unread" : "read")}>
+          {entry.readState === "read" ? <CircleCheck size={18} /> : entry.readState === "reading" ? <BookOpenCheck size={18} /> : <Circle size={18} />}
+        </button>
         <button type="button" className="button compact primary" disabled={busy || entry.missing} onClick={async () => {
           try { await bookApi.open(workId, entry.id); setError(""); }
           catch (reason) { setError(getErrorMessage(reason)); }
         }}><BookOpen size={14} />打开</button>
+        <details className="action-menu book-entry-more">
+          <summary aria-label={`${entry.title}的更多操作`} title="更多操作"><MoreHorizontal size={17} /></summary>
+          <div className="menu-popover" onClick={event => { const details = event.currentTarget.parentElement; if (details instanceof HTMLDetailsElement) details.open = false; }}>
+            <button type="button" onClick={() => { setEditing(entry); setDraft({ title: entry.title, volumeNumber: entry.volumeNumber, chapterNumber: entry.chapterNumber, readState: entry.readState }); }}><Pencil size={15} />编辑卷册</button>
+            <button type="button" disabled={busy} onClick={() => void searchVolume(entry.id)}><Sparkles size={15} />{entry.bangumiId ? "更换单册匹配" : "识别此卷"}</button>
+            {entry.bangumiId ? <button type="button" disabled={busy} onClick={async () => { try { setBusy(true); await bookApi.clearVolume(workId, entry.id); setEntries(await bookApi.entries(workId)); setError(""); } catch (reason) { setError(getErrorMessage(reason)); } finally { setBusy(false); } }}><Unlink size={15} />清除单册匹配</button> : null}
+            <button type="button" disabled={busy || entry.format === "images" || !["cbz", "zip", "epub"].includes(entry.format.toLowerCase())} onClick={async () => {
+              try { setEmbedded({ id: entry.id, data: local ?? await bookApi.embedded(entry.id) }); setError(""); }
+              catch (reason) { setError(getErrorMessage(reason)); }
+            }}><FileText size={15} />本地资料</button>
+          </div>
+        </details>
       </div>
       {volumeSearch?.entryId === entry.id ? <div className="book-volume-search">
         <div className="book-match-search"><input aria-label={`${entry.title}的单册搜索词`} value={volumeSearch.query} onChange={(event) => setVolumeSearch({ ...volumeSearch, query: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void searchVolume(entry.id, volumeSearch.query)} placeholder="按作品名和卷号搜索其他版本" /><button type="button" className="button compact secondary" disabled={volumeSearch.loading} onClick={() => void searchVolume(entry.id, volumeSearch.query)}><Search size={14} />搜索</button><button type="button" className="button compact secondary" onClick={() => { volumeSearchRequest.current++; setVolumeSearch(null); }}>收起</button></div>
@@ -216,5 +249,6 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         <button type="button" className="button primary" disabled={busy} onClick={() => void saveEdit()}>{busy ? "保存中…" : "保存卷册"}</button>
       </div>
     </Modal> : null}
+    {deleteOpen ? <ConfirmDialog title={`移出所选 ${selectedEntryIds.length} 卷？`} description="所选卷册会从这部书架作品中移出，并回到书架待整理。磁盘上的原始书籍文件不会被删除、移动或修改；已有阅读状态和单册匹配会随扫描记录保留。" confirmLabel="确认移出" busy={busy} onCancel={() => setDeleteOpen(false)} onConfirm={() => void removeSelected()} /> : null}
   </div>;
 }

@@ -43,6 +43,7 @@ export const correctionApi = {
 
 export const bookApi = {
   entries: (workId: string) => call<BookEntry[]>("list_book_entries", { workId }).then(bookEntryAssets),
+  removeEntries: (workId: string, entryIds: string[]) => call<BookEntry[]>("remove_book_entries", { workId, entryIds }).then(bookEntryAssets),
   saveEntry: (workId: string, entryId: string, input: BookEntryInput) => call<BookEntry[]>("save_book_entry", { workId, entryId, input }).then(bookEntryAssets),
   open: (workId: string, entryId: string, toolId?: string | null) => call<void>("open_book_entry", { workId, entryId, toolId: toolId ?? null }),
   importGroups: () => call<BookImportGroup[]>("list_book_import_groups"),

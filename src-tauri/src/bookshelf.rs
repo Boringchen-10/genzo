@@ -374,6 +374,43 @@ pub async fn list_book_entries(work_id: String, state: State<'_, AppState>) -> A
     entries_in_pool(&state.pool, &work_id).await
 }
 
+pub async fn remove_entries_in_pool(pool: &SqlitePool, work_id: &str, entry_ids: &[String]) -> AppResult<Vec<BookEntry>> {
+    if entry_ids.is_empty() {
+        return Err(AppError::Validation("请先选择要移出的卷册".into()));
+    }
+    let (_guard, mut transaction) = crate::db::begin_write(pool).await?;
+    let kind: Option<String> = sqlx::query_scalar("SELECT type FROM works WHERE id = ?")
+        .bind(work_id).fetch_optional(&mut *transaction).await?;
+    if !matches!(kind.as_deref(), Some("comic" | "novel")) {
+        return Err(AppError::Validation("请选择漫画或小说作品".into()));
+    }
+    let files = sqlx::query_as::<_, BookFile>("SELECT id, path, file_name, extension, missing, created_at FROM media_files WHERE work_id = ? AND media_type IN ('comic', 'novel')")
+        .bind(work_id).fetch_all(&mut *transaction).await?;
+    let entries = make_entries(files, vec![], vec![]);
+    let selected: HashSet<_> = entry_ids.iter().collect();
+    if selected.len() != entry_ids.len() || !entry_ids.iter().all(|id| entries.iter().any(|entry| &entry.id == id)) {
+        return Err(AppError::Validation("卷册列表已变化，请刷新后重试".into()));
+    }
+    let updated_at = Utc::now().to_rfc3339();
+    for entry in entries.iter().filter(|entry| selected.contains(&entry.id)) {
+        for media_file_id in &entry.media_file_ids {
+            let result = sqlx::query("UPDATE media_files SET work_id = NULL, updated_at = ? WHERE id = ? AND work_id = ?")
+                .bind(&updated_at).bind(media_file_id).bind(work_id)
+                .execute(&mut *transaction).await?;
+            if result.rows_affected() != 1 {
+                return Err(AppError::Validation("卷册列表已变化，请刷新后重试".into()));
+            }
+        }
+    }
+    transaction.commit().await?;
+    entries_in_pool(pool, work_id).await
+}
+
+#[tauri::command]
+pub async fn remove_book_entries(work_id: String, entry_ids: Vec<String>, state: State<'_, AppState>) -> AppResult<Vec<BookEntry>> {
+    remove_entries_in_pool(&state.pool, &work_id, &entry_ids).await
+}
+
 pub async fn save_entry_in_pool(pool: &SqlitePool, work_id: &str, entry_id: &str, input: BookEntryInput) -> AppResult<Vec<BookEntry>> {
     if input.title.as_ref().is_some_and(|value| value.trim().chars().count() > 300) {
         return Err(AppError::Validation("书籍标题过长".into()));
@@ -652,5 +689,35 @@ mod tests {
         assert_eq!(entries[0].bangumi_id.as_deref(), Some("495572"));
         assert_eq!(entries[0].bangumi_cover_path.as_deref(), Some("cache/7.jpg"));
         crate::migration_compat::run(&pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removing_selected_entries_keeps_files_and_reading_data() {
+        let pool = crate::db::test_pool().await.unwrap();
+        sqlx::query("INSERT INTO works (id, title, type, created_at, updated_at) VALUES ('book', '漫画', 'comic', 't', 't')")
+            .execute(&pool).await.unwrap();
+        for (id, path, name, extension) in [
+            ("page-a", "C:/Books/第1卷/001.jpg", "001.jpg", "jpg"),
+            ("page-b", "C:/Books/第1卷/002.jpg", "002.jpg", "jpg"),
+            ("volume-2", "C:/Books/第2卷.cbz", "第2卷.cbz", "cbz"),
+        ] {
+            sqlx::query("INSERT INTO media_files (id, work_id, path, file_name, extension, media_type, created_at, updated_at) VALUES (?, 'book', ?, ?, ?, 'comic', 't', 't')")
+                .bind(id).bind(path).bind(name).bind(extension).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO book_entry_overrides (media_file_id, read_state, updated_at) VALUES ('page-a', 'read', 't')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO book_volume_matches (media_file_id, external_id, title, updated_at) VALUES ('page-b', '123', '第一卷', 't')")
+            .execute(&pool).await.unwrap();
+        assert!(remove_entries_in_pool(&pool, "book", &["page-a".into(), "missing".into()]).await.is_err());
+        assert_eq!(entries_in_pool(&pool, "book").await.unwrap().len(), 2);
+        let remaining = remove_entries_in_pool(&pool, "book", &["page-a".into()]).await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "volume-2");
+        let detached: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_files WHERE work_id IS NULL AND id IN ('page-a', 'page-b')")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(detached, 2);
+        let kept: (String, String) = sqlx::query_as("SELECT o.read_state, v.external_id FROM book_entry_overrides o JOIN book_volume_matches v ON v.media_file_id = 'page-b' WHERE o.media_file_id = 'page-a'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(kept, ("read".into(), "123".into()));
     }
 }

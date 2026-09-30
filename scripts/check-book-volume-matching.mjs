@@ -16,6 +16,7 @@ try {
       const entry = { id: "v7", title: "败犬女主太多了 -07", volumeNumber: 7, chapterNumber: null, mediaFileIds: ["v7"], format: "epub", missing: false, readState: "reading", bangumiId: null, bangumiTitle: null, bangumiCoverPath: null };
       const entry8 = { ...entry, id: "v8", title: "败犬女主太多了 -08", volumeNumber: 8, mediaFileIds: ["v8"], readState: "unread" };
       window.__volumeCalls = [];
+      window.__removedVolumeIds = [];
       window.isTauri = true;
       window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
       Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {
@@ -24,7 +25,9 @@ try {
         invoke: async (command, args = {}) => {
           if (command === "get_work") return work;
           if (command === "list_works") return [work];
-          if (command === "list_book_entries") return [{ ...entry }, { ...entry8 }];
+          if (command === "list_book_entries") return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item }));
+          if (command === "save_book_entry") { [entry, entry8].find(item => item.id === args.entryId).readState = args.input.readState; return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item })); }
+          if (command === "remove_book_entries") { window.__removedVolumeIds.push(...args.entryIds); return [entry, entry8].filter(item => !window.__removedVolumeIds.includes(item.id)).map(item => ({ ...item })); }
           if (command === "get_embedded_book_metadata") return { title: "第七卷", creator: null, series: null, number: "7", description: null, isbn: null, coverPath: cover };
           if (command === "search_book_volume_candidates") return [7, 8].map(number => ({ externalId: String(number), title: `败犬女主太多了! (${number})`, coverUrl: cover, volumeNumber: number, linkedToSeries: true, stale: false }));
           if (command === "preview_book_volume_batch") return { seriesId: "series", proposals: [entry, entry8].filter(item => !item.bangumiId).map(item => ({ entryId: item.id, entryTitle: item.title, volumeNumber: item.volumeNumber, candidate: { externalId: String(item.volumeNumber), title: `败犬女主太多了! (${item.volumeNumber})`, coverUrl: cover, volumeNumber: item.volumeNumber, linkedToSeries: true, stale: false } })), skipped: [] };
@@ -39,7 +42,17 @@ try {
       } });
     });
     await page.goto(`${base}/#/library/book`);
-    await page.locator(".book-entry").filter({ hasText: "-07" }).getByRole("button", { name: "识别此卷" }).click();
+    const volume7 = page.locator(".book-entry").filter({ hasText: "-07" });
+    await volume7.getByRole("button", { name: /阅读中，标记为已读/ }).click();
+    await volume7.getByRole("button", { name: /已读，标记为未读/ }).waitFor();
+    await volume7.getByRole("button", { name: /已读，标记为未读/ }).click();
+    await volume7.getByRole("button", { name: /未读，标记为已读/ }).waitFor();
+    await volume7.locator("summary").click();
+    if (process.env.GENZO_SCREENSHOT_DIR) {
+      await mkdir(process.env.GENZO_SCREENSHOT_DIR, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.GENZO_SCREENSHOT_DIR, `book-actions-menu-${width}.png`), fullPage: true });
+    }
+    await volume7.getByRole("button", { name: "识别此卷" }).click();
     const candidates = page.locator(".book-volume-search .book-candidate");
     await candidates.first().waitFor();
     assert.equal(await candidates.count(), 2);
@@ -53,16 +66,32 @@ try {
     await candidates.first().getByRole("button", { name: "核对并关联" }).click();
     await page.getByText("Bangumi 单册：败犬女主太多了! (7) · #7").waitFor();
     assert.deepEqual(await page.evaluate(() => window.__volumeCalls.map(call => call.externalId)), ["7"]);
-    await page.locator(".book-entry").filter({ hasText: "-07" }).getByRole("button", { name: "清除单册匹配" }).click();
-    await page.locator(".book-entry").filter({ hasText: "-07" }).getByRole("button", { name: "识别此卷" }).waitFor();
+    await volume7.locator("summary").click();
+    await volume7.getByRole("button", { name: "清除单册匹配" }).click();
+    await volume7.locator("summary").click();
+    await volume7.getByRole("button", { name: "识别此卷" }).waitFor();
+    await volume7.locator("summary").click();
     await page.getByRole("button", { name: "批量识别卷册" }).click();
     await page.getByText("批量匹配预览 · 2 卷可关联，0 卷待核对").waitFor();
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth)) <= width);
     if (process.env.GENZO_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.GENZO_SCREENSHOT_DIR, `book-volume-batch-${width}.png`), fullPage: true });
     await page.getByRole("button", { name: "确认匹配 2 卷" }).click();
     await page.getByText("已匹配 2 卷；跳过 0 卷，可按需逐卷核对。").waitFor();
+    await page.getByRole("button", { name: "多选" }).click();
+    await page.getByRole("checkbox", { name: "选择败犬女主太多了 -07" }).check();
+    assert.ok((await page.evaluate(() => document.documentElement.scrollWidth)) <= width);
+    if (process.env.GENZO_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.GENZO_SCREENSHOT_DIR, `book-actions-select-${width}.png`), fullPage: true });
+    await page.getByRole("button", { name: "删除所选" }).click();
+    await page.getByText("磁盘上的原始书籍文件不会被删除、移动或修改", { exact: false }).waitFor();
+    await page.getByRole("button", { name: "取消" }).last().click();
+    assert.equal(await page.locator(".book-entry").count(), 2);
+    await page.getByRole("button", { name: "全选" }).click();
+    await page.getByRole("button", { name: "删除所选" }).click();
+    await page.getByRole("button", { name: "确认移出" }).click();
+    await page.getByText("这部作品还没有关联书籍文件。").waitFor();
+    assert.deepEqual(await page.evaluate(() => window.__removedVolumeIds), ["v7", "v8"]);
     assert.deepEqual(errors, []);
     await page.close();
-    console.log(`${width}x${height}: individual and batch volume matching, mismatch guard and layout passed`);
+    console.log(`${width}x${height}: compact actions, reading toggle, matching, multi-select removal and layout passed`);
   }
 } finally { await browser.close(); }
