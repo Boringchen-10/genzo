@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright-core";
 
 const base = process.env.GENZO_TEST_URL || "http://127.0.0.1:4187";
+// Browser drag tests cannot detect WebView2's native Windows interception.
+for (const file of ["tauri.conf.json", "tauri.e2e.conf.json"]) {
+  const config = JSON.parse(await readFile(new URL(`../src-tauri/${file}`, import.meta.url), "utf8"));
+  assert.equal(config.app.windows[0].dragDropEnabled, false, `${file} must allow HTML5 drag on Windows`);
+}
 const browser = await chromium.launch({ executablePath: process.env.GENZO_BROWSER_PATH || "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", headless: true });
 try {
   for (const [width, height] of [[1024, 640], [1366, 768], [1920, 1080]]) {

@@ -10,6 +10,7 @@
         "minHeight": 640,
         "additionalBrowserArgs": "--remote-debugging-port=9223",
         "resizable": true,
+        "dragDropEnabled": false,
         "center": true
       }
     ]
