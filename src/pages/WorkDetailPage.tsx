@@ -1004,7 +1004,7 @@ export function WorkDetailPage() {
               <p className="match-desc">{work.metadata ? <>当前匹配：<strong>{work.metadata.title}</strong> · 来源 {work.metadata.provider}</> : "尚未关联公共元数据。"}</p>
               <p className="match-result">{isCopyComic ? "可在章节与文件下方手动补充 Bangumi 书籍资料。" : recognitionFile ? "识别结果有误时，可重新搜索并选择正确作品。" : "当前作品没有可用于动画识别的视频文件。"}</p>
               <div className="match-panel-actions">
-                {isCopyComic ? <Link className="button secondary" to={`/explore?type=comic&comic=${encodeURIComponent(work.metadata!.externalId)}`} state={{ comicOverlay: true }}>查看来源资料</Link> : <button type="button" className="button secondary icon-text" disabled={!recognitionFile} onClick={() => recognitionFile && setRecognizingMedia(recognitionFile)}><Sparkles size={15} />{work.metadata ? "重新识别" : "识别作品"}</button>}
+                {isCopyComic ? <Link className="button secondary" to={`/explore?type=comic&comic=${encodeURIComponent(work.metadata!.externalId)}`} state={{ comicDetail: true }}>查看来源资料</Link> : <button type="button" className="button secondary icon-text" disabled={!recognitionFile} onClick={() => recognitionFile && setRecognizingMedia(recognitionFile)}><Sparkles size={15} />{work.metadata ? "重新识别" : "识别作品"}</button>}
                 {!isCopyComic && <button type="button" className="button secondary icon-text" disabled={!detailProvider || refreshing} data-tooltip={detailProvider ? "重新读取元数据，失败时保留已有内容" : "当前运行环境未提供该能力"} onClick={() => void refreshMetadata()}><RefreshCw size={15} />{refreshing ? "刷新中…" : "刷新元数据"}</button>}
               </div>
               {detailProvider === null ? <p className="quiet-inline">当前运行环境未提供动画详情能力（Provider 未实现这几个方法）。</p> : null}

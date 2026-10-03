@@ -39,6 +39,12 @@ export function comicListParams(input: ComicQuery): URLSearchParams {
   return params;
 }
 
+export function appendComicPage(previous: ComicPage, next: ComicPage): ComicPage {
+  const items = new Map(previous.items.map(item => [item.pathWord, item]));
+  for (const item of next.items) items.set(item.pathWord, item);
+  return { ...next, items: [...items.values()], stale: previous.stale || next.stale };
+}
+
 async function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   if (!isTauri()) throw new Error("漫画探索需要在 Genzo 桌面应用中使用。");
   return invoke<T>(command, args);

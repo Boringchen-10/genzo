@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comicListParams, comicQueryFromParams } from "./comicExplore";
+import { appendComicPage, comicListParams, comicQueryFromParams, type ComicItem, type ComicPage } from "./comicExplore";
 
 describe("comic exploration navigation", () => {
   it("retains directory filters and page across detail and return", () => {
@@ -22,5 +22,22 @@ describe("comic exploration navigation", () => {
     for (const page of ["0", "-1", "NaN", "2.5", "10001"]) {
       expect(comicQueryFromParams(new URLSearchParams({ page })).page).toBe(1);
     }
+  });
+});
+
+describe("expanded comic lists", () => {
+  const item = (pathWord: string, title = pathWord) => ({ pathWord, title } as ComicItem);
+  const page = (items: ComicItem[], number: number, stale = false): ComicPage => ({ items, page: number, total: 60, stale });
+  it("appends in source order and replaces overlapping metadata without duplicate cards", () => {
+    const initial = page([item("a"), item("b")], 1);
+    const expanded = appendComicPage(initial, page([item("b", "Updated"), item("c")], 2));
+    expect(expanded.items.map(item => item.pathWord)).toEqual(["a", "b", "c"]);
+    expect(expanded.items[1]!.title).toBe("Updated");
+    expect(expanded.page).toBe(2);
+    expect(initial.items[1]!.title).toBe("b");
+  });
+  it("keeps the cache notice if any displayed batch is stale", () => {
+    expect(appendComicPage(page([item("a")], 1, true), page([item("b")], 2)).stale).toBe(true);
+    expect(appendComicPage(page([item("a")], 1), page([item("b")], 2, true)).stale).toBe(true);
   });
 });
