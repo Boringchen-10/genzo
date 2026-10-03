@@ -17,6 +17,11 @@ export function workCategoryLabel(work: Pick<Work, "type" | "category">): string
   return workCategoryLabels[work.category ?? work.type] ?? mediaLabels[work.type];
 }
 
+export function workDetailPath(work: Pick<Work, "id" | "type" | "category">): string {
+  const category = work.category ?? work.type;
+  return `/${category === "comic" || category === "novel" ? "bookshelf" : "library"}/${encodeURIComponent(work.id)}`;
+}
+
 export const statusLabels: Record<WorkStatus, string> = {
   planned: "计划中",
   in_progress: "进行中",

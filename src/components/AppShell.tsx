@@ -75,7 +75,7 @@ export function AppShell() {
      顶部栏与侧栏的不透明度由设置里的「顶部栏透明度」控制，两者表现一致。 */
   const routeClass = location.pathname === "/"
     ? "is-home-route"
-    : /^\/library\/[^/]+$/.test(location.pathname)
+    : /^\/(?:library|bookshelf)\/[^/]+$/.test(location.pathname)
       ? "is-detail-route"
       : "is-workspace-route";
 

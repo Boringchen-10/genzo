@@ -6,11 +6,13 @@ import type { BookCandidate, BookEntry, BookEntryInput, BookEntryOrder, BookVolu
 import { ConfirmDialog, Modal } from "./common";
 import { ResilientImage } from "./ResilientImage";
 import { getErrorMessage } from "../utils";
+import { bookMetadataKey, cachedBookMetadata, loadBookMetadata } from "../bookMetadataCache";
+import type { MediaFile } from "../types";
 import "../book-detail.css";
 
 const readLabels: Record<BookEntry["readState"], string> = { unread: "未读", reading: "阅读中", read: "已读" };
 
-export function BookDetailSection({ workId, onMetadataChanged }: { workId: string; onMetadataChanged: () => void }) {
+export function BookDetailSection({ workId, mediaFiles, onMetadataChanged }: { workId: string; mediaFiles: MediaFile[]; onMetadataChanged: () => void }) {
   const [entries, setEntries] = useState<BookEntry[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,7 +20,6 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const [draft, setDraft] = useState<BookEntryInput>({ title: null, volumeNumber: null, chapterNumber: null, readState: "unread" });
   const [embedded, setEmbedded] = useState<{ id: string; data: EmbeddedBookMetadata } | null>(null);
   const [volumeMetadata, setVolumeMetadata] = useState<Record<string, EmbeddedBookMetadata>>({});
-  const requestedMetadata = useRef(new Set<string>());
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<BookCandidate[]>([]);
   const [searching, setSearching] = useState(false);
@@ -38,10 +39,13 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const entryIds = entries.map(entry => entry.id).join("|");
+  const filesById = new Map(mediaFiles.map(file => [file.id, file]));
+  const metadataSources = mediaFiles.map(bookMetadataKey).join("|");
   const manualPositions = new Map(manualOrderIds.map((id, index) => [id, index]));
-  const visibleEntries = sortMode === "desc" ? [...entries].reverse() : sortMode === "custom"
-    ? [...entries].sort((left, right) => (manualPositions.get(left.id) ?? entries.length) - (manualPositions.get(right.id) ?? entries.length))
+  const baseEntries = manualOrderIds.length
+    ? [...entries].sort((left, right) => (manualPositions.get(left.id) ?? manualOrderIds.length) - (manualPositions.get(right.id) ?? manualOrderIds.length))
     : entries;
+  const visibleEntries = sortMode === "desc" ? [...baseEntries].reverse() : baseEntries;
 
   const load = useCallback(async () => {
     if (!isTauri()) return;
@@ -54,13 +58,14 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setSelectedEntryIds(ids => ids.filter(id => entries.some(entry => entry.id === id))); }, [entryIds]);
   useEffect(() => {
-    requestedMetadata.current.clear();
     setVolumeMetadata({});
   }, [workId]);
   useEffect(() => {
     if (!isTauri()) return;
-    const pending = entries.filter(entry => !entry.missing && ["cbz", "zip", "epub"].includes(entry.format.toLowerCase()) && !requestedMetadata.current.has(entry.id));
-    pending.forEach(entry => requestedMetadata.current.add(entry.id));
+    const pending = entries.filter(entry => {
+      const file = filesById.get(entry.id);
+      return !entry.missing && ["cbz", "zip", "epub"].includes(entry.format.toLowerCase()) && (!file || !cachedBookMetadata(file));
+    });
     let cancelled = false;
     let cursor = 0;
     const worker = async () => {
@@ -68,14 +73,16 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         const entry = pending[cursor++];
         if (!entry) break;
         try {
-          const data = await bookApi.embedded(entry.id);
-          if (!cancelled) setVolumeMetadata(previous => ({ ...previous, [entry.id]: data }));
+          const file = filesById.get(entry.id);
+          const data = file ? await loadBookMetadata(file) : await bookApi.embedded(entry.id);
+          const key = file ? bookMetadataKey(file) : entry.id;
+          if (!cancelled) setVolumeMetadata(previous => ({ ...previous, [key]: data }));
         } catch { /* 远程、缺失或无内嵌资料的单册仍可手动编辑。 */ }
       }
     };
     void Promise.all(Array.from({ length: Math.min(3, pending.length) }, worker));
     return () => { cancelled = true; };
-  }, [entryIds]);
+  }, [entries, metadataSources, workId]);
 
   const changeReadState = async (entry: BookEntry, readState: BookEntry["readState"]) => {
     setBusy(true);
@@ -198,7 +205,7 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
     const [moved] = ids.splice(from, 1);
     if (!moved) return;
     ids.splice(to, 0, moved);
-    void saveOrder("custom", ids);
+    void saveOrder(sortMode === "desc" ? "desc" : "custom", sortMode === "desc" ? ids.reverse() : ids);
   };
 
   if (!isTauri()) return <p className="quiet-inline">书籍卷册与刮削需要在 Genzo 桌面应用中使用。</p>;
@@ -215,10 +222,9 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         <button type="button" className="button compact secondary" disabled={busy} onClick={() => { setSelecting(false); setSelectedEntryIds([]); }}>取消</button>
       </> : <>
         <div className="book-order-controls" role="group" aria-label="卷册排序">
-          <button type="button" aria-label="按卷号升序" title="按卷号升序" aria-pressed={sortMode === "asc"} disabled={busy || entries.length === 0} onClick={() => void saveOrder("asc")}><ArrowDown01 size={17} /></button>
-          <button type="button" aria-label="按卷号降序" title="按卷号降序" aria-pressed={sortMode === "desc"} disabled={busy || entries.length === 0} onClick={() => void saveOrder("desc")}><ArrowDown10 size={17} /></button>
+          <button type="button" aria-label={sortMode === "desc" ? "当前倒序，切换为顺序" : "当前顺序，切换为倒序"} title={sortMode === "desc" ? "切换为顺序" : "切换为倒序"} aria-pressed={sortMode === "desc"} disabled={busy || entries.length === 0} onClick={() => void saveOrder(sortMode === "desc" ? "asc" : "desc")}>{sortMode === "desc" ? <ArrowDown10 size={17} /> : <ArrowDown01 size={17} />}{sortMode === "desc" ? "倒序" : "顺序"}</button>
         </div>
-        {sortMode === "custom" ? <span className="book-order-label">自定义顺序</span> : null}
+        {manualOrderIds.length ? <span className="book-order-label">自定义顺序</span> : null}
         <button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => void previewBatch()}>批量识别卷册</button>
         <button type="button" className="button compact secondary" disabled={busy || entries.length === 0} onClick={() => setSelecting(true)}><Check size={14} />多选</button>
         <button type="button" className="button compact secondary" disabled={busy} onClick={() => void load()}><RefreshCw size={14} />刷新</button>
@@ -247,7 +253,8 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
       <div className="book-detail-toolbar"><button type="button" className="button compact secondary" disabled={busy || !batchPreview.proposals.length} onClick={() => setBatchEntryIds(batchEntryIds.length === batchPreview.proposals.length ? [] : batchPreview.proposals.map(item => item.entryId))}>{batchEntryIds.length === batchPreview.proposals.length ? "取消全选" : "全选可关联"}</button><div className="book-entry-actions"><button type="button" className="button compact secondary" disabled={busy} onClick={() => setBatchPreview(null)}>取消</button><button type="button" className="button compact primary" disabled={busy || batchEntryIds.length === 0} onClick={() => void confirmBatch()}>{busy ? "核实中…" : `确认匹配 ${batchEntryIds.length} 卷`}</button></div></div>
     </div> : null}
     {entries.length ? <div className="book-entry-list">{visibleEntries.map((entry, index) => {
-      const local = volumeMetadata[entry.id];
+      const file = filesById.get(entry.id);
+      const local = file ? cachedBookMetadata(file) ?? volumeMetadata[bookMetadataKey(file)] : volumeMetadata[entry.id];
       const localNumber = local?.number && /^\d+(?:\.\d+)?$/.test(local.number.trim()) ? Number(local.number) : null;
       return <article className={`book-entry${dropTargetId === entry.id ? " drop-target" : ""}`} key={entry.id}
         onDragOver={event => { if (draggingId && draggingId !== entry.id) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTargetId(entry.id); } }}
@@ -257,7 +264,7 @@ export function BookDetailSection({ workId, onMetadataChanged }: { workId: strin
         onDragStart={event => { event.dataTransfer.setData("text/plain", entry.id); event.dataTransfer.effectAllowed = "move"; setDraggingId(entry.id); }}
         onDragEnd={() => { setDraggingId(null); setDropTargetId(null); }}
         onKeyDown={event => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); const next = visibleEntries[index + (event.key === "ArrowUp" ? -1 : 1)]; if (next) moveEntry(entry.id, next.id); } }}><GripVertical size={16} /></button> : null}
-      {entry.bangumiCoverPath || local?.coverPath ? <img className="book-entry-cover" src={entry.bangumiCoverPath ?? local?.coverPath ?? ""} alt={`${entry.title}的封面`} /> : null}
+      <ResilientImage sources={[entry.bangumiCoverPath, local?.coverPath]} className="book-entry-cover" alt={`${entry.title}的封面`} fallback={<span className="book-entry-cover book-entry-cover-placeholder" aria-label={`${entry.title}暂无封面`}><BookOpen size={20} /></span>} />
       <div className="book-entry-main">
         <strong title={entry.title}>{entry.title}</strong>
         <small>{entry.volumeNumber != null ? `第 ${entry.volumeNumber} 卷 · ` : localNumber != null ? `第 ${localNumber} 卷（内嵌） · ` : ""}{entry.chapterNumber != null ? `第 ${entry.chapterNumber} 话 · ` : ""}{entry.format === "images" ? `${entry.mediaFileIds.length} 页图片` : entry.format.toUpperCase()}{entry.missing ? " · 文件缺失" : ""}</small>

@@ -10,7 +10,7 @@ const makeWork = (id, title, type) => ({
   metadataYear: null, lastRecognizedAt: null, mediaFiles: [], fieldLocks: [], candidates: [],
   subtitleLinks: [], metadata: null,
 });
-const works = [makeWork("book", "暑假的测试作品", "novel"), makeWork("video", "测试动画", "video")];
+const works = [makeWork("book", "暑假的测试作品", "novel"), makeWork("comic", "测试漫画", "comic"), makeWork("video", "测试动画", "video")];
 const browser = await chromium.launch({
   executablePath: process.env.GENZO_BROWSER_PATH || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
   headless: true,
@@ -59,6 +59,9 @@ try {
       }
       const origin = new URL(page.url()).hash;
       await page.getByRole("link", { name: /暑假的测试作品/ }).first().click();
+      await page.getByRole("button", { name: "返回上一页" }).waitFor();
+      assert.equal(await page.locator('.nav-list a.active').getAttribute("data-nav-label"), "书架");
+      assert.equal(await page.getByRole("link", { name: "书架", exact: true }).getAttribute("aria-current"), "page");
       await page.getByRole("button", { name: "返回上一页" }).click();
       await assertRoute(page, origin);
       if (await scope.count()) {
@@ -73,6 +76,8 @@ try {
 
       await page.getByRole("link", { name: "收藏", exact: true }).click();
       await page.getByRole("link", { name: /测试动画/ }).first().click();
+      await page.getByRole("button", { name: "返回上一页" }).waitFor();
+      assert.equal(await page.locator('.nav-list a.active').getAttribute("data-nav-label"), "媒体库");
       await page.getByRole("button", { name: "返回上一页" }).click();
       await assertRoute(page, "#/favorites");
 
@@ -100,10 +105,13 @@ try {
     }
   }
 
-  for (const [id, fallback] of [["book", "#/bookshelf"], ["video", "#/library"]]) {
+  for (const [id, fallback] of [["book", "#/bookshelf"], ["comic", "#/bookshelf"], ["video", "#/library"]]) {
     const { page, errors } = await newPage(1366, 768);
     try {
       await page.goto(`${base}/#/library/${id}`);
+      await page.getByRole("button", { name: "返回上一页" }).waitFor();
+      await assertRoute(page, `${fallback}/${id}`);
+      assert.equal(await page.locator('.nav-list a.active').getAttribute("data-nav-label"), fallback === "#/bookshelf" ? "书架" : "媒体库");
       await page.getByRole("button", { name: "返回上一页" }).click();
       await assertRoute(page, fallback);
       assert.deepEqual(errors, []);

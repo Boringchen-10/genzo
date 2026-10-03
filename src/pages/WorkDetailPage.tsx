@@ -26,7 +26,7 @@ import {
   Unlink,
   Unlock,
 } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { dataProvider as api, getAnimeDetailProvider, type GenzoAnimeDetailProvider } from "../data";
@@ -42,7 +42,7 @@ import { MediaFileBrowser } from "../components/MediaFileBrowser";
 import { BookDetailSection } from "../components/BookDetailSection";
 import { useToasts } from "../store";
 import type { AnimeCharacter, AnimeCredit, AnimeEpisodeEntry, AnimeWorkStructure, ExternalTool, LibraryRoot, MediaFile, WorkDetail, WorkInput } from "../types";
-import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, workCategoryLabel, statusLabels } from "../utils";
+import { coverUrl, formatDate, formatSize, getErrorMessage, mediaLabels, workCategoryLabel, workDetailPath, statusLabels } from "../utils";
 import "../work-detail.css";
 
 const metadataStatusLabels = {
@@ -181,6 +181,7 @@ function LocalFileThumb({ file, provider, className = "local-file-thumb" }: { fi
 
 export function WorkDetailPage() {
   const { id = "" } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const playback = usePlaybackProgress(id);
   const toast = useToasts((state) => state.push);
@@ -538,6 +539,7 @@ export function WorkDetailPage() {
 
   if (loading) return <div className="page"><LoadingState label="正在读取作品详情" /></div>;
   if (error || !work) return <div className="page"><ErrorState message={error || "作品不存在"} retry={() => void load()} /></div>;
+  if (location.pathname !== workDetailPath(work)) return <Navigate to={workDetailPath(work)} replace />;
 
   const sortedFiles = [...work.mediaFiles].sort((left, right) => left.fileName.localeCompare(right.fileName, "zh-CN", { numeric: true }));
   const firstEpisodeFile = work.type === "video" ? [...(structure?.episodes ?? [])]
@@ -705,7 +707,7 @@ export function WorkDetailPage() {
               ) : null}
 
               {work.type === "comic" || work.type === "novel" ? (
-                <BookDetailSection key={work.id} workId={work.id} onMetadataChanged={() => void load()} />
+                <BookDetailSection key={work.id} workId={work.id} mediaFiles={work.mediaFiles} onMetadataChanged={() => void load()} />
               ) : hasStructure ? (
                 <>
                   <EpisodeArtworkControl key={id} workId={id} artwork={episodeArtwork.artwork} warning={episodeArtwork.warning} onChange={episodeArtwork.update} />

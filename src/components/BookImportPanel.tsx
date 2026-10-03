@@ -209,7 +209,7 @@ export function BookImportPanel({ focusMediaFileId, focusRequest, variant = "dis
     try {
       const localCover = embedded && activeIds.has(embedded.id) && embedded.data.coverPath ? embedded.id : selectedFiles.find(file => fileMetadata[file.id]?.coverPath)?.id ?? null;
       const id = await bookApi.createWork(title, kind, selectedFiles.map(file => file.id), selectedCandidate, localCover);
-      navigate("/library/" + id);
+      navigate("/bookshelf/" + encodeURIComponent(id));
     } catch (reason) { setError(getErrorMessage(reason)); }
     finally { setLoading(false); }
   };

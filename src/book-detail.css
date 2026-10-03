@@ -3,7 +3,7 @@
 .book-detail-toolbar, .book-candidate { justify-content: space-between; }
 .book-detail-toolbar { flex-wrap: wrap; }
 .book-order-controls { display: flex; gap: 3px; }
-.book-order-controls button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 5px; cursor: pointer; }
+.book-order-controls button { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 6px; color: var(--muted); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 5px; cursor: pointer; }
 .book-order-controls button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 .book-order-controls button:disabled { opacity: .5; cursor: not-allowed; }
 .book-order-label { color: var(--muted); font-size: 12px; }
@@ -14,6 +14,7 @@
 .book-entry-drag:active { cursor: grabbing; }
 .book-entry-drag:disabled { opacity: .4; cursor: not-allowed; }
 .book-entry-cover { width: 54px; height: 76px; object-fit: cover; flex: none; border-radius: 3px; }
+.book-entry-cover-placeholder { display: grid; place-items: center; color: var(--muted); background: var(--surface); }
 .book-entry-main { min-width: 200px; flex: 1 1 240px; display: grid; gap: 3px; }
 .book-entry-main strong, .book-candidate strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .book-entry-main small, .book-candidate small { color: var(--text-muted, #999); }
