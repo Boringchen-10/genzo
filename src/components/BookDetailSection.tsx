@@ -271,9 +271,6 @@ export function BookDetailSection({ workId, mediaFiles, onMetadataChanged }: { w
         {entry.bangumiId ? <small title={entry.bangumiTitle ?? undefined}>Bangumi 单册：{entry.bangumiTitle} · #{entry.bangumiId}</small> : null}
       </div>
       <div className="book-entry-actions">
-        <button type="button" className={`book-read-toggle ${entry.readState}`} aria-label={`${entry.title}：${readLabels[entry.readState]}，标记为${entry.readState === "read" ? "未读" : "已读"}`} aria-pressed={entry.readState === "read"} title={`${readLabels[entry.readState]} · 点击标记为${entry.readState === "read" ? "未读" : "已读"}`} disabled={busy} onClick={() => void changeReadState(entry, entry.readState === "read" ? "unread" : "read")}>
-          {entry.readState === "read" ? <CircleCheck size={18} /> : entry.readState === "reading" ? <BookOpenCheck size={18} /> : <Circle size={18} />}
-        </button>
         <button type="button" className="button compact primary" disabled={busy || entry.missing} onClick={async () => {
           try { await bookApi.open(workId, entry.id); setError(""); }
           catch (reason) { setError(getErrorMessage(reason)); }
@@ -281,6 +278,9 @@ export function BookDetailSection({ workId, mediaFiles, onMetadataChanged }: { w
         <details className="action-menu book-entry-more">
           <summary aria-label={`${entry.title}的更多操作`} title="更多操作"><MoreHorizontal size={17} /></summary>
           <div className="menu-popover" onClick={event => { const details = event.currentTarget.parentElement; if (details instanceof HTMLDetailsElement) details.open = false; }}>
+            <button type="button" aria-label={`${entry.title}：${readLabels[entry.readState]}，标记为${entry.readState === "read" ? "未读" : "已读"}`} aria-pressed={entry.readState === "read"} disabled={busy} onClick={() => void changeReadState(entry, entry.readState === "read" ? "unread" : "read")}>
+              {entry.readState === "read" ? <CircleCheck size={18} /> : entry.readState === "reading" ? <BookOpenCheck size={18} /> : <Circle size={18} />}标记为{entry.readState === "read" ? "未读" : "已读"}
+            </button>
             <button type="button" disabled={busy} onClick={() => { setEditing(entry); setDraft({ title: entry.title, volumeNumber: entry.volumeNumber, chapterNumber: entry.chapterNumber, readState: entry.readState }); }}><Pencil size={15} />编辑卷册</button>
             <button type="button" disabled={busy} onClick={() => void searchVolume(entry.id)}><Sparkles size={15} />{entry.bangumiId ? "更换单册匹配" : "识别此卷"}</button>
             {entry.bangumiId ? <button type="button" disabled={busy} onClick={async () => { try { setBusy(true); await bookApi.clearVolume(workId, entry.id); setEntries(await bookApi.entries(workId)); setError(""); } catch (reason) { setError(getErrorMessage(reason)); } finally { setBusy(false); } }}><Unlink size={15} />清除单册匹配</button> : null}

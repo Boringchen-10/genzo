@@ -96,10 +96,17 @@ try {
     await page.locator(".book-entry").filter({ hasText: "-08" }).getByRole("button", { name: /拖动调整/ }).press("ArrowDown");
     await page.waitForFunction(() => document.querySelector(".book-entry-main strong")?.textContent?.endsWith("-07"));
     const volume7 = page.locator(".book-entry").filter({ hasText: "-07" });
+    assert.equal(await page.locator('.book-entry input[type="checkbox"]').count(), 0);
+    assert.equal(await page.locator(".book-read-toggle").count(), 0);
+    assert.equal(await volume7.getByRole("button", { name: /阅读中，标记为已读/ }).isVisible(), false);
+    if (process.env.GENZO_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.GENZO_SCREENSHOT_DIR, `book-actions-normal-${width}.png`), fullPage: true });
+    await volume7.locator("summary").click();
     await volume7.getByRole("button", { name: /阅读中，标记为已读/ }).click();
-    await volume7.getByRole("button", { name: /已读，标记为未读/ }).waitFor();
+    await volume7.locator('button[aria-label*="已读，标记为未读"]').waitFor({ state: "attached" });
+    assert.equal(await volume7.locator("details").getAttribute("open"), null);
+    await volume7.locator("summary").click();
     await volume7.getByRole("button", { name: /已读，标记为未读/ }).click();
-    await volume7.getByRole("button", { name: /未读，标记为已读/ }).waitFor();
+    await volume7.locator('button[aria-label*="未读，标记为已读"]').waitFor({ state: "attached" });
     await volume7.locator("summary").click();
     if (process.env.GENZO_SCREENSHOT_DIR) {
       await mkdir(process.env.GENZO_SCREENSHOT_DIR, { recursive: true });
@@ -125,17 +132,19 @@ try {
     await volume7.getByRole("button", { name: "识别此卷" }).waitFor();
     await volume7.locator("summary").click();
     await page.getByRole("button", { name: "多选" }).click();
+    assert.equal(await page.locator('.book-entry input[type="checkbox"]').count(), 2);
+    assert.equal(await page.locator(".book-entry-drag").count(), 0);
     assert.equal(await page.getByRole("button", { name: "标记所选为已读" }).isDisabled(), true);
     assert.equal(await page.getByRole("button", { name: "识别所选" }).isDisabled(), true);
     await page.getByRole("checkbox", { name: "选择败犬女主太多了 -07" }).check();
     await page.getByRole("button", { name: "标记所选为已读" }).click();
     await page.getByText("已将 1 卷标记为已读").waitFor();
-    assert.equal(await page.locator(".book-read-toggle.read").count(), 2); // toolbar + selected row
+    assert.equal(await page.locator('.book-entry button[aria-label*="已读，标记为未读"]').count(), 1);
     assert.deepEqual(await page.evaluate(() => window.__readCalls.at(-1).entryIds), ["v7"]);
     await page.evaluate(() => { window.__failReadState = true; });
     await page.getByRole("button", { name: "标记所选为未读" }).click();
     await page.getByText("保存失败，请重试").waitFor();
-    assert.equal(await volume7.getByRole("button", { name: /已读，标记为未读/ }).count(), 1);
+    assert.equal(await volume7.locator('button[aria-label*="已读，标记为未读"]').count(), 1);
     assert.equal(await page.getByRole("checkbox", { name: "选择败犬女主太多了 -07" }).isChecked(), true);
     await page.evaluate(() => { window.__failReadState = false; });
     await page.getByRole("button", { name: "标记所选为未读" }).click();
@@ -143,10 +152,13 @@ try {
     await page.getByRole("checkbox", { name: "选择败犬女主太多了 -08" }).check();
     await page.getByRole("button", { name: "标记所选为已读" }).click();
     await page.getByText("已将 2 卷标记为已读").waitFor();
-    assert.equal(await page.locator(".book-entry .book-read-toggle.read").count(), 2);
+    assert.equal(await page.locator('.book-entry button[aria-label*="已读，标记为未读"]').count(), 2);
     await page.getByRole("button", { name: "标记所选为未读" }).click();
     await page.getByText("已将 2 卷标记为未读").waitFor();
     await page.getByRole("button", { name: "取消", exact: true }).click();
+    assert.equal(await page.locator('.book-entry input[type="checkbox"]').count(), 0);
+    assert.equal(await page.locator(".book-read-toggle").count(), 0);
+    assert.equal(await page.locator(".book-entry-drag").count(), 2);
     await page.getByRole("button", { name: "批量识别卷册" }).click();
     await page.getByText("批量匹配预览 · 2 卷可关联，0 卷待核对").waitFor();
     await page.locator(".book-volume-batch").scrollIntoViewIfNeeded();
@@ -163,6 +175,8 @@ try {
     assert.deepEqual(await page.evaluate(() => window.__volumeCalls.at(-1).selections), [{ entryId: "v7", externalId: "7" }]);
     assert.equal(await page.getByText("Bangumi 单册：败犬女主太多了! (8) · #8").count(), 0);
     await page.getByRole("button", { name: "多选" }).click();
+    await page.getByText("已选 0 卷", { exact: true }).waitFor();
+    assert.equal(await page.locator('.book-entry input[type="checkbox"]:checked').count(), 0);
     await page.getByRole("checkbox", { name: "选择败犬女主太多了 -08" }).check();
     await page.getByRole("button", { name: "识别所选" }).click();
     await page.getByText("批量匹配预览 · 1 卷可关联，0 卷待核对").waitFor();
