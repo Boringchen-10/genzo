@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Genzo",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "identifier": "com.genzo.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -24,7 +24,9 @@
         "transparent": true,
         "shadow": false,
         "windowEffects": {
-          "effects": ["mica"]
+          "effects": [
+            "mica"
+          ]
         }
       }
     ],
@@ -32,15 +34,47 @@
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://lain.bgm.tv https://image.tmdb.org https://s4.anilist.co https://*.mangafunb.fun blob: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**", "$LOCALAPPDATA/**", "$PICTURE/**", "$DOCUMENT/**", "$DOWNLOAD/**"]
+        "scope": [
+          "$APPDATA/**",
+          "$LOCALAPPDATA/**",
+          "$PICTURE/**",
+          "$DOCUMENT/**",
+          "$DOWNLOAD/**"
+        ]
       }
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all",
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
     "category": "Entertainment",
     "shortDescription": "本地优先的 ACGN 媒体库",
-    "longDescription": "Genzo 用于扫描、整理和打开用户自己的本地 ACGN 媒体文件。"
+    "longDescription": "Genzo 用于扫描、整理和打开用户自己的本地 ACGN 媒体文件。",
+    "publisher": "Genzo contributors",
+    "licenseFile": "../LICENSE",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "compression": "lzma",
+        "installerIcon": "icons/icon.ico"
+      }
+    }
   }
 }
