@@ -26,6 +26,13 @@
 - 本版验收：图片目录与 CBZ / EPUB 正确归档、自然排序、漫画 / 小说同名不混合、单卷与合集不误并、离线可浏览与打开、人工资料不被刷新覆盖；迁移同时验证存量数据库，UI 检查三种常用 Windows 尺寸。首版不承诺 CBR / 7z / RAR 内嵌资料、PDF 正文解析或自动阅读位置；这些文件仍可索引并交给外部阅读器。
 - 数据源依据：[Bangumi 官方 API](https://github.com/bangumi/api/blob/master/open-api/v0.yaml)、[AniList Media 查询](https://docs.anilist.co/guide/graphql/queries/media)、[ComicInfo 字段说明](https://anansi-project.github.io/docs/comicinfo/documentation)、[Kavita EPUB 元数据](https://wiki.kavitareader.com/guides/metadata/epubs/)。
 
+## 新需求调研：漫画探索与 Kira 参考（2026-10-03）
+
+- 用户希望完成探索的漫画入口，覆盖短篇，并研究拷贝漫画接入；明确 Kira 是拷贝第三方客户端的实现参考，不是 Genzo 要调用的外部阅读器。作品资料浏览和 Genzo 内在线阅读都可考虑，但用户担心新增阅读能力的工作量。当前先记录需求与调研，不代表已经接通数据源或变更首版阅读范围。
+- 已核对现状：探索基于 Bangumi 动画、bangumi-data 索引及 AniList 动画补源，漫画入口仍为 Future；书架匹配使用独立 Bangumi 书籍接口。AniList 当前查询固定为 ANIME，漫画 / ONE_SHOT 需另行适配，并核对其 [API 使用条款](https://docs.anilist.co/guide/terms-of-use)。
+- [Kira](https://github.com/caolib/kira) 的漫画查询、缓存与阅读分层可作参考，其 [MIT 许可](https://github.com/caolib/kira/blob/main/LICENSE) 要求移植时保留版权与许可。其代码有拷贝首页、推荐、最新、完结、排行、搜索及筛选接口；这是第三方客户端对 APP 接口的实现，尚未验证 Genzo 的在线兼容性或确认官方开放 API。
+- 建议先交付漫画搜索 / 筛选 / 详情 / 加入书架，拷贝目录与 Bangumi 书籍资料分别保留来源 ID，不能强迫所有短篇都有 Bangumi 条目或按同名自动合并。借鉴 Kira 的请求、分页、筛选及缓存方式，重写适合 Rust / React 的适配；不把 Kira 加入外部工具。Genzo 内置阅读另行规划，沿用 Tauri / React / Rust，无需为此增加独立服务器。
+
 ## 当前实施范围：统一分集核对与可靠文件批量确认（2026-09-27）
 
 - 用户确认四项一并实现，继续放入 Unreleased：文件季集 / 主源分集 / TMDB 剧照对应放在同一预览；优先选择可靠正片；错误给出处理建议；覆盖识别、拆季、关联、剧照和续播回归。
