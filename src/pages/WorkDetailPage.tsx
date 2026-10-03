@@ -35,6 +35,7 @@ import { RecognitionDialog } from "../components/RecognitionDialog";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, SafeImage, useOffline } from "../components/common";
 import { RemoteFileActions } from "../components/RemoteStoragePanel";
 import { MediaVisual } from "../components/MediaVisual";
+import "../comic-detail-cover.css";
 import { MediaCorrectionDialog } from "../components/MediaCorrectionDialog";
 import { RetryImagesButton } from "../components/ResilientImage";
 import { WorkForm } from "../components/WorkForm";
@@ -610,7 +611,7 @@ export function WorkDetailPage() {
         </div>
 
         <section className="detail-hero">
-          <div className="detail-cover"><MediaVisual type={work.type} coverPath={work.coverPath} alt={`${work.title} 封面`} /></div>
+          <div className={`detail-cover${(work.category ?? work.type) === "comic" ? " comic-detail-cover" : ""}`}><MediaVisual type={work.type} coverPath={work.coverPath} alt={`${work.title} 封面`} /></div>
           <div className="detail-copy">
             <span className="detail-eyebrow">{workCategoryLabel(work)}{work.metadataYear ? ` · ${work.metadataYear}` : ""}</span>
             <h1>{work.title}</h1>

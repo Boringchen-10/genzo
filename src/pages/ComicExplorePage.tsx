@@ -7,6 +7,7 @@ import { RetryImagesButton } from "../components/ResilientImage";
 import { getErrorMessage } from "../utils";
 import { ComicCover } from "../components/ComicCover";
 import "../comic-explore.css";
+import "../comic-detail-cover.css";
 
 // Session snapshots keep expanded lists when returning from the bookshelf.
 const lists = new Map<string, ComicPage>();
@@ -160,7 +161,7 @@ export function ComicExplorePage() {
       </div>
       {detailError ? <ErrorState message={detailError} retry={() => setDetailRefresh(value => value + 1)} /> : !detail ? <LoadingState label="正在读取漫画资料" /> : <>
         <section className="detail-hero">
-          <div className="detail-cover"><ComicCover item={detail.item} detail /></div>
+          <div className="detail-cover comic-detail-cover"><ComicCover item={detail.item} detail /></div>
           <div className="detail-copy">
             <span className="detail-eyebrow">漫画 · 拷贝漫画</span><h1>{detail.item.title}</h1>
             {detail.aliases.length > 0 && <p className="original-title">{detail.aliases.join(" / ")}</p>}

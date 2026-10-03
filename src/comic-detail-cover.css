@@ -1,0 +1,4 @@
+.detail-cover.comic-detail-cover { aspect-ratio: auto; }
+.detail-cover.comic-detail-cover > .media-visual { height: auto; }
+.detail-cover.comic-detail-cover img { display: block; width: 100%; height: auto; object-fit: contain; }
+.detail-cover.comic-detail-cover .media-placeholder { aspect-ratio: 2 / 3; }
