@@ -23,11 +23,13 @@ export function SettingsPanel() {
   const glassBlur = usePreferences((state) => state.glassBlur);
   const cornerRadius = usePreferences((state) => state.cornerRadius);
   const topbarOpacity = usePreferences((state) => state.topbarOpacity);
+  const shelfColumns = usePreferences((state) => state.shelfColumns);
   const setTheme = usePreferences((state) => state.setTheme);
   const setAccentHue = usePreferences((state) => state.setAccentHue);
   const setGlassBlur = usePreferences((state) => state.setGlassBlur);
   const setCornerRadius = usePreferences((state) => state.setCornerRadius);
   const setTopbarOpacity = usePreferences((state) => state.setTopbarOpacity);
+  const setShelfColumns = usePreferences((state) => state.setShelfColumns);
   const resetAppearance = usePreferences((state) => state.resetAppearance);
   const toast = useToasts((state) => state.push);
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -36,6 +38,7 @@ export function SettingsPanel() {
   const [savingTmdb, setSavingTmdb] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [tab, setTab] = useState<"theme" | "download">("theme");
   const darkAppearance = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   const load = useCallback(async () => {
@@ -99,10 +102,11 @@ export function SettingsPanel() {
   return (
     <div className="settings-page">
       <div className="settings-drawer-tabs" role="tablist" aria-label="设置分类">
-        <button className="active" type="button" role="tab" aria-selected="true">主题</button>
-        <button type="button" role="tab" aria-selected="false" disabled title="Future：下载与备份需要新增后端">下载与备份 <span className="future-badge">Future</span></button>
+        <button className={tab === "theme" ? "active" : ""} type="button" role="tab" aria-selected={tab === "theme"} onClick={() => setTab("theme")}>主题</button>
+        <button className={tab === "download" ? "active" : ""} type="button" role="tab" aria-selected={tab === "download"} onClick={() => setTab("download")}>下载与备份</button>
       </div>
 
+      {tab === "theme" ? (
       <section className="settings-panel" aria-label="主题设置">
         <div className="setting">
           <label>主题</label>
@@ -126,7 +130,7 @@ export function SettingsPanel() {
             <span className="accent-preview" aria-hidden="true" />
             <input id="accentHue" type="range" min="0" max="359" value={accentHue} onChange={(event) => setAccentHue(Number(event.target.value))} />
           </div>
-          <small>用于选中状态、进度与主要操作。</small>
+          <small>作为强调色，并整体调和界面底色、面板与描边的色相，让配色保持统一。</small>
         </div>
 
         <div className="setting">
@@ -147,13 +151,20 @@ export function SettingsPanel() {
           <small>0% 完全透明，让顶部栏与侧栏融入首页海报背景；调高更易读。</small>
         </div>
 
+        <div className="setting">
+          <label htmlFor="shelfColsRange">每行作品数量 <output>{shelfColumns} 个</output></label>
+          <input id="shelfColsRange" type="range" min="5" max="9" value={shelfColumns} onChange={(event) => setShelfColumns(Number(event.target.value))} />
+          <small>首页「最近添加」「观看记录」网格每行的作品数量，窗口变窄时会自动减少。</small>
+        </div>
+
         <button type="button" className="button secondary icon-text settings-reset" onClick={reset}><RotateCcw size={15} />恢复默认</button>
       </section>
-
-      {loading ? <LoadingState label="正在读取本地设置" /> : null}
-      {!loading && error ? <ErrorState message={error} retry={() => void load()} /> : null}
-      {!loading && info ? (
-        <section className="settings-local" aria-label="本地设置">
+      ) : (
+        <>
+          {loading ? <LoadingState label="正在读取本地设置" /> : null}
+          {!loading && error ? <ErrorState message={error} retry={() => void load()} /> : null}
+          {!loading && info ? (
+            <section className="settings-local" aria-label="本地设置">
           <div className="settings-local-head"><HardDrive size={17} /><div><h2>本地设置</h2><p>扫描和数据均只作用于这台电脑。</p></div></div>
           <div className="setting compact-setting">
             <label htmlFor="includeHidden">包含隐藏文件</label>
@@ -173,8 +184,10 @@ export function SettingsPanel() {
             <button type="button" className="button secondary" disabled={savingTmdb} onClick={() => void saveTmdb()}>{savingTmdb ? "保存中…" : "保存 TMDB 凭据"}</button>
             <small>This product uses the TMDB API but is not endorsed or certified by TMDB.</small>
           </div>
-        </section>
-      ) : null}
+            </section>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

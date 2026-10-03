@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use std::sync::OnceLock;
 use std::time::Duration;
-use tmdb_rs::{MovieShort, TvShort};
+use tmdb_rs::{Language, MovieShort, TvShort};
 
 static RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
 
@@ -15,6 +15,10 @@ pub struct TmdbProvider {
 }
 
 impl TmdbProvider {
+    fn preferred_language() -> Language {
+        Language::from_639_1("zh").expect("ISO 639-1 Chinese language code")
+    }
+
     pub fn new(token: &str) -> AppResult<Self> {
         let token = token.trim();
         if token.is_empty() {
@@ -41,7 +45,7 @@ impl TmdbProvider {
 
     async fn tv_details(&self, id: u64) -> AppResult<WorkMetadata> {
         self.wait().await;
-        let item = self.client.tv(id).send().await.map_err(tmdb_error)?;
+        let item = self.client.tv(id).language(Self::preferred_language()).send().await.map_err(tmdb_error)?;
         Ok(WorkMetadata {
             provider: "tmdb".to_string(),
             external_id: format!("tv/{id}"),
@@ -71,7 +75,7 @@ impl TmdbProvider {
 
     async fn movie_details(&self, id: u64) -> AppResult<WorkMetadata> {
         self.wait().await;
-        let item = self.client.movie(id).send().await.map_err(tmdb_error)?;
+        let item = self.client.movie(id).language(Self::preferred_language()).send().await.map_err(tmdb_error)?;
         Ok(WorkMetadata {
             provider: "tmdb".to_string(),
             external_id: format!("movie/{id}"),
@@ -121,7 +125,7 @@ impl MetadataProvider for TmdbProvider {
         let mut results = Vec::new();
         if query.subject_type == "movie" {
             self.wait().await;
-            let mut request = self.client.search_movies(&query.title);
+            let mut request = self.client.search_movies(&query.title).language(Self::preferred_language());
             if let Some(year) = query.year.and_then(|year| u32::try_from(year).ok()) {
                 request = request.primary_release_year(year);
             }
@@ -129,7 +133,7 @@ impl MetadataProvider for TmdbProvider {
             results.extend(page.results.into_iter().take(8).map(movie_short));
         } else {
             self.wait().await;
-            let mut request = self.client.search_tv(&query.title);
+            let mut request = self.client.search_tv(&query.title).language(Self::preferred_language());
             if let Some(year) = query.year.and_then(|year| u32::try_from(year).ok()) {
                 request = request.first_air_date_year(year);
             }

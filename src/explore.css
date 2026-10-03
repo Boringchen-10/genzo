@@ -63,6 +63,12 @@
 /* 作品网格 */
 .gnz-explore-trending { margin-top: 24px; }
 
+.gnz-explore-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
 .gnz-explore-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
@@ -135,7 +141,7 @@
   flex: none;
   padding: 2px 6px;
   color: var(--muted);
-  background: rgba(var(--tint), .05);
+  background: var(--surface-3);
   border: 1px solid var(--line);
   border-radius: 3px;
   font-size: 10px;
@@ -150,7 +156,7 @@
   gap: 14px;
   margin-top: 26px;
   padding: 18px;
-  background: rgba(var(--tint), .035);
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--ui-radius);
 }
@@ -185,13 +191,13 @@
   min-height: 36px;
   padding: 0 14px;
   color: var(--muted);
-  background: rgba(var(--tint), .035);
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 999px;
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
-  transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+  transition: color var(--motion-base), border-color var(--motion-base), background var(--motion-base);
 }
 .gnz-filter-chips button:hover { color: var(--text); border-color: var(--line-strong); }
 .gnz-filter-chips button.active {
@@ -213,7 +219,7 @@
   min-height: 40px;
   padding: 0 30px 0 12px;
   color: var(--text);
-  background: rgba(var(--tint), .035);
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
@@ -268,8 +274,8 @@
 /* 排行榜：宽窗口下按多列铺开。单列全宽时，行内容只占左侧一小段、右侧整条留空，
    既拉长了区块高度又留下大片空框；改为自适应多列后，宽窗口用横向空间、高度随之收缩。 */
 .gnz-ranking-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
-.gnz-ranking-row { display: grid; grid-template-columns: 40px 48px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; color: var(--text); text-align: left; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); cursor: pointer; }
-.gnz-ranking-row:hover { background: rgba(var(--tint), .05); border-color: var(--line-strong); }
+.gnz-ranking-row { display: grid; grid-template-columns: 40px 48px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; color: var(--text); text-align: left; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--ui-radius); cursor: pointer; }
+.gnz-ranking-row:hover { background: var(--tint-hover); border-color: var(--line-strong); }
 .gnz-ranking-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .gnz-ranking-index { color: var(--quiet); font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
 .gnz-ranking-poster { display: block; width: 48px; aspect-ratio: 2 / 3; overflow: hidden; border: 1px solid var(--line); border-radius: 4px; }

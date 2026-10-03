@@ -5,10 +5,11 @@ import { ComicExplorePage } from "./ComicExplorePage";
 import { dataProvider, getAnimeRankingProvider, getExploreProvider } from "../data";
 import { createExploreRequests } from "../exploreRequests";
 import { EmptyState, ErrorState, IconButton, LoadingState, useOffline } from "../components/common";
-import { MediaVisual } from "../components/MediaVisual";
+import { ExploreCard, ExploreCover } from "../components/ExplorePoster";
 import { useToasts } from "../store";
 import type { ExploreOverview, ExploreSubject, WorkStatus } from "../types";
 import { formatDate, getErrorMessage, statusLabels } from "../utils";
+import { useSessionState } from "../useSessionState";
 import {
   COUR_MONTHS,
   EXPLORE_UNAVAILABLE_MESSAGE,
@@ -93,56 +94,6 @@ const orderTags = (values: string[]) => values
   .sort((left, right) => left.rank - right.rank || left.index - right.index)
   .map((item) => item.value);
 
-/** 浏览器优先加载可见封面，缺失时显示占位。 */
-function ExploreCover({ subject, onNeedsCover }: { subject: ExploreSubject; onNeedsCover?: () => void }) {
-  const [failed, setFailed] = useState(false);
-  /* 地址变化（例如后台缓存完成后从远程 URL 变成本地文件）时重置失败标记。 */
-  useEffect(() => { setFailed(false); }, [subject.coverUrl]);
-
-  /* 后台缓存完成后有限次复查本地地址。 */
-  useEffect(() => {
-    if (!subject.coverUrl || /^https?:/i.test(subject.coverUrl)) onNeedsCover?.();
-  }, [subject.externalId, subject.coverUrl, onNeedsCover]);
-
-  if (subject.coverUrl && !failed) {
-    return (
-      <img
-        className="gnz-explore-cover"
-        src={subject.coverUrl}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        onError={() => { setFailed(true); onNeedsCover?.(); }}
-      />
-    );
-  }
-  return (
-    <span className="gnz-explore-cover is-placeholder">
-      <MediaVisual type="video" coverPath={null} alt={`${subject.title} 的占位封面`} />
-    </span>
-  );
-}
-
-function ExploreCard({ subject, onOpen, onNeedsCover }: { subject: ExploreSubject; onOpen: (subject: ExploreSubject) => void; onNeedsCover?: () => void }) {
-  return (
-    <button type="button" className="gnz-explore-card" onClick={() => onOpen(subject)} aria-label={`查看 ${subject.title} 的条目详情`}>
-      <span className="gnz-explore-poster">
-        <ExploreCover subject={subject} onNeedsCover={onNeedsCover} />
-        {subject.inLibrary ? <span className="gnz-explore-flag"><Library size={12} />入库</span> : null}
-        {subject.favorite ? <span className="gnz-explore-flag is-favorite"><Heart size={12} fill="currentColor" />收藏</span> : null}
-      </span>
-      <span className="gnz-explore-card-body">
-        <strong title={subject.title}>{subject.title}</strong>
-        <span className="gnz-explore-card-meta">{formatScore(subject.score)} · {formatRank(subject.rank)}</span>
-        <span className="gnz-explore-card-sub">{formatBroadcast(subject.airDate, subject.broadcast)}</span>
-        <span className="gnz-explore-card-tags">
-          {subject.genres.length ? subject.genres.slice(0, 3).map((genre) => <em key={genre}>{genre}</em>) : <em className="is-empty">暂无标签</em>}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 export function ExplorePage() {
   const [params] = useSearchParams();
   return params.get("type") === "comic" ? <ComicExplorePage /> : <AnimeExplorePage />;
@@ -154,6 +105,9 @@ function AnimeExplorePage() {
   /** 离线只作低干扰提示：探索数据来自网络，离线时可能只能读缓存或直接失败。 */
   const offline = useOffline();
   const toast = useToasts((state) => state.push);
+  /** 首页「推荐」卡片跳转过来时带 `?subject=<externalId>`，这里负责自动打开对应条目详情。 */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSubject = searchParams.get("subject");
   /** 「全部年份 / 全部月份」时的默认季度：按当前日期取所在季度（1 / 4 / 7 / 10 月）。 */
   const initialCour = useMemo(() => courOf(new Date()), []);
   const [overview, setOverview] = useState<ExploreOverview | null>(() => overviewRequests.cached(null, null) ?? null);
@@ -166,10 +120,17 @@ function AnimeExplorePage() {
   const loadGeneration = useRef(0);
   const [error, setError] = useState("");
   /** `null` = 全部年份 / 全部月份；请求时传 null，由后端规范化到季度。 */
-  const [year, setYear] = useState<number | null>(null);
-  const [month, setMonth] = useState<number | null>(null);
-  const tab: ExploreTab = animeParams.get("tab") === "seasonal" ? "seasonal" : "recommended";
-  const [tag, setTag] = useState<string | null>(null);
+  const [year, setYear] = useSessionState<number | null>("explore.year", null);
+  const [month, setMonth] = useSessionState<number | null>("explore.month", null);
+  const [savedTab, setSavedTab] = useSessionState<ExploreTab>("explore.tab", "recommended");
+  const requestedTab = animeParams.get("tab");
+  const tab: ExploreTab = requestedTab === "seasonal" || requestedTab === "recommended" ? requestedTab : savedTab;
+  useEffect(() => {
+    if (requestedTab !== "seasonal" && requestedTab !== "recommended") {
+      setAnimeParams(previous => { const next = new URLSearchParams(previous); next.set("tab", savedTab); return next; }, { replace: true });
+    } else if (requestedTab !== savedTab) setSavedTab(requestedTab);
+  }, [requestedTab, savedTab, setSavedTab, setAnimeParams]);
+  const [tag, setTag] = useSessionState<string | null>("explore.tag", null);
   /** 标签区默认只显示 3 行，超出时提供「展开全部 / 收起」；裁切高度按实际行高测量。 */
   const tagsRef = useRef<HTMLDivElement>(null);
   const [tagsExpanded, setTagsExpanded] = useState(false);
@@ -377,7 +338,7 @@ function AnimeExplorePage() {
     ? { title: "搜索结果", detail: `「${searchTerm}」共 ${gridSubjects.length} 条` }
     : tab === "seasonal"
       ? { title: "动漫番组", detail: `${courLabel(shownYear, shownMonth)} · 来自 bangumi-data 番组索引` }
-      : { title: "本季热度", detail: `${courLabel(hotYear, hotMonth)} · 按 Bangumi 评分人数与收藏人数排序 · 不受年份 / 季节筛选影响` };
+      : { title: "当季热度", detail: `${courLabel(hotYear, hotMonth)} · 按 Bangumi 评分人数与收藏人数排序 · 不受年份 / 季节筛选影响` };
 
   /** 当前列表仍有缺失 / 远程封面时，安排一次有限次数的静默重读；数据加载中不打扰。 */
   const activeNeedsCover = useMemo(() => needsCoverCache(gridSubjects), [gridSubjects, needsCoverCache]);
@@ -391,7 +352,7 @@ function AnimeExplorePage() {
   }, [filterTags, tag]);
 
   const clearSearch = () => { setSearchTerm(null); setResults([]); setQuery(""); };
-  const openTab = (next: ExploreTab) => { clearSearch(); setAnimeParams(next === "seasonal" ? { tab: next } : {}); };
+  const openTab = (next: ExploreTab) => { clearSearch(); setSavedTab(next); setAnimeParams({ tab: next }); };
   /** 标签筛选（对「推荐」和「动漫」都生效）单独重置。 */
   const resetTagFilter = () => setTag(null);
   /** 动漫的季节 / 年份筛选重置：回到「全部」时按当前日期所在季节取值。 */
@@ -439,6 +400,20 @@ function AnimeExplorePage() {
       setDetailLoading(false);
     }
   }, [provider]);
+
+  /**
+   * 首页「推荐」卡片以 `?subject=<externalId>` 跳到探索页时自动打开该条目：从已加载的列表里
+   * 找到对应条目（列表可能稍后才到，所以依赖 hot / overview 重试），打开后清掉参数，避免返回时重复弹出。
+   */
+  const openedRequestRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!requestedSubject || openedRequestRef.current === requestedSubject) return;
+    const candidate = [...(hot?.trending ?? []), ...(overview?.seasonal ?? [])].find((item) => item.externalId === requestedSubject);
+    if (!candidate) return;
+    openedRequestRef.current = requestedSubject;
+    void openDetail(candidate);
+    setSearchParams({}, { replace: true });
+  }, [requestedSubject, hot, overview, openDetail, setSearchParams]);
 
   const save = async () => {
     if (!provider || !selected || saving) return;
@@ -650,7 +625,7 @@ function AnimeExplorePage() {
       <div className="gnz-primary-tabs" role="tablist" aria-label="探索分类">
         <button type="button" role="tab" aria-selected={tab === "recommended"} className={tab === "recommended" ? "active" : ""} onClick={() => openTab("recommended")}>推荐</button>
         <button type="button" role="tab" aria-selected={tab === "seasonal"} className={tab === "seasonal" ? "active" : ""} onClick={() => openTab("seasonal")}>动漫</button>
-        <button type="button" disabled title="需要新增后端：全年 / 全量动画浏览查询（当前契约只提供动漫番组与热度）">动画<span className="future-badge">Future</span></button>
+        {/* 「动画」Future 标签已移除：与「动漫」语义重复（同一份番组索引 + 热度数据）。 */}
         <Link role="tab" aria-selected={false} to="/explore?type=comic">漫画</Link>
       </div>
 
@@ -731,9 +706,11 @@ function AnimeExplorePage() {
               </div>
             ) : emptyState}
             {!loading && !searching && gridSubjects.length > visibleLimit ? (
-              <button type="button" className="button secondary" onClick={() => setVisibleLimit(limit => limit + 48)}>
-                加载更多作品（已显示 {Math.min(visibleLimit, gridSubjects.length)} / {gridSubjects.length}）
-              </button>
+              <div className="gnz-explore-more">
+                <button type="button" className="button secondary" onClick={() => setVisibleLimit(limit => limit + 48)}>
+                  加载更多作品（已显示 {Math.min(visibleLimit, gridSubjects.length)} / {gridSubjects.length}）
+                </button>
+              </div>
             ) : null}
           </section>
 
@@ -800,7 +777,7 @@ function AnimeExplorePage() {
                   </div>
                 </div>
                 <div className="future-empty">
-                  <p><strong>注目动画 · 最近 30 日标记</strong>没有可靠数据源：现有 Bangumi 每日放送只返回当季条目，不含最近 30 日的标记 / 关注数据，所以不提供入口，也不用排行榜或本季热度冒充。</p>
+                  <p><strong>注目动画 · 最近 30 日标记</strong>没有可靠数据源：现有 Bangumi 每日放送只返回当季条目，不含最近 30 日的标记 / 关注数据，所以不提供入口，也不用排行榜或当季热度冒充。</p>
                   <p>已登记为新增后端能力（见 BACKEND_CAPABILITY_MATRIX 的 EXPLORE-021）；接入后会补在这里。</p>
                 </div>
               </section>

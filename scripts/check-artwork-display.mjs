@@ -68,10 +68,10 @@ try {
       }
       const frame = await page.locator(".poster-frame").first().boundingBox();
       assert.ok(Math.abs(frame.width / frame.height - 2 / 3) < .005);
-      await page.goto(`${base}/#/library/film`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${base}/?qa=film-${width}-${dpr}#/library/film`, { waitUntil: "domcontentloaded" });
       const detail = page.locator(".detail-cover img");
       await detail.waitFor();
-      assert.equal(await detail.evaluate(img => getComputedStyle(img).objectFit), "contain");
+      assert.equal(await detail.evaluate(img => getComputedStyle(img).objectFit), "cover");
       const box = await page.locator(".detail-cover .media-visual").boundingBox();
       const expected = box.width * dpr > 600 || box.height * dpr > 900 ? "/qa/poster-original" : "/qa/poster-thumb";
       await page.waitForFunction(src => document.querySelector(".detail-cover img")?.getAttribute("src") === src, expected);
@@ -92,7 +92,7 @@ try {
         await page.getByRole("button", { name: "重试图片", exact: true }).click();
         await page.waitForFunction(() => document.querySelector(".detail-cover img")?.getAttribute("src") === "/qa/poster-original");
       }
-      await page.goto(`${base}/#/library/no-banner`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${base}/?qa=no-banner-${width}-${dpr}#/library/no-banner`, { waitUntil: "domcontentloaded" });
       await page.locator(".detail-cover img").waitFor();
       assert.equal((await page.locator(".detail-page").getAttribute("style")) || "", "");
       await page.locator(".detail-file-visual").scrollIntoViewIfNeeded();

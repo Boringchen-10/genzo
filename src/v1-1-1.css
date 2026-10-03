@@ -1,28 +1,32 @@
 /* Genzo UI Design v1.1.1 formal implementation layer. */
 :root {
-  --bg: #f3f6f5;
+  /* 主题色色相（由 AppShell 按设置里的「主题色」滑块写入）。下列中性色均以它派生色相，
+     拖动滑块即可整体改变界面底色 / 表面 / 文字 / 描边的色相；饱和度略高于极克制档，
+     在深浅两套主题里都统一、有质感，且能明显读出主题色。--accent-h 缺省值对应默认薄荷绿。 */
+  --accent-h: 158;
+  --bg: hsl(var(--accent-h) 28% 96%);
   --raised: #fff;
-  --bg-raised: #e7edeb;
+  --bg-raised: hsl(var(--accent-h) 28% 92.5%);
   --surface: rgb(255 255 255 / .78);
   --surface-strong: rgb(255 255 255 / .94);
-  --subtle: #e7edeb;
-  --hover: #dfe8e5;
-  --border: rgb(8 20 18 / .14);
-  --border-strong: rgb(8 20 18 / .26);
-  --line: rgb(8 20 18 / .14);
-  --line-strong: rgb(8 20 18 / .26);
-  --text: #16201e;
-  --muted: #42524e;
-  --quiet: #5c6a66;
-  --faint: #5c6a66;
+  --subtle: hsl(var(--accent-h) 28% 92.5%);
+  --hover: hsl(var(--accent-h) 32% 90%);
+  --border: hsl(var(--accent-h) 40% 12% / .15);
+  --border-strong: hsl(var(--accent-h) 40% 12% / .28);
+  --line: hsl(var(--accent-h) 40% 12% / .15);
+  --line-strong: hsl(var(--accent-h) 40% 12% / .28);
+  --text: hsl(var(--accent-h) 26% 12%);
+  --muted: hsl(var(--accent-h) 16% 30%);
+  --quiet: hsl(var(--accent-h) 12% 40%);
+  --faint: hsl(var(--accent-h) 12% 40%);
   --accent: #197a5b;
   --accent-hover: #126348;
   --accent-soft: rgb(25 122 91 / .12);
   --danger: #b64242;
   --warning: #996a1c;
   --success: #197a5b;
-  --tint: 8, 20, 18;
-  --shade: 243, 246, 245;
+  --tint: 10, 31, 23;
+  --shade: 243, 247, 245;
   --win-titlebar: 40px;
   /* 顶部海报与标题栏的渐变融合高度：海报顶端由此淡出到页面底色 */
   --poster-fade: 120px;
@@ -35,35 +39,73 @@
   /* 海报背景的模糊量：跟随设置里的「玻璃模糊」滑块，可调到 0（背景完全清晰） */
   --poster-blur: var(--ui-blur);
   --shadow: 0 18px 44px rgb(8 20 18 / .16);
+  /* 精修：一套材质 / 高度 / 交互底色 token。同级表面、阴影与反馈不再各写散值。
+     --tint 由深浅主题分别定义，故下列 rgba(var(--tint), …) 会随主题自动取色。 */
+  --surface-2: rgba(var(--tint), .035);
+  --surface-3: rgba(var(--tint), .06);
+  --tint-hover: rgba(var(--tint), .05);
+  --tint-active: rgba(var(--tint), .09);
+  --tint-selected: rgba(var(--tint), .14);
+  --elev-1: 0 8px 20px rgb(8 20 18 / .10);
+  --elev-2: 0 12px 30px rgb(8 20 18 / .14);
+  --elev-3: 0 18px 44px rgb(8 20 18 / .18);
+  /* 精修：统一动效（标准 200ms / 小反馈 140ms / 大面板 260ms，同一条缓动曲线）。
+     替代此前 styles.css 里 90–220ms、多条不同 ease 的散值。 */
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --motion-quick: 140ms var(--ease);
+  --motion-base: 200ms var(--ease);
+  --motion-slow: 260ms var(--ease);
+  /* 浮层遮罩（弹窗背板）的模糊量：与面板玻璃（--ui-blur，跟随设置滑块）分离的独立档。 */
+  --blur-scrim: 5px;
+  /* 暗色底层次：极轻的顶部提亮，避免大面积纯黑显平；随滚动停在页面顶端。 */
+  --bg-veil: linear-gradient(180deg, hsl(var(--accent-h) 30% 12% / .055), hsl(var(--accent-h) 30% 12% / 0) 320px);
+  /* 滚动条：WebView2（Chromium）统一走 ::-webkit-scrollbar 一套（见 styles.css 全局规则）。
+     轨道透明、拇指为半透明墨色，悬停加深、拖动时取强调色；以下三档引用 --tint / --accent，
+     随深浅主题自动取色，故无需在 :root.dark 重复定义。 */
+  --scroll-thumb: rgba(var(--tint), .24);
+  --scroll-thumb-hover: rgba(var(--tint), .4);
+  --scroll-thumb-active: color-mix(in srgb, var(--accent) 62%, transparent);
+  /* 让原生控件（复选框 / 单选 / 滑块 / 进度条）随主题取强调色；浅色 scheme 对齐，避免深色主题
+     下出现白块底色与浅色原生滚动条闪一下。 */
+  color-scheme: light;
+  accent-color: var(--accent);
   color: var(--text);
   background: var(--bg);
 }
 
 :root.dark {
-  --bg: #090d0f;
-  --raised: #12191d;
-  --bg-raised: #0f1518;
-  --surface: rgb(17 24 27 / .72);
-  --surface-strong: rgb(18 25 29 / .92);
-  --subtle: #11191c;
-  --hover: #182226;
-  --border: rgb(255 255 255 / .105);
-  --border-strong: rgb(255 255 255 / .18);
-  --line: rgb(255 255 255 / .105);
-  --line-strong: rgb(255 255 255 / .18);
-  --text: #f4f7f6;
-  --muted: #a8b0af;
-  --quiet: #77817f;
-  --faint: #77817f;
+  --bg: hsl(var(--accent-h) 30% 6.5%);
+  --raised: hsl(var(--accent-h) 26% 12%);
+  --bg-raised: hsl(var(--accent-h) 26% 10%);
+  --surface: hsl(var(--accent-h) 26% 11% / .72);
+  --surface-strong: hsl(var(--accent-h) 26% 12% / .92);
+  --subtle: hsl(var(--accent-h) 26% 10.5%);
+  --hover: hsl(var(--accent-h) 28% 15%);
+  --border: hsl(var(--accent-h) 34% 90% / .12);
+  --border-strong: hsl(var(--accent-h) 34% 90% / .2);
+  --line: hsl(var(--accent-h) 34% 90% / .12);
+  --line-strong: hsl(var(--accent-h) 34% 90% / .2);
+  --text: hsl(var(--accent-h) 20% 96%);
+  --muted: hsl(var(--accent-h) 12% 70%);
+  /* 暗色次级文字提亮（原 #77817f）→ 对 --bg 约 6:1，
+     仍低于 --muted，保留层级；用于 10–12px 的说明 / 元信息。 */
+  --quiet: hsl(var(--accent-h) 12% 56%);
+  --faint: hsl(var(--accent-h) 12% 56%);
   --accent: #75d2ad;
   --accent-hover: #8bdfbd;
   --accent-soft: rgb(117 210 173 / .12);
   --danger: #ff8e8e;
   --warning: #e8ba64;
   --success: #75d2ad;
-  --tint: 255, 255, 255;
-  --shade: 9, 13, 15;
+  --tint: 229, 240, 236;
+  --shade: 12, 22, 18;
   --shadow: 0 18px 46px rgb(0 0 0 / .42);
+  --elev-1: 0 8px 20px rgb(0 0 0 / .30);
+  --elev-2: 0 12px 30px rgb(0 0 0 / .38);
+  --elev-3: 0 18px 46px rgb(0 0 0 / .48);
+  /* 暗色底：近黑之上叠一层极轻的白色顶光，让整页不再是均匀死黑。 */
+  --bg-veil: linear-gradient(180deg, hsl(var(--accent-h) 40% 82% / .06), hsl(var(--accent-h) 40% 82% / 0) 360px);
+  color-scheme: dark;
 }
 
 body { background: var(--bg); }
@@ -102,7 +144,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .window-identity { min-width: 90px; padding-left: 14px; gap: 7px; font-size: 12px; font-weight: 650; }
 .window-identity img { display: none; }
 .window-control { width: 46px; height: 39px; color: var(--muted); background: transparent; border: 0; border-radius: 0; }
-.window-control:hover, .window-control:focus-visible { color: var(--text); background: rgba(var(--tint), .07); }
+.window-control:hover, .window-control:focus-visible { color: var(--text); background: var(--tint-hover); }
 .window-control-close:hover, .window-control-close:focus-visible { color: #fff; background: #c42b1c; }
 /* 首页顶部工具条挂进标题栏，紧邻窗口控制按钮的左侧。
    元素由 HomePage 用 portal 渲染进 #window-titlebar-tools，因此这里是标题栏上下文里的紧凑尺寸。 */
@@ -114,10 +156,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   color: var(--muted);
   background: rgba(var(--shade), .52);
   border-color: rgba(var(--tint), .1);
-  border-radius: 7px;
+  border-radius: var(--ui-radius);
   backdrop-filter: blur(var(--ui-blur));
 }
-.window-tools .seanime-home-toolbar .icon-button:hover:not(:disabled) { color: var(--text); background: rgba(var(--tint), .12); }
+.window-tools .seanime-home-toolbar .icon-button:hover:not(:disabled) { color: var(--text); background: var(--tint-active); }
 .window-tools .seanime-library-count {
   display: inline-flex;
   align-items: center;
@@ -127,7 +169,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   color: var(--muted);
   background: rgba(var(--shade), .52);
   border: 1px solid rgba(var(--tint), .1);
-  border-radius: 7px;
+  border-radius: var(--ui-radius);
   font-size: 11px;
   white-space: nowrap;
   backdrop-filter: blur(var(--ui-blur));
@@ -139,7 +181,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   z-index: 120;
   grid-row: 2;
   width: 75px;
-  padding: 20px 11px 14px;
+  padding: 20px 9px 14px;
   color: var(--muted);
   /* 默认与标题栏同源：透明度由「顶部栏透明度」控制，0 时完全融入海报背景 */
   background: rgba(var(--shade), var(--topbar-opacity));
@@ -149,18 +191,19 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 }
 .sidebar:hover, .sidebar:focus-within { width: 75px; background: rgba(var(--shade), calc(var(--topbar-opacity) + .05)); box-shadow: none; }
 /* 侧栏顶部品牌标志已移除：导航从侧栏顶部起排（见 AppShell）。 */
-.nav-list { width: 53px; gap: 7px; }
+.nav-list { width: 57px; gap: 8px; }
 .nav-list a, .sidebar:hover .nav-list a, .sidebar:focus-within .nav-list a {
-  display: flex; flex-direction: column; justify-content: center; width: 53px; height: 52px; gap: 3px; padding: 0;
-  color: var(--quiet); border: 1px solid transparent; border-radius: 7px; overflow: visible;
+  display: flex; flex-direction: column; justify-content: center; width: 57px; height: 58px; gap: 5px; padding: 0;
+  color: var(--quiet); border: 1px solid transparent; border-radius: var(--ui-radius); overflow: visible;
 }
-.nav-list a svg { width: 19px; height: 19px; }
-.nav-list a span, .sidebar:hover .nav-list a span, .sidebar:focus-within .nav-list a span { opacity: 1; font-size: 10px; }
-.nav-list a:hover { color: var(--text); background: rgba(var(--tint), .045); }
-.nav-list a.active { color: var(--text); background: var(--surface-strong); border-color: var(--line-strong); }
-.nav-list a.active::before { left: -12px; width: 3px; height: 27px; background: var(--accent); }
+.nav-list a svg { width: 22px; height: 22px; }
+.nav-list a span, .sidebar:hover .nav-list a span, .sidebar:focus-within .nav-list a span { opacity: 1; font-size: 11px; }
+.nav-list a:hover { color: var(--text); background: var(--tint-hover); }
+.nav-list a.active { color: var(--text); background: transparent; border-color: transparent; }
+.nav-list a.active:hover { background: var(--tint-hover); }
+.nav-list a.active::before { left: -9px; width: 3px; height: 27px; background: var(--accent); }
 .sidebar-foot { display: none; }
-.main-content { grid-row: 2; background: var(--bg); }
+.main-content { grid-row: 2; background: var(--bg-veil, none), var(--bg); }
 /* 首页沉浸式：主内容铺满整个窗口（含标题栏与侧栏下方），海报自然延伸到顶部栏 / 侧栏之后 */
 .is-home-route .main-content { grid-column: 1 / -1; grid-row: 1 / -1; background: transparent; }
 
@@ -169,7 +212,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .page-header h1 { font-size: 39px; line-height: 1.1; }
 .page-header p { margin-top: 15px; font-size: 14px; }
 .page-actions { padding-top: 4px; }
-.button, select, input, textarea, .icon-button, .filter-toggle { border-radius: 7px; }
+.page-actions .film-tv-batch { align-items: center; }
+.page-actions .film-tv-batch > .button { min-height: 42px; }
+.page-actions .film-tv-batch > select { height: 42px; }
+.button, select, input, textarea, .icon-button, .filter-toggle { border-radius: var(--ui-radius); }
 .button { min-height: 42px; padding: 0 17px; font-size: 13px; }
 .button.compact { min-height: 34px; padding-inline: 11px; }
 .button.primary { color: #092118; background: var(--accent); border-color: var(--accent); }
@@ -181,7 +227,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 /* Home */
 .gnz-home { height: 100%; min-height: 600px; overflow: auto; background: var(--bg); }
 .gnz-home .seanime-banner { height: clamp(540px, 84vh, 960px); min-height: 540px; overflow: hidden; background: var(--bg); border-bottom: 0; }
-.gnz-home .seanime-banner.has-banner { height: clamp(560px, 68vh, 820px); min-height: 560px; }
+.gnz-home .seanime-banner.has-banner { height: clamp(560px, 80vh, 960px); min-height: 560px; }
 /* 横版横幅只负责环境背景；竖版封面保持原始比例作为清晰主视觉。 */
 .gnz-home .seanime-banner-image { inset: -6%; opacity: .65; filter: blur(max(28px, var(--poster-blur))) saturate(.8) brightness(.9); background-position: center; background-repeat: no-repeat; background-size: cover; }
 .gnz-home .seanime-banner.has-banner .seanime-banner-image { inset: 0; opacity: .92; filter: none; background-position: center center; background-size: cover; background-repeat: no-repeat; background-color: var(--bg); }
@@ -200,7 +246,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
    选择器带 `.app-frame` 前缀，确保在窄窗口媒体查询（`left`）之后仍生效。 */
 .app-frame.is-home-route .gnz-home { background: transparent; }
 .app-frame.is-home-route .gnz-home .seanime-banner { background: transparent; }
-.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(180deg, transparent 18%, rgb(5 8 10 / .08) 40%, color-mix(in srgb, var(--bg) 82%, transparent) 70%, var(--bg) 100%); }
+.app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(180deg, transparent 30%, rgb(5 8 10 / .06) 58%, color-mix(in srgb, var(--bg) 76%, transparent) 92%, var(--bg) 100%); }
 :root:not(.dark) .app-frame.is-home-route .gnz-home .seanime-banner::after { background: linear-gradient(0deg, var(--bg) 0, transparent var(--poster-fade-bottom)), linear-gradient(0deg, rgb(243 246 245 / .2), transparent 40%); }
 .app-frame.is-home-route .gnz-home .seanime-banner-title { left: calc(75px + 44px); }
 /* 没有真实横版横幅时：不再把竖版封面铺成整幅背景（移除首页背景中的大海报），
@@ -217,6 +263,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .app-frame.is-home-route .seanime-home-state { padding: calc(var(--win-titlebar) + 20px) 30px 30px calc(75px + 30px); }
 .app-frame.is-home-route .gnz-home-shelf { background: var(--bg); }
 .app-frame.is-home-route .gnz-home-shelf { padding-left: calc(75px + 44px); }
+.app-frame.is-home-route .gnz-home-recommend { background: var(--bg); padding-left: calc(75px + 44px); }
 .gnz-home .seanime-banner-title { left: 44px; bottom: 60px; width: min(660px, 58vw); max-width: none; color: var(--text); text-shadow: none; }
 .gnz-home .seanime-banner-title > span { color: var(--accent); font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1.4px; }
 .gnz-home .seanime-banner-title h1 { margin-top: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; max-width: min(660px, calc(100vw - 420px)); overflow: hidden; color: var(--text); font-size: clamp(32px, 3.6vw, 56px); line-height: 1.15; white-space: normal; }
@@ -234,24 +281,24 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-switcher-items strong, .gnz-switcher-items small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gnz-switcher-items strong { font-size: 12px; }
 .gnz-switcher-items small { margin-top: 3px; color: var(--muted); font-size: 10px; }
-.gnz-switcher-thumb { position: relative; width: 100%; height: auto; aspect-ratio: 2 / 3; overflow: hidden; background: var(--subtle); border-radius: var(--ui-radius); outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 12px 26px rgb(0 0 0 / .45); transform: translateZ(0); transition: outline-color 180ms ease, transform 180ms ease; }
+.gnz-switcher-thumb { position: relative; width: 100%; height: auto; aspect-ratio: 2 / 3; overflow: hidden; background: var(--subtle); border-radius: var(--ui-radius); outline: 2px solid transparent; outline-offset: 2px; box-shadow: var(--elev-2); transform: translateZ(0); transition: outline-color var(--motion-base), transform var(--motion-base); }
 .gnz-switcher-thumb img, .gnz-switcher-thumb .media-placeholder { width: 100%; height: 100%; object-fit: cover; }
 .gnz-switcher-items button:hover .gnz-switcher-thumb { transform: translateY(-3px); }
 .gnz-switcher-items button.active .gnz-switcher-thumb { outline-color: var(--accent); }
 .gnz-switcher-items button.active strong { color: var(--accent); }
-.gnz-home-shelf { padding: 10px 44px 70px; }
-.gnz-home-shelf .section-heading { align-items: flex-end; margin: 12px 0 17px; }
+.gnz-home-shelf { padding: 2px 44px 70px; }
+.gnz-home-shelf .section-heading { align-items: flex-end; margin: 4px 0 17px; }
 .gnz-home-shelf .section-heading h2 { font-size: 27px; }
 .gnz-home-shelf .section-heading a { color: var(--muted); font-size: 12px; }
 .gnz-shelf-filters { display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
 .gnz-shelf-filters::-webkit-scrollbar { display: none; }
-.gnz-shelf-filters button { flex: none; min-height: 36px; padding: 0 14px; color: var(--muted); background: rgba(var(--tint), .035); border: 1px solid var(--line); border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; transition: color 180ms ease, border-color 180ms ease, background 180ms ease; }
+.gnz-shelf-filters button { flex: none; min-height: 36px; padding: 0 14px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; transition: color var(--motion-base), border-color var(--motion-base), background var(--motion-base); }
 .gnz-shelf-filters button:hover { color: var(--text); border-color: var(--line-strong); }
 .gnz-shelf-filters button.active { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); }
 .gnz-shelf-filters button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.gnz-shelf-grid { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 22px; }
+.gnz-shelf-grid { display: grid; grid-template-columns: repeat(var(--shelf-cols, 7),minmax(0,1fr)); gap: 22px; }
 .gnz-shelf-card { min-width: 0; color: var(--text); text-decoration: none; }
-.gnz-shelf-poster { position: relative; display: block; overflow: hidden; aspect-ratio: 2 / 3; background: var(--surface); border: 1px solid var(--line); border-radius: var(--ui-radius); transition: border-color 180ms ease; }
+.gnz-shelf-poster { position: relative; display: block; overflow: hidden; aspect-ratio: 2 / 3; background: var(--surface); border: 1px solid var(--line); border-radius: var(--ui-radius); transition: border-color var(--motion-base); }
 .gnz-shelf-poster img, .gnz-shelf-poster .media-placeholder { width: 100%; height: 100%; object-fit: cover; }
 .gnz-shelf-poster::after { position: absolute; inset: 0; content: ""; background: linear-gradient(0deg, rgb(4 7 8 / .72), transparent 45%); pointer-events: none; }
 .gnz-shelf-type { position: absolute; z-index: 1; left: 9px; bottom: 9px; padding: 3px 7px; color: #dfe5e3; background: rgba(9,13,15,.74); border: 1px solid var(--line); border-radius: 4px; font-size: 11px; }
@@ -263,6 +310,14 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-shelf-card:hover .gnz-shelf-poster { border-color: var(--line-strong); }
 .gnz-shelf-card:focus-visible { outline: none; }
 .gnz-shelf-card:focus-visible .gnz-shelf-poster { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 首页「推荐」：直接复用探索页的海报卡片与网格（.gnz-explore-card* / .gnz-explore-grid），
+   卡片尺寸与探索页推荐完全一致。出现在书架之后时，收窄书架的底部留白，避免两段间距叠加。 */
+.gnz-home.has-recommend .gnz-home-shelf { padding-bottom: 34px; }
+.gnz-home-recommend { padding: 2px 44px 70px; }
+.gnz-home-recommend .section-heading { align-items: flex-end; margin: 4px 0 17px; }
+.gnz-home-recommend .section-heading h2 { font-size: 27px; }
+.gnz-home-recommend .section-heading a { color: var(--muted); font-size: 12px; }
 
 /* Shared page tabs and headers */
 .gnz-primary-tabs { display: flex; gap: 8px; min-height: 58px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
@@ -291,20 +346,26 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .root-result { background: var(--surface); }
 .scan-embedded .content-section { margin-top: 28px; }
 .library-toolbar { margin-top: 22px; background: transparent; border: 0; }
-.gnz-inbox-note { margin: 18px 0; padding: 12px 14px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; font-size: 12px; line-height: 1.6; }
+.gnz-inbox-note { margin: 18px 0; padding: 12px 14px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: var(--ui-radius); font-size: 12px; line-height: 1.6; }
 .gnz-inbox-hidden { display: block; margin-top: 6px; color: var(--quiet); }
 .unassigned-section { margin-top: 22px; padding: 0; background: transparent; border: 0; }
-.unassigned-table, .work-list, .history-table { overflow: hidden; border: 1px solid var(--line); border-radius: 7px; }
+.unassigned-table, .work-list, .history-table { overflow: hidden; border: 1px solid var(--line); border-radius: var(--ui-radius); }
 .unassigned-head, .work-list-head, .history-head { background: var(--surface); }
 .unassigned-row { min-height: 84px; background: var(--bg); }
-.comic-folder-card { border-radius: 7px; background: var(--surface); }
+.comic-folder-card { border-radius: var(--ui-radius); background: var(--surface); }
 .work-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 22px 15px; }
-.work-card { padding: 0; background: transparent; border: 0; border-radius: 7px; box-shadow: none; }
+.work-card { padding: 0; background: transparent; border: 0; border-radius: var(--ui-radius); box-shadow: none; }
 .work-card:hover { background: transparent; transform: translateY(-2px); }
-.poster-frame { border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 10px 25px rgb(0 0 0 / .16); }
+.poster-frame { border: 1px solid var(--line); border-radius: var(--ui-radius); box-shadow: var(--elev-1); }
 .poster-frame .media-cover { image-rendering: auto; filter: none; }
 .work-card-info { padding: 10px 1px 0; }
 .work-card-info > strong { font-size: 13px; }
+/* 大库滚动性能：视口外的海报卡 / 列表行 / 待整理行跳过布局与绘制。
+   `contain-intrinsic-size: auto <length>` 先用占位高度撑住滚动条，渲染过一次后
+   浏览器会记住真实高度，避免滚动条跳动。 */
+.work-grid > .work-card { content-visibility: auto; contain-intrinsic-size: auto 300px; }
+.work-list > .work-list-row { content-visibility: auto; contain-intrinsic-size: auto 64px; }
+.inbox-tree > .inbox-folder, .inbox-tree > .inbox-file { content-visibility: auto; contain-intrinsic-size: auto 64px; }
 .type-badge, .favorite-mark { border-radius: 4px; }
 .gnz-favorite-grid { margin-top: 8px; }
 .gnz-header-search { width: min(320px, 32vw); }
@@ -313,7 +374,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-compact-header { display: grid; grid-template-columns: 1fr 320px 40px; align-items: center; gap: 16px; min-height: 52px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
 .gnz-compact-header > div:first-child strong, .gnz-compact-header > div:first-child span { display: block; }
 .gnz-compact-header > div:first-child span { margin-top: 3px; color: var(--quiet); font-size: 10px; }
-.gnz-disabled-search { display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 13px; color: var(--quiet); border: 1px solid var(--line); border-radius: 7px; opacity: .7; }
+.gnz-disabled-search { display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 13px; color: var(--quiet); border: 1px solid var(--line); border-radius: var(--ui-radius); opacity: .7; }
 .gnz-disabled-search input { width: 100%; height: auto; padding: 0; background: transparent; border: 0; }
 .gnz-explore-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; padding: 24px 0 18px; }
 .gnz-explore-intro h1 { margin-top: 8px; font-size: 37px; }
@@ -323,7 +384,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .gnz-explore-season span { margin-top: 5px; color: var(--quiet); }
 .gnz-explore-trending { margin-top: 26px; }
 .gnz-trending-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 12px; }
-.gnz-trending-card { position: relative; aspect-ratio: 1.55; overflow: hidden; background-image: linear-gradient(0deg,rgb(5 8 9 / .92),transparent 62%), var(--sample-image); background-size: cover; background-position: var(--sample-position) center; border: 1px solid var(--line); border-radius: 7px; }
+.gnz-trending-card { position: relative; aspect-ratio: 1.55; overflow: hidden; background-image: linear-gradient(0deg,rgb(5 8 9 / .92),transparent 62%), var(--sample-image); background-size: cover; background-position: var(--sample-position) center; border: 1px solid var(--line); border-radius: var(--ui-radius); }
 .gnz-trending-card > div { position: absolute; inset: auto 13px 12px; color: #f4f7f6; }
 .gnz-trending-card strong, .gnz-trending-card span { display: block; }
 .gnz-trending-card span { margin-top: 5px; color: #c7cecc; font-size: 10px; }
@@ -335,7 +396,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
    · ::after —— 文字遮罩（左侧 + 顶部 + 底部三层渐变），保证正文可读。
    这里曾经在前面叠了一层 contain 前景横幅，同一张图出现两种缩放，右侧就会看到一道竖直接缝；
    现在只保留这一层，不再有叠层。 */
-.detail-backdrop { position: absolute; z-index: -2; inset: 0 0 auto; height: 460px; overflow: hidden; background-color: var(--bg-raised); }
+.detail-backdrop { position: absolute; z-index: -2; inset: 0 0 auto; height: 560px; overflow: hidden; background-color: var(--bg-raised); }
 /* 环境层：模糊量跟随设置里的「玻璃模糊」（0 = 背景完全清晰）。 */
 .detail-backdrop::before { position: absolute; inset: -6% -4%; content: ""; background-image: var(--detail-artwork, none); background-position: center 30%; background-size: cover; background-repeat: no-repeat; opacity: .6; filter: blur(var(--poster-blur)) saturate(.92); }
 .detail-backdrop::after { position: absolute; inset: 0; content: ""; background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 66%, transparent) 0, transparent 52%), linear-gradient(180deg, var(--bg) 0, transparent var(--poster-fade)), linear-gradient(180deg, color-mix(in srgb,var(--bg) 46%,transparent) 0%, color-mix(in srgb,var(--bg) 74%,transparent) 58%, var(--bg) 100%); }
@@ -352,17 +413,18 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
    正文整体让开标题栏与侧栏，几何关系与改动前一致，只是向上平移了一个标题栏高度。 */
 .app-frame.is-detail-route .main-content { grid-column: 1 / -1; grid-row: 1 / -1; background: transparent; }
 .app-frame.is-detail-route .detail-page { background: transparent; }
-.app-frame.is-detail-route .detail-backdrop { height: calc(460px + var(--win-titlebar)); }
+.app-frame.is-detail-route .detail-backdrop { height: calc(560px + var(--win-titlebar)); }
 .app-frame.is-detail-route .detail-inner { padding: calc(var(--win-titlebar) + 24px) 34px 72px calc(75px + 34px); }
 .app-frame.is-detail-route .detail-backdrop::after {
-  background: linear-gradient(180deg, transparent 0, color-mix(in srgb, var(--bg) 34%, transparent) 46%, var(--bg) 100%);
+  background: linear-gradient(180deg, transparent 0, color-mix(in srgb, var(--bg) 34%, transparent) 54%, var(--bg) 100%);
 }
 .app-frame.is-detail-route .detail-page.has-detail-banner .detail-backdrop::after {
-  background: linear-gradient(180deg, transparent 0, color-mix(in srgb, var(--bg) 30%, transparent) 46%, var(--bg) 100%);
+  background: linear-gradient(180deg, transparent 0, color-mix(in srgb, var(--bg) 30%, transparent) 54%, var(--bg) 100%);
 }
 .detail-inner { position: relative; width: 100%; padding: 24px 34px 72px; }
 .detail-topbar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; min-height: 40px; margin-bottom: 72px; }
 .detail-topbar .icon-button { width: 40px; height: 40px; background: rgba(var(--shade), .58); border-color: var(--line); backdrop-filter: blur(var(--ui-blur)); }
+.detail-topbar .button { min-height: 40px; }
 .detail-topbar strong { color: var(--muted); font-size: 13px; }
 .detail-topbar-fill { flex: 1; }
 .detail-hero { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: 32px; align-items: end; min-height: 330px; padding: 0; border: 0; }
@@ -377,7 +439,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .detail-toprow { display: grid; grid-template-columns: minmax(0,440px) minmax(0,1fr); gap: 16px; align-items: start; }
 .detail-toprow-left { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .ratings { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
-.rating-card { min-height: 72px; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: rgba(var(--tint), .045); }
+.rating-card { min-height: 72px; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: var(--surface-2); }
 .rating-card.unavailable { opacity: .72; }
 .rating-label { display: block; color: var(--quiet); font-size: 10.5px; }
 .rating-value { display: flex; align-items: center; gap: 7px; margin-top: 4px; }
@@ -390,7 +452,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .detail-about { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .detail-description { max-width: none; margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .detail-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.detail-tag { padding: 6px 10px; color: var(--muted); background: rgba(var(--tint), .045); border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }
+.detail-tag { padding: 6px 10px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }
 /* 简介裁到 3 行。用 block + max-height（而不是 -webkit-line-clamp）：普通块的 scrollHeight 是可靠的溢出判据，
    而 line-clamp 在首次布局时可能量不出「其实已经溢出」，会让「查看详情」入口时有时无。高度按行高整数倍取，不会露出半行。 */
 .detail-about .detail-description { display: block; max-height: calc(3 * 1.7em); overflow: hidden; }
@@ -402,12 +464,12 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .about-detail .detail-description { max-height: none; overflow: visible; }
 .about-detail .detail-tags { flex-wrap: wrap; }
 .muted-tag { color: var(--quiet); }
-.notes-panel { display: grid; gap: 10px; min-width: 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: rgba(var(--tint), .035); }
+.notes-panel { display: grid; gap: 10px; min-width: 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: var(--surface-2); }
 .notes-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .notes-head h2 { margin: 0; font-size: 15px; }
 .notes-badge { flex: none; color: var(--quiet); font-size: 11px; }
 .notes-label { font-size: 13px; font-weight: 600; }
-.notes-panel textarea { width: 100%; height: auto; min-height: 96px; max-height: 320px; resize: none; overflow-y: auto; padding: 12px; color: var(--text); background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: 6px; line-height: 1.6; }
+.notes-panel textarea { width: 100%; height: auto; min-height: 96px; max-height: 320px; resize: none; overflow-y: auto; padding: 12px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; line-height: 1.6; }
 .notes-panel textarea::placeholder { color: var(--quiet); }
 .notes-foot { display: flex; align-items: center; gap: 10px; }
 .notes-hint { color: var(--quiet); font-size: 11.5px; }
@@ -418,7 +480,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .episode-summary, .metadata-source { flex: none; color: var(--quiet); font-size: 11px; white-space: nowrap; }
 .episode-summary strong { color: var(--text); font-variant-numeric: tabular-nums; }
 .episode-grid.file-table { display: grid; grid-template-columns: repeat(auto-fill,minmax(170px,1fr)); gap: 12px; overflow: visible; background: transparent; border: 0; border-radius: 0; }
-.file-row.detail-file-card { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 7px 8px; min-width: 0; min-height: 0; padding: 7px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); font-size: 11px; }
+.file-row.detail-file-card { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 7px 8px; min-width: 0; min-height: 0; padding: 7px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--ui-radius); font-size: 11px; }
 .detail-file-visual { grid-column: 1 / -1; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--line); border-radius: max(2px,calc(var(--ui-radius) - 3px)); }
 .detail-file-visual .media-placeholder { gap: 4px; }
 .detail-file-visual .media-placeholder svg { width: 22px; height: 22px; }
@@ -429,7 +491,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .file-availability { display: inline-flex; align-items: center; gap: 4px; align-self: center; font-size: 10px; }
 .file-row.detail-file-card .file-actions { align-items: center; }
 .file-row.detail-file-card .menu-popover { z-index: 50; }
-.match-panel { display: grid; gap: 10px; padding: 18px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: rgba(var(--tint), .035); }
+.match-panel { display: grid; gap: 10px; padding: 18px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: var(--surface-2); }
 .match-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .match-head h2 { margin: 0; font-size: 15px; }
 .match-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; color: var(--accent); background: var(--accent-soft); border: 1px solid color-mix(in srgb,var(--accent) 32%,transparent); border-radius: 999px; font-size: 11px; white-space: nowrap; }
@@ -438,8 +500,9 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .match-desc { color: var(--muted); }
 .match-desc strong { color: var(--text); }
 .match-result { color: var(--quiet); }
-.match-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.match-panel-actions .button { min-height: 38px; }
+.match-panel-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.match-panel-actions .button { min-height: 38px; padding: 0 12px; }
+.match-panel-actions > .button:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .detail-metadata-panel { display: block; }
 .detail-metadata-panel .metadata-grid { display: grid; grid-template-columns: 1fr; gap: 0; margin: 10px 0 0; }
 .detail-metadata-panel .metadata-grid > div { min-width: 0; padding: 9px 0; border-top: 1px solid var(--line); }
@@ -453,12 +516,12 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .fact span, .fact strong { display: block; }
 .fact span { color: var(--quiet); font-size: 12px; }
 .fact strong { margin-top: 5px; font-size: 14px; }
-.future-empty { padding: 18px; color: var(--quiet); background: rgba(var(--tint), .025); border: 1px dashed var(--line-strong); border-radius: var(--ui-radius); font-size: 13px; line-height: 1.6; }
+.future-empty { padding: 18px; color: var(--quiet); background: var(--surface-2); border: 1px dashed var(--line-strong); border-radius: var(--ui-radius); font-size: 13px; line-height: 1.6; }
 
 /* Tools */
 .tools-page .info-band { background: var(--surface); border-color: var(--line); }
 .tool-list { border-top: 1px solid var(--line); }
-.tool-icon { border-radius: 7px; }
+.tool-icon { border-radius: var(--ui-radius); }
 /* These list containers round their corners with overflow: hidden in styles.css,
    which also clips the tooltips of the icon buttons inside them — the first row's
    tooltip opens upward past the container's top edge and the right-most one's
@@ -479,7 +542,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .drawer-header.drawer-head h1 { margin: 0; font-size: 24px; line-height: 1.2; }
 .drawer-header.drawer-head .close { width: 40px; height: 40px; margin-left: auto; }
 .drawer-body { flex: 1; min-height: 0; padding: 0 24px 40px; overflow: auto; }
-.settings-drawer-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 20px; padding: 4px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.settings-drawer-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 20px; padding: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--ui-radius); }
 .settings-drawer-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 38px; color: var(--muted); background: transparent; border: 0; border-radius: max(3px,calc(var(--ui-radius) - 2px)); font-size: 12px; }
 .settings-drawer-tabs button.active { color: #092118; background: var(--accent); }
 :root:not(.dark) .settings-drawer-tabs button.active { color: #fff; }
@@ -493,19 +556,19 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .accent-row { display: flex; align-items: center; gap: 12px; }
 .accent-row input { flex: 1; min-width: 0; }
 .accent-preview { width: 36px; height: 36px; flex: 0 0 36px; background: var(--accent); border: 1px solid var(--line-strong); border-radius: var(--ui-radius); }
-.settings-panel .theme-choice { display: grid; grid-template-columns: repeat(3,1fr); width: 100%; padding: 3px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.settings-panel .theme-choice { display: grid; grid-template-columns: repeat(3,1fr); width: 100%; padding: 3px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--ui-radius); }
 .settings-panel .theme-choice button { justify-content: center; min-width: 0; height: 34px; padding: 0 6px; font-size: 11px; }
-.settings-panel .theme-choice button.active { color: var(--text); background: rgba(var(--tint), .09); }
+.settings-panel .theme-choice button.active { color: var(--text); background: var(--tint-active); }
 .settings-reset { margin-top: 4px; }
-.settings-local { margin-top: 30px; }
+.settings-local { margin-top: 0; }
 .settings-local-head { display: flex; align-items: flex-start; gap: 9px; padding-bottom: 13px; }
 .settings-local-head > svg { color: var(--accent); }
 .settings-local-head h2 { font-size: 14px; }
 .settings-local-head p { margin-top: 4px; color: var(--quiet); font-size: 11px; }
 .settings-local .compact-setting .switch-field { justify-content: flex-start; font-weight: 400; }
-.local-paths code { display: block; overflow: hidden; padding: 8px 9px; color: var(--muted); background: rgba(var(--tint), .025); border: 1px solid var(--line); border-radius: 5px; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.local-paths code { display: block; overflow: hidden; padding: 8px 9px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .local-paths .button { justify-self: start; min-height: 38px; }
-.modal-backdrop { z-index: 400; background: rgb(3 6 8 / .66); backdrop-filter: blur(5px); }
+.modal-backdrop { z-index: 400; background: rgb(3 6 8 / .66); backdrop-filter: blur(var(--blur-scrim, 5px)); }
 .modal { max-height: min(90vh, calc(100vh - 88px)); background: rgb(255 255 255 / .985); border-color: var(--line-strong); border-radius: 8px; outline: 0; }
 :root.dark .modal { background: rgb(18 25 29 / .985); }
 .modal-header { position: sticky; z-index: 2; top: 0; background: inherit; }
@@ -523,17 +586,19 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
    逐级收窄标题与海报栏，保证两者不重叠（首页沉浸式标题左移让开侧栏，需单独覆盖）。 */
 @media (max-width: 1360px) {
   .gnz-home .seanime-banner-title { width: min(560px, 50vw); }
-  .gnz-home-switcher { max-width: min(400px, 32vw); }
+  .gnz-home-switcher { max-width: min(420px, 34vw); }
   .gnz-switcher-items > button { width: 92px; }
 }
 
 @media (max-width: 1180px) {
   .app-frame { grid-template-columns: 75px minmax(0,1fr); }
-  .sidebar { width: 75px; padding-inline: 11px; }
+  .sidebar { width: 75px; padding-inline: 9px; }
   .page { padding-inline: 30px; }
   .gnz-home .seanime-banner-title { left: 34px; width: min(560px, 52vw); }
   .gnz-home-switcher { right: 34px; }
   .gnz-home-shelf { padding-inline: 34px; }
+  .gnz-home-recommend { padding-inline: 34px; }
+  .playback-history.is-home { padding-inline: 34px; }
   .gnz-trending-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
   .gnz-trending-card:nth-child(5) { display: none; }
   .root-row { grid-template-columns: minmax(220px,1fr) 110px 100px 150px; }
@@ -548,6 +613,8 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
   .gnz-home .seanime-banner-title > p { font-size: 13px; }
   .gnz-home-switcher { right: 28px; }
   .gnz-home-shelf { padding-inline: 28px; }
+  .gnz-home-recommend { padding-inline: 28px; }
+  .playback-history.is-home { padding-inline: 28px; }
   .gnz-source-heading { align-items: flex-start; }
   .gnz-source-heading .page-actions { max-width: 270px; }
   .root-row { grid-template-columns: minmax(210px,1fr) 108px 145px; }
@@ -573,19 +640,60 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  /* 加载指示器承载「操作正在进行」的状态信息：停转会被误读为界面卡死，
+     故它是全站唯一在「减少动态效果」下仍保留动画的元素（装饰性过渡照常折叠）。 */
+  .spin { animation-duration: 900ms !important; }
 }
 
-/* 书架海报列数：窄窗口逐级减列，海报始终保持 2:3，不被压扁 */
-@media (max-width: 1180px) {
-  .gnz-shelf-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
+/* 系统偏好兜底：以下两段只在用户于 Windows「辅助功能」里打开对应开关时生效，
+   默认环境下不改变任何观感（见 DESIGN_CHANGELOG UX-008..010）。 */
+
+/* 「透明效果」关闭 / 省电模式：毛玻璃失去可读性优势，改为不透明底色并关闭 backdrop-filter
+   （同时省去持续的合成开销）。侧栏原本靠透明度融入海报，这里取「不透明度」与 95% 的较大者。 */
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar, .settings-drawer, .modal-backdrop, .detail-topbar .icon-button,
+  .seanime-play, .seanime-home-toolbar .icon-button, .seanime-library-count {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .sidebar { background: rgba(var(--shade), max(var(--topbar-opacity), .95)); }
+  .settings-drawer { background: rgba(var(--shade), .985); }
+  .modal-backdrop { background: rgb(3 6 8 / .8); }
+  .detail-topbar .icon-button,
+  .window-tools .seanime-home-toolbar .icon-button,
+  .window-tools .seanime-library-count { background: rgba(var(--shade), .88); }
 }
 
+/* 「对比度增强」：把次级文字与描边提到更高对比，仍保留 muted > quiet/faint 的层级。 */
+@media (prefers-contrast: more) {
+  :root {
+    --border: hsl(var(--accent-h) 40% 12% / .34);
+    --border-strong: hsl(var(--accent-h) 40% 12% / .52);
+    --line: hsl(var(--accent-h) 40% 12% / .34);
+    --line-strong: hsl(var(--accent-h) 40% 12% / .52);
+    --muted: hsl(var(--accent-h) 16% 20%);
+    --quiet: hsl(var(--accent-h) 14% 23%);
+    --faint: hsl(var(--accent-h) 14% 23%);
+  }
+  :root.dark {
+    --border: hsl(var(--accent-h) 34% 90% / .30);
+    --border-strong: hsl(var(--accent-h) 34% 90% / .46);
+    --line: hsl(var(--accent-h) 34% 90% / .30);
+    --line-strong: hsl(var(--accent-h) 34% 90% / .46);
+    --muted: hsl(var(--accent-h) 12% 82%);
+    --quiet: hsl(var(--accent-h) 11% 72%);
+    --faint: hsl(var(--accent-h) 11% 72%);
+  }
+}
+
+/* 书架海报列数由 --shelf-cols（设置 + 窗口宽度）控制，海报始终保持 2:3，不被压扁；
+   窄窗口只收紧间距。 */
 @media (max-width: 900px) {
-  .gnz-shelf-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+  .gnz-shelf-grid { gap: 16px; }
 }
 
 @media (max-width: 600px) {
-  .gnz-shelf-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .gnz-shelf-grid { gap: 12px; }
 }
 
 /* ---------- 动画分集结构：官方分集 / 本地多版本 / 未匹配文件 / 关联作品 / 制作人员 ----------
@@ -597,10 +705,10 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .official-episodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
 .episode-group-head { margin: 22px 0 12px; color: var(--text); font-size: 13px; font-weight: 650; }
 .episode-group-head:first-child { margin-top: 0; }
-.official-episode { display: grid; grid-template-rows: auto auto auto 1fr; align-content: start; min-width: 0; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.official-episode { display: grid; grid-template-rows: auto auto auto 1fr; align-content: start; min-width: 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--ui-radius); }
 
 /* 集数快照：卡片主体。用本地视频帧，取不到帧时用中性占位——绝不用作品海报冒充视频帧。 */
-.episode-snapshot { position: relative; overflow: hidden; aspect-ratio: 16 / 9; background: rgba(var(--tint), .05); border-bottom: 1px solid var(--line); border-radius: calc(var(--ui-radius) - 1px) calc(var(--ui-radius) - 1px) 0 0; }
+.episode-snapshot { position: relative; overflow: hidden; aspect-ratio: 16 / 9; background: var(--surface-3); border-bottom: 1px solid var(--line); border-radius: calc(var(--ui-radius) - 1px) calc(var(--ui-radius) - 1px) 0 0; }
 .episode-snapshot-visual { display: grid; width: 100%; height: 100%; overflow: hidden; place-items: center; }
 .episode-snapshot-visual img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .episode-snapshot-visual .media-placeholder { gap: 8px; }
@@ -632,7 +740,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .episode-detail-meta dd { margin: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .episode-detail-desc { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
 .episode-detail-file { display: grid; gap: 4px; min-width: 0; padding: 6px; border: 1px solid transparent; border-radius: 6px; }
-.episode-detail-file.is-active { background: rgba(var(--tint), .05); border-color: var(--line); }
+.episode-detail-file.is-active { background: var(--tint-active); border-color: var(--line); }
 .episode-version-select { display: grid; gap: 2px; width: 100%; padding: 0; color: inherit; text-align: left; background: none; border: 0; font-family: inherit; cursor: pointer; }
 .episode-version-name { overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .episode-version-tag { overflow: hidden; color: var(--quiet); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -641,7 +749,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .episode-detail-actions { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .episode-detail-actions button { min-height: 30px; }
 
-.local-file-thumb { display: grid; flex: none; width: 64px; aspect-ratio: 16 / 9; overflow: hidden; place-items: center; background: rgba(var(--tint), .05); border: 1px solid var(--line); border-radius: 5px; }
+.local-file-thumb { display: grid; flex: none; width: 64px; aspect-ratio: 16 / 9; overflow: hidden; place-items: center; background: var(--surface-3); border: 1px solid var(--line); border-radius: 5px; }
 .local-file-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .local-file-thumb, .episode-snapshot-visual { position: relative; }
 .thumbnail-retry { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--muted); font-size: 10px; white-space: nowrap; cursor: pointer; }
@@ -657,10 +765,11 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .unmatched-head h3 { margin: 0; font-size: 15px; }
 .unmatched-head span { color: var(--quiet); font-size: 11px; }
 .unmatched-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.unmatched-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: 6px; }
+.unmatched-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; }
 .unmatched-row .local-version-copy { flex: 1 1 220px; }
 .unmatched-map { flex: 0 1 220px; }
 .unmatched-map select { height: 36px; min-width: 0; }
+.unmatched-row > .button { align-self: flex-end; }
 .unmatched-row.is-stale { border-style: dashed; }
 .unmatched-row.is-stale .local-version-copy strong { color: var(--muted); }
 .unmatched-state { display: inline-flex; flex: none; align-items: center; gap: 5px; margin-left: auto; font-size: 11px; white-space: nowrap; }
@@ -670,7 +779,7 @@ h1, h2, h3, .seanime-banner-title h1 { font-family: Bahnschrift, "Bahnschrift Se
 .related-link { display: grid; gap: 8px; min-width: 0; color: inherit; text-decoration: none; }
 .related-link.is-static { cursor: default; }
 a.related-link { cursor: pointer; }
-.related-cover { display: grid; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; place-items: center; background: rgba(var(--tint), .05); border: 1px solid var(--line); border-radius: var(--ui-radius); transition: border-color 180ms ease; }
+.related-cover { display: grid; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; place-items: center; background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--ui-radius); transition: border-color var(--motion-base); }
 .related-cover img { width: 100%; height: 100%; object-fit: cover; }
 .related-initial { color: var(--faint); font-size: 18px; font-weight: 700; }
 .related-copy { display: grid; gap: 3px; min-width: 0; }
@@ -680,17 +789,17 @@ a.related-link { cursor: pointer; }
 .related-state.is-current { color: var(--accent); font-weight: 600; }
 .related-link:hover .related-cover { border-color: var(--line-strong); }
 .related-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--ui-radius); }
-.related-card.is-current .related-cover { border-color: var(--line-strong); background: rgba(var(--tint), .08); }
+.related-card.is-current .related-cover { border-color: var(--line-strong); background: var(--tint-selected); }
 
 .credits-body { position: relative; overflow: hidden; }
 .credits-fade { position: absolute; inset: auto 0 0; height: 56px; background: linear-gradient(180deg, transparent, var(--bg) 82%); pointer-events: none; }
 .credits-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 12px; padding: 0; color: var(--accent); background: none; border: 0; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1.6; cursor: pointer; }
 .credits-toggle:hover, .credits-toggle:focus-visible { color: var(--accent-hover); }
-.credits-toggle-icon { transition: transform 180ms ease; }
+.credits-toggle-icon { transition: transform var(--motion-base); }
 .credits-toggle-icon.is-open { transform: rotate(-90deg); }
 .credits-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
-.credit-card { display: grid; gap: 4px; justify-items: start; min-width: 0; padding: 10px; background: rgba(var(--tint), .03); border: 1px solid var(--line); border-radius: var(--ui-radius); }
-.credit-avatar { display: grid; width: 40px; height: 40px; overflow: hidden; place-items: center; background: rgba(var(--tint), .06); border: 1px solid var(--line); border-radius: 50%; }
+.credit-card { display: grid; gap: 4px; justify-items: start; min-width: 0; padding: 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.credit-avatar { display: grid; width: 40px; height: 40px; overflow: hidden; place-items: center; background: var(--surface-3); border: 1px solid var(--line); border-radius: 50%; }
 .credit-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .credit-initial { color: var(--faint); font-size: 15px; font-weight: 700; }
 .credit-card strong { max-width: 100%; overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
@@ -708,12 +817,12 @@ a.related-link { cursor: pointer; }
 .inbox-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; color: var(--muted); font-size: 12px; }
 .inbox-crumbs > svg { flex: 0 0 auto; color: var(--quiet); }
 .inbox-crumbs button { flex: none; padding: 4px 8px; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 5px; font: inherit; font-size: 12px; cursor: pointer; }
-.inbox-crumbs button:hover:not(:disabled) { color: var(--text); background: rgba(var(--tint), .05); }
+.inbox-crumbs button:hover:not(:disabled) { color: var(--text); background: var(--tint-hover); }
 .inbox-crumbs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .inbox-crumbs button:disabled { cursor: default; }
 .inbox-crumbs .inbox-crumb-current { color: var(--text); font-weight: 650; }
 
-.inbox-group-row { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; padding: 12px 14px; background: rgba(var(--tint), .05); border: 1px solid var(--line); border-radius: var(--ui-radius); }
+.inbox-group-row { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; padding: 12px 14px; background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--ui-radius); }
 .inbox-group-row > div:first-child { flex: 1 1 auto; min-width: 0; }
 .inbox-group-row strong, .inbox-group-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-group-row strong { font-size: 13px; }
@@ -729,12 +838,12 @@ a.related-link { cursor: pointer; }
 .inbox-season-row strong { font-size: 12px; font-weight: 600; }
 .inbox-season-row small { margin-top: 2px; color: var(--muted); font-size: 10px; }
 
-.inbox-tree { border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--bg); }
+.inbox-tree { border: 1px solid var(--line); border-radius: var(--ui-radius); overflow: hidden; background: var(--bg); }
 .inbox-tree-head { display: grid; grid-template-columns: minmax(0, 1fr) 150px 96px 150px; align-items: center; gap: 12px; height: 34px; padding: 0 14px; color: var(--muted); background: var(--surface); border-bottom: 1px solid var(--line); font-size: 10px; font-weight: 700; }
 .inbox-folder, .inbox-file { display: grid; grid-template-columns: minmax(0, 1fr) 150px 96px 150px; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 9px 14px; color: var(--text); background: transparent; border: 0; border-bottom: 1px solid var(--line); font: inherit; font-size: 12px; text-align: left; }
 .inbox-folder { cursor: pointer; }
 .inbox-folder-link { min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.inbox-folder:hover, .inbox-file:hover { background: rgba(var(--tint), .04); }
+.inbox-folder:hover, .inbox-file:hover { background: var(--tint-hover); }
 .inbox-folder:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .inbox-folder:last-child, .inbox-file:last-child { border-bottom: 0; }
 .inbox-name { display: flex; align-items: center; gap: 10px; min-width: 0; }

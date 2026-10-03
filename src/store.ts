@@ -9,12 +9,14 @@ interface PreferencesState {
   glassBlur: number;
   cornerRadius: number;
   topbarOpacity: number;
+  shelfColumns: number;
   setTheme: (theme: ThemeMode) => void;
   setLibraryView: (view: LibraryView) => void;
   setAccentHue: (accentHue: number) => void;
   setGlassBlur: (glassBlur: number) => void;
   setCornerRadius: (cornerRadius: number) => void;
   setTopbarOpacity: (topbarOpacity: number) => void;
+  setShelfColumns: (shelfColumns: number) => void;
   resetAppearance: () => void;
 }
 
@@ -27,13 +29,15 @@ export const usePreferences = create<PreferencesState>()(
       glassBlur: 24,
       cornerRadius: 8,
       topbarOpacity: 0,
+      shelfColumns: 7,
       setTheme: (theme) => set({ theme }),
       setLibraryView: (libraryView) => set({ libraryView }),
       setAccentHue: (accentHue) => set({ accentHue }),
       setGlassBlur: (glassBlur) => set({ glassBlur }),
       setCornerRadius: (cornerRadius) => set({ cornerRadius }),
       setTopbarOpacity: (topbarOpacity) => set({ topbarOpacity }),
-      resetAppearance: () => set({ theme: "system", accentHue: 158, glassBlur: 24, cornerRadius: 8, topbarOpacity: 0 }),
+      setShelfColumns: (shelfColumns) => set({ shelfColumns }),
+      resetAppearance: () => set({ theme: "system", accentHue: 158, glassBlur: 24, cornerRadius: 8, topbarOpacity: 0, shelfColumns: 7 }),
     }),
     { name: "genzo-preferences" },
   ),

@@ -1,16 +1,18 @@
 /* Keep the hero poster strip close to the recent-additions shelf card size. */
 .gnz-home .seanime-banner {
-  --hero-rail-width: min(900px, 54vw);
+  --hero-rail-width: min(620px, 42vw);
   --hero-title-gutter: 262px;
 }
 
+/* fit-content + right anchoring keeps the strip flush with the poster's
+   bottom-right corner instead of floating inside a wider rail. */
 .gnz-home .seanime-banner .gnz-home-switcher {
-  width: var(--hero-rail-width);
+  width: fit-content;
   max-width: var(--hero-rail-width);
 }
 
 .gnz-home .seanime-banner .gnz-switcher-items > button {
-  width: clamp(112px, 8.8vw, 168px);
+  width: clamp(88px, 6.4vw, 120px);
 }
 
 .app-frame.is-home-route .gnz-home .seanime-banner-title {
@@ -19,24 +21,24 @@
 
 @media (max-width: 1360px) {
   .gnz-home .seanime-banner {
-    --hero-rail-width: min(680px, 47vw);
+    --hero-rail-width: min(520px, 39vw);
   }
 
   .gnz-home .seanime-banner .gnz-switcher-items > button {
-    width: clamp(112px, 8.4vw, 136px);
+    width: clamp(88px, 6vw, 104px);
   }
 }
 
 @media (max-width: 1180px) {
   .gnz-home .seanime-banner {
-    --hero-rail-width: min(620px, 46vw);
+    --hero-rail-width: min(470px, 38vw);
     --hero-title-gutter: 246px;
   }
 }
 
 @media (max-width: 760px) {
   .gnz-home .seanime-banner {
-    --hero-rail-width: min(620px, 58vw);
+    --hero-rail-width: min(470px, 52vw);
     --hero-title-gutter: 236px;
   }
 
@@ -45,6 +47,6 @@
   }
 
   .gnz-home .seanime-banner .gnz-switcher-items > button {
-    width: clamp(96px, 23vw, 124px);
+    width: clamp(76px, 18vw, 100px);
   }
 }

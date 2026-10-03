@@ -616,7 +616,10 @@ pub(crate) async fn apply_metadata(
     } else {
         metadata.original_title.clone()
     };
-    let description = if locks.contains("description") {
+    let description = if locks.contains("description")
+        || (crate::metadata_aggregator::looks_chinese(&current.description)
+            && !crate::metadata_aggregator::looks_chinese(&metadata.description))
+    {
         current.description
     } else {
         metadata.description.clone()
@@ -1623,6 +1626,18 @@ mod tests {
         assert_eq!(row.0, "我的标题");
         assert_eq!(row.1, "新简介");
         assert_eq!(row.2, Some(2024));
+
+        let chinese = "这是一部关于少年和少女共同冒险的动画作品。";
+        sqlx::query("UPDATE works SET description = ? WHERE id = 'w'")
+            .bind(chinese).execute(&pool).await.unwrap();
+        let mut non_chinese = metadata;
+        non_chinese.description = "Original English synopsis.".into();
+        let mut transaction = pool.begin().await.unwrap();
+        apply_metadata(&mut transaction, "w", &non_chinese, None, None, &now).await.unwrap();
+        transaction.commit().await.unwrap();
+        let description: String = sqlx::query_scalar("SELECT description FROM works WHERE id = 'w'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(description, chinese);
     }
 
     #[tokio::test]

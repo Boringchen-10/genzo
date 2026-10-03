@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { RefreshCw } from "lucide-react";
 import { IMAGE_RETRY_EVENT, imageCandidates } from "../imageRecovery";
 
 /** Falls back through saved assets; retries on demand/connection recovery without a request loop. */
@@ -25,5 +26,5 @@ export function ResilientImage({ sources, alt = "", className, fallback, onSourc
 
 /** Kept outside clickable cards, so retry never starts playback or creates nested buttons. */
 export function RetryImagesButton() {
-  return <button type="button" className="button secondary compact" title="重新加载失败的图片；有效图片保持不变" onClick={() => window.dispatchEvent(new Event(IMAGE_RETRY_EVENT))}>重试图片</button>;
+  return <button type="button" className="icon-button" aria-label="重试图片" data-tooltip="重新加载失败的图片；有效图片保持不变" onClick={() => window.dispatchEvent(new Event(IMAGE_RETRY_EVENT))}><RefreshCw size={17} /></button>;
 }

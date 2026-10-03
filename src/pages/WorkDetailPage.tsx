@@ -30,8 +30,8 @@ import { Link, Navigate, useLocation, useNavigate, useParams } from "react-route
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { dataProvider as api, getAnimeDetailProvider, type GenzoAnimeDetailProvider } from "../data";
-import { RecognitionHistory } from "../components/RecognitionHistory";
 import { RecognitionDialog } from "../components/RecognitionDialog";
+import { RecognitionHistory } from "../components/RecognitionHistory";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, SafeImage, useOffline } from "../components/common";
 import { RemoteFileActions } from "../components/RemoteStoragePanel";
 import { MediaVisual } from "../components/MediaVisual";
@@ -53,6 +53,9 @@ const metadataStatusLabels = {
   manually_created: "手动创建",
   error: "识别失败",
 } as const;
+
+const hasChineseSynopsis = (description: string): boolean =>
+  (description.match(/[\u4e00-\u9fff]/g)?.length ?? 0) >= 8 && !/[\u3040-\u30ff]/.test(description);
 
 function workInput(work: WorkDetail, overrides: Partial<WorkInput> = {}): WorkInput {
   return {
@@ -602,6 +605,13 @@ export function WorkDetailPage() {
           <button type="button" className="icon-button detail-back" aria-label="返回上一页" data-tooltip="返回上一页" onClick={goBack}><ArrowLeft size={17} /></button>
           <strong>作品详情</strong>
           <span className="detail-topbar-fill" />
+          <IconButton
+            tooltip={!detailProvider ? "当前运行环境未提供该能力" : refreshing ? "正在刷新元数据" : "刷新元数据：重新读取元数据，失败时保留已有内容"}
+            disabled={!detailProvider || refreshing}
+            onClick={() => void refreshMetadata()}
+          >
+            <RefreshCw size={17} className={refreshing ? "spin" : ""} />
+          </IconButton>
           <RecognitionHistory key={work.id} workId={work.id} onChanged={() => navigate("/library")} />
           <IconButton tooltip={work.favorite ? "取消收藏" : "加入收藏"} aria-pressed={work.favorite} onClick={() => void updateInline(workInput(work, { favorite: !work.favorite }), work.favorite ? "已取消收藏" : "已加入收藏")} disabled={saving}>
             <Heart size={17} fill={work.favorite ? "currentColor" : "none"} />
@@ -634,8 +644,6 @@ export function WorkDetailPage() {
                 {isCompleted ? <Check size={16} /> : null}
                 {isCompleted ? "已完成" : "标记为已完成"}
               </button>
-              <button type="button" className="button secondary icon-text" onClick={() => void openAttach()}><FilePlus2 size={16} />关联文件</button>
-              {work.type === "video" && api.previewMediaCorrection ? <button type="button" className="button secondary" onClick={() => { setCorrectionSelection(null); setCorrectionOpen(true); }}>批量纠错</button> : null}
               <RetryImagesButton />
             </div>
           </div>
@@ -647,10 +655,10 @@ export function WorkDetailPage() {
             <div className="detail-toprow">
               <div className="detail-toprow-left">
                 <div className="ratings detail-rating">
-                  <div className="rating-card unavailable">
+                  <div className={`rating-card ${work.networkScore == null ? "unavailable" : ""}`}>
                     <span className="rating-label">网络评分</span>
-                    <div className="rating-value"><strong className="rating-score">暂无</strong><span className="rating-source">未提供</span></div>
-                    <small className="rating-hint">来自 Bangumi，不会写入你的个人评分</small>
+                    <div className="rating-value"><strong className="rating-score">{work.networkScore == null ? "暂无" : work.networkScore.toFixed(1)}</strong><span className="rating-source">{work.networkScoreProvider === "bangumi" ? "Bangumi" : work.networkScoreProvider === "anilist" ? "AniList" : work.networkScoreProvider === "tmdb" ? "TMDB" : "未提供"}</span></div>
+                    <small className="rating-hint">{work.networkScore == null ? "尚未缓存网络评分" : `${work.networkRatingCount ?? 0} 人评价 · 不影响我的评分`}</small>
                   </div>
                   <div className="rating-card">
                     <span className="rating-label">我的评分</span>
@@ -669,6 +677,7 @@ export function WorkDetailPage() {
 
                 <div className="detail-about" ref={aboutRef}>
                   <p className="detail-description">{work.description || "暂无简介。可通过编辑作品补充本地简介。"}</p>
+                  {work.description && !hasChineseSynopsis(work.description) ? <button type="button" className="detail-about-more" onClick={() => setEditOpen(true)}>暂无中文简介 · 编辑简介<ChevronRight size={13} /></button> : null}
                   <div className="detail-tags">
                     {work.tags.map((tag) => <span className="detail-tag" key={tag}>{tag}</span>)}
                     {!work.tags.length ? <span className="detail-tag muted-tag">暂无标签</span> : null}
@@ -1006,7 +1015,8 @@ export function WorkDetailPage() {
               <p className="match-result">{isCopyComic ? "可在章节与文件下方手动补充 Bangumi 书籍资料。" : recognitionFile ? "识别结果有误时，可重新搜索并选择正确作品。" : "当前作品没有可用于动画识别的视频文件。"}</p>
               <div className="match-panel-actions">
                 {isCopyComic ? <Link className="button secondary" to={`/explore?type=comic&comic=${encodeURIComponent(work.metadata!.externalId)}`} state={{ comicDetail: true }}>查看来源资料</Link> : <button type="button" className="button secondary icon-text" disabled={!recognitionFile} onClick={() => recognitionFile && setRecognizingMedia(recognitionFile)}><Sparkles size={15} />{work.metadata ? "重新识别" : "识别作品"}</button>}
-                {!isCopyComic && <button type="button" className="button secondary icon-text" disabled={!detailProvider || refreshing} data-tooltip={detailProvider ? "重新读取元数据，失败时保留已有内容" : "当前运行环境未提供该能力"} onClick={() => void refreshMetadata()}><RefreshCw size={15} />{refreshing ? "刷新中…" : "刷新元数据"}</button>}
+                <button type="button" className="button secondary icon-text" onClick={() => void openAttach()}><FilePlus2 size={15} />关联文件</button>
+                {work.type === "video" && api.previewMediaCorrection ? <button type="button" className="button secondary" onClick={() => { setCorrectionSelection(null); setCorrectionOpen(true); }}>批量纠错</button> : null}
               </div>
               {detailProvider === null ? <p className="quiet-inline">当前运行环境未提供动画详情能力（Provider 未实现这几个方法）。</p> : null}
               {detailProvider !== null && offline ? <p className="quiet-inline" role="status">当前网络已断开：刷新元数据与视频缩略图需要联网，可能失败；本地文件仍可正常打开。</p> : null}

@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 use std::time::Duration as StdDuration;
 use tokio::sync::Mutex;
 
-const CACHE_PROVIDER: &str = "aggregate-v1";
+const CACHE_PROVIDER: &str = "aggregate-v2";
 const SUPPLEMENTAL_THRESHOLD: f64 = 0.85;
 
 static MEMORY_CACHE: OnceLock<Mutex<LruCache<String, AggregationResult>>> = OnceLock::new();
@@ -459,9 +459,7 @@ fn merge_tmdb(base: &mut WorkMetadata, supplement: &WorkMetadata) {
         base.banner_url.clone_from(&supplement.banner_url);
         base.banner_provider.clone_from(&supplement.banner_provider);
     }
-    if base.description.trim().is_empty() {
-        base.description.clone_from(&supplement.description);
-    }
+    merge_description(base, supplement);
     merge_common(base, supplement);
 }
 
@@ -474,14 +472,26 @@ pub(crate) fn merge_anilist(base: &mut WorkMetadata, supplement: &WorkMetadata) 
         base.banner_url.clone_from(&supplement.banner_url);
         base.banner_provider.clone_from(&supplement.banner_provider);
     }
-    if base.description.trim().is_empty() {
-        base.description.clone_from(&supplement.description);
-    }
+    merge_description(base, supplement);
     if supplement.score.is_some() {
         base.score = supplement.score;
         base.score_provider.clone_from(&supplement.score_provider);
     }
     merge_common(base, supplement);
+}
+
+pub(crate) fn looks_chinese(description: &str) -> bool {
+    let han_count = description.chars().filter(|character| matches!(character, '\u{4e00}'..='\u{9fff}')).count();
+    let kana_count = description.chars().filter(|character| matches!(character, '\u{3040}'..='\u{30ff}')).count();
+    han_count >= 8 && kana_count == 0
+}
+
+fn merge_description(base: &mut WorkMetadata, supplement: &WorkMetadata) {
+    let candidate = supplement.description.trim();
+    if !candidate.is_empty() && (base.description.trim().is_empty()
+        || (!looks_chinese(&base.description) && looks_chinese(candidate))) {
+        base.description = candidate.to_string();
+    }
 }
 
 fn merge_common(base: &mut WorkMetadata, supplement: &WorkMetadata) {
@@ -654,6 +664,27 @@ mod tests {
         assert_eq!(base.banner_provider.as_deref(), Some("tmdb"));
         assert_eq!(base.score, Some(8.9));
         assert_eq!(base.score_provider.as_deref(), Some("anilist"));
+    }
+
+    #[test]
+    fn prefers_available_chinese_summary_without_discarding_otherwise_useful_text() {
+        let mut base = metadata("bangumi", "作品");
+        base.description = "これは日本語の作品紹介です。物語は続きます。".into();
+        let mut tmdb = metadata("tmdb", "作品");
+        tmdb.description = "这是一部关于少年和少女共同冒险的动画作品。".into();
+        merge_tmdb(&mut base, &tmdb);
+        assert_eq!(base.description, tmdb.description);
+
+        let mut anilist = metadata("anilist", "作品");
+        anilist.description = "An English synopsis.".into();
+        merge_anilist(&mut base, &anilist);
+        assert_eq!(base.description, tmdb.description);
+
+        let mut original = metadata("bangumi", "作品");
+        original.description = "Original English synopsis.".into();
+        tmdb.description = "".into();
+        merge_tmdb(&mut original, &tmdb);
+        assert_eq!(original.description, "Original English synopsis.");
     }
 
     #[tokio::test]

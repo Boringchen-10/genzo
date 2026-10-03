@@ -1,5 +1,6 @@
 import { RetryImagesButton } from "../components/ResilientImage";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { LibraryMaintenance } from "../components/LibraryMaintenance";
 import { ChevronDown, ChevronRight, FileQuestion, FolderTree, Grid2X2, Heart, List, Plus, Search, Sparkles, Star } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { dataProvider as api } from "../data";
@@ -18,6 +19,7 @@ import { usePreferences, useToasts } from "../store";
 import type { LibraryRoot, MediaFile, MediaType, RecognitionGroupScope, RecognitionStatus, UnassignedMediaGroup, WorkInput, WorkListItem } from "../types";
 import { formatDate, formatSize, getErrorMessage, mediaLabels, workCategoryLabel, recognitionActionLabel, recognitionEntryGroup, recognisableGroups, unassignedStatusRank } from "../utils";
 import { normalizePath, pathBaseName, pathDirName, pathChildSegment } from "../mediaPaths";
+import { useSessionState } from "../useSessionState";
 
 type Scope = "all" | "recent" | "favorites" | "missing";
 type SortKey = "title" | "createdAt" | "updatedAt";
@@ -72,11 +74,11 @@ export function LibraryPage() {
   const [roots, setRoots] = useState<LibraryRoot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [mediaType, setMediaType] = useState<MediaType | "all">("all");
-  const [favoriteOnly, setFavoriteOnly] = useState(false);
-  const [tag, setTag] = useState("all");
-  const [sort, setSort] = useState<SortKey>("updatedAt");
+  const [search, setSearch] = useSessionState<string>("library.search", "");
+  const [mediaType, setMediaType] = useSessionState<MediaType | "all">("library.mediaType", "all");
+  const [favoriteOnly, setFavoriteOnly] = useSessionState<boolean>("library.favoriteOnly", false);
+  const [tag, setTag] = useSessionState<string>("library.tag", "all");
+  const [sort, setSort] = useSessionState<SortKey>("library.sort", "updatedAt");
   const [unassignedSort, setUnassignedSort] = useState<UnassignedSortKey>("status");
   const [comicBrowsePath, setComicBrowsePath] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -130,9 +132,18 @@ export function LibraryPage() {
   }, []);
   useEffect(() => { void load(); }, [load, activeSection]);
 
-  const mediaWorks = useMemo(() => works.filter((work) => work.type !== "comic" && work.type !== "novel"), [works]);
+  /* 「资源目录」已独立为侧栏「资源库」(/sources)：旧的 ?tab=sources 深链重定向过去，避免留下第二个入口。 */
+  useEffect(() => {
+    if (params.get("tab") === "sources") navigate("/sources", { replace: true });
+  }, [params, navigate]);
+
+  const mediaWorks = useMemo(() => works.filter(work => work.type !== "comic" && work.type !== "novel"), [works]);
   const tags = useMemo(() => Array.from(new Set(mediaWorks.flatMap((work) => work.tags))).sort((a, b) => a.localeCompare(b, "zh-CN")), [mediaWorks]);
 
+  /* 恢复的标签可能已经被删掉或改名，回退到「全部标签」，避免留下选不中的空筛选。 */
+  useEffect(() => {
+    if (tag !== "all" && !tags.includes(tag)) setTag("all");
+  }, [tags, tag, setTag]);
   const filtered = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("zh-CN");
     const recentThreshold = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -478,13 +489,16 @@ export function LibraryPage() {
 
   return (
     <div className="page workspace-page page-library">
-      <div className="page-actions"><RetryImagesButton /></div>
       <PageHeader
         title="媒体库"
         description={`${mediaWorks.length} 部作品 · ${filteredUnassigned.length} 个待整理作品组`}
-        actions={activeSection === "inbox"
-          ? <div className="film-tv-batch"><select aria-label="批量识别类型" value={recognitionKind} disabled={!!batchTargets} onChange={event => setRecognitionKind(event.target.value as import("../types").RecognitionKind)}><option value="anime">动漫</option><option value="movie">电影</option><option value="tv">电视剧</option></select><button type="button" className="button secondary icon-text" disabled={!inboxTargets.length} onClick={recognizeAll}><Sparkles size={17} />批量预览与确认</button></div>
-          : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
+        actions={<>
+          <LibraryMaintenance onChanged={() => void load(true)} />
+          <RetryImagesButton />
+          {activeSection === "inbox"
+            ? <div className="film-tv-batch"><RecognitionHistory onChanged={() => void refreshAfterRecognition()} /><select aria-label="批量识别类型" value={recognitionKind} disabled={!!batchTargets} onChange={event => setRecognitionKind(event.target.value as import("../types").RecognitionKind)}><option value="anime">动漫</option><option value="movie">电影</option><option value="tv">电视剧</option></select><button type="button" className="button secondary icon-text" disabled={!inboxTargets.length} onClick={recognizeAll}><Sparkles size={17} />批量预览与确认</button></div>
+            : <button type="button" className="button primary icon-text" onClick={() => setShowCreate(true)}><Plus size={17} />新建作品</button>}
+        </>}
       />
       <div className="gnz-primary-tabs gnz-library-tabs" role="tablist" aria-label="媒体库页面">
         <button type="button" role="tab" aria-selected={activeSection === "library"} className={activeSection === "library" ? "active" : ""} onClick={() => setActiveSection("library")}>媒体库</button>
@@ -495,7 +509,6 @@ export function LibraryPage() {
           <Search size={17} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索标题或原始标题" aria-label="搜索作品" />
         </div>
-        {activeSection === "inbox" ? <RecognitionHistory onChanged={() => void refreshAfterRecognition()} /> : null}
         {activeSection === "library" ? <select value={category} aria-label="作品分类" onChange={(event) => {
           const value = parseLibraryCategory(event.target.value);
           setParams(previous => {
@@ -508,7 +521,7 @@ export function LibraryPage() {
           {libraryCategories.filter(value => value !== "comic" && value !== "novel").map(value => <option key={value} value={value}>{value === "all" ? "全部分类" : value === "videos" ? "全部视频" : workCategoryLabels[value]}</option>)}
         </select> : <select value={mediaType} onChange={(e) => setMediaType(e.target.value as MediaType | "all")} aria-label="媒体类型">
           <option value="all">全部类型</option>
-          {(Object.keys(mediaLabels) as MediaType[]).filter(type => type !== "comic" && type !== "novel").map((type) => <option key={type} value={type}>{mediaLabels[type]}</option>)}
+          {(Object.keys(mediaLabels) as MediaType[]).map((type) => <option key={type} value={type}>{mediaLabels[type]}</option>)}
         </select>}
         <select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="标签筛选">
           <option value="all">全部标签</option>
@@ -531,7 +544,7 @@ export function LibraryPage() {
         {([['all', '全部'], ['recent', '最近添加'], ['favorites', '收藏'], ['missing', '文件缺失']] as const).map(([value, label]) => (
           <button key={value} type="button" className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>
         ))}
-      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">按「资源目录」的文件夹层级浏览：从资源目录根目录逐级打开子文件夹，直到看到文件。识别与手动整理仍然按作品组进行；字幕会作为视频作品组的附属文件显示。{hiddenGroups > 0 ? <span className="gnz-inbox-hidden">已隐藏 {hiddenGroups} 个不属于任何资源目录的历史作品组（{hiddenFiles} 个文件）：它们来自已移除的目录。把该目录重新添加为资源目录后即可再次显示。</span> : null}</div> : null}
+      </div> : activeSection === "inbox" ? <div className="gnz-inbox-note">按「资源库」的文件夹层级浏览：从资源目录根目录逐级打开子文件夹，直到看到文件。识别与手动整理仍然按作品组进行；字幕会作为视频作品组的附属文件显示。{hiddenGroups > 0 ? <span className="gnz-inbox-hidden">已隐藏 {hiddenGroups} 个不属于任何资源目录的历史作品组（{hiddenFiles} 个文件）：它们来自已移除的目录。把该目录重新添加为资源目录后即可再次显示。</span> : null}</div> : null}
 
       {activeSection === "inbox" && !loading && !error && filteredUnassigned.length > 0 ? (
         <section className="unassigned-section">
@@ -641,9 +654,9 @@ export function LibraryPage() {
       {!loading && error ? <ErrorState message={error} retry={() => void load()} /> : null}
       {activeSection === "library" && !loading && !error && filtered.length === 0 ? (
         <EmptyState
-          title={works.length ? "没有符合条件的作品" : "还没有作品记录"}
-          description={works.length ? "调整搜索词或筛选条件后再试。" : "你可以手动创建作品，或先扫描本地目录。"}
-          action={!works.length ? <button type="button" className="button primary" onClick={() => setShowCreate(true)}>新建作品</button> : undefined}
+          title={mediaWorks.length ? "没有符合条件的作品" : "还没有作品记录"}
+          description={mediaWorks.length ? "调整搜索词或筛选条件后再试。" : "你可以手动创建作品，或先扫描本地目录。"}
+          action={!mediaWorks.length ? <button type="button" className="button primary" onClick={() => setShowCreate(true)}>新建作品</button> : undefined}
         />
       ) : null}
       {activeSection === "inbox" && !loading && !error && filteredUnassigned.length === 0 ? <EmptyState title="没有待整理作品组" description="扫描到的内容已整理完成，或当前筛选条件没有结果。" /> : null}

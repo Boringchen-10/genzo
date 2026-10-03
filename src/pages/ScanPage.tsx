@@ -163,8 +163,8 @@ export function ScanPage() {
         </div>
       ) : null}
 
-      <ScanTaskPanel onFinished={load} />
       <RemoteStoragePanel />
+      <ScanTaskPanel onFinished={load} />
       {jobs.length ? (
         <section className="content-section">
           <div className="section-heading"><div><h2>扫描记录</h2><span>保留最近 50 次扫描摘要</span></div></div>

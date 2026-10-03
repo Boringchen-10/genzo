@@ -1,10 +1,11 @@
+import { memo } from "react";
 import { AlertTriangle, Heart, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { WorkListItem } from "../types";
 import { workCategoryLabel, workDetailPath } from "../utils";
 import { MediaVisual } from "./MediaVisual";
 
-export function WorkCard({ work }: { work: WorkListItem }) {
+export const WorkCard = memo(function WorkCard({ work }: { work: WorkListItem }) {
   return (
     <Link className="work-card" to={workDetailPath(work)}>
       <div className="poster-frame">
@@ -34,4 +35,4 @@ export function WorkCard({ work }: { work: WorkListItem }) {
       </div>
     </Link>
   );
-}
+});

@@ -45,6 +45,8 @@ try {
     assert.equal(await page.locator(".book-import-volume-cover").count(), 3);
     await page.locator(".book-import-files label").filter({ hasText: "-08.epub" }).getByRole("checkbox").click();
     await page.getByText("归档文件 · 2/2").waitFor();
+    await page.getByRole("button", { name: /归档整套/ }).click();
+    await page.getByText("归档文件 · 2/2").waitFor();
     assert.equal(await page.getByRole("textbox", { name: "新书架作品标题" }).inputValue(), "败犬女主太多了");
     const layout = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
     assert.ok(layout.scrollWidth <= layout.width, `${width} inbox overflow: ${JSON.stringify(layout)}`);

@@ -159,6 +159,17 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
     .await?;
     let metadata = sqlx::query_as::<_, MetadataSummary>("SELECT e.provider, e.external_id, w.title, w.original_title, w.metadata_year AS year, w.cover_path AS cover_url, e.updated_at AS fetched_at FROM work_external_ids e JOIN works w ON w.id = e.work_id WHERE e.work_id = ? ORDER BY CASE e.provider WHEN 'bangumi' THEN 0 WHEN 'tmdb' THEN 1 ELSE 2 END, e.updated_at DESC LIMIT 1")
         .bind(&id).fetch_optional(&state.pool).await?;
+    let provider_records: Vec<(String, String)> = sqlx::query_as(
+        "SELECT provider, response_json FROM metadata_provider_records WHERE work_id = ? ORDER BY CASE provider WHEN 'bangumi' THEN 0 WHEN 'anilist' THEN 1 ELSE 2 END",
+    )
+    .bind(&id)
+    .fetch_all(&state.pool)
+    .await?;
+    let network_rating = provider_records.into_iter().find_map(|(provider, json)| {
+        let record = serde_json::from_str::<WorkMetadata>(&json).ok()?;
+        record.score.filter(|score| score.is_finite() && (0.0..=10.0).contains(score))
+            .map(|score| (score, provider, record.rating_count))
+    });
     let field_locks = sqlx::query_scalar::<_, String>("SELECT field_name FROM work_field_locks WHERE work_id = ? AND locked = 1 ORDER BY field_name")
         .bind(&id).fetch_all(&state.pool).await?;
     let candidates = metadata::candidates_for_work(&state.pool, &id).await?;
@@ -172,6 +183,9 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
         tags,
         media_files,
         metadata,
+        network_score: network_rating.as_ref().map(|(score, _, _)| *score),
+        network_score_provider: network_rating.as_ref().map(|(_, provider, _)| provider.clone()),
+        network_rating_count: network_rating.map(|(_, _, count)| count),
         field_locks,
         candidates,
         subtitle_links,

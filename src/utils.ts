@@ -92,6 +92,20 @@ export function coverUrl(path: string | null): string | null {
   }
 }
 
+/**
+ * 本地缓存封面（`covers/…`）在磁盘上都有一个 600×900 的 `-thumb.jpg` 兄弟文件
+ * （后端 `metadata_aggregator::thumbnail_path`）。列表 / 网格只需要小图，先试缩略图、
+ * 失败再回退原图，避免为一张 160px 的海报解码 2000px+ 的原始封面。
+ *
+ * 只对本地 `.jpg/.jpeg` 生效：http / asset / data 与内置示例图（`/design/…`）不做推导。
+ * 待后端把 `cover_thumbnail_path` 补齐后，此推导可移除。
+ */
+export function coverThumbnailVariant(path: string | null): string | null {
+  if (!path || !/\.jpe?g$/i.test(path)) return null;
+  if (/^(https?:|asset:|data:|blob:)/i.test(path) || path.startsWith("/")) return null;
+  return path.replace(/\.jpe?g$/i, "-thumb.jpg");
+}
+
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "发生未知错误";
 }

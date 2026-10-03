@@ -1,0 +1,123 @@
+/* 书架（阅读物）页面
+   卡片与筛选复用首页的 .gnz-shelf-* 语言；这里只补页面级容器、说明与窄屏收敛。 */
+.gnz-bookshelf-note {
+  max-width: 720px;
+  margin: -4px 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.gnz-bookshelf-filters {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.gnz-bookshelf-filters .gnz-shelf-filters {
+  margin-bottom: 6px;
+}
+.gnz-bookshelf-page .gnz-shelf-grid {
+  margin-top: 6px;
+}
+/* 待整理：左栏常驻目录树 + 右栏常驻识别面板。 */
+.bookshelf-inbox-split {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  margin-top: 14px;
+}
+.bookshelf-inbox-tree {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--ui-radius);
+}
+.bookshelf-inbox-tree > .search-box { width: 100%; }
+.bookshelf-inbox-tree .inbox-crumbs { margin-bottom: 0; }
+.bookshelf-inbox-tree-list {
+  display: grid;
+  gap: 2px;
+  max-height: 62vh;
+  overflow: auto;
+}
+.bookshelf-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bookshelf-tree-row.folder { color: var(--text); }
+.bookshelf-tree-row:hover { background: var(--tint-hover); }
+.bookshelf-tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bookshelf-tree-row.group { padding: 0; gap: 0; }
+.bookshelf-tree-row.group.active { background: var(--tint-hover); border-color: var(--accent); }
+.bookshelf-tree-row > svg,
+.bookshelf-tree-select > svg,
+.bookshelf-tree-select .bookshelf-tree-check { flex: 0 0 auto; color: var(--muted); }
+.bookshelf-tree-row > span,
+.bookshelf-tree-select > span:last-child { flex: 1 1 auto; min-width: 0; }
+.bookshelf-tree-row strong,
+.bookshelf-tree-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bookshelf-tree-row strong { font-size: 12.5px; font-weight: 600; }
+.bookshelf-tree-row small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.bookshelf-tree-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 8px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bookshelf-tree-select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bookshelf-tree-check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: 3px;
+}
+.bookshelf-tree-row.group.active .bookshelf-tree-check { background: var(--accent); border-color: var(--accent); }
+.bookshelf-tree-action {
+  flex: 0 0 auto;
+  margin: 0 6px 0 4px;
+  padding: 3px 9px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.bookshelf-tree-action:hover { background: var(--tint-hover); }
+.bookshelf-inbox-panel { min-width: 0; }
+
+@media (max-width: 900px) {
+  .bookshelf-inbox-split { grid-template-columns: 1fr; }
+  .bookshelf-inbox-tree-list { max-height: none; }
+}
+
+@media (max-width: 760px) {
+  .gnz-bookshelf-page .gnz-header-search {
+    width: 100%;
+  }
+}

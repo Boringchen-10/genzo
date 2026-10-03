@@ -28,6 +28,29 @@ button, a, select, input[type="checkbox"] { -webkit-tap-highlight-color: transpa
 button { color: inherit; } a { color: inherit; text-decoration: none; } h1, h2, h3, p { margin: 0; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* 全局滚动条：WebView2 为 Chromium，::-webkit-scrollbar 自早期版本即生效，且能控制圆角 /
+   悬停 / 去箭头，故全站只用这一套（一旦设置标准 scrollbar-width / scrollbar-color 为非 auto，
+   Chromium 会忽略本组 webkit 规则，因此这里不设置标准属性）。轨道透明、拇指为内缩胶囊，
+   默认低调、悬停加深、拖动时取强调色。token 定义见 v1-1-1.css :root。 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { min-height: 36px; background: var(--scroll-thumb, rgba(var(--tint), .24)); background-clip: content-box; border: 2px solid transparent; border-radius: 999px; }
+:hover::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb-hover, rgba(var(--tint), .4)); }
+::-webkit-scrollbar-thumb:active { background-color: var(--scroll-thumb-active, var(--accent)); }
+
+/* 抽屉 / 弹窗的滚动区常驻滚动条槽，切换标签时内容不横向抖动。
+   刻意不用在主内容区：`.main-content` / `.gnz-home` 承载满幅海报，常驻槽会在右侧留下一条色带。 */
+.drawer-body, .modal-body { scrollbar-gutter: stable; }
+/* 内层滚动区不把滚轮链到背后页面（到达边界即停），避免弹窗 / 抽屉滚动带动底层。 */
+.main-content, .drawer-body, .modal-body, .media-file-browser, .remote-browser, .candidate-list, .recognition-member-list, .recognition-preview ul, .episode-detail, .notes-panel textarea { overscroll-behavior: contain; }
+
+/* 选中文字与文本光标跟随强调色，替代浏览器默认蓝。 */
+::selection { color: var(--text); background: color-mix(in srgb, var(--accent) 30%, transparent); }
+input, textarea, [contenteditable="true"] { caret-color: var(--accent); }
+/* 占位文字统一为次级色，避免各浏览器默认灰不一致。 */
+input::placeholder, textarea::placeholder { color: var(--quiet); opacity: 1; }
+
 /* Navigation structure adapted from Seanime (GPLv3); branding and visual details are Genzo-original. */
 .app-frame { position: relative; isolation: isolate; display: grid; grid-template-columns: 68px minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); width: 100%; height: 100%; background: transparent; }
 .app-frame::before { position: fixed; z-index: -2; inset: -3%; content: ""; background-image: var(--genzo-backdrop, none); background-position: center; background-size: cover; opacity: .25; filter: blur(34px) saturate(.72); transform: scale(1.08); }
@@ -50,18 +73,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .window-control-close:hover, .window-control-close:focus-visible { color: #fff; background: #c42b1c; }
 .window-control[data-tooltip]::after { top: calc(100% + 5px); right: auto; bottom: auto; left: 50%; transform: translateX(-50%); }
 .window-control-close[data-tooltip]::after { right: 5px; left: auto; transform: none; }
-.sidebar { position: relative; z-index: 80; grid-column: 1; grid-row: 2; display: flex; flex-direction: column; width: 68px; min-width: 0; padding: 15px 10px 13px; overflow: hidden; color: #e9edf0; background: #0b1013a8; border-right: 1px solid #ffffff10; transition: width 190ms ease, background-color 190ms ease, box-shadow 190ms ease; backdrop-filter: blur(24px) saturate(1.08); -webkit-backdrop-filter: blur(24px) saturate(1.08); }
+.sidebar { position: relative; z-index: 80; grid-column: 1; grid-row: 2; display: flex; flex-direction: column; width: 68px; min-width: 0; padding: 15px 10px 13px; overflow: hidden; color: #e9edf0; background: #0b1013a8; border-right: 1px solid #ffffff10; transition: width var(--motion-slow, 260ms ease), background-color var(--motion-base, 200ms ease), box-shadow var(--motion-base, 200ms ease); backdrop-filter: blur(24px) saturate(1.08); -webkit-backdrop-filter: blur(24px) saturate(1.08); }
 .sidebar:hover, .sidebar:focus-within { width: 232px; background: #0b1013e8; box-shadow: 24px 0 54px rgb(0 0 0 / .34); }
 /* 侧栏品牌标志已移除，导航直接从侧栏顶部起排。 */
 .nav-list { display: flex; flex-direction: column; width: 216px; gap: 5px; }
-.nav-list a { position: relative; display: flex; align-items: center; width: 48px; height: 44px; gap: 16px; padding: 0 13px; overflow: hidden; color: #849198; border-radius: 10px; white-space: nowrap; transition: width 170ms ease, color 120ms ease, background-color 120ms ease; }
+.nav-list a { position: relative; display: flex; align-items: center; width: 48px; height: 44px; gap: 16px; padding: 0 13px; overflow: hidden; color: #849198; border-radius: 10px; white-space: nowrap; transition: width var(--motion-slow, 260ms ease), color var(--motion-quick, 140ms ease), background-color var(--motion-quick, 140ms ease); }
 .nav-list a:hover { color: #fff; background: #ffffff10; } .nav-list a.active { color: #fff; background: #ffffff16; }
 .nav-list a.active::before { position: absolute; left: 0; width: 2px; height: 20px; content: ""; background: var(--accent); border-radius: 0 2px 2px 0; }
-.nav-list a svg { flex: 0 0 auto; } .nav-list a span { overflow: hidden; opacity: 0; transition: opacity 100ms ease 30ms; }
+.nav-list a svg { flex: 0 0 auto; } .nav-list a span { overflow: hidden; opacity: 0; transition: opacity var(--motion-quick, 140ms ease) 40ms; }
 .sidebar:hover .nav-list a, .sidebar:focus-within .nav-list a { width: 214px; }
 .sidebar:hover .nav-list a span, .sidebar:focus-within .nav-list a span { opacity: 1; }
 .sidebar-foot { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; width: 214px; gap: 8px; margin: auto 0 0 3px; padding: 13px 9px 1px; overflow: hidden; color: #9aa0a6; border-top: 1px solid transparent; font-size: 12px; white-space: nowrap; }
-.sidebar-foot span:not(.status-dot), .sidebar-foot small { opacity: 0; transition: opacity 110ms ease; }
+.sidebar-foot span:not(.status-dot), .sidebar-foot small { opacity: 0; transition: opacity var(--motion-quick, 140ms ease); }
 .sidebar:hover .sidebar-foot span, .sidebar:hover .sidebar-foot small, .sidebar:focus-within .sidebar-foot span, .sidebar:focus-within .sidebar-foot small { opacity: 1; }
 .sidebar-foot small { color: #6f757b; } .status-dot { width: 7px; height: 7px; background: #55bc8a; border-radius: 50%; }
 .main-content { position: relative; z-index: 1; grid-column: 2; grid-row: 2; min-width: 0; height: 100%; overflow: auto; background: color-mix(in srgb, var(--bg) 90%, transparent); }
@@ -76,7 +99,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; min-height: 62px; margin-bottom: 19px; border-bottom: 1px solid var(--border); }
 .page-header h1 { font-size: 24px; line-height: 29px; font-weight: 690; } .page-header p { margin-top: 4px; color: var(--muted); font-size: 12px; }
 .page-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-.button { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 14px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; font-weight: 620; white-space: nowrap; transition: 110ms ease; }
+.button { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 14px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; font-weight: 620; white-space: nowrap; transition: var(--motion-quick, 140ms ease); }
 .button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .45; }
 .button.primary { color: #17120c; background: var(--accent); border-color: var(--accent); } .button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .button.secondary { color: var(--text); background: var(--surface); border-color: var(--border-strong); } .button.secondary:hover:not(:disabled) { background: var(--hover); }
@@ -85,8 +108,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .icon-button:hover:not(:disabled) { color: var(--text); background: var(--hover); } .icon-button.small { width: 27px; height: 27px; border: 0; background: transparent; }
 .danger-ghost:hover:not(:disabled) { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 48%, var(--border)); }
 [data-tooltip] { position: relative; }
-[data-tooltip]::after { position: absolute; z-index: 100; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); content: attr(data-tooltip); padding: 5px 7px; color: #f6f7f9; background: #23262a; border: 1px solid #ffffff19; border-radius: 4px; font-size: 11px; line-height: 15px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 90ms; }
-[data-tooltip]:hover::after, [data-tooltip]:focus-visible::after { opacity: 1; }
+[data-tooltip]::after { position: absolute; z-index: 100; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); content: attr(data-tooltip); padding: 5px 7px; color: var(--text); background: var(--raised); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: var(--elev-1, 0 8px 20px rgb(0 0 0 / .18)); font-size: 11px; line-height: 15px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity var(--motion-quick, 140ms ease); }
+/* 悬停/聚焦后延迟 320ms 才浮现，移开立即隐去（基础规则无 delay）——避免划过图标时闪出气泡。 */
+[data-tooltip]:hover::after, [data-tooltip]:focus-visible::after { opacity: 1; transition-delay: 320ms; }
 .spin { animation: spin 900ms linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
 .state-block { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 260px; padding: 34px; color: var(--muted); text-align: center; }
 .state-block strong { margin-top: 12px; color: var(--text); font-size: 16px; } .state-block p { max-width: 520px; margin: 7px 0 16px; line-height: 1.6; overflow-wrap: anywhere; }
@@ -100,7 +124,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* Content-first home */
 .seanime-home-state { min-height: 100%; padding: 30px; } .seanime-home { min-height: 100%; background: transparent; }
 .seanime-banner { position: relative; height: clamp(385px, 53vh, 570px); overflow: hidden; background: #12181b; }
-.seanime-banner-image { position: absolute; inset: -2%; background-image: var(--banner-image, none); background-position: center 28%; background-size: cover; opacity: .92; filter: saturate(.88) contrast(1.04); transition: background-image 220ms ease, filter 220ms ease; }
+.seanime-banner-image { position: absolute; inset: -2%; background-image: var(--banner-image, none); background-position: center 28%; background-size: cover; opacity: .92; filter: saturate(.88) contrast(1.04); transition: background-image var(--motion-base, 200ms ease), filter var(--motion-base, 200ms ease); }
 .seanime-banner.no-artwork .seanime-banner-image { background: #171a1d; }
 .seanime-banner.no-artwork .seanime-banner-image::before { position: absolute; inset: 0; content: "G"; display: grid; place-items: center; color: #ffffff0c; font-size: min(38vw, 430px); font-weight: 800; }
 .seanime-banner::before { position: absolute; z-index: 1; inset: 0; content: ""; background: rgb(4 7 9 / .22); }
@@ -113,9 +137,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .seanime-home-content { position: relative; z-index: 5; max-width: 1920px; padding: 24px clamp(30px, 4vw, 64px) 64px; } .seanime-section { margin-top: 38px; } .seanime-watch-section { margin-top: 0; }
 .seanime-watch-grid { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 18px; } .seanime-episode-card { min-width: 0; }
 .seanime-episode-image { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--surface); border: 1px solid #ffffff12; border-radius: 11px; box-shadow: 0 18px 34px rgb(0 0 0 / .28); }
-.seanime-episode-image > img, .seanime-episode-image > .media-placeholder { width: 100%; height: 100%; object-fit: cover; transition: transform 220ms ease, filter 220ms ease; }
+.seanime-episode-image > img, .seanime-episode-image > .media-placeholder { width: 100%; height: 100%; object-fit: cover; transition: transform var(--motion-base, 200ms ease), filter var(--motion-base, 200ms ease); }
 .seanime-episode-card:hover .seanime-episode-image > img, .seanime-episode-card:hover .seanime-episode-image > .media-placeholder { transform: scale(1.025); filter: brightness(.72); }
-.seanime-play { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 48px; height: 48px; color: #fff; background: #10161ac2; border: 1px solid #ffffff4a; border-radius: 50%; opacity: 0; transform: translate(-50%, -44%); transition: 150ms ease; backdrop-filter: blur(12px); }
+.seanime-play { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 48px; height: 48px; color: #fff; background: #10161ac2; border: 1px solid #ffffff4a; border-radius: 50%; opacity: 0; transform: translate(-50%, -44%); transition: var(--motion-quick, 140ms ease); backdrop-filter: blur(12px); }
 .seanime-episode-card:hover .seanime-play, .seanime-episode-card:focus-visible .seanime-play { opacity: 1; transform: translate(-50%, -50%); }
 .seanime-episode-card > strong { display: block; margin-top: 10px; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .seanime-episode-card > p { display: flex; margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; }
@@ -124,7 +148,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .seanime-section-heading h2 { font-size: 21px; letter-spacing: -.01em; } .seanime-section-heading a { color: var(--muted); font-size: 12px; } .seanime-section-heading a:hover { color: var(--text); }
 .seanime-book-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 160px)); gap: 14px; } .seanime-book-card { min-width: 0; }
 .seanime-book-cover { position: relative; aspect-ratio: 2 / 3; overflow: hidden; background: var(--surface); border: 1px solid #ffffff12; border-radius: 9px; box-shadow: 0 14px 28px rgb(0 0 0 / .26); }
-.seanime-book-cover > img, .seanime-book-cover > .media-placeholder { width: 100%; height: 100%; object-fit: cover; transition: transform 190ms ease, filter 190ms ease; }
+.seanime-book-cover > img, .seanime-book-cover > .media-placeholder { width: 100%; height: 100%; object-fit: cover; transition: transform var(--motion-base, 200ms ease), filter var(--motion-base, 200ms ease); }
 .seanime-book-card:hover .seanime-book-cover > img, .seanime-book-card:hover .seanime-book-cover > .media-placeholder { transform: scale(1.025); filter: brightness(.82); }
 .seanime-book-cover > span { position: absolute; right: 7px; top: 7px; padding: 3px 6px; color: #fff; background: #08090ab5; border: 1px solid #ffffff20; border-radius: 4px; font-size: 10px; }
 .seanime-book-card > strong { display: block; margin: 8px 1px 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -136,7 +160,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .media-placeholder span { font-size: 11px; font-weight: 700; }
 .media-video { color: #efc8cf; background: #693640; } .media-comic { color: #c8e5e9; background: #315d65; } .media-novel { color: #eee0c1; background: #6a5837; }
 .media-game { color: #c9e4d5; background: #315f48; } .media-other { color: #d8dade; background: #4c5158; }
-.library-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) 120px 120px 120px auto auto; gap: 8px; align-items: center; }
+.library-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.library-toolbar .search-box { flex: 1 1 240px; min-width: 150px; }
+.library-toolbar > .button { flex: 0 0 auto; }
 .search-box { display: flex; align-items: center; gap: 8px; min-width: 0; height: 36px; padding: 0 11px; color: var(--muted); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; }
 .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 17%, transparent); }
 .search-box input { width: 100%; min-width: 0; padding: 0; color: var(--text); background: transparent; border: 0; outline: 0; }
@@ -151,7 +177,7 @@ select { height: 36px; padding: 0 28px 0 10px; }
 .scope-tabs button { position: relative; height: 37px; padding: 0; color: var(--muted); background: transparent; border: 0; cursor: pointer; font-size: 12px; }
 .scope-tabs button.active { color: var(--text); font-weight: 650; } .scope-tabs button.active::after { position: absolute; inset: auto 0 -1px; height: 2px; content: ""; background: var(--accent); }
 .work-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 21px 15px; }
-.work-card { display: block; min-width: 0; border-radius: 7px; transition: transform 120ms ease; } .work-card:hover { transform: translateY(-2px); }
+.work-card { display: block; min-width: 0; border-radius: 7px; transition: transform var(--motion-quick, 140ms ease); } .work-card:hover { transform: translateY(-2px); }
 .poster-frame { position: relative; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; background: var(--surface); border-radius: 7px; box-shadow: 0 8px 23px rgb(0 0 0 / .16); }
 .type-badge { position: absolute; left: 7px; top: 7px; padding: 3px 6px; color: #fff; background: #08090ab8; border-radius: 4px; font-size: 10px; }
 .favorite-mark { position: absolute; right: 7px; top: 7px; display: grid; place-items: center; width: 25px; height: 25px; color: #fff; background: #b74558e8; border-radius: 50%; }
@@ -309,8 +335,8 @@ select { height: 36px; padding: 0 28px 0 10px; }
 .theme-choice button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; cursor: pointer; white-space: nowrap; }
 .theme-choice button.active { color: var(--text); background: var(--hover); font-weight: 600; }
 .switch-field { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); white-space: nowrap; cursor: pointer; } .switch-field input { position: absolute; opacity: 0; pointer-events: none; }
-.switch { position: relative; width: 34px; height: 19px; background: var(--border-strong); border-radius: 10px; transition: 120ms; }
-.switch::after { position: absolute; left: 3px; top: 3px; width: 13px; height: 13px; content: ""; background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgb(0 0 0 / .2); transition: 120ms; }
+.switch { position: relative; width: 34px; height: 19px; background: var(--border-strong); border-radius: 10px; transition: var(--motion-quick, 140ms ease); }
+.switch::after { position: absolute; left: 3px; top: 3px; width: 13px; height: 13px; content: ""; background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgb(0 0 0 / .2); transition: var(--motion-quick, 140ms ease); }
 .switch-field input:checked + .switch { background: var(--accent); } .switch-field input:checked + .switch::after { transform: translateX(15px); } .switch-field input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Forms and feedback */
@@ -342,7 +368,7 @@ select { height: 36px; padding: 0 28px 0 10px; }
   .app-frame { grid-template-columns: 72px minmax(0, 1fr); } .sidebar { width: 72px; padding-inline: 10px; }
   .page, .seanime-home-content { padding-inline: 22px; } .seanime-banner-title { left: 22px; } .seanime-home-toolbar { right: 22px; }
   .seanime-book-row { grid-template-columns: repeat(auto-fill, minmax(132px, 160px)); }
-  .library-toolbar { grid-template-columns: minmax(190px, 1fr) 110px 110px auto auto; } .library-toolbar select:nth-of-type(3) { display: none; }
+  .library-toolbar select:nth-of-type(3) { display: none; }
   .tool-row { grid-template-columns: 38px minmax(180px, 1.5fr) minmax(105px, .8fr) minmax(110px, .8fr) 104px; } .tool-date { display: none; }
   .file-table-head, .file-row { grid-template-columns: minmax(235px, 1fr) 62px 70px 72px 104px; gap: 8px; }
   .unassigned-head, .unassigned-row { grid-template-columns: minmax(190px, 1fr) 50px 92px 66px 168px; gap: 8px; }
@@ -352,7 +378,6 @@ select { height: 36px; padding: 0 28px 0 10px; }
 @media (max-width: 1060px) {
   .page-header { gap: 12px; }
   .page-header .page-actions { flex-wrap: wrap; justify-content: flex-end; }
-  .library-toolbar { grid-template-columns: minmax(170px, 1fr) 104px 104px auto; }
   .library-toolbar select:nth-of-type(2) { display: none; }
   .recognition-search { grid-template-columns: minmax(0, 1fr) auto; }
   .recognition-search > .button:last-child { grid-column: 1 / -1; }

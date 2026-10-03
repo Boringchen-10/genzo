@@ -99,6 +99,9 @@ export interface WorkDetail extends Work {
   tags: string[];
   mediaFiles: MediaFile[];
   metadata: MetadataSummary | null;
+  networkScore?: number | null;
+  networkScoreProvider?: string | null;
+  networkRatingCount?: number | null;
   fieldLocks: string[];
   candidates: MatchCandidate[];
   subtitleLinks: SubtitleLink[];

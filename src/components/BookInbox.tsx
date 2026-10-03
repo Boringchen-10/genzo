@@ -4,6 +4,8 @@ import { dataProvider as api } from "../data";
 import { normalizePath, pathBaseName, pathDirName } from "../mediaPaths";
 import type { LibraryRoot, MediaFile } from "../types";
 import { getErrorMessage } from "../utils";
+import { bookApi } from "../api";
+import type { BookImportGroup } from "../bookData";
 import { BookImportPanel } from "./BookImportPanel";
 import "../book-inbox.css";
 
@@ -23,6 +25,7 @@ function suggestedTitle(path: string | null, selectedFiles: MediaFile[]): string
 export function BookInbox() {
   const [roots, setRoots] = useState<LibraryRoot[]>([]);
   const [files, setFiles] = useState<MediaFile[]>([]);
+  const [groups, setGroups] = useState<BookImportGroup[]>([]);
   const [path, setPath] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -32,9 +35,10 @@ export function BookInbox() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextRoots, nextFiles] = await Promise.all([api.listRoots(), api.listUnassignedMedia("bookshelf")]);
+      const [nextRoots, nextFiles, nextGroups] = await Promise.all([api.listRoots(), api.listUnassignedMedia("bookshelf"), bookApi.importGroups()]);
       setRoots(nextRoots.filter(root => root.destination === "bookshelf"));
       setFiles(nextFiles.filter(bookFile));
+      setGroups(nextGroups);
       const valid = new Set(nextFiles.map(file => file.id));
       setSelected(previous => new Set([...previous].filter(id => valid.has(id))));
       setError("");
@@ -89,7 +93,20 @@ export function BookInbox() {
   const visibleFolders = folders.filter(item => !needle || item.name.toLocaleLowerCase("zh-CN").includes(needle));
   const visibleFiles = filesHere.filter(file => !needle || file.fileName.toLocaleLowerCase("zh-CN").includes(needle));
   const selectedIds = useMemo(() => [...selected], [selected]);
-  const selectionTitle = suggestedTitle(path, readingFiles.filter(file => selected.has(file.id)));
+  const selectedGroup = selected.size ? groups.find(group => selectedIds.every(id => group.mediaFileIds.includes(id))) : undefined;
+  const selectionTitle = selectedGroup?.title ?? suggestedTitle(path, readingFiles.filter(file => selected.has(file.id)));
+  const seriesHere = useMemo(() => {
+    if (!path) return [];
+    const base = normalizePath(path) + separatorFor(path);
+    return groups.flatMap(group => {
+      if (!group.files.some(file => normalizePath(file.path).startsWith(base))) return [];
+      const counts = new Map<string, number>();
+      for (const file of group.files) if (file.volumeNumber != null) counts.set(String(file.volumeNumber), (counts.get(String(file.volumeNumber)) ?? 0) + 1);
+      const eligible = group.files.filter(file => !file.missing && file.volumeNumber != null && counts.get(String(file.volumeNumber)) === 1);
+      if (eligible.length < 2) return [];
+      return [{ group, eligible, skipped: group.files.length - eligible.length }];
+    }).filter(item => !needle || item.group.title.toLocaleLowerCase("zh-CN").includes(needle));
+  }, [path, groups, needle]);
 
   const toggleFile = (id: string, checked: boolean) => setSelected(previous => {
     const next = new Set(previous);
@@ -105,7 +122,7 @@ export function BookInbox() {
   };
 
   return <div className="book-inbox">
-    <p className="book-inbox-note">逐级进入目录，勾选要归为同一作品的漫画或小说文件。目录末尾的识别按钮可一次选中该目录下的文件；右侧可逐个取消并核对本地资料。</p>
+    <p className="book-inbox-note">同系列且卷号明确的文件可一键选为整套，再在右侧核对归档；重号、缺失和无编号文件保留手动选择。目录末尾也可选中当前目录的所有文件。</p>
     <div className="book-inbox-split">
       <aside className="book-inbox-browser" aria-label="待整理阅读目录">
         <div className="book-inbox-search"><input aria-label="筛选待整理文件" value={search} onChange={event => setSearch(event.target.value)} placeholder="筛选当前目录" /><button type="button" className="button compact secondary" disabled={loading} onClick={() => void load()} aria-label="刷新待整理文件"><RefreshCw size={15} /></button></div>
@@ -117,6 +134,7 @@ export function BookInbox() {
         {error ? <p className="gnz-inline-error" role="alert">{error}</p> : null}
         {loading ? <p className="quiet-inline">正在读取待整理文件…</p> : null}
         {!loading ? <div className="book-inbox-list">
+          {seriesHere.map(({ group, eligible, skipped }) => <button type="button" className="book-inbox-series" key={group.mediaFileIds[0]} onClick={() => setSelected(new Set(eligible.map(file => file.id)))}><strong>{group.title}</strong><small>{eligible.length} 卷可归档{skipped ? ` · ${skipped} 个文件待核对` : ""}</small><span>归档整套</span></button>)}
           {visibleFolders.map(item => <button type="button" className="book-inbox-folder" key={item.path} onClick={() => setPath(item.path)}><Folder size={17} /><span><strong>{item.name}</strong><small>{item.count} 个文件{item.missing ? ` · ${item.missing} 个缺失` : ""}</small></span><ChevronRight size={15} /></button>)}
           {visibleFiles.map(file => <label className="book-inbox-file" key={file.id} title={file.path}><input type="checkbox" aria-label={`归档 ${file.fileName}`} checked={selected.has(file.id)} onChange={event => toggleFile(file.id, event.target.checked)} /><span><strong>{file.fileName}</strong><small>{file.mediaType === "comic" ? "漫画" : "小说"}{file.missing ? " · 文件缺失" : ""}</small></span></label>)}
           {!visibleFolders.length && !visibleFiles.length ? <p className="quiet-inline">{needle ? "当前目录没有匹配的文件。" : "当前目录没有待整理阅读文件。"}</p> : null}

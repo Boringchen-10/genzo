@@ -1,4 +1,5 @@
 import { recentlyAdded } from "../workSelection";
+import { isBookshelfWork } from "../bookshelf";
 import { usePlaybackProgress } from "../usePlaybackProgress";
 import { latestPlayback } from "../playback";
 import { useToasts } from "../store";
@@ -7,12 +8,13 @@ import { createPortal } from "react-dom";
 import { PlaybackHistory } from "../components/PlaybackHistory";
 import "../home-hero-sizing.css";
 import { Bookmark, Library, Play, RefreshCw, Settings, Star } from "lucide-react";
-import { Link } from "react-router-dom";
-import { dataProvider as api } from "../data";
+import { Link, useNavigate } from "react-router-dom";
+import { dataProvider as api, getExploreProvider } from "../data";
 import { ErrorState, IconButton, LoadingState } from "../components/common";
+import { ExploreCard } from "../components/ExplorePoster";
 import { MediaVisual } from "../components/MediaVisual";
-import { useUi } from "../store";
-import type { Dashboard, MediaType, WorkListItem } from "../types";
+import { usePreferences, useUi } from "../store";
+import type { Dashboard, ExploreSubject, MediaType, WorkListItem } from "../types";
 import { coverUrl, getErrorMessage, mediaLabels, workCategoryLabel, statusLabels } from "../utils";
 
 type ShelfFilter = "all" | MediaType;
@@ -22,6 +24,9 @@ const shelfFilterOptions: { key: ShelfFilter; label: string }[] = [
   { key: "video", label: mediaLabels.video },
   { key: "game", label: mediaLabels.game },
 ];
+
+/** 首页「推荐」展示的条目数：复用探索页推荐的海报卡片与网格，取当季热度前 6 条。 */
+const HOME_RECOMMEND_LIMIT = 6;
 
 const demoLandscape = ["/demo/video-1.jpg", "/demo/video-2.jpg", "/demo/video-3.jpg"];
 const previewWorks: WorkListItem[] = [
@@ -105,7 +110,12 @@ export function HomePage() {
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [shelfFilter, setShelfFilter] = useState<ShelfFilter>("all");
   const [toolsHost, setToolsHost] = useState<HTMLElement | null>(null);
+  /** 推荐区：与探索页「推荐」共用同一份当季热度榜数据（历史季度为空，固定取当前季度）。 */
+  const [recommended, setRecommended] = useState<ExploreSubject[]>([]);
+  const navigate = useNavigate();
   const openSettings = useUi((state) => state.openSettings);
+  /* 「最近添加」只铺一行海报：条数跟随设置里的「每行作品数量」，与网格列数一致。 */
+  const shelfColumns = usePreferences((state) => state.shelfColumns);
 
   /* 顶部工具条由 AppShell 的标题栏承载：这里取到 WindowTitleBar 提供的插槽，
      再用 portal 把工具栏渲染到窗口控制按钮左侧（布局在样式里，元素本身不属于首页内容流）。 */
@@ -113,9 +123,28 @@ export function HomePage() {
     setToolsHost(document.getElementById("window-titlebar-tools"));
   }, []);
 
+  /**
+   * 推荐区数据来自 Bangumi 网络接口，与本地媒体库是两回事：单独请求、失败即隐藏，
+   * 既不阻塞首页其余内容，也不把首页变成网络错误页。
+   */
+  const loadRecommended = useCallback(async () => {
+    const provider = previewMode ? null : getExploreProvider();
+    if (!provider) {
+      setRecommended([]);
+      return;
+    }
+    try {
+      const overview = await provider.exploreOverview(null, null);
+      setRecommended(overview.trending.slice(0, HOME_RECOMMEND_LIMIT));
+    } catch {
+      setRecommended([]);
+    }
+  }, [previewMode]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    void loadRecommended();
     try {
       if (previewMode) {
         setData(previewDashboard);
@@ -134,15 +163,12 @@ export function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [previewMode]);
+  }, [previewMode, loadRecommended]);
 
   useEffect(() => void load(), [load]);
 
-  const mediaWorks = useMemo(() => works.filter((work) => {
-    const category = work.category ?? work.type;
-    return category !== "comic" && category !== "novel";
-  }), [works]);
-  const carouselWorks = useMemo(() => recentlyAdded(mediaWorks).slice(0, 5), [mediaWorks]);
+  const mediaWorks = useMemo(() => works.filter((work) => !isBookshelfWork(work)), [works]);
+  const carouselWorks = useMemo(() => recentlyAdded(mediaWorks).slice(0, 4), [mediaWorks]);
   useEffect(() => {
     setFeaturedIndex((index) => (index < carouselWorks.length ? index : 0));
   }, [carouselWorks.length]);
@@ -189,7 +215,7 @@ export function HomePage() {
   );
 
   return (
-    <div className="seanime-home gnz-home">
+    <div className={`seanime-home gnz-home${recommended.length ? " has-recommend" : ""}`}>
       {toolsHost ? createPortal(homeToolbar, toolsHost) : null}
       <div className={`seanime-banner ${featuredArtwork ? "has-artwork" : "no-artwork"}${featuredHasBanner ? " has-banner" : ""}`} style={featuredArtwork ? ({ "--banner-image": `url("${featuredArtwork}")` } as CSSProperties) : undefined}>
         <div className="seanime-banner-image" />
@@ -207,17 +233,23 @@ export function HomePage() {
           <div className="gnz-switcher-items">{carouselWorks.map((work, index) => <button type="button" className={featuredIndex === index ? "active" : ""} aria-pressed={featuredIndex === index} key={work.id} onClick={() => setFeaturedIndex(index)}><span className="gnz-switcher-thumb"><ShelfArtwork work={work} index={index} previewMode={previewMode}/></span><span><strong>{work.title}</strong><small>{workCategoryLabel(work)} · 本地</small></span></button>)}</div>
         </div> : null}
       </div>
-      {!previewMode && <PlaybackHistory snapshot={playback} />}
+      {!previewMode && <PlaybackHistory snapshot={playback} works={works} />}
       {mediaWorks.length ? <section className="gnz-home-shelf">
         <div className="section-heading"><div><h2>最近添加</h2><span>{shelfFilter === "all" ? `${mediaWorks.length} 部作品` : `${shelfWorks.length} 部作品`}</span></div><Link to="/library">查看全部</Link></div>
         <div className="gnz-shelf-filters" role="group" aria-label="作品分类筛选">
           {shelfFilterOptions.map((option) => <button key={option.key} type="button" className={shelfFilter === option.key ? "active" : ""} aria-pressed={shelfFilter === option.key} onClick={() => setShelfFilter(option.key)}>{option.label}</button>)}
         </div>
-        {shelfWorks.length ? <div className="gnz-shelf-grid">{shelfWorks.slice(0, 6).map((work, index) => <Link className="gnz-shelf-card" to={`/library/${work.id}`} key={work.id}>
+        {shelfWorks.length ? <div className="gnz-shelf-grid">{shelfWorks.slice(0, shelfColumns).map((work, index) => <Link className="gnz-shelf-card" to={`/library/${work.id}`} key={work.id}>
           <div className="gnz-shelf-poster"><ShelfArtwork work={work} index={index} previewMode={previewMode}/><span className="gnz-shelf-type">{workCategoryLabel(work)}</span>{work.favorite ? <span className="gnz-shelf-fav" aria-hidden="true"><Star size={15} fill="currentColor"/></span> : null}</div>
           <strong>{work.title}</strong>
           <small>{work.mediaCount} 个文件 · {statusLabels[work.status]}</small>
         </Link>)}</div> : <p className="gnz-shelf-empty">该分类下还没有作品。</p>}
+      </section> : null}
+      {recommended.length ? <section className="gnz-home-recommend">
+        <div className="section-heading"><div><h2>推荐</h2><span>当季热度 · 来自 Bangumi</span></div><Link to="/explore">去探索</Link></div>
+        <div className="gnz-explore-grid">
+          {recommended.map((subject) => <ExploreCard key={subject.externalId} subject={subject} onOpen={(next) => navigate(`/explore?subject=${encodeURIComponent(next.externalId)}`)} />)}
+        </div>
       </section> : null}
     </div>
   );
