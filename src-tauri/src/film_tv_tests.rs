@@ -3,10 +3,10 @@ use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[test]
-fn movie_backdrops_use_original_resolution_while_posters_remain_bounded() {
+fn artwork_keeps_original_resolution_for_high_density_displays() {
     let data = json!({"backdrop_path":"/scene.jpg", "poster_path":"/poster.jpg"});
     assert_eq!(artwork(&data, "backdrop_path").as_deref(), Some("https://image.tmdb.org/t/p/original/scene.jpg"));
-    assert_eq!(artwork(&data, "poster_path").as_deref(), Some("https://image.tmdb.org/t/p/w780/poster.jpg"));
+    assert_eq!(artwork(&data, "poster_path").as_deref(), Some("https://image.tmdb.org/t/p/original/poster.jpg"));
     assert!(artwork(&json!({"backdrop_path":"https://untrusted.example/image.jpg"}), "backdrop_path").is_none());
 }
 
@@ -233,7 +233,7 @@ async fn offline_season_refresh_preserves_manual_links_and_supplies_stills() {
     assert_eq!(s.episodes[0].local_files[0].id, "e1");
     assert_eq!(
         s.episodes[0].image_url.as_deref(),
-        Some("https://image.tmdb.org/t/p/w780/test.jpg")
+        Some("https://image.tmdb.org/t/p/original/test.jpg")
     );
     assert!(s.unmatched_files.iter().any(|f| f.id == "double"));
     crate::anime_details::set_episode_link(&state.pool, "e1", Some("tv/42/season/2/episode/2"))

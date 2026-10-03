@@ -626,7 +626,12 @@ pub(crate) async fn apply_metadata(
     } else {
         metadata.year
     };
-    let cover = if locks.contains("coverPath") {
+    // import_cover has always saved user images under UUID filenames. Preserve
+    // those legacy imports even when the user did not explicitly lock the field.
+    let imported_cover = current.cover_path.as_deref().and_then(|path| Path::new(path).file_stem())
+        .and_then(|stem| stem.to_str()).is_some_and(|stem| Uuid::parse_str(stem).is_ok());
+    let preserve_cover = locks.contains("coverPath") || imported_cover;
+    let cover = if preserve_cover {
         current.cover_path
     } else {
         cover_path.or(current.cover_path)
@@ -642,7 +647,7 @@ pub(crate) async fn apply_metadata(
         "coverPath",
         "metadataYear",
     ] {
-        if !locks.contains(field) {
+        if !locks.contains(field) && !(field == "coverPath" && preserve_cover) {
             let provider = if field == "coverPath" {
                 metadata
                     .cover_provider
@@ -653,6 +658,9 @@ pub(crate) async fn apply_metadata(
             };
             record_source(transaction, work_id, field, provider, now).await?;
         }
+    }
+    if imported_cover {
+        record_source(transaction, work_id, "coverPath", "manual", now).await?;
     }
     if banner_updated {
         record_source(
@@ -1735,6 +1743,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(source, "anilist");
+    }
+
+    #[tokio::test]
+    async fn artwork_refresh_preserves_legacy_imports_and_locked_covers() {
+        let pool = db::test_pool().await.unwrap();
+        let metadata = crate::film_tv::metadata(&serde_json::json!({"id":42,"title":"Film"}), crate::film_tv::Kind::Movie, None).unwrap();
+        for (id, path, locked) in [("import", "C:\\Genzo\\covers\\02a363cf-5f5d-4b4b-b853-2bed6b4b156a.jpg", false), ("locked", "C:\\poster.jpg", true), ("auto", "C:\\Genzo\\covers\\art-v2-old-cover.jpg", false)] {
+            sqlx::query("INSERT INTO works(id,title,type,cover_path,notes,created_at,updated_at) VALUES(?,'Film','video',?,'私人笔记','now','now')").bind(id).bind(path).execute(&pool).await.unwrap();
+            if locked { set_field_lock(&pool, id, "coverPath", true).await.unwrap(); }
+            let mut tx = pool.begin().await.unwrap();
+            apply_metadata(&mut tx, id, &metadata, Some("C:\\new.jpg".into()), Some("C:\\bg.jpg".into()), "later").await.unwrap();
+            tx.commit().await.unwrap();
+            let row: (String, String, String) = sqlx::query_as("SELECT cover_path,banner_path,notes FROM works WHERE id=?").bind(id).fetch_one(&pool).await.unwrap();
+            assert_eq!(row.0, if locked || id == "import" { path } else { "C:\\new.jpg" });
+            assert_eq!((row.1.as_str(), row.2.as_str()), ("C:\\bg.jpg", "私人笔记"));
+        }
+        let provider: String = sqlx::query_scalar("SELECT provider FROM work_field_sources WHERE work_id='import' AND field_name='coverPath'").fetch_one(&pool).await.unwrap();
+        assert_eq!(provider, "manual");
     }
 
     #[tokio::test]

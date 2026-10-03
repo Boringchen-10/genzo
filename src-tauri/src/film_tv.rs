@@ -175,6 +175,8 @@ pub(crate) async fn request(
     .and_then(|data| {
         let valid = if path.starts_with("search/") {
             data["results"].is_array()
+        } else if path.ends_with("/images") {
+            data["posters"].is_array() || data["backdrops"].is_array()
         } else if path.contains("/season/") {
             data["episodes"].is_array()
         } else {
@@ -307,11 +309,11 @@ fn artwork(v: &Value, key: &str) -> Option<String> {
         .as_str()
         .filter(|s| s.starts_with('/') && !s.contains(".."))
         .map(|s| {
-            let size = if key == "backdrop_path" { "original" } else { "w780" };
+            let size = "original";
             format!("https://image.tmdb.org/t/p/{size}{s}")
         })
 }
-fn metadata(item: &Value, kind: Kind, season: Option<i64>) -> AppResult<WorkMetadata> {
+pub(crate) fn metadata(item: &Value, kind: Kind, season: Option<i64>) -> AppResult<WorkMetadata> {
     let id = item["id"]
         .as_u64()
         .filter(|id| *id > 0)
@@ -703,6 +705,7 @@ async fn enrich_inner(
             Err(error) => warnings.push(format!("{error}；已有分集与手动关联已保留")),
         }
     }
+    warnings.extend(crate::tmdb_artwork::enrich(&state.pool, &mut m, fresh).await);
     let cover = cache_art(
         &state.cover_cache_path,
         expected,

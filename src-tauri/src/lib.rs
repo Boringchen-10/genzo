@@ -11,6 +11,7 @@ mod error;
 mod explore;
 mod episode_artwork;
 mod film_tv;
+mod tmdb_artwork;
 mod grouping;
 mod launcher;
 mod library_maintenance;

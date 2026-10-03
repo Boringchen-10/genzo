@@ -138,7 +138,7 @@ fn still(value: &Value) -> Option<String> {
     {
         return None;
     }
-    Some(format!("https://image.tmdb.org/t/p/w780{p}"))
+    Some(format!("https://image.tmdb.org/t/p/original{p}"))
 }
 fn mapped(
     episodes: &[AnimeEpisodeMetadata],

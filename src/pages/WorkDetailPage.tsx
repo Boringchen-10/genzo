@@ -555,9 +555,9 @@ export function WorkDetailPage() {
   /** 是否使用官方分集结构（视频作品 + Provider 已接入 + 结构读取成功）。 */
   const isMovie = work.metadata?.provider === "tmdb" && work.metadata.externalId.startsWith("movie/");
   const hasStructure = detailProvider !== null && work.type === "video" && structure !== null && !isMovie;
-  /** 顶部背景：优先后端缓存的**横版横幅**（`bannerPath`，TMDB backdrop / AniList banner），没有横图才退回竖版封面。 */
+  /** 横背景只使用真正的横图；缺少横图时沿用中性背景。 */
   const detailBanner = coverUrl(work.bannerPath ?? null);
-  const detailArtwork = detailBanner ?? coverUrl(work.coverPath);
+  const detailArtwork = detailBanner;
   const officialEpisodes = structure?.episodes ?? [];
   const mainEpisodes = officialEpisodes.filter(isMainEpisode);
   const extraEpisodes = officialEpisodes.filter((episode) => !isMainEpisode(episode));
@@ -591,7 +591,7 @@ export function WorkDetailPage() {
   };
 
   return (
-    <div className={`detail-page ${detailBanner ? "has-detail-banner" : work.coverPath ? "has-detail-artwork" : ""}`} style={detailArtwork ? { "--detail-artwork": `url("${detailArtwork}")` } as CSSProperties : undefined}>
+    <div className={`detail-page ${detailBanner ? "has-detail-banner" : ""}`} style={detailArtwork ? { "--detail-artwork": `url("${detailArtwork}")` } as CSSProperties : undefined}>
         <div className="detail-backdrop" aria-hidden="true" />
         <div className="detail-inner">
         <div className="detail-topbar">
@@ -878,7 +878,7 @@ export function WorkDetailPage() {
                     const subtitleCount = work.subtitleLinks.filter((link) => link.videoMediaFileId === file.id).length;
                     return (
                       <article className="file-row detail-file-card" key={file.id}>
-                        <div className="detail-file-visual"><MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" /><EpisodePlaybackProgress progress={playback.data.items.find(item => item.mediaFileId === file.id)} /></div>
+                        <div className="detail-file-visual">{file.mediaType === "video" ? <LocalFileThumb file={file} className="episode-snapshot-visual" provider={detailProvider} /> : <MediaVisual type={file.mediaType} coverPath={work.coverPath} alt="" />}<EpisodePlaybackProgress progress={playback.data.items.find(item => item.mediaFileId === file.id)} /></div>
                         <div className="file-name"><strong title={file.fileName}>{!isMovie && file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.fileName}</strong><small title={file.path}>{file.fileName}</small></div>
                         <div className="episode-card-meta">{mediaLabels[file.mediaType]} · {formatSize(file.size)}{subtitleCount ? ` · ${subtitleCount} 个字幕` : ""}</div>
                         <div className={file.missing ? "warning-text file-availability" : "available-text file-availability"}>{file.missing ? <><AlertTriangle size={13} />文件缺失</> : file.path.startsWith("webdav://") ? "远程文件" : "本地可用"}</div>

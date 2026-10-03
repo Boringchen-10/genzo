@@ -127,7 +127,8 @@ async fn aggregate_internal(
         match TmdbProvider::new(&token) {
             Ok(provider) => {
                 match supplemental_metadata(&provider, &query, links.tmdb.as_deref()).await {
-                    Ok(Some((metadata, confidence))) => {
+                    Ok(Some((mut metadata, confidence))) => {
+                        result.warnings.extend(crate::tmdb_artwork::enrich(pool, &mut metadata, force_refresh).await);
                         merge_tmdb(&mut result.metadata, &metadata);
                         result.records.push(record(metadata, confidence));
                     }

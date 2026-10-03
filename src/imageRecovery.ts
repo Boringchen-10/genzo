@@ -7,3 +7,9 @@ export function cachedArtworkThumbnail(path: string | null): string | null {
 export function imageCandidates(sources: (string | null | undefined)[]) {
   return [...new Set(sources.filter((s): s is string => !!s))];
 }
+
+/** The cached thumbnail fits 600×900; larger physical frames need the saved source. */
+export function posterSources(cover: string | null, thumbnail: string | null | undefined, width: number, height: number) {
+  const small = thumbnail ?? cachedArtworkThumbnail(cover);
+  return imageCandidates(width > 600 || height > 900 ? [cover, small] : [small, cover]);
+}
