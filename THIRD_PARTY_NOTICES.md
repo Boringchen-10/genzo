@@ -1,6 +1,6 @@
 # 第三方依赖与许可证
 
-Genzo v0.2 使用以下直接依赖。具体传递依赖及锁定版本以 `pnpm-lock.yaml` 和 `src-tauri/Cargo.lock` 为准。
+Genzo v0.5.0 使用以下直接依赖。具体传递依赖及锁定版本以 `pnpm-lock.yaml` 和 `src-tauri/Cargo.lock` 为准。
 
 ## 前端与构建工具
 
