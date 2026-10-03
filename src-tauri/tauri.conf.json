@@ -29,7 +29,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://lain.bgm.tv https://image.tmdb.org https://s4.anilist.co blob: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://lain.bgm.tv https://image.tmdb.org https://s4.anilist.co https://*.mangafunb.fun blob: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": ["$APPDATA/**", "$LOCALAPPDATA/**", "$PICTURE/**", "$DOCUMENT/**", "$DOWNLOAD/**"]

@@ -1,0 +1,26 @@
+.gnz-explore-page .gnz-primary-tabs a { display: inline-flex; align-items: center; height: 40px; padding: 0 14px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 5px; }
+.comic-explore-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+.comic-explore-filters label { display: grid; gap: 7px; min-width: 140px; color: var(--muted); font-size: 12px; }
+.comic-explore-filters select { max-width: 220px; height: 34px; }
+.comic-explore-filters .button { margin-left: auto; }
+.comic-explore-notice { padding: 10px 12px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.comic-explore-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px 16px; }
+.comic-explore-card { display: flex; flex-direction: column; min-width: 0; padding: 0; color: var(--text); text-align: left; background: transparent; border: 0; cursor: pointer; }
+.comic-explore-cover { display: grid; place-items: center; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; }
+.comic-explore-cover img { width: 100%; height: 100%; object-fit: cover; }
+.comic-cover-placeholder { display: grid; justify-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.comic-explore-card strong { display: -webkit-box; margin-top: 9px; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; min-height: 3em; font-size: 13px; }
+.comic-explore-card > span { max-width: 100%; overflow: hidden; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.7; }
+.comic-explore-card:hover .comic-explore-cover { border-color: var(--accent); }
+.comic-explore-paging { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 24px; }
+.comic-explore-detail { display: grid; grid-template-columns: minmax(140px, 210px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.comic-explore-detail h2 { margin: 6px 0 12px; overflow-wrap: anywhere; }
+.comic-explore-detail p { line-height: 1.7; overflow-wrap: anywhere; }
+.comic-explore-cover.is-detail img { object-fit: contain; }
+.comic-explore-summary { white-space: pre-wrap; }
+.comic-explore-detail-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 12px; }
+@media (max-width: 650px) {
+  .comic-explore-detail { grid-template-columns: minmax(95px, 130px) minmax(0, 1fr); gap: 14px; }
+  .comic-explore-filters label { flex: 1; min-width: 115px; }
+  .comic-explore-grid { grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); }
+}

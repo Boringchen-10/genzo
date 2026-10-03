@@ -55,6 +55,12 @@ Genzo 的侧栏、首页媒体布局和主题实现基于 Seanime 的 GPLv3 界�
 
 PotPlayer 进度适配使用其 Windows 消息协议及安装目录的 `CmdLine64.txt` 参数说明；接口常量核对自 [PotPlayerControl 的 InternalSimpleCmd.h](https://github.com/ld3l/PotPlayerControl/blob/main/InternalSimpleCmd.h)。适配器为独立 Rust 实现，未复制该项目的控制器实现、商标或素材，也未捆绑 PotPlayer。该接口在不同播放器版本中可能变化，连接或文件核对失败时保留旧进度。
 
+## Kira 漫画目录接口参考
+
+漫画探索适配参考 [caolib/kira](https://github.com/caolib/kira) 的 `lib/api/manga/manga_api.dart`、`lib/api/api_transport.dart` 与 `lib/models/comic.dart`，核对版本 `19a17c5`（2026-10-02）。Genzo 独立实现 Rust 请求 / SQLite 缓存和 React 界面，借鉴其目录分页、请求头及作品字段约定；不捆绑 / 启动 Kira，不移植 Flutter 界面、账号或章节内容代码，不复制商标、Logo 与第三方素材。
+
+上游使用 MIT License，Copyright (c) 2026 孤独的Lonely；完整版权和许可见 [licenses/kira-MIT.txt](licenses/kira-MIT.txt)。第三方客户端的许可不等于作品数据 / 封面版权或接口官方授权；封面按用户操作缓存，接口兼容性可能随服务改变。本阶段只读取作品元数据。
+
 ## Bangumi
 
 Genzo 通过 Bangumi 官方 API（<https://github.com/bangumi/api>）搜索动画条目并读取作品元数据，不抓取网页。作品数据及封面版权归各自权利人所有，Genzo 仅按用户操作在本地缓存。动画结构解析使用 MPL-2.0 的 `anitomy-ng`；中文目录预处理、目录回溯和加权候选评分为 Genzo 自有实现。实现未复制 Animeko 代码。

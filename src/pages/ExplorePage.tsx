@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { AlertTriangle, ArrowLeft, Heart, Info, Library, RefreshCw, Search, X } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { ComicExplorePage } from "./ComicExplorePage";
 import { dataProvider, getAnimeRankingProvider, getExploreProvider } from "../data";
 import { createExploreRequests } from "../exploreRequests";
 import { EmptyState, ErrorState, IconButton, LoadingState, useOffline } from "../components/common";
@@ -143,6 +144,12 @@ function ExploreCard({ subject, onOpen, onNeedsCover }: { subject: ExploreSubjec
 }
 
 export function ExplorePage() {
+  const [params] = useSearchParams();
+  return params.get("type") === "comic" ? <ComicExplorePage /> : <AnimeExplorePage />;
+}
+
+function AnimeExplorePage() {
+  const [animeParams, setAnimeParams] = useSearchParams();
   const provider = useMemo(() => getExploreProvider(), []);
   /** 离线只作低干扰提示：探索数据来自网络，离线时可能只能读缓存或直接失败。 */
   const offline = useOffline();
@@ -161,7 +168,7 @@ export function ExplorePage() {
   /** `null` = 全部年份 / 全部月份；请求时传 null，由后端规范化到季度。 */
   const [year, setYear] = useState<number | null>(null);
   const [month, setMonth] = useState<number | null>(null);
-  const [tab, setTab] = useState<ExploreTab>("recommended");
+  const tab: ExploreTab = animeParams.get("tab") === "seasonal" ? "seasonal" : "recommended";
   const [tag, setTag] = useState<string | null>(null);
   /** 标签区默认只显示 3 行，超出时提供「展开全部 / 收起」；裁切高度按实际行高测量。 */
   const tagsRef = useRef<HTMLDivElement>(null);
@@ -384,7 +391,7 @@ export function ExplorePage() {
   }, [filterTags, tag]);
 
   const clearSearch = () => { setSearchTerm(null); setResults([]); setQuery(""); };
-  const openTab = (next: ExploreTab) => { clearSearch(); setTab(next); };
+  const openTab = (next: ExploreTab) => { clearSearch(); setAnimeParams(next === "seasonal" ? { tab: next } : {}); };
   /** 标签筛选（对「推荐」和「动漫」都生效）单独重置。 */
   const resetTagFilter = () => setTag(null);
   /** 动漫的季节 / 年份筛选重置：回到「全部」时按当前日期所在季节取值。 */
@@ -644,7 +651,7 @@ export function ExplorePage() {
         <button type="button" role="tab" aria-selected={tab === "recommended"} className={tab === "recommended" ? "active" : ""} onClick={() => openTab("recommended")}>推荐</button>
         <button type="button" role="tab" aria-selected={tab === "seasonal"} className={tab === "seasonal" ? "active" : ""} onClick={() => openTab("seasonal")}>动漫</button>
         <button type="button" disabled title="需要新增后端：全年 / 全量动画浏览查询（当前契约只提供动漫番组与热度）">动画<span className="future-badge">Future</span></button>
-        <button type="button" disabled title="需要新增后端：漫画探索数据源（当前只接入 Bangumi 动画条目）">漫画<span className="future-badge">Future</span></button>
+        <Link role="tab" aria-selected={false} to="/explore?type=comic">漫画</Link>
       </div>
 
       {error ? <ErrorState message={error} retry={() => void load(year, month)} /> : null}

@@ -556,6 +556,7 @@ export function WorkDetailPage() {
   const notesDirty = notesDraft !== work.notes;
   /** 是否使用官方分集结构（视频作品 + Provider 已接入 + 结构读取成功）。 */
   const isMovie = work.metadata?.provider === "tmdb" && work.metadata.externalId.startsWith("movie/");
+  const isCopyComic = work.type === "comic" && work.metadata?.provider === "copymanga";
   const hasStructure = detailProvider !== null && work.type === "video" && structure !== null && !isMovie;
   /** 横背景只使用真正的横图；缺少横图时沿用中性背景。 */
   const detailBanner = coverUrl(work.bannerPath ?? null);
@@ -1001,10 +1002,10 @@ export function WorkDetailPage() {
             <section className={`match-panel ${work.metadataStatus === "candidate_pending" ? "busy" : ""}`} aria-labelledby="matchTitle">
               <div className="match-head"><h2 id="matchTitle">元数据识别</h2><span className="match-badge">{metadataStatusLabels[work.metadataStatus]}</span></div>
               <p className="match-desc">{work.metadata ? <>当前匹配：<strong>{work.metadata.title}</strong> · 来源 {work.metadata.provider}</> : "尚未关联公共元数据。"}</p>
-              <p className="match-result">{recognitionFile ? "识别结果有误时，可重新搜索并选择正确作品。" : "当前作品没有可用于动画识别的视频文件。"}</p>
+              <p className="match-result">{isCopyComic ? "可在章节与文件下方手动补充 Bangumi 书籍资料。" : recognitionFile ? "识别结果有误时，可重新搜索并选择正确作品。" : "当前作品没有可用于动画识别的视频文件。"}</p>
               <div className="match-panel-actions">
-                <button type="button" className="button secondary icon-text" disabled={!recognitionFile} onClick={() => recognitionFile && setRecognizingMedia(recognitionFile)}><Sparkles size={15} />{work.metadata ? "重新识别" : "识别作品"}</button>
-                <button type="button" className="button secondary icon-text" disabled={!detailProvider || refreshing} data-tooltip={detailProvider ? "重新读取元数据，失败时保留已有内容" : "当前运行环境未提供该能力"} onClick={() => void refreshMetadata()}><RefreshCw size={15} />{refreshing ? "刷新中…" : "刷新元数据"}</button>
+                {isCopyComic ? <Link className="button secondary" to={`/explore?type=comic&comic=${encodeURIComponent(work.metadata!.externalId)}`} state={{ comicOverlay: true }}>查看来源资料</Link> : <button type="button" className="button secondary icon-text" disabled={!recognitionFile} onClick={() => recognitionFile && setRecognizingMedia(recognitionFile)}><Sparkles size={15} />{work.metadata ? "重新识别" : "识别作品"}</button>}
+                {!isCopyComic && <button type="button" className="button secondary icon-text" disabled={!detailProvider || refreshing} data-tooltip={detailProvider ? "重新读取元数据，失败时保留已有内容" : "当前运行环境未提供该能力"} onClick={() => void refreshMetadata()}><RefreshCw size={15} />{refreshing ? "刷新中…" : "刷新元数据"}</button>}
               </div>
               {detailProvider === null ? <p className="quiet-inline">当前运行环境未提供动画详情能力（Provider 未实现这几个方法）。</p> : null}
               {detailProvider !== null && offline ? <p className="quiet-inline" role="status">当前网络已断开：刷新元数据与视频缩略图需要联网，可能失败；本地文件仍可正常打开。</p> : null}
@@ -1026,7 +1027,7 @@ export function WorkDetailPage() {
                   return <button type="button" className={`lock-chip ${locked ? "locked" : ""}`} key={field} onClick={() => void toggleLock(field)} title={locked ? `解锁${label}` : `锁定${label}`}><span>{locked ? <Lock size={12} /> : <Unlock size={12} />}{label}</span></button>;
                 })}
               </div>
-              <p className="metadata-note">{work.metadata ? `${work.metadata.provider === "tmdb" ? "TMDB" : "Bangumi"} #${work.metadata.externalId} · 更新于 ${formatDate(work.metadata.fetchedAt)}` : "可从本地视频文件开始识别；锁定字段不会被后续刷新覆盖。"}</p>
+              <p className="metadata-note">{work.metadata ? `${work.metadata.provider === "copymanga" ? "拷贝漫画" : work.metadata.provider === "tmdb" ? "TMDB" : "Bangumi"} #${work.metadata.externalId} · 更新于 ${formatDate(work.metadata.fetchedAt)}` : "可从本地视频文件开始识别；锁定字段不会被后续刷新覆盖。"}</p>
             </section>
 
             <aside className="detail-aside">

@@ -4,6 +4,7 @@ mod bangumi;
 mod book_metadata;
 mod book_scrape;
 mod bookshelf;
+mod comic_explore;
 mod commands;
 mod credentials;
 mod db;
@@ -68,6 +69,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            comic_explore::list_comic_explore,
+            comic_explore::get_comic_explore_themes,
+            comic_explore::get_comic_explore_detail,
+            comic_explore::save_comic_explore_work,
             book_scrape::search_book_candidates,
             book_scrape::search_book_import_candidates,
             book_scrape::confirm_book_candidate,

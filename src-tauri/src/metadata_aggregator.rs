@@ -291,7 +291,7 @@ async fn cache_image(url: &str, destination: &Path, create_thumbnail: bool) -> A
     let trusted = matches!(
         parsed.host_str(),
         Some("lain.bgm.tv" | "bgm.tv" | "image.tmdb.org" | "s4.anilist.co")
-    );
+    ) || parsed.host_str().is_some_and(|host| host.ends_with(".mangafunb.fun"));
     if parsed.scheme() != "https" || !trusted {
         return Err(AppError::Network(
             "元数据源返回了不受信任的封面地址".to_string(),
