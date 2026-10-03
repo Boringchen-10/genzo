@@ -4,6 +4,8 @@ export interface ComicItem {
   pathWord: string;
   title: string;
   coverUrl: string | null;
+  cachedCoverPath?: string | null;
+  cachedCoverThumbnailPath?: string | null;
   authors: string[];
   tags: string[];
   summary: string;
@@ -54,5 +56,6 @@ export const comicExploreApi = {
   list: (input: ComicQuery, refresh = false) => call<ComicPage>("list_comic_explore", { input, refresh }),
   themes: () => call<ComicTheme[]>("get_comic_explore_themes"),
   detail: (pathWord: string, refresh = false) => call<ComicDetail>("get_comic_explore_detail", { pathWord, refresh }),
+  cacheCover: (pathWord: string, coverUrl: string, refresh = false) => call<{ coverPath: string; thumbnailPath: string | null }>("cache_comic_explore_cover", { pathWord, coverUrl, refresh }),
   save: (pathWord: string, favorite: boolean) => call<string>("save_comic_explore_work", { pathWord, favorite }),
 };

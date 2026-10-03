@@ -23,6 +23,10 @@ pub struct ComicItem {
     path_word: String,
     title: String,
     cover_url: Option<String>,
+    #[serde(default)]
+    cached_cover_path: Option<String>,
+    #[serde(default)]
+    cached_cover_thumbnail_path: Option<String>,
     authors: Vec<String>,
     tags: Vec<String>,
     summary: String,
@@ -68,7 +72,7 @@ pub struct ComicQuery {
     page: u32,
 }
 
-fn valid_id(id: &str) -> bool {
+pub(super) fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 200
         && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
@@ -92,6 +96,7 @@ fn parse_item(value: &Value) -> AppResult<ComicItem> {
     }).map(str::to_string);
     Ok(ComicItem {
         path_word: path_word.into(), title: title.into(), cover_url,
+        cached_cover_path: None, cached_cover_thumbnail_path: None,
         authors: names(value, "author"), tags: names(value, "theme"),
         summary: value["brief"].as_str().unwrap_or_default().into(),
         status: value["status"]["display"].as_str().unwrap_or_default().into(),
@@ -210,6 +215,17 @@ async fn local_states(pool: &SqlitePool, items: &mut [ComicItem]) -> AppResult<(
     Ok(())
 }
 
+fn cached_covers(app: &tauri::AppHandle, directory: &std::path::Path, items: &mut [ComicItem]) {
+    for item in items {
+        if let Some(cached) = item.cover_url.as_deref().and_then(|url| crate::comic_cover_cache::peek(directory, &item.path_word, url)) {
+            if crate::db::allow_cover_file(app, std::path::Path::new(&cached.cover_path)).is_ok() {
+                item.cached_cover_path = Some(cached.cover_path);
+                item.cached_cover_thumbnail_path = cached.thumbnail_path;
+            }
+        }
+    }
+}
+
 async fn detail_in_pool(pool: &SqlitePool, id: &str, refresh: bool) -> AppResult<ComicDetail> {
     if !valid_id(id) { return Err(AppError::Validation("漫画来源 ID 无效".into())); }
     let (mut detail, stale) = cached_request(pool, DETAIL_HOST, &format!("/api/v3/comic2/{id}"),
@@ -224,11 +240,12 @@ async fn detail_in_pool(pool: &SqlitePool, id: &str, refresh: bool) -> AppResult
 }
 
 #[tauri::command]
-pub async fn list_comic_explore(input: ComicQuery, refresh: bool, state: State<'_, AppState>) -> AppResult<ComicPage> {
+pub async fn list_comic_explore(input: ComicQuery, refresh: bool, state: State<'_, AppState>, app: tauri::AppHandle) -> AppResult<ComicPage> {
     let (path, params) = query_params(&input)?;
     let (mut page, stale) = cached_request(&state.pool, CATALOG_HOST, path, &params, 1, refresh, parse_list).await?;
     page.page = input.page; page.stale = stale;
     local_states(&state.pool, &mut page.items).await?;
+    cached_covers(&app, &state.cover_cache_path, &mut page.items);
     Ok(page)
 }
 
@@ -239,8 +256,10 @@ pub async fn get_comic_explore_themes(state: State<'_, AppState>) -> AppResult<V
 }
 
 #[tauri::command]
-pub async fn get_comic_explore_detail(path_word: String, refresh: bool, state: State<'_, AppState>) -> AppResult<ComicDetail> {
-    detail_in_pool(&state.pool, &path_word, refresh).await
+pub async fn get_comic_explore_detail(path_word: String, refresh: bool, state: State<'_, AppState>, app: tauri::AppHandle) -> AppResult<ComicDetail> {
+    let mut detail = detail_in_pool(&state.pool, &path_word, refresh).await?;
+    cached_covers(&app, &state.cover_cache_path, std::slice::from_mut(&mut detail.item));
+    Ok(detail)
 }
 
 async fn persist_work(pool: &SqlitePool, detail: &ComicDetail, favorite: bool, cover: Option<String>) -> AppResult<String> {
@@ -283,7 +302,9 @@ pub async fn save_comic_explore_work(path_word: String, favorite: bool, state: S
     if let Some(url) = &detail.item.cover_url {
         let destination = crate::metadata_aggregator::artwork_cache_path(&state.cover_cache_path,
             &format!("copymanga:{path_word}"), "cover", url);
-        if crate::metadata_aggregator::cache_cover(url, &destination).await.is_ok() {
+        if let Ok(Some(cached)) = crate::comic_cover_cache::promote(&state.cover_cache_path, &path_word, url).await {
+            cover = Some(cached);
+        } else if crate::metadata_aggregator::cache_cover(url, &destination).await.is_ok() {
             cover = Some(destination.to_string_lossy().into_owned());
         }
     }
@@ -314,6 +335,17 @@ mod tests {
         assert!(parse_item(&value).unwrap().cover_url.is_none());
         value["path_word"] = json!("../book");
         assert!(parse_item(&value).is_err());
+    }
+
+    #[test]
+    fn old_metadata_cache_does_not_require_local_cover_paths() {
+        let mut old = serde_json::to_value(fixture()).unwrap();
+        let item = old["item"].as_object_mut().unwrap();
+        item.remove("cachedCoverPath"); item.remove("cachedCoverThumbnailPath");
+        let detail: ComicDetail = serde_json::from_value(old).unwrap();
+        assert_eq!(detail.item.title, "短篇");
+        assert!(detail.item.cached_cover_path.is_none());
+        assert!(detail.item.cached_cover_thumbnail_path.is_none());
     }
 
     #[test]

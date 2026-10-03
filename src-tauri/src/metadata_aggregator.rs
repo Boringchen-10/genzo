@@ -382,7 +382,7 @@ fn encode_artwork(image: &image::DynamicImage) -> AppResult<Vec<u8>> {
     Ok(bytes)
 }
 
-fn write_artwork(bytes: &[u8], destination: &Path) -> AppResult<()> {
+pub(crate) fn write_artwork(bytes: &[u8], destination: &Path) -> AppResult<()> {
     let temporary = destination.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| -> std::io::Result<()> {
         std::fs::write(&temporary, bytes)?;

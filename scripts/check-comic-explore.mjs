@@ -46,6 +46,10 @@ try {
           if (input.query === "慢查询") await new Promise(resolve => setTimeout(resolve, 800));
           return { items: input.query ? [item(input.query === "慢查询" ? "old" : "short")] : Array.from({ length: Math.min(24, 60 - (input.page - 1) * 24) }, (_, i) => item(`comic-${(input.page-1)*24+i}`)), total: input.query ? 1 : 60, page: input.page, stale: window.__comicStale };
         }
+        if (command === "cache_comic_explore_cover") {
+          if (args.pathWord === "comic-2") throw Error("缺少封面");
+          return { coverPath: `/qa/cache/${args.pathWord}.jpg`, thumbnailPath: `/qa/cache/${args.pathWord}-thumb.jpg` };
+        }
         if (command === "get_comic_explore_themes") return [{ name: "日常", pathWord: "richang" }, { name: "冒险", pathWord: "maoxian" }];
         if (command === "get_comic_explore_detail") {
           if (window.__comicDetailFailure) throw Error("没有有效作品资料");

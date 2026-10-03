@@ -5,6 +5,7 @@ mod book_metadata;
 mod book_scrape;
 mod bookshelf;
 mod comic_explore;
+mod comic_cover_cache;
 mod commands;
 mod credentials;
 mod db;
@@ -69,6 +70,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            comic_cover_cache::cache_comic_explore_cover,
             comic_explore::list_comic_explore,
             comic_explore::get_comic_explore_themes,
             comic_explore::get_comic_explore_detail,

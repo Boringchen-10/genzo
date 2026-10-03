@@ -3,15 +3,10 @@ import { ArrowLeft, BookOpen, Heart, RefreshCw, Search, X } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { appendComicPage, comicExploreApi, comicListParams, comicQueryFromParams, type ComicDetail, type ComicItem, type ComicPage, type ComicQuery, type ComicTheme } from "../comicExplore";
 import { EmptyState, ErrorState, IconButton, LoadingState, useOffline } from "../components/common";
-import { ResilientImage, RetryImagesButton } from "../components/ResilientImage";
+import { RetryImagesButton } from "../components/ResilientImage";
 import { getErrorMessage } from "../utils";
+import { ComicCover } from "../components/ComicCover";
 import "../comic-explore.css";
-
-function ComicCover({ item, detail = false }: { item: ComicItem; detail?: boolean }) {
-  return <div className={`comic-explore-cover${detail ? " is-detail" : ""}`}>
-    <ResilientImage sources={[item.coverUrl]} alt={`${item.title} 封面`} fallback={<span className="comic-cover-placeholder"><BookOpen size={32} />暂无封面</span>} />
-  </div>;
-}
 
 // Session snapshots keep expanded lists when returning from the bookshelf.
 const lists = new Map<string, ComicPage>();

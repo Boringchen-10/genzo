@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { IMAGE_RETRY_EVENT, imageCandidates } from "../imageRecovery";
 
 /** Falls back through saved assets; retries on demand/connection recovery without a request loop. */
-export function ResilientImage({ sources, alt = "", className, fallback }: {
-  sources: (string | null | undefined)[]; alt?: string; className?: string; fallback: ReactNode;
+export function ResilientImage({ sources, alt = "", className, fallback, onSourceError }: {
+  sources: (string | null | undefined)[]; alt?: string; className?: string; fallback: ReactNode; onSourceError?: (source: string) => void;
 }) {
   const candidates = imageCandidates(sources);
   const identity = JSON.stringify(candidates);
@@ -20,7 +20,7 @@ export function ResilientImage({ sources, alt = "", className, fallback }: {
     return () => { window.removeEventListener(IMAGE_RETRY_EVENT, retry); window.removeEventListener("online", retry); };
   }, [identity]);
   if (!src) return <>{fallback}</>;
-  return <img key={`${identity}:${src}:${state.generation}`} src={src} alt={alt} className={className} loading="lazy" decoding="async" onError={() => setState(previous => ({ identity, generation: previous.generation, failed: [...new Set([...(previous.identity === identity ? previous.failed : []), src])] }))} />;
+  return <img key={`${identity}:${src}:${state.generation}`} src={src} alt={alt} className={className} loading="lazy" decoding="async" onError={() => { onSourceError?.(src); setState(previous => ({ identity, generation: previous.generation, failed: [...new Set([...(previous.identity === identity ? previous.failed : []), src])] })); }} />;
 }
 
 /** Kept outside clickable cards, so retry never starts playback or creates nested buttons. */
