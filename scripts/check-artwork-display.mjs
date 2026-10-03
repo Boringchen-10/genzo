@@ -10,7 +10,7 @@ await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.GENZO_BROWSER_PATH || "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", headless: true });
 try {
   for (const dpr of [1, 2, 3]) {
-    const context = await browser.newContext({ deviceScaleFactor: dpr });
+    const context = await browser.newContext({ deviceScaleFactor: dpr, colorScheme: dpr === 2 ? "dark" : "light" });
     const page = await context.newPage();
     const errors = [];
     let failOriginal = false;
@@ -19,7 +19,7 @@ try {
       const url = new URL(route.request().url());
       if (url.pathname.startsWith("/qa/")) {
         if (url.pathname === "/qa/poster-original" && failOriginal) return route.fulfill({ status: 404, body: "missing" });
-        const poster = url.pathname.includes("poster");
+        const poster = url.pathname.includes("poster") && !url.pathname.includes("landscape");
         const small = url.pathname.includes("thumb");
         const [w, h] = poster ? (small ? [600, 750] : [1200, 1500]) : [1920, 1080];
         return route.fulfill({ contentType: "image/svg+xml", body: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${poster ? '#446a7c' : '#446c50'}"/><rect x="8" y="8" width="${w-16}" height="${h-16}" fill="none" stroke="white" stroke-width="8"/><text x="30" y="70" fill="white" font-size="45">${poster ? 'POSTER — TOP EDGE' : 'LANDSCAPE'}</text><text x="30" y="${h-30}" fill="white" font-size="45">BOTTOM EDGE</text></svg>` });
@@ -29,7 +29,7 @@ try {
     await page.addInitScript(() => {
       const now = new Date().toISOString();
       const cover = "C:/Genzo/covers/art-v2-qa-cover.jpg";
-      const works = ["film", "no-banner"].map(id => ({ id, title: id === "film" ? "海报与横图隔离验证" : "没有横图的作品", originalTitle: null, type: "video", category: "movie", description: "图片比例和高 DPI 显示测试。", coverPath: cover, coverThumbnailPath: "C:/Genzo/covers/art-v2-qa-cover-thumb.jpg", bannerPath: id === "film" ? "/qa/backdrop" : null, status: "planned", favorite: false, rating: null, notes: "", tags: [], mediaCount: 1, missingCount: 0, metadataStatus: "matched", metadataYear: 2026, createdAt: now, updatedAt: now }));
+      const works = ["film", "no-banner", "wide-poster"].map(id => ({ id, title: id === "film" ? "海报与横图隔离验证" : id === "wide-poster" ? "横版封面的动画" : "没有横图的作品", originalTitle: null, type: "video", category: "movie", description: "图片比例和高 DPI 显示测试。", coverPath: id === "wide-poster" ? "/qa/landscape-poster" : cover, coverThumbnailPath: id === "wide-poster" ? "/qa/landscape-poster" : "C:/Genzo/covers/art-v2-qa-cover-thumb.jpg", bannerPath: id === "film" ? "/qa/backdrop" : null, status: "planned", favorite: false, rating: null, notes: "", tags: [], mediaCount: 1, missingCount: 0, metadataStatus: "matched", metadataYear: 2026, createdAt: now, updatedAt: now }));
       window.__artworkCalls = [];
       window.__TAURI_INTERNALS__ = {
         convertFileSrc: path => path === cover ? "/qa/poster-original" : path.includes("-thumb.jpg") ? "/qa/poster-thumb" : path,
@@ -44,7 +44,7 @@ try {
           if (command === "get_anime_work_structure") return { workId: args.workId, bangumiId: null, episodes: [], seasons: [], staff: [], characters: [], warnings: [], unmatchedFiles: [] };
           if (command === "get_media_thumbnail") return args.mediaFileId === "film-file" ? "/qa/frame" : null;
           if (command === "get_playback_progress") return { items: [], sessions: [] };
-          if (command === "get_dashboard") return { totalWorks: 2, recentWorks: works, favoriteWorks: [], lastScan: null, videoCount: 2, comicCount: 0, novelCount: 0, gameCount: 0, otherCount: 0, favoriteCount: 0, missingFileCount: 0 };
+          if (command === "get_dashboard") return { totalWorks: 3, recentWorks: works, favoriteWorks: [], lastScan: null, videoCount: 3, comicCount: 0, novelCount: 0, gameCount: 0, otherCount: 0, favoriteCount: 0, missingFileCount: 0 };
           if (command === "get_setting") return null;
           if (command.startsWith("list_")) return [];
           return null;
@@ -56,15 +56,26 @@ try {
       await page.goto(`${base}/#/library`, { waitUntil: "domcontentloaded" });
       const poster = page.locator(".poster-frame img").first();
       await poster.waitFor();
-      assert.equal(await poster.evaluate(img => getComputedStyle(img).objectFit), "contain");
+      await page.waitForFunction(dark => document.documentElement.classList.contains("dark") === dark, dpr === 2);
+      await page.locator('.poster-frame img[src="/qa/landscape-poster"]').waitFor();
+      await page.waitForFunction(() => [...document.querySelectorAll(".poster-frame img")].every(img => img.complete && img.naturalWidth > 0));
+      if (dpr <= 2 && width === 1024) await page.locator(".work-grid").screenshot({ path: `${output}/grid-${width}-dpr${dpr}.png` });
+      for (const card of await page.locator(".poster-frame img").all()) {
+        assert.equal(await card.evaluate(img => getComputedStyle(img).objectFit), "cover", "poster wall must fill its cards, including landscape artwork");
+        const imageBox = await card.boundingBox();
+        const cardBox = await card.locator("xpath=ancestor::div[contains(@class,'poster-frame')]").boundingBox();
+        assert.ok(imageBox.width >= cardBox.width - 2 && imageBox.height >= cardBox.height - 2);
+      }
       const frame = await page.locator(".poster-frame").first().boundingBox();
       assert.ok(Math.abs(frame.width / frame.height - 2 / 3) < .005);
       await page.goto(`${base}/#/library/film`, { waitUntil: "domcontentloaded" });
       const detail = page.locator(".detail-cover img");
       await detail.waitFor();
+      assert.equal(await detail.evaluate(img => getComputedStyle(img).objectFit), "contain");
       const box = await page.locator(".detail-cover .media-visual").boundingBox();
       const expected = box.width * dpr > 600 || box.height * dpr > 900 ? "/qa/poster-original" : "/qa/poster-thumb";
       await page.waitForFunction(src => document.querySelector(".detail-cover img")?.getAttribute("src") === src, expected);
+      await page.waitForFunction(() => { const img = document.querySelector(".detail-cover img"); return img?.complete && img.naturalWidth > 0; });
       const fileImage = page.locator(".detail-file-visual img");
       await page.locator(".detail-file-visual").scrollIntoViewIfNeeded();
       await page.waitForFunction(() => document.querySelector(".detail-file-visual img")?.getAttribute("src") === "/qa/frame");
@@ -87,7 +98,7 @@ try {
       await page.locator(".detail-file-visual").scrollIntoViewIfNeeded();
       await page.locator(".detail-file-visual .media-placeholder").waitFor();
       assert.equal(await page.locator(".detail-file-visual img").count(), 0);
-      console.log(`${width}x${height} DPR ${dpr}: poster ratio/source, landscape frame, missing artwork and overflow passed`);
+      console.log(`${width}x${height} DPR ${dpr}: filled poster wall, complete detail cover, image source/fallback, landscape frame and overflow passed`);
     }
     if (dpr === 3) {
       await page.goto(`${base}/#/library`, { waitUntil: "domcontentloaded" });
