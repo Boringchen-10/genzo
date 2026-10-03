@@ -48,13 +48,13 @@ try {
     await page.getByRole("link", { name: "书架" }).click();
     await page.getByRole("tab", { name: /待整理/ }).click();
     const detailedShelf = await page.locator(".gnz-bookshelf-page").count() > 0;
-    if (detailedShelf) await page.getByText("0 个待整理阅读物组").waitFor();
+    if (detailedShelf) await page.getByText("当前目录没有待整理阅读文件。").waitFor();
     else await page.getByText("没有待整理的阅读文件").waitFor();
     await page.getByRole("link", { name: "资源库" }).click();
     await page.getByRole("combobox", { name: "C:\\Books的归属" }).selectOption("bookshelf");
     await page.getByRole("link", { name: "书架" }).click();
     await page.getByRole("tab", { name: /待整理/ }).click();
-    if (detailedShelf) await page.getByText("1 个待整理阅读物组").waitFor();
+    if (detailedShelf) await page.getByText("Books", { exact: true }).waitFor();
     else await page.getByText("Book.cbz").first().waitFor();
     await noOverflow("bookshelf inbox");
     assert.deepEqual(errors, []);

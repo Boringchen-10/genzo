@@ -431,7 +431,7 @@ mod tests {
         let host = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
-            let mut buffer = [0; 4096]; socket.read(&mut buffer).await.unwrap();
+            let mut buffer = [0; 4096]; assert!(socket.read(&mut buffer).await.unwrap() > 0);
             let body = r#"{"code":200,"results":null}"#;
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
         });

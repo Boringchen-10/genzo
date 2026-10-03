@@ -26,6 +26,7 @@ pub async fn run(pool: &SqlitePool) -> AppResult<()> {
     .fetch_one(pool)
     .await?;
     if has_ledger {
+        restore_missing_legacy_view(pool, &migrator).await?;
         let applied: Option<Vec<u8>> = sqlx::query_scalar(
             "SELECT checksum FROM _sqlx_migrations WHERE version = 16 AND success = 1",
         )
@@ -48,6 +49,32 @@ pub async fn run(pool: &SqlitePool) -> AppResult<()> {
         }
     }
     migrator.run(pool).await?;
+    Ok(())
+}
+
+// A legacy database can have a valid migration-8 ledger but lack its view.
+// Restore only that missing derived object before migration 10 replaces it.
+// Never rewrite historical SQL, checksums, tables or personal records.
+async fn restore_missing_legacy_view(
+    pool: &SqlitePool,
+    migrator: &sqlx::migrate::Migrator,
+) -> AppResult<()> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let checksum: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT checksum FROM _sqlx_migrations WHERE version=8 AND success=1
+         AND NOT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version>=10)
+         AND NOT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='media_relocation_candidates')",
+    )
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if let Some(checksum) = checksum {
+        let original = migrator.iter().find(|m| m.version == 8).expect("migration 8 must remain embedded");
+        if original.checksum.as_ref() != checksum.as_slice() {
+            return Err(MigrateError::VersionMismatch(8).into());
+        }
+        sqlx::raw_sql(original.sql.as_ref()).execute(&mut *transaction).await?;
+    }
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -290,5 +317,84 @@ mod tests {
             run(&pool).await,
             Err(AppError::Migration(MigrateError::Dirty(16)))
         ));
+    }
+
+    #[tokio::test]
+    async fn v044_disk_library_upgrades_to_v050_and_reopens_without_data_loss() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(directory.path().join("genzo.db"))
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options.clone()).await.unwrap();
+        // v0.4.4 shipped migrations 1..11. Keep their actual embedded checksums.
+        let mut previous = sqlx::migrate!("./migrations");
+        previous.migrations = Cow::Owned(previous.migrations.into_owned().into_iter().filter(|m| m.version <= 11).collect());
+        previous.run(&pool).await.unwrap();
+        sqlx::raw_sql("INSERT INTO works(id,title,type,favorite,rating,notes,created_at,updated_at) VALUES ('w','旧作品','video',1,8.5,'私人笔记','t','t'),('b','旧书','novel',0,7,'阅读笔记','t','t');
+            INSERT INTO library_roots(id,path,kind,created_at,updated_at) VALUES ('r','C:/Media','video','t','t'),('books','C:/Books','novel','t','t');
+            INSERT INTO media_files(id,work_id,library_root_id,path,file_name,extension,media_type,created_at,updated_at) VALUES ('v','w','r','C:/Media/01.mkv','01.mkv','mkv','video','t','t'),('book','b','books','C:/Books/01.epub','01.epub','epub','novel','t','t');
+            INSERT INTO tags(id,name,created_at) VALUES ('tag','我的标签','t');
+            INSERT INTO work_tags(work_id,tag_id) VALUES ('w','tag');
+            INSERT INTO work_external_ids(work_id,provider,external_id,created_at,updated_at) VALUES ('w','bangumi','42','t','t');
+            INSERT INTO work_field_locks(work_id,field_name,locked,updated_at) VALUES ('w','title',1,'t');
+            INSERT INTO app_settings(key,value,updated_at) VALUES ('release.fixture','preserve','t');")
+            .execute(&pool).await.unwrap();
+        let ledger: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations ORDER BY version").fetch_all(&pool).await.unwrap();
+        run(&pool).await.unwrap();
+        let rows: Vec<(String, String, bool, f64, String)> = sqlx::query_as("SELECT id,title,favorite,rating,notes FROM works ORDER BY id").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![("b".into(), "旧书".into(), false, 7.0, "阅读笔记".into()), ("w".into(), "旧作品".into(), true, 8.5, "私人笔记".into())]);
+        let roots: Vec<(String, String)> = sqlx::query_as("SELECT id,destination FROM library_roots ORDER BY id").fetch_all(&pool).await.unwrap();
+        assert_eq!(roots, vec![("books".into(), "bookshelf".into()), ("r".into(), "media".into())]);
+        sqlx::raw_sql("INSERT INTO playback_progress(media_file_id,position_ms,duration_ms,updated_at) VALUES ('v',45000,60000,'t');
+            INSERT INTO book_entry_overrides(media_file_id,title,volume_number,read_state,updated_at) VALUES ('book','人工卷名',1,'reading','t');")
+            .execute(&pool).await.unwrap();
+        pool.close().await;
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+        run(&pool).await.unwrap();
+        let old_ledger: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations WHERE version <= 11 ORDER BY version").fetch_all(&pool).await.unwrap();
+        assert_eq!(old_ledger, ledger);
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT MAX(version) FROM _sqlx_migrations").fetch_one(&pool).await.unwrap(), 24);
+        assert_eq!(sqlx::query_as::<_, (String, String)>("SELECT work_id,path FROM media_files WHERE id='v'").fetch_one(&pool).await.unwrap(), ("w".into(), "C:/Media/01.mkv".into()));
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT position_ms FROM playback_progress WHERE media_file_id='v'").fetch_one(&pool).await.unwrap(), 45000);
+        assert_eq!(sqlx::query_as::<_, (String, String)>("SELECT title,read_state FROM book_entry_overrides WHERE media_file_id='book'").fetch_one(&pool).await.unwrap(), ("人工卷名".into(), "reading".into()));
+        for query in ["SELECT COUNT(*) FROM work_tags", "SELECT COUNT(*) FROM work_external_ids", "SELECT COUNT(*) FROM work_field_locks WHERE locked=1", "SELECT COUNT(*) FROM app_settings WHERE key='release.fixture' AND value='preserve'"] {
+            assert_eq!(sqlx::query_scalar::<_, i64>(query).fetch_one(&pool).await.unwrap(), 1);
+        }
+        assert!(sqlx::query("PRAGMA foreign_key_check").fetch_all(&pool).await.unwrap().is_empty());
+        assert_eq!(sqlx::query_scalar::<_, String>("PRAGMA integrity_check").fetch_one(&pool).await.unwrap(), "ok");
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn missing_legacy_relocation_view_is_repaired_without_rewriting_data_or_ledger() {
+        for valid_checksum in [true, false] {
+            let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+            let mut previous = sqlx::migrate!("./migrations");
+            previous.migrations = Cow::Owned(previous.migrations.into_owned().into_iter().filter(|m| m.version <= 8).collect());
+            previous.run(&pool).await.unwrap();
+            sqlx::raw_sql("DROP VIEW media_relocation_candidates;
+                INSERT INTO works(id,title,type,favorite,notes,created_at,updated_at) VALUES ('w','旧作品','video',1,'保留笔记','t','t');
+                INSERT INTO media_files(id,work_id,path,file_name,extension,media_type,created_at,updated_at) VALUES ('v','w','C:/fixture/01.mkv','01.mkv','mkv','video','t','t');")
+                .execute(&pool).await.unwrap();
+            assert!(matches!(sqlx::migrate!("./migrations").run(&pool).await, Err(MigrateError::ExecuteMigration(_, 10))));
+            if !valid_checksum {
+                sqlx::query("UPDATE _sqlx_migrations SET checksum=X'00' WHERE version=8").execute(&pool).await.unwrap();
+            }
+            let ledger: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations WHERE version <= 9 ORDER BY version").fetch_all(&pool).await.unwrap();
+            if valid_checksum {
+                run(&pool).await.unwrap();
+                run(&pool).await.unwrap();
+                assert!(schema_sql(&pool, "media_relocation_candidates").await.unwrap().is_some());
+                assert_eq!(sqlx::query_as::<_, (String, bool, String)>("SELECT title,favorite,notes FROM works WHERE id='w'").fetch_one(&pool).await.unwrap(), ("旧作品".into(), true, "保留笔记".into()));
+                assert_eq!(sqlx::query_scalar::<_, String>("SELECT work_id FROM media_files WHERE id='v'").fetch_one(&pool).await.unwrap(), "w");
+            } else {
+                assert!(matches!(run(&pool).await, Err(AppError::Migration(MigrateError::VersionMismatch(8)))));
+                assert!(schema_sql(&pool, "media_relocation_candidates").await.unwrap().is_none());
+            }
+            assert_eq!(sqlx::query_as::<_, (i64, Vec<u8>)>("SELECT version,checksum FROM _sqlx_migrations WHERE version <= 9 ORDER BY version").fetch_all(&pool).await.unwrap(), ledger);
+            pool.close().await;
+        }
     }
 }
