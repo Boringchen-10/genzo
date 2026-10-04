@@ -15,7 +15,7 @@ pub enum Origin {
     Metadata,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Change {
     pub id: String,
@@ -28,6 +28,27 @@ pub struct Change {
     pub observed_at: String,
     #[serde(default)]
     pub origin: Origin,
+}
+fn equal_value(field: &str, left: &Value, right: &Value) -> bool {
+    left == right
+        || (field == "rating"
+            && left
+                .as_f64()
+                .zip(right.as_f64())
+                .is_some_and(|(a, b)| a == b))
+}
+impl PartialEq for Change {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.device_id == other.device_id
+            && self.counter == other.counter
+            && self.context == other.context
+            && self.entity == other.entity
+            && self.field == other.field
+            && equal_value(&self.field, &self.value, &other.value)
+            && self.observed_at == other.observed_at
+            && self.origin == other.origin
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -389,7 +410,10 @@ impl Document {
                 if let Some(op) = candidates.last() {
                     fields.insert(field.into(), op.value.clone());
                 }
-                if candidates.len() > 1 && candidates.iter().any(|v| v.value != candidates[0].value)
+                if candidates.len() > 1
+                    && candidates
+                        .iter()
+                        .any(|v| !equal_value(field, &v.value, &candidates[0].value))
                 {
                     conflicts.push(Conflict {
                         entity: entity.clone(),
@@ -449,5 +473,33 @@ mod tests {
         assert!(validate_value("coverUrl", &Value::String("H:/secret.jpg".into())).is_err());
         assert!(validate_value("password", &Value::String("secret".into())).is_err());
         assert!(!valid_version("sample-fingerprint"));
+    }
+    #[test]
+    fn equivalent_json_rating_numbers_do_not_change_immutable_operation_identity() {
+        let mut d = Document::parse(include_bytes!(
+            "../../../docs/sync-v1/fixtures/library.json"
+        ))
+        .unwrap();
+        let device = Uuid::new_v4().to_string();
+        let op = Change {
+            id: format!("{device}:1"),
+            device_id: device,
+            counter: 1,
+            context: d.clock(),
+            entity: d.views().unwrap()[0].entity.clone(),
+            field: "rating".into(),
+            value: serde_json::json!(8.0),
+            observed_at: "2026-10-04T02:00:00Z".into(),
+            origin: Origin::Manual,
+        };
+        d.operations.insert(op.id.clone(), op.clone());
+        let bytes = String::from_utf8(d.bytes().unwrap())
+            .unwrap()
+            .replace("\"value\":8.0", "\"value\":8");
+        let equivalent = Document::parse(bytes.as_bytes()).unwrap();
+        d.merge(&equivalent).unwrap();
+        let mut corrupt = equivalent;
+        corrupt.operations.get_mut(&op.id).unwrap().value = 9.into();
+        assert!(matches!(d.merge(&corrupt), Err(Error::Invalid)));
     }
 }
