@@ -1,0 +1,29 @@
+services:
+  webdav:
+    image: httpd:2.4.69-alpine
+    restart: unless-stopped
+    volumes:
+      - ./httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+      - ./secrets/users.htpasswd:/usr/local/apache2/conf/genzo.htpasswd:ro
+      - ./data:/var/genzo
+    # Only Caddy can reach this port; never publish plain HTTP authentication.
+    expose: ["8080"]
+    networks: [sync]
+  https:
+    image: caddy:2.11.6-alpine
+    restart: unless-stopped
+    depends_on: [webdav]
+    environment:
+      SYNC_DOMAIN: ${SYNC_DOMAIN:?Set the reviewed sync domain}
+      ACME_EMAIL: ${ACME_EMAIL:?Set the certificate contact email}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [sync]
+networks:
+  sync:
+volumes:
+  caddy_data:
+  caddy_config:
