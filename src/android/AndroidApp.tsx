@@ -257,7 +257,6 @@ export default function AndroidApp() {
         <p className="gz-meta">共 {filtered.length} 部作品</p>{filtered.length ? <><div className="gz-grid">{filtered.slice(0, limit).map(card)}</div>{filtered.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}</> : <Empty title={route === "favorites" ? "还没有符合条件的收藏" : "没有匹配的作品"}><p>{query || filter !== "all" ? "试试其他关键词，或清除筛选。" : "添加来源并扫描，再到待整理中确认作品。"}</p><button className="gz-btn" onClick={() => { setQuery(""); setFilter("all"); if (!works.length) navigate("sources"); }}>{works.length ? "清除筛选" : "管理来源"}</button></Empty>}
       </>}
       {route === "profile" && <>
-        <div className="gz-user"><div className="gz-row-icon"><User /></div><div><strong>本机用户</strong><p className="gz-meta">Genzo · Android · 本地优先</p></div></div>
         <div className="gz-seg" role="tablist" aria-label="我的分页">{([["appearance", "外观"], ["sources", "来源管理"], ["provider", "数据源"]] as const).map(([id, label]) => <button role="tab" aria-selected={profileTab === id} key={id} onClick={() => setProfileTab(id)}>{label}</button>)}</div>
         {profileTab === "appearance" && <>
           <Section title="主题"><div className="gz-seg" role="radiogroup" aria-label="主题">{(["dark", "light", "system"] as ThemeMode[]).map(mode => <button role="radio" aria-checked={theme === mode} key={mode} onClick={() => void run(async () => { await api.setSetting("theme", mode); setTheme(mode); })}>{({ dark: "深色", light: "浅色", system: "跟随系统" })[mode]}</button>)}</div></Section>
