@@ -1,5 +1,16 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 当前工作目录：v0.5.0 基线清理（2026-10-04）
+
+- 用户要求删除无用文件和老版本本地源码，后续在现行版本继续优化。唯一活动工作目录为 `H:/二次元阅读器`，本地 `main` 对齐 v0.5.0 发布后基线 `1c23179` 后追加本轮维护提交；不再从旧 `codex/anime-metadata-v02` 工作区状态继续。原分支和 Git 历史保留，未重写已发布历史。
+- 先逐文件比较主目录和发布源码，再只调整新分支与索引；对齐前后 414 个源码 / 文档文件字节一致。正在进行的设计、详情页、列表及会话缓存修改留在工作区，没有混入清理提交。
+- 删除旧 `.tmp` 隔离源码快照、上游 `.research` 参考副本、旧 E2E 夹具 / 日志、旧开发 EXE / 发布产物、重复下载的 v0.5 安装器、本地已停用的 pnpm 缓存与 Rust 工具链；清理旧 fixed / release 构建目录及 2026-10-03 之前的 Genzo 构建缓存。保留运行中的 debug 程序、近期构建缓存、现用 Node / Rust 依赖和 `.tooling/bin/gh.exe`。
+- 托管 `bookshelf-backend` 工作树已通过应用归档并移除实际目录，留下可恢复快照；`git worktree list` 仅显示主目录。H 盘清理后实际增加约 50.56 GiB，归档后 C 盘另增加约 17.67 GiB；之后编译会重新生成必要缓存。
+- 私人数据库恢复资料、未合并设计草稿、临时补丁和发布 QA 记录另存 `H:/Genzo-本地保留资料/cleanup-20261004/`，清理前 184 个保留文件逐字节校验一致，后续并行修改另存 `ongoing-after-cleanup/`。未触碰 AppData 中的使用数据库、真实媒体或凭据，不上传这些私人资料。
+- 保留当前 `artifacts/release-v0.5.0/Genzo_0.5.0_x64-setup.exe`、SHA256SUMS 和发布证据；安装器 SHA-256 仍为 `e914ce55671f676284149a1919fbf08317a3b90264637fd258d11ec16b1ee4fb`。v0.5.0 标签仍指向 `81b41d1ddb076cad784a9eb909fc147b2f3db538`，版本字段均为 0.5.0。
+- 仓库内仅移除无引用的 `SourcesPage.tsx` 包装和过时的 v0.1 / v0.2 实施 Prompt；资源库路由仍使用 `ResourceLibraryPage`。新增 `.tmp/` 忽略规则及现行基线说明。保留设计交付、许可证、验证脚本和 README 截图；25 个迁移 / 兼容 SQL 及 51 个 Rust 源码 / 构建文件与发布版本保持一致。
+- 验证：主目录前端 72 项测试、TypeScript / Vite 生产构建、清理后的 `cargo check --locked --offline` 通过；安装包哈希及迁移 / Rust 文件对照通过。既有 Vite 大 chunk 提示保留。本轮没有运行真实媒体操作、数据库升级或重新安装，也不重新发布版本；这些发布验收记录见下文。并行界面 / 缓存草稿的新增行为仍由各自任务验证。
+
 ## Windows v0.5.0 已正式发布 / 安卓固定基线（2026-10-04）
 
 - 用户授权发布与将仓库公开；仓库现为 public，默认 main 已快进到发布源码，之后单独提交发布核验 / 安卓审查文档。GitHub Release 已发布、非 draft / 非 prerelease、为 latest：https://github.com/Boringchen-10/genzo/releases/tag/v0.5.0 。未登录实际下载完整安装器并核对 SHA-256 通过，公开 README 也与发布提交一致。

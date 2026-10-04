@@ -3,6 +3,7 @@ node_modules/
 .tooling/
 .e2e-*/
 .research/
+.tmp/
 artifacts/
 dist/
 target/

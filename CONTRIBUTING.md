@@ -42,3 +42,13 @@ Genzo 使用 Semantic Versioning，版本格式为 `MAJOR.MINOR.PATCH`：
 7. 将提交和标签推送到 GitHub；确认远程标签指向发布提交。
 
 紧急 Bug 修复同样走完整流程，不跳过测试、变更日志或标签。
+
+## 当前开发基线与本地文件
+
+后续优化从 `main` 的 v0.5.0 发布基线继续；复核已发布安装包时使用 `v0.5.0` 标签。早期版本可通过 Git 历史取回，不在工作目录保留旧版源码副本，也不再使用 v0.1 / v0.2 的实施 Prompt。
+
+- `src/`、`src-tauri/`、`public/` 和 `scripts/` 保存现行实现、资源及可重复运行的验证工具。
+- 全部数据库迁移和 `migration_compat/` 继续保留，它们用于升级已有用户数据。
+- `design/` 保存设计交付记录；应用以现行 React / Tauri 代码及 `DESIGN_DIRECTION.md` 为准，不运行旧 HTML 原型。
+- `.tmp/`、`artifacts/`、`dist/`、`node_modules/` 和 Rust `target/` 是忽略目录。临时验证结束后清理旧快照和产物；保留当前发布安装包、校验信息及必要验证记录。
+- 进行中草稿和私人数据库恢复资料须单独保留，不能因清理缓存而丢弃，也不上传到公共仓库。
