@@ -1,0 +1,14 @@
+{
+  "library.json": {
+    "workCount": 1,
+    "conflictCount": 0
+  },
+  "concurrent-notes.json": {
+    "workCount": 1,
+    "conflictCount": 1,
+    "notesCandidates": [
+      "电脑整理的笔记",
+      "手机离线写下的另一份笔记"
+    ]
+  }
+}
