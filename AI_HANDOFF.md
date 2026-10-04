@@ -1,5 +1,20 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## Windows v0.5.0 已正式发布 / 安卓固定基线（2026-10-04）
+
+- 用户授权发布与将仓库公开；仓库现为 public，默认 main 已快进到发布源码，之后单独提交发布核验 / 安卓审查文档。GitHub Release 已发布、非 draft / 非 prerelease、为 latest：https://github.com/Boringchen-10/genzo/releases/tag/v0.5.0 。未登录实际下载完整安装器并核对 SHA-256 通过，公开 README 也与发布提交一致。
+- **发布源码**：81b41d1ddb076cad784a9eb909fc147b2f3db538，chore(release): v0.5.0。**带注释标签**：v0.5.0，对象 82bc6d821c83b484fd9fc2782d69acc5c0535e15；远程标签解引用匹配源码。标签固定，不将发布后文档提交混作安装包源码。
+- **安装包**：H:/二次元阅读器/artifacts/release-v0.5.0/Genzo_0.5.0_x64-setup.exe，225274811 字节；同名原产物在托管工作树 src-tauri/target/release/bundle/nsis/。SHA-256：e914ce55671f676284149a1919fbf08317a3b90264637fd258d11ec16b1ee4fb。SHA256SUMS.txt 与 build-manifest.json 同目录、已随 Release 上传。
+- **源码 / 产物关系**：从干净 tracked 发布工作区使用直接 Node Tauri CLI + Cargo --locked 构建；安装后的 x64 程序除 Tauri UNK→NSS 三字节打包标记外与编译输出完全相同。打包程序 SHA-256：6a6cf79ba598beabd4cc9d113e7a7e1ec7353ddfd4daf4441bbf0990b6036bce；未打包输出 1317bb4bc1213b828e7b25c6181557d331628c710a2cf154a4e88810ea5b9a08。无需 Node / Rust / Android Studio，WebView2 x64 离线安装程序随包，播放器 / 阅读器自行准备。
+- **整理范围**：原有效书架工作树提交保留；fdbeaad 合并主分支长期安卓记录，8297f4d 纳入逐文件核对的 40 个已完成桌面运行 / 回归文件，68ea401 修复旧库视图缺失升级阻碍及补充发布回归，df147f4 更新用户指南与原创示例截图。主目录进行中设计草稿、.tmp、工具、真实媒体、测试 / 构建产物和数据库不纳入 Git。没有 reset / clean 或覆盖媒体文件。
+- **验证**：前端 72 项，Rust 260 项 / 14 忽略，TypeScript / Vite / Windows NSIS 构建通过；Clippy 退出 0，已有 5 个库 / 6 个测试警告。rustfmt check 退出 1 为既有多文件差异，未整库重排；git diff --check 通过。三种桌面尺寸的目录分流、书架多选 / 匹配 / 排序 / 封面、返回导航、漫画展开 / 详情、封面缓存及 DPR 回归通过，均使用隔离模拟 IPC。
+- **安装 / 数据**：Windows 11 x64 当前用户安装、重新安装退出 0，程序启动响应；最终默认安装创建桌面 / 开始菜单快捷方式。SQLite backup 备份位于 C:/Users/Administrator/AppData/Local/Genzo-release-backups/v0.5.0-before-install/genzo.db（私人文件，不上传）。实际旧库 0008→0024，作品 / 文件关联 / 个人设置保留，integrity ok；原有 media_files 外键异常未新增，未擅自删记录。已有缓存横幅回填与 bangumi-data 更新状态单独核对，不误判为个人数据丢失。
+- **发布修复**：仅在迁移 0008 校验和正确、视图缺失且尚未执行 0010 时恢复原派生视图；所有历史 SQL / 账本不变，未知校验和仍拒绝，隔离回归先复现失败再验证修复。v0.4.4 磁盘 WAL 库也验证升级及再次打开，保留收藏 / 笔记 / 锁定 / 观看和阅读记录。
+- **未验证 / 人工步骤**：第二台无开发工具的干净 Windows 10 / 11；缺少 WebView2 时离线安装；安装向导、SmartScreen 与原生全部交互；真实旧安装器原位升级、PotPlayer / 阅读器 / 各 WebDAV 服务组合。正式包 CDP 连接不可用，不把模拟浏览器检查冒称原生全链路。安装包未签名，既有旧索引异常可另行诊断，不为发布清库。
+- **安卓审查**：docs/ANDROID_BASELINE_V0.5.0.md 列出可复用领域 / IPC / 识别 / SQLite、Windows 凭据 / PotPlayer / Shell / 窗口部分，以及 SAF URI / Keystore / 播放 / 生命周期 / 16 KB 页适配和验证顺序。没有 Android 工程或 APK，未交叉编译 / 真机验证，手机阅读 / 播放范围待另行确认。
+- **继续工作**：发布分支 codex/release-v0.5.0，工作树 C:/Users/Administrator/.codex/worktrees/bookshelf-backend/二次元阅读器；H:/二次元阅读器 原分支仍保留未完成草稿。安卓开发从 v0.5.0 标签另建分支，先阅读本交接与审查，再检查实际代码 / Git。主工作区同步本轮修复和文档，但不把其剩余草稿当作发布代码；以标签为准。
+
+
 ## Windows v0.5.0 发布准备（2026-10-03）
 
 - 发布分支 codex/release-v0.5.0，托管工作树 C:/Users/Administrator/.codex/worktrees/bookshelf-backend/二次元阅读器；主目录仍保留未完成草稿。已提交有效桌面集成 8297f4d、旧库兼容修复 68ea401 和用户指南 df147f4。

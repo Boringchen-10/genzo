@@ -99,7 +99,7 @@ node node_modules/@tauri-apps/cli/tauri.js build --bundles nsis -- --locked
 
 安装器产物：`src-tauri/target/release/bundle/nsis/Genzo_0.5.0_x64-setup.exe`。构建时需联网获取依赖 / WebView2 离线运行时；安装包内含运行时安装程序，用户无需构建工具。前端没有独立线上服务端，浏览器预览的模拟数据不等于真实桌面能力。
 
-开始修改前阅读 [AGENTS.md](AGENTS.md)、[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)、[ROADMAP.md](ROADMAP.md)、[DESIGN_DIRECTION.md](DESIGN_DIRECTION.md) 和 [AI_HANDOFF.md](AI_HANDOFF.md)。安卓开发以 **v0.5.0 注释标签**固定 Windows 发布源码，兼容性审查另行记录，不混入该版本。
+开始修改前阅读 [AGENTS.md](AGENTS.md)、[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)、[ROADMAP.md](ROADMAP.md)、[DESIGN_DIRECTION.md](DESIGN_DIRECTION.md) 和 [AI_HANDOFF.md](AI_HANDOFF.md)。安卓开发以 **v0.5.0 注释标签**固定 Windows 发布源码，兼容性审查见 [ANDROID_BASELINE_V0.5.0.md](docs/ANDROID_BASELINE_V0.5.0.md)，不混入该版本。
 
 ## 许可证与来源
 
