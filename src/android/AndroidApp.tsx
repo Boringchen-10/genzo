@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, BookOpen, Check, ChevronRight, CircleHelp, Compass, Film, Folder, Heart, Home, Inbox, Library, LoaderCircle, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, CircleHelp, Compass, Film, Folder, Heart, Home, Inbox, Library, LoaderCircle, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
 import { api } from "../api";
 import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
@@ -255,7 +255,6 @@ export default function AndroidApp() {
   const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase())));
   const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
   const primary = route.startsWith("detail/") ? "library" : top ? route : "profile";
-  const futureCards = <div className="gz-future-grid">{[{ route: "bookshelf", title: "书架", sub: "漫画 / 轻小说", icon: BookOpen }, { route: "explore", title: "发现", sub: "推荐内容", icon: Compass }].map(item => <button className="gz-panel" key={item.route} onClick={() => navigate(item.route)}><item.icon /><strong>{item.title}</strong><span className="gz-meta">{item.sub}</span><span className="gz-badge">Future · 预留</span></button>)}</div>;
   const sourceManager = <>
     <p className="gz-meta">授权你已下载视频的目录。扫描只建立索引，不复制视频；停用来源保留作品和个人记录。</p>
     <div className="gz-actions"><button className="gz-btn primary" disabled={busy} onClick={() => void run(() => authorize())}><Plus size={18} />添加本地目录</button><button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(undefined, true))}>登记已授权目录</button></div>
@@ -298,8 +297,6 @@ export default function AndroidApp() {
             <p className="gz-meta">0 为直角，数值越大越圆润。</p>
           </Section>
           <button className="gz-btn" onClick={() => { setAccentHue(158); setGlassBlur(24); setCornerRadius(8); }}>恢复默认外观</button>
-          <button className="gz-row-card" onClick={() => navigate("favorites")}><span className="gz-row-icon"><Heart /></span><span className="gz-row-main"><strong>我的收藏</strong><span className="gz-meta">{works.filter(work => work.favorite).length} 部已收藏</span></span><ChevronRight size={18} /></button>
-          <Section title="后续扩展">{futureCards}</Section>
           <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
         </>}
         {profileTab === "sources" && <>
