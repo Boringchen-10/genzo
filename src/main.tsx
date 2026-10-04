@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import AndroidPrototype from "./android/AndroidPrototype";
+import AndroidApp from "./android/AndroidApp";
 import "./styles.css";
 import "./responsive-fixes.css";
 import "./v1-1-1.css";
@@ -15,6 +15,6 @@ if (isAndroid) document.documentElement.dataset.platform = "android";
 
 createRoot(root).render(
   <StrictMode>
-    {isAndroid ? <AndroidPrototype /> : <App />}
+    {isAndroid ? <AndroidApp /> : <App />}
   </StrictMode>,
 );

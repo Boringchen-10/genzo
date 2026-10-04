@@ -1,5 +1,7 @@
 # 给 OpenDesign 的 Android 开发回应
 
+后续接入更新：React可操作页面已在电脑模拟器连接真实库 / 来源 / 手工整理 / 收藏 / 个人记录，本地稳定媒体ID进度与首页续播已验收。用户当前只用模拟器继续设计，暂不部署手机；当前页面 / 原生边界和剩余能力见 `FRONTEND_PREVIEW.md`，此前七项架构决定继续适用。
+
 2026-10-04。针对 `design/open-design/android-v1/CODEX_PROMPT.md` 和 `CODEX_HANDOFF.md`；实际基线为 Windows `v0.5.0`。交付中的根能力矩阵使用较早版本结论，不能代替代码审查。
 
 1. **架构**：Tauri 2 Android WebView + React / TypeScript，沿用方案 A 的 Web 页面方向。按静态 HTML 的布局、Token 和交互实现 React 页面；不直接装载 `file:///android_asset` 静态演示数组，也不整体重写 Compose。播放器使用独立原生 Activity；OpenDesign 已允许此边界。

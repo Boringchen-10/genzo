@@ -1,6 +1,7 @@
 package com.genzo.android
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -28,7 +29,7 @@ import java.security.MessageDigest
 import java.lang.ref.WeakReference
 
 // A native validation view. OpenDesign will define the final controls and React entry flow.
-class PlayerActivity : Activity() {
+class PlayerActivity : ComponentActivity() {
     companion object {
         @Volatile var snapshot = JSObject().put("status", "idle")
         var current: WeakReference<PlayerActivity>? = null
@@ -39,6 +40,9 @@ class PlayerActivity : Activity() {
     private lateinit var seek: SeekBar
     private var descriptor: ParcelFileDescriptor? = null
     private var uri = ""
+    private var mediaFileId: String? = null
+    private var sessionId: String? = null
+    private var revision = 0L
     private var resumeMs = 0L
     private var subtitleDelayMs = 0L
     private var status = "opening"
@@ -52,12 +56,17 @@ class PlayerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { finish() }
+        })
         current = WeakReference(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         uri = intent.getStringExtra("uri") ?: run { finish(); return }
+        mediaFileId = intent.getStringExtra("mediaFileId")
+        sessionId = intent.getStringExtra("sessionId")
         resumeMs = savedInstanceState?.getLong("positionMs") ?: if (intent.getBooleanExtra("restart", false)) 0 else
-            getSharedPreferences("genzo-prototype-progress", 0).getLong(identity(), 0)
+            intent.getLongExtra("resumeMs", -1L).takeIf { it >= 0 } ?: getSharedPreferences("genzo-prototype-progress", 0).getLong(identity(), 0)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(0xff101114.toInt()) }
         val video = VLCVideoLayout(this)
         root.addView(video, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -183,19 +192,24 @@ class PlayerActivity : Activity() {
             items?.forEach { put(JSObject().put("id", it.id).put("name", it.name)) }
         }
         snapshot = JSObject().put("status", status).put("engine", "LibVLC 3.7.7").put("positionMs", player.time)
+            .put("mediaFileId", mediaFileId).put("sessionId", sessionId).put("revision", ++revision)
+            .put("updatedAtMs", System.currentTimeMillis())
             .put("durationMs", player.length).put("seekable", player.isSeekable).put("rate", player.rate)
             .put("audioTracks", trackList(player.audioTracks)).put("subtitleTracks", trackList(player.spuTracks))
             .put("audioTrack", player.audioTrack).put("subtitleTrack", player.spuTrack).put("subtitleDelayUs", player.spuDelay)
         label.text = "${status} · ${player.time / 1000}/${player.length / 1000}s · ${player.rate}× · ${subtitleDelayMs}ms"
         if (player.length > 0 && !seek.isPressed) seek.progress = (player.time * 1000 / player.length).toInt().coerceIn(0, 1000)
         if (player.time >= 0 && player.length > 0) getSharedPreferences("genzo-prototype-progress", 0).edit().putLong(identity(), player.time).apply()
+        if (mediaFileId != null && player.time >= 0 && player.length > 0) {
+            getSharedPreferences("genzo-player", 0).edit().putString("lastProgress", snapshot.toString()).apply()
+        }
     }
 
-    override fun onPause() { if (::player.isInitialized) { report(); player.pause() }; super.onPause() }
+    override fun onPause() { if (::player.isInitialized) { player.pause(); status = "paused"; report() }; super.onPause() }
     override fun onSaveInstanceState(outState: Bundle) { if (::player.isInitialized) outState.putLong("positionMs", player.time); super.onSaveInstanceState(outState) }
     override fun onDestroy() {
         handler.removeCallbacks(ticker)
-        if (::player.isInitialized) { report(); player.stop(); player.detachViews(); player.release() }
+        if (::player.isInitialized) { status = "closed"; report(); player.stop(); player.detachViews(); player.release() }
         if (::vlc.isInitialized) vlc.release()
         descriptor?.close()
         subtitleFiles.forEach { it.delete() }

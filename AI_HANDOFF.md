@@ -1,5 +1,16 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 安卓可操作前端 / 模拟器优先（2026-10-04）
+
+- 用户最新要求先在电脑模拟器展示有前端的程序，便于继续设计与加功能；暂停实物手机展示 / 安装。本轮只对 emulator-5554 部署与测试，一加保留第二阶段原型。
+- 阶段二已提交 `b384df7`；当前仍在同一独立工作树 / 分支。React 启动改为 AndroidApp，按 OpenDesign Android v1 接首页、媒体库、收藏、我的、来源、待整理、详情；深浅 / 系统主题保存共享设置，真实 DB 数据，无静态演示作品或角色资产。诊断页移到“我的 → 开发验证”。
+- 已通过模拟器 UI 操作：来源启停 / 扫描、合成文件手动整理、搜索空态、收藏、评分 / 备注、原生系统返回、详情播放、SQLite 进度与首页续播。候选搜索 / 确认和资料刷新连接共享接口，但真实联网作品闭环未验收；WebDAV 页面 / 播放、原始目录分组 / 大库、自动字幕候选和原生正式控件仍待接入。
+- `open_internal_player` 由稳定媒体 ID 查 SAF URI，不接受页面任意 URI；`get_internal_player_state` 返回规范快照。Rust 在 React 后台时每5秒及状态改变保存共享 playback_progress，原生私有偏好保留最后样本、返回 / 重启时恢复；陈旧 / 无效 / 未索引样本拒绝写入的单元测试通过。无新迁移，也不更改 Windows PotPlayer 写入逻辑。
+- MainActivity 处理真实 systemBars / displayCutout / IME inset；返回先关闭键盘（系统行为）、再关闭抽屉、后退路由。PlayerActivity 使用 ComponentActivity 返回回调；Android16平台Activity返回失效的问题已修复并复测。模拟器首次全屏系统教学遮罩已手动确认，未把遮罩当播放错误。
+- Windows Rust266通过 /14忽略 /0失败，前端72通过，TS / Vite / x86_64 APK构建通过。1024×640、1366×768、1920×1080浏览器模拟IPC的Windows首页 / 媒体库无横向溢出，min-width1024保留；不是Windows原生全面人工验收。旧capture-theme-preview的待整理选择器与当前入口不一致，本轮未改旧脚本。
+- 已验证独立包 `D:\DevTools\Android\Build\artifacts\Genzo-android-frontend-x86_64-debug.apk`，SHA256 `65f7894aa3e89a43cf42ca9c26d9f5f3a6c505fe96f135cf6be321ff91f3d600`。模拟器原始 UI QA / 截图在 `Build/qa/frontend`，脚本 `scripts/verify-android-ui.mjs` 只操作本轮合成视频。
+- 启动 / 编辑方式见 `docs/android/FRONTEND_PREVIEW.md`；独立 APK 无需开发服务器，当前修改 React 后重新构建安装更新。尝试独立1421开发端口后，安装的包仍加载tauri.localhost，热更新未验收；未保留未验证的Preview脚本 / 配置，Studio使用已验证的x86_64构建桥。新增工程 / 缓存仍 D，代码 H，主目录草稿未纳入提交。后续继续逐步接底层与正式控件，不将当前可操作前端称完整安卓首版。
+
 ## 安卓本地索引 / 电脑模拟器（2026-10-04）
 
 - 第一阶段已提交 `dfdbe85`，后续仍在 `codex/android-first` / `H:\二次元阅读器\.tmp\android-first`；主目录其他修改与 Windows 发布标签保持。

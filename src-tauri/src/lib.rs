@@ -2,6 +2,7 @@ mod anime_details;
 mod android_probe;
 mod android_bridge;
 mod android_sources;
+mod android_player;
 mod anime_parser;
 mod bangumi;
 mod book_metadata;
@@ -159,6 +160,9 @@ pub fn run() {
             commands::test_external_tool,
             commands::launch_media,
             playback::get_playback_progress,
+            android_player::open_internal_player,
+            android_player::get_internal_player_state,
+            android_player::set_android_appearance,
             playback::resume_playback,
             commands::open_media_directory,
             commands::get_dashboard,

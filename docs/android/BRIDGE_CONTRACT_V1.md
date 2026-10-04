@@ -34,7 +34,7 @@ OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端�
 
 ## 安卓业务命令常量（新增，逐项接入）
 
-已实现来源前三项（授权、状态、扫描）；其余播放 / 字幕业务接口尚未实现。来源返回状态是上次授权 / 扫描的结果，不在列表读取时联网或遍历整个目录。实时扫描仍读取共享 `list_scan_tasks`，事件接口待接入。
+已实现来源前三项（授权、状态、扫描）及本地SAF稳定媒体ID的 `open_internal_player` / `get_internal_player_state`；播放控制和字幕候选接口仍待接。来源返回状态是上次授权 / 扫描结果，不在列表读取时联网或遍历整个目录。扫描读取共享 `list_scan_tasks`，事件接口待接入。当前React页面已接共享作品 / 收藏 / 个人记录；原生控件仍为验证版。
 
 | invoke 常量 | 参数 | 返回 |
 | --- | --- | --- |
@@ -46,6 +46,8 @@ OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端�
 | `control_internal_player` | `{sessionId:string,action:PlayerAction}` | `PlayerSnapshot`；过期会话 reject |
 | `pick_external_subtitle` | `{sessionId:string}` | `{status:'selected'|'cancelled'|'permission_denied'|'subtitle_error',track?:SubtitleTrack}` |
 | `list_subtitle_candidates` | `{mediaFileId:string}` | `SubtitleTrack[]`；唯一可靠关联可自动选，多项提供人工选择 |
+
+当前 `open_internal_player` 只接已启用的SAF视频；restart / SQLite续播已实现，subtitleId选择尚未实现，不应从页面传入。WebDAV播放需继续接鉴权与Range。React后台由Rust采样原生会话，每5秒及状态改变写共享进度，原生备份最后有效样本供重启恢复；没有用Windows resume_playback。主题使用共享theme设置及 `set_android_appearance({dark:boolean})` 同步系统图标，系统实际inset由MainActivity处理。
 
 ```ts
 type SourceState = 'not_authorized'|'checking'|'available'|'connection_failed'|

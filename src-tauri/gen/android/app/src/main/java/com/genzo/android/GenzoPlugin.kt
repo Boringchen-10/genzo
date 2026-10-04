@@ -16,15 +16,24 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import androidx.core.view.WindowInsetsControllerCompat
 
 @InvokeArg
 class TreeArgs { var uri: String? = null }
 @InvokeArg
-class PlayerArgs { lateinit var uri: String; var restart: Boolean = false }
+class PlayerArgs {
+    lateinit var uri: String
+    var restart: Boolean = false
+    var mediaFileId: String? = null
+    var sessionId: String? = null
+    var resumeMs: Long? = null
+}
 @InvokeArg
 class CredentialArgs { lateinit var id: String; var username: String = ""; var password: String = "" }
 @InvokeArg
 class ControlArgs { lateinit var action: String; var value: Double = 0.0; var uri: String? = null }
+@InvokeArg
+class AppearanceArgs { var dark: Boolean = true }
 
 @TauriPlugin
 class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
@@ -32,6 +41,19 @@ class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
     private val worker = Executors.newSingleThreadExecutor()
     private val timeouts = Executors.newSingleThreadScheduledExecutor()
     private val credentials = CredentialStore(activity)
+
+    @Command
+    fun appearance(invoke: Invoke) {
+        val args = invoke.parseArgs(AppearanceArgs::class.java)
+        activity.runOnUiThread {
+            WindowInsetsControllerCompat(activity.window, activity.window.decorView).apply {
+                isAppearanceLightStatusBars = !args.dark
+                isAppearanceLightNavigationBars = !args.dark
+            }
+            activity.window.decorView.setBackgroundColor(if (args.dark) 0xff090d0f.toInt() else 0xfff3f6f5.toInt())
+            invoke.resolve(JSObject())
+        }
+    }
 
     @Command
     fun saveCredentials(invoke: Invoke) {
@@ -145,12 +167,17 @@ class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
         val uri = Uri.parse(args.uri)
         if (uri.scheme !in listOf("content", "https", "http")) { invoke.reject("Unsupported locator"); return }
         activity.startActivity(Intent(activity, PlayerActivity::class.java).putExtra("uri", args.uri)
-            .putExtra("restart", args.restart))
+            .putExtra("restart", args.restart).putExtra("mediaFileId", args.mediaFileId)
+            .putExtra("sessionId", args.sessionId).putExtra("resumeMs", args.resumeMs ?: -1L))
         invoke.resolve(JSObject().put("status", "opening"))
     }
 
     @Command
     fun playerState(invoke: Invoke) { invoke.resolve(PlayerActivity.snapshot) }
+    @Command
+    fun savedPlayerProgress(invoke: Invoke) {
+        invoke.resolve(JSObject(activity.getSharedPreferences("genzo-player", 0).getString("lastProgress", "{}")!!))
+    }
     @Command
     fun playerControl(invoke: Invoke) {
         val args = invoke.parseArgs(ControlArgs::class.java)

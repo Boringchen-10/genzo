@@ -82,4 +82,17 @@ SAF 递归 / 大库 / 增量索引、来源启停与扫描重试、安卓刮削 
 | 一加 / arm64 | `D:\DevTools\Android\Build\artifacts\Genzo-android-stage2-arm64-debug.apk` | `20c0ebb795708d83d30ab36f923e4d49a3364c5a86e3c69b494e259b657c94d8` |
 | 电脑 / x86_64 | `D:\DevTools\Android\Build\artifacts\Genzo-android-stage2-x86_64-debug.apk` | `b6dc261864d731d997c10545d0ce0c69f7e166ec0e310ce6f760d8687ad2aca9` |
 
-此处更新当前事实；上文第一阶段是 24 迁移 / arm64 的历史快照。当前仍未交付稳定 ID 的原生观看记录、自动字幕候选、安卓 WebDAV 播放、自动刮削 / 纠错手机闭环与正式 OpenDesign 页面，也没有正式发布。
+以上为第二阶段快照；第一阶段是24迁移 / arm64的历史快照。第三阶段已接稳定ID的本地观看记录与React页面，见下文；仍未正式发布。
+
+## 可操作前端 / 模拟器阶段
+
+用户要求暂不在实物手机展示，本轮只安装 / 测试emulator-5554。按OpenDesign v1接React首页、媒体库、收藏、我的、来源、待整理和详情，显示实际索引 / 整理的合成视频。没有使用静态演示作品 / 未授权角色资产。
+
+- 独立x86_64 APK编译 / 安装 / 启动通过；固定包 `D:\DevTools\Android\Build\artifacts\Genzo-android-frontend-x86_64-debug.apk`，SHA256 `65f7894aa3e89a43cf42ca9c26d9f5f3a6c505fe96f135cf6be321ff91f3d600`。
+- 来源开关 / 新扫描、手动分组建作品、搜索空态、收藏、评分8.5 / 备注、系统返回关闭抽屉与原生播放器、详情打开原始视频、React后台时Rust写SQLite进度、首页续播通过。合成片在约17秒保存并续播；没有播放转码。强制停止 / 新WebView重连后再断言主题、个人记录、进度、目录授权恢复，脚本通过。
+- 新增进度单元验证稳定媒体ID、无效 / 陈旧 / 未索引样本拒写、作品收藏 / 备注保留。Windows全套266通过、14忽略、0失败，日志 `Build/windows-frontend-tests.log`；前端72通过，TypeScript / Vite通过。
+- 模拟器宽412 / scrollWidth412，顶部56与底部56不覆盖主内容，深浅主题截图已检查。Windows1024×640、1366×768、1920×1080浏览器模拟IPC首页 / 媒体库无横向溢出，桌面min-width1024保留。未进行全套Windows原生控件人工验收。
+- UI脚本修正新任务识别、重名卡片、启动Socket / 旧播放会话竞态；主题先误用不支持的新设置键，改用共享theme。模拟器全屏系统教学遮罩已确认。原生平台Activity返回键不退出已改ComponentActivity回调并通过实际系统返回测试。
+- 实时预览尝试启动独立1421服务并编译开发包，但实际WebView仍读取tauri.localhost，未通过热更新验证；未提交该Preview配置 / 入口。已恢复固定独立包和普通Studio构建桥。当前React迭代使用重新构建安装，不将开发服务启动等同于热更新成功。
+
+脚本 `scripts/verify-android-ui.mjs`；记录与截图 `D:\DevTools\Android\Build\qa\frontend`。候选 / 刷新仅接口连接，真实联网匹配 / 纠错闭环、WebDAV、原始目录分组 / 大库、字幕自动候选 / 原生正式控件、生命周期 / 解码范围仍需继续。新前端尚未在一加部署，不把模拟器当新真机验收。

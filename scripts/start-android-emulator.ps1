@@ -19,13 +19,16 @@ if ($devices -match "^$serial\s") {
     $runningAvd = & $adb -s $serial emu avd name
     if ($runningAvd[0] -ne $avd) { throw 'Port 5554 belongs to another emulator; leave it running and choose another port.' }
 } else {
-    $launch = [System.Diagnostics.ProcessStartInfo]::new()
-    $launch.FileName = $emulator
-    $launch.UseShellExecute = $false
-    foreach ($argument in @('-avd',$avd,'-port','5554','-gpu','software','-feature','-Vulkan','-no-boot-anim','-scale','0.35','-cores','4')) {
-        $launch.ArgumentList.Add($argument)
-    }
-    $null = [System.Diagnostics.Process]::Start($launch)
+    # Cold boot avoids restoring a stale GPU/VM snapshot; user data stays intact.
+    $arguments = @('-avd',$avd,'-port','5554','-gpu','software','-feature','-Vulkan','-no-snapshot-load','-no-boot-anim','-scale','0.35','-cores','4')
+    $logDirectory = Join-Path $androidTools 'Build\emulator-logs'
+    New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    # The user explicitly wants a visible emulator window. Persist output so the
+    # helper does not depend on the launching terminal's lifetime or pipe buffer.
+    $null = Start-Process -FilePath $emulator -ArgumentList $arguments -WindowStyle Normal `
+        -RedirectStandardOutput (Join-Path $logDirectory "$stamp.out.log") `
+        -RedirectStandardError (Join-Path $logDirectory "$stamp.err.log") -PassThru
 }
 if ($Apk) {
     if (!(Test-Path -LiteralPath $Apk)) { throw "APK not found: $Apk" }
