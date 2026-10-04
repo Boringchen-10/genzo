@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, BookOpen, Check, ChevronRight, CircleHelp, Film, Folder, Heart, Home, Inbox, Library, LoaderCircle, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, ChevronRight, CircleHelp, Compass, Film, Folder, Heart, Home, Inbox, Library, LoaderCircle, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
 import { api } from "../api";
 import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
@@ -9,7 +9,7 @@ import { androidApi, type VideoSource } from "./api";
 import AndroidPrototype from "./AndroidPrototype";
 import "./mobile.css";
 
-const tabs = [{ route: "home", title: "首页", icon: Home }, { route: "library", title: "媒体库", icon: Library }, { route: "favorites", title: "收藏", icon: Heart }, { route: "profile", title: "我的", icon: User }];
+const tabs = [{ route: "home", title: "首页", icon: Home }, { route: "library", title: "媒体库", icon: Library }, { route: "explore", title: "发现", icon: Compass }, { route: "profile", title: "我的", icon: User }];
 const categories = [{ id: "all", title: "全部" }, { id: "anime", title: "动漫" }, { id: "movie", title: "电影" }, { id: "tv", title: "电视剧" }, { id: "video", title: "未分类影视" }];
 const statuses: Record<WorkStatus, string> = { planned: "计划看", in_progress: "在看", completed: "看过", paused: "搁置", dropped: "放弃" };
 const sourceStates: Record<string, string> = { available: "可访问", checking: "待检查", offline: "来源离线", permission_denied: "授权失效", credential_invalid: "凭据失效", connection_failed: "连接失败" };
@@ -19,6 +19,15 @@ const asset = (path: string | null | undefined) => path ? (/^(https?:|asset:|dat
 const routeFromHash = () => location.hash.slice(2) || "home";
 const bytes = (size: number) => size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(1)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
 const inputFor = (work: WorkDetail): WorkInput => ({ title: work.title, originalTitle: work.originalTitle, type: work.type, description: work.description, coverPath: work.coverPath, status: work.status, favorite: work.favorite, rating: work.rating, notes: work.notes, tags: work.tags });
+
+const homeSections: { id: string; title: string; match: (work: WorkListItem) => boolean }[] = [
+  { id: "anime", title: "动画", match: work => (work.category ?? work.type) === "anime" },
+  { id: "books", title: "书籍", match: work => work.type === "comic" || work.type === "novel" },
+  { id: "movie", title: "电影", match: work => (work.category ?? work.type) === "movie" },
+  { id: "tv", title: "电视剧", match: work => (work.category ?? work.type) === "tv" },
+  { id: "video", title: "影视", match: work => (work.category ?? work.type) === "video" },
+];
+const recentCovers = (items: WorkListItem[]) => [...items].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 10);
 
 function Poster({ work }: { work: WorkListItem | WorkDetail }) {
   const [failed, setFailed] = useState(false);
@@ -91,6 +100,7 @@ function Organize({ group, works, busy, onRun, onDone }: { group: UnassignedMedi
 
 export default function AndroidApp() {
   const [route, setRoute] = useState(routeFromHash);
+  const [allWorks, setAllWorks] = useState<WorkListItem[]>([]);
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [groups, setGroups] = useState<UnassignedMediaGroup[]>([]);
   const [sources, setSources] = useState<VideoSource[]>([]);
@@ -115,13 +125,14 @@ export default function AndroidApp() {
   const dark = theme === "system" ? systemDark : theme === "dark";
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
-  const title = top?.title || ({ sources: "来源管理", inbox: "待整理", diagnostics: "开发验证", bookshelf: "书架", explore: "探索" }[route]) || "作品详情";
+  const title = top?.title || ({ sources: "来源管理", inbox: "待整理", diagnostics: "开发验证", bookshelf: "书架", explore: "发现" }[route]) || "作品详情";
 
   async function refresh() {
     const sequence = ++refreshSequence.current;
-    const [allWorks, allGroups, allSources, allTasks, overview] = await Promise.all([api.listWorks(), api.listUnassignedGroups(), androidApi.sources(), androidApi.tasks(), androidApi.progress()]);
+    const [workList, allGroups, allSources, allTasks, overview] = await Promise.all([api.listWorks(), api.listUnassignedGroups(), androidApi.sources(), androidApi.tasks(), androidApi.progress()]);
     if (sequence !== refreshSequence.current) return;
-    setWorks(allWorks.filter(work => work.type === "video"));
+    setAllWorks(workList);
+    setWorks(workList.filter(work => work.type === "video"));
     setGroups(allGroups.filter(group => group.destination === "media" && group.mediaType === "video"));
     setSources(allSources); setTasks(allTasks); setProgress(overview.items);
   }
@@ -135,6 +146,11 @@ export default function AndroidApp() {
     scrollPositions.current[route] = main.current?.scrollTop ?? 0;
     history.pushState({ genzoDepth: (history.state?.genzoDepth ?? 0) + 1 }, "", `#/${next}`);
     setRoute(next);
+  }
+  function openCategory(category: string) {
+    setFilter(category);
+    setLimit(48);
+    if (route !== "library") navigate("library");
   }
   function back() {
     if (modal) { setModal(null); return true; }
@@ -211,26 +227,17 @@ export default function AndroidApp() {
   }
   const card = (work: WorkListItem) => <button className="gz-card" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><strong>{work.title}</strong><span className="gz-meta">{statuses[work.status]} · {work.mediaCount} 个文件</span></button>;
   const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase())));
-  const featured = works[0];
-  const continueItems = progress.filter(item => !item.completed && item.positionMs > 0);
+  const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
   const primary = route.startsWith("detail/") ? "library" : top ? route : "profile";
-  const futureCards = <div className="gz-future-grid">{[{ route: "bookshelf", title: "书架", sub: "漫画 / 轻小说", icon: BookOpen }, { route: "explore", title: "探索", sub: "发现 / 推荐", icon: Search }].map(item => <button className="gz-panel" key={item.route} onClick={() => navigate(item.route)}><item.icon /><strong>{item.title}</strong><span className="gz-meta">{item.sub}</span><span className="gz-badge">Future · 预留</span></button>)}</div>;
+  const futureCards = <div className="gz-future-grid">{[{ route: "bookshelf", title: "书架", sub: "漫画 / 轻小说", icon: BookOpen }, { route: "explore", title: "发现", sub: "推荐内容", icon: Compass }].map(item => <button className="gz-panel" key={item.route} onClick={() => navigate(item.route)}><item.icon /><strong>{item.title}</strong><span className="gz-meta">{item.sub}</span><span className="gz-badge">Future · 预留</span></button>)}</div>;
   return <div className="android-app" data-theme={dark ? "dark" : "light"}>
-    <header className="gz-topbar">{top ? <span className="gz-brand">G<span>·</span></span> : <button className="gz-iconbtn" aria-label="返回" onClick={back}><ArrowLeft /></button>}<h1>{route === "home" ? "Genzo" : title}</h1><button className="gz-iconbtn" aria-label="刷新页面数据" disabled={busy || loading} onClick={() => void run(refresh)}><RefreshCw size={20} /></button></header>
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
+      {!top && <button className="gz-iconbtn gz-back" aria-label="返回" onClick={() => back()}><ArrowLeft /></button>}
       {error && <div className="gz-error" role="alert"><span>{error}</span><button className="gz-iconbtn" aria-label="关闭错误提示" onClick={() => setError("")}><X size={18} /></button></div>}
       {loading && <p className="gz-loading"><LoaderCircle />正在读取媒体库…</p>}
       {route === "home" && <>
-        <section className="gz-hero" style={featured?.bannerPath ? { backgroundImage: `linear-gradient(0deg,#090d0f,transparent),url("${asset(featured.bannerPath)}")` } : undefined}>
-          <div className="gz-hero-inner"><span className="gz-eyebrow">你的媒体，安静归档</span><h2>{featured?.title ?? "从你的第一部作品开始"}</h2><p className="gz-meta">{featured ? `${featured.metadataYear ?? "年份未填写"} · ${statuses[featured.status]} · ${featured.mediaCount} 个已索引文件` : "添加已下载视频的目录，整理作品与观看记录。"}</p><div className="gz-actions">
-            <button className="gz-btn primary" onClick={() => navigate(featured ? `detail/${featured.id}` : "sources")}>{featured ? <Film size={18} /> : <Plus size={18} />}{featured ? "查看作品" : "添加来源"}</button>
-            <button className="gz-btn" onClick={() => navigate("library")}>媒体库<ChevronRight size={16} /></button>
-          </div></div>
-        </section>
-        <Section title="继续观看">{continueItems.length ? <div className="gz-rail">{continueItems.map(item => <button className="gz-continue" disabled={busy || item.missing} key={item.mediaFileId} onClick={() => void run(() => play(item.mediaFileId))}><div className="gz-continue-cover"><Play /><span>{item.missing ? "文件缺失" : `${playbackTime(item.positionMs)} / ${playbackTime(item.durationMs)}`}</span><progress max={100} value={playbackPercent(item)} /></div><strong>{item.title}</strong><span className="gz-meta">{item.fileName}</span></button>)}</div> : <p className="gz-panel gz-meta">暂无观看记录。开始播放后，续播入口会出现在这里。</p>}</Section>
-        <Section title="最近添加" action={<button className="gz-link" onClick={() => navigate("library")}>媒体库<ChevronRight size={16} /></button>}>{works.length ? <div className="gz-grid">{works.slice(0, 6).map(card)}</div> : <Empty title="媒体库还没有作品"><p>扫描视频目录后，在待整理中确认作品。</p><button className="gz-btn" onClick={() => navigate("sources")}>添加来源</button></Empty>}</Section>
-        <Section title="来源与扫描" action={<button className="gz-link" onClick={() => navigate("sources")}>管理<ChevronRight size={16} /></button>}><div className="gz-panel"><p className="gz-meta">{sources.length} 个来源 · {works.length} 部作品 · {groups.length} 组待整理</p><div className="gz-actions"><span className={`gz-badge ${scanning ? "warn" : "ok"}`}>{scanning ? "正在扫描" : "扫描空闲"}</span><button className="gz-link" onClick={() => navigate("inbox")}>查看待整理</button></div></div></Section>
-        <Section title="后续扩展" action={<span className="gz-meta">Future</span>}>{futureCards}</Section>
+        <Section title="继续观看">{continueItems.length ? <div className="gz-rail gz-cover-rail">{continueItems.map(item => <button className="gz-continue" disabled={busy || item.missing} key={item.mediaFileId} onClick={() => void run(() => play(item.mediaFileId))}><div className="gz-continue-cover"><Play /><span>{item.missing ? "文件缺失" : `${playbackTime(item.positionMs)} / ${playbackTime(item.durationMs)}`}</span><progress max={100} value={playbackPercent(item)} /></div><strong>{item.title}</strong><span className="gz-meta">{item.fileName}</span></button>)}</div> : <p className="gz-panel gz-meta">暂无观看记录。开始播放后，续播入口会出现在这里。</p>}</Section>
+        {allWorks.length ? homeSections.map(section => { const items = recentCovers(allWorks.filter(section.match)); return <Section key={section.id} title={section.title} action={<button className="gz-link" onClick={() => section.id === "books" ? navigate("bookshelf") : openCategory(section.id)}>更多<ChevronRight size={16} /></button>}>{items.length ? <div className="gz-rail gz-cover-rail">{items.map(work => <button className="gz-cover" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><span className="gz-cover-label">{work.title}</span></button>)}</div> : <p className="gz-panel gz-meta">{section.id === "books" ? "漫画与轻小说书架将在后续版本接入。" : "暂无最近添加的作品。"}</p>}</Section>; }) : <section className="gz-hero"><div className="gz-hero-inner"><span className="gz-eyebrow">你的媒体，安静归档</span><h2>从你的第一部作品开始</h2><p className="gz-meta">添加已下载视频的目录，整理作品与观看记录。</p><div className="gz-actions"><button className="gz-btn primary" onClick={() => navigate("sources")}><Plus size={18} />添加来源</button></div></div></section>}
       </>}
       {(route === "library" || route === "favorites") && <>
         <label className="gz-search"><Search size={20} /><input type="search" aria-label="搜索媒体库" placeholder="搜索标题 / 原名 / 标签" value={query} onChange={event => { setQuery(event.target.value); setLimit(48); }} /></label>
@@ -241,7 +248,7 @@ export default function AndroidApp() {
       {route === "profile" && <>
         <div className="gz-user"><div className="gz-row-icon"><User /></div><div><strong>本机用户</strong><p className="gz-meta">Genzo · Android · 本地优先</p></div></div>
         <Section title="外观"><div className="gz-seg" role="radiogroup" aria-label="主题">{(["dark", "light", "system"] as ThemeMode[]).map(mode => <button role="radio" aria-checked={theme === mode} key={mode} onClick={() => void run(async () => { await api.setSetting("theme", mode); setTheme(mode); })}>{({ dark: "深色", light: "浅色", system: "跟随系统" })[mode]}</button>)}</div></Section>
-        {[{ title: "目录与来源", sub: `${sources.length} 个来源 · 授权与扫描`, route: "sources", icon: Folder }, { title: "待整理队列", sub: `${groups.length} 个分组待确认`, route: "inbox", icon: Inbox }].map(item => <button className="gz-row-card" key={item.route} onClick={() => navigate(item.route)}><span className="gz-row-icon"><item.icon /></span><span className="gz-row-main"><strong>{item.title}</strong><span className="gz-meta">{item.sub}</span></span><ChevronRight size={18} /></button>)}
+        {[{ title: "我的收藏", sub: `${works.filter(work => work.favorite).length} 部已收藏`, route: "favorites", icon: Heart }, { title: "目录与来源", sub: `${sources.length} 个来源 · 授权与扫描`, route: "sources", icon: Folder }, { title: "待整理队列", sub: `${groups.length} 个分组待确认`, route: "inbox", icon: Inbox }].map(item => <button className="gz-row-card" key={item.route} onClick={() => navigate(item.route)}><span className="gz-row-icon"><item.icon /></span><span className="gz-row-main"><strong>{item.title}</strong><span className="gz-meta">{item.sub}</span></span><ChevronRight size={18} /></button>)}
         <Section title="当前预览范围"><div className="gz-panel"><p>本地目录授权、扫描索引、作品整理、收藏、个人记录和本地播放已接入。</p><p className="gz-meta">播放控件仍为原生验证界面；WebDAV 播放、自动字幕关联与更多资料管理正在接入。此预览只在电脑模拟器展示。</p></div></Section>
         <Section title="后续扩展">{futureCards}</Section>
         <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
@@ -271,7 +278,7 @@ export default function AndroidApp() {
       {(route === "bookshelf" || route === "explore") && <Empty title={`${title} · Future`}><p>{route === "bookshelf" ? "漫画与轻小说阅读将在后续版本接入。" : "发现与推荐保留扩展位置。"}</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
       {route === "diagnostics" && <AndroidPrototype />}
     </main>
-    <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span>{tab.title}</span></button>)}</nav>
+    <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
     {toast && <div className="gz-toast" role="status">{toast}</div>}
     {busy && <div className="gz-busy" role="status"><LoaderCircle size={18} />正在处理…</div>}
     {modal && <div className="gz-scrim" onClick={() => setModal(null)}><section ref={sheet} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-dialog-title" onClick={event => event.stopPropagation()}><div className="gz-section-head"><h2 id="gz-dialog-title">{modal.kind === "edit" ? "个人记录" : "整理作品"}</h2><button className="gz-iconbtn" aria-label="关闭" onClick={() => setModal(null)}><X /></button></div>{error && <p className="gz-error" role="alert">{error}</p>}{modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { const updated = await api.updateWork(modal.work.id, input); setDetail(updated); await refresh(); setModal(null); setToast("个人记录已保存"); })} /> : <Organize group={modal.group} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}</section></div>}
