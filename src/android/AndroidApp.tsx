@@ -299,7 +299,6 @@ export default function AndroidApp() {
           </Section>
           <button className="gz-btn" onClick={() => { setAccentHue(158); setGlassBlur(24); setCornerRadius(8); }}>恢复默认外观</button>
           <button className="gz-row-card" onClick={() => navigate("favorites")}><span className="gz-row-icon"><Heart /></span><span className="gz-row-main"><strong>我的收藏</strong><span className="gz-meta">{works.filter(work => work.favorite).length} 部已收藏</span></span><ChevronRight size={18} /></button>
-          <Section title="当前预览范围"><div className="gz-panel"><p>本地目录授权、扫描索引、作品整理、收藏、个人记录和本地播放已接入。</p><p className="gz-meta">播放控件仍为原生验证界面；WebDAV 播放、自动字幕关联与更多资料管理正在接入。此预览只在电脑模拟器展示。</p></div></Section>
           <Section title="后续扩展">{futureCards}</Section>
           <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
         </>}
