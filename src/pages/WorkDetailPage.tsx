@@ -21,7 +21,6 @@ import {
   Play,
   RefreshCw,
   Sparkles,
-  Star,
   Trash2,
   Unlink,
   Unlock,
@@ -35,6 +34,7 @@ import { RecognitionHistory } from "../components/RecognitionHistory";
 import { ConfirmDialog, EmptyState, ErrorState, IconButton, LoadingState, Modal, SafeImage, useOffline } from "../components/common";
 import { RemoteFileActions } from "../components/RemoteStoragePanel";
 import { MediaVisual } from "../components/MediaVisual";
+import { RatingPerspective } from "../components/RatingPerspective";
 import "../comic-detail-cover.css";
 import { MediaCorrectionDialog } from "../components/MediaCorrectionDialog";
 import { RetryImagesButton } from "../components/ResilientImage";
@@ -652,29 +652,8 @@ export function WorkDetailPage() {
         {work.type === "video" && <PlaybackHistory snapshot={playback} key={work.id} workId={work.id} mediaIds={work.mediaFiles.map(file => file.id)} />}
         <div className="detail-body">
           <main className="detail-main">
-            <div className="detail-toprow">
+            <div className="detail-toprow rating-perspective-layout">
               <div className="detail-toprow-left">
-                <div className="ratings detail-rating">
-                  <div className={`rating-card ${work.networkScore == null ? "unavailable" : ""}`}>
-                    <span className="rating-label">网络评分</span>
-                    <div className="rating-value"><strong className="rating-score">{work.networkScore == null ? "暂无" : work.networkScore.toFixed(1)}</strong><span className="rating-source">{work.networkScoreProvider === "bangumi" ? "Bangumi" : work.networkScoreProvider === "anilist" ? "AniList" : work.networkScoreProvider === "tmdb" ? "TMDB" : "未提供"}</span></div>
-                    <small className="rating-hint">{work.networkScore == null ? "尚未缓存网络评分" : `${work.networkRatingCount ?? 0} 人评价 · 不影响我的评分`}</small>
-                  </div>
-                  <div className="rating-card">
-                    <span className="rating-label">我的评分</span>
-                    <div className="rating-value">
-                      <div className="reader-stars" role="radiogroup" aria-label="我的评分">
-                        {[2, 4, 6, 8, 10].map((score) => (
-                          <button key={score} type="button" className={`reader-star ${work.rating !== null && work.rating >= score ? "active" : ""}`} role="radio" aria-checked={work.rating === score} aria-label={`${score} 分`} disabled={saving} onClick={() => void updateInline(workInput(work, { rating: work.rating === score ? null : score }), work.rating === score ? "已清除评分" : `我的评分：${score} 分`)}>
-                            <Star size={15} fill="currentColor" />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <small className="rating-hint">{work.rating === null ? "点击星星进行评分" : `${work.rating.toFixed(1)} / 10`}</small>
-                  </div>
-                </div>
-
                 <div className="detail-about" ref={aboutRef}>
                   <p className="detail-description">{work.description || "暂无简介。可通过编辑作品补充本地简介。"}</p>
                   {work.description && !hasChineseSynopsis(work.description) ? <button type="button" className="detail-about-more" onClick={() => setEditOpen(true)}>暂无中文简介 · 编辑简介<ChevronRight size={13} /></button> : null}
@@ -686,13 +665,15 @@ export function WorkDetailPage() {
                 </div>
               </div>
 
-              <section className="notes-panel" aria-labelledby="notesTitle">
-                <div className="notes-head"><h2 id="notesTitle">我的点评</h2><span className="notes-badge">{notesDirty ? "未保存" : "已保存"}</span></div>
-                <label className="notes-label" htmlFor="notesInput">点评 / 备注</label>
-                <textarea id="notesInput" ref={notesRef} rows={3} value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder="写下你对这部作品的点评、观后感或备注…" />
-                <div className="notes-foot"><small className="notes-hint">仅保存在本机。</small><button type="button" className="button primary" disabled={!notesDirty || notesSaving} onClick={() => void saveNotes()}>{notesSaving ? "保存中…" : "保存点评"}</button></div>
-              </section>
+              <RatingPerspective networkScore={work.networkScore} networkScoreProvider={work.networkScoreProvider} networkRatingCount={work.networkRatingCount} networkRatingDistribution={work.networkRatingDistribution} />
             </div>
+
+            <section className="notes-panel" aria-labelledby="notesTitle">
+              <div className="notes-head"><h2 id="notesTitle">我的点评</h2><span className="notes-badge">{notesDirty ? "未保存" : "已保存"}</span></div>
+              <label className="notes-label" htmlFor="notesInput">点评 / 备注</label>
+              <textarea id="notesInput" ref={notesRef} rows={3} value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder="写下你对这部作品的点评、观后感或备注…" />
+              <div className="notes-foot"><small className="notes-hint">仅保存在本机。</small><button type="button" className="button primary" disabled={!notesDirty || notesSaving} onClick={() => void saveNotes()}>{notesSaving ? "保存中…" : "保存点评"}</button></div>
+            </section>
 
             <section className="detail-section files-section">
               <div className="detail-section-head">

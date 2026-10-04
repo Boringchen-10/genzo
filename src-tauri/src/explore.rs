@@ -1364,6 +1364,7 @@ fn data_item_to_metadata(item: &BangumiDataItem, fetched_at: &str) -> Option<Wor
         score: None,
         rank: None,
         rating_count: 0,
+        rating_distribution: None,
         collection_count: 0,
         air_date: Some(item.begin.chars().take(10).collect()),
         broadcast: item
@@ -1592,6 +1593,7 @@ mod tests {
             score: Some(8.5),
             rank: Some(42),
             rating_count: 36_198,
+            rating_distribution: None,
             collection_count: 72_459,
             air_date: Some("2023-09-29".to_string()),
             broadcast: None,

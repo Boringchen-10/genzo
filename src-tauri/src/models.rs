@@ -128,6 +128,7 @@ pub struct WorkDetail {
     pub network_score: Option<f64>,
     pub network_score_provider: Option<String>,
     pub network_rating_count: Option<i64>,
+    pub network_rating_distribution: Option<[u64; 10]>,
     pub field_locks: Vec<String>,
     pub candidates: Vec<MatchCandidate>,
     pub subtitle_links: Vec<SubtitleLink>,
@@ -236,6 +237,9 @@ pub struct WorkMetadata {
     pub rank: Option<i64>,
     #[serde(default)]
     pub rating_count: i64,
+    /// Vote counts for scores 1 through 10, absent in older metadata caches.
+    #[serde(default)]
+    pub rating_distribution: Option<[u64; 10]>,
     #[serde(default)]
     pub collection_count: i64,
     #[serde(default)]

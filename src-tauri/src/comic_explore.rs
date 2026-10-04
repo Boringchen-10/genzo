@@ -275,7 +275,7 @@ async fn persist_work(pool: &SqlitePool, detail: &ComicDetail, favorite: bool, c
         original_title: None, aliases: detail.aliases.clone(), description: item.summary.clone(),
         cover_url: item.cover_url.clone(), banner_url: None, year: None, season: None,
         subject_type: "comic".into(), genres: item.tags.clone(), score: None, rank: None,
-        rating_count: 0, collection_count: 0, air_date: None, broadcast: None,
+        rating_count: 0, rating_distribution: None, collection_count: 0, air_date: None, broadcast: None,
         source_keys: vec![PROVIDER.into()], cover_provider: Some(PROVIDER.into()), banner_provider: None,
         score_provider: None, fetched_at: now.clone(),
     };

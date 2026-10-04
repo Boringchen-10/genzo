@@ -183,6 +183,11 @@ pub(crate) async fn apply_prepared_match(transaction: &mut Transaction<'_, Sqlit
     sqlx::query("INSERT INTO work_external_ids (work_id, provider, external_id, created_at, updated_at) VALUES (?, 'bangumi', ?, ?, ?) ON CONFLICT(work_id, provider) DO UPDATE SET external_id = excluded.external_id, updated_at = excluded.updated_at")
         .bind(work_id).bind(&prepared.external_id).bind(now).bind(now).execute(&mut **transaction).await?;
     crate::metadata::apply_metadata(transaction, work_id, &prepared.metadata, prepared.cover_path, None, now).await?;
+    let metadata = &prepared.metadata;
+    sqlx::query("INSERT INTO metadata_provider_records (work_id, provider, external_id, title, year, confidence, response_json, fetched_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?) ON CONFLICT(work_id, provider) DO UPDATE SET external_id = excluded.external_id, title = excluded.title, year = excluded.year, confidence = excluded.confidence, response_json = excluded.response_json, fetched_at = excluded.fetched_at")
+        .bind(work_id).bind(&metadata.provider).bind(&metadata.external_id)
+        .bind(&metadata.title).bind(metadata.year).bind(serde_json::to_string(metadata)?)
+        .bind(&metadata.fetched_at).execute(&mut **transaction).await?;
     Ok(())
 }
 
@@ -580,6 +585,37 @@ pub async fn confirm_book_volume_batch(work_id: String, series_id: String, entry
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn book_match_caches_rating_distribution_without_changing_personal_data() {
+        let pool = crate::db::test_pool().await.unwrap();
+        sqlx::query("INSERT INTO works (id,title,type,status,favorite,rating,notes,created_at,updated_at) VALUES ('book','旧书名','comic','completed',1,9,'保留笔记','now','now')").execute(&pool).await.unwrap();
+        let mut metadata = crate::bangumi::subject_to_metadata(&json!({
+            "id": 123, "name": "Book fixture", "platform": "漫画",
+            "rating": {"score": 7.1, "total": 55, "count": {
+                "1": 1, "2": 2, "3": 3, "4": 4, "5": 5,
+                "6": 6, "7": 7, "8": 8, "9": 9, "10": 10
+            }}
+        })).unwrap();
+        metadata.subject_type = "comic".into();
+        for _ in 0..2 {
+            let mut transaction = pool.begin().await.unwrap();
+            apply_prepared_match(&mut transaction, "book", PreparedBookMatch {
+                external_id: "123".into(), metadata: metadata.clone(),
+                cover_path: None, single_volume: false,
+            }, "later").await.unwrap();
+            transaction.commit().await.unwrap();
+        }
+        let records: Vec<String> = sqlx::query_scalar("SELECT response_json FROM metadata_provider_records WHERE work_id = 'book' AND provider = 'bangumi'")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(records.len(), 1);
+        let cached: WorkMetadata = serde_json::from_str(&records[0]).unwrap();
+        assert_eq!(cached.score, Some(7.1));
+        assert_eq!(cached.rating_distribution, Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+        let personal: (String, bool, f64, String) = sqlx::query_as("SELECT status, favorite, rating, notes FROM works WHERE id = 'book'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(personal, ("completed".into(), true, 9.0, "保留笔记".into()));
+    }
     #[test]
     fn only_books_are_candidates() {
         let anime = json!({"id": 1, "type": 2, "name": "同名动画"});

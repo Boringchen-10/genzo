@@ -168,7 +168,7 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
     let network_rating = provider_records.into_iter().find_map(|(provider, json)| {
         let record = serde_json::from_str::<WorkMetadata>(&json).ok()?;
         record.score.filter(|score| score.is_finite() && (0.0..=10.0).contains(score))
-            .map(|score| (score, provider, record.rating_count))
+            .map(|score| (score, provider, record.rating_count, record.rating_distribution))
     });
     let field_locks = sqlx::query_scalar::<_, String>("SELECT field_name FROM work_field_locks WHERE work_id = ? AND locked = 1 ORDER BY field_name")
         .bind(&id).fetch_all(&state.pool).await?;
@@ -183,9 +183,10 @@ pub async fn get_work(id: String, state: State<'_, AppState>) -> AppResult<WorkD
         tags,
         media_files,
         metadata,
-        network_score: network_rating.as_ref().map(|(score, _, _)| *score),
-        network_score_provider: network_rating.as_ref().map(|(_, provider, _)| provider.clone()),
-        network_rating_count: network_rating.map(|(_, _, count)| count),
+        network_score: network_rating.as_ref().map(|(score, _, _, _)| *score),
+        network_score_provider: network_rating.as_ref().map(|(_, provider, _, _)| provider.clone()),
+        network_rating_count: network_rating.as_ref().map(|(_, _, count, _)| *count),
+        network_rating_distribution: network_rating.and_then(|(_, _, _, distribution)| distribution),
         field_locks,
         candidates,
         subtitle_links,

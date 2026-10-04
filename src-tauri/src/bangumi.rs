@@ -468,6 +468,14 @@ pub(crate) fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
             .and_then(|value| value.get("total"))
             .and_then(Value::as_i64)
             .unwrap_or_default(),
+        rating_distribution: rating.and_then(|value| {
+            let counts = value.get("count")?.as_object()?;
+            let mut distribution = [0; 10];
+            for (index, count) in distribution.iter_mut().enumerate() {
+                *count = counts.get(&(index + 1).to_string())?.as_u64()?;
+            }
+            Some(distribution)
+        }),
         collection_count,
         air_date,
         broadcast: None,
@@ -555,6 +563,49 @@ mod tests {
         assert_eq!(metadata.rank, Some(42));
         assert_eq!(metadata.rating_count, 36_198);
         assert_eq!(metadata.collection_count, 35);
+    }
+
+    #[test]
+    fn caches_vote_distribution_and_reads_older_metadata() {
+        let metadata = subject_to_metadata(&json!({
+            "id": 123, "name": "Rating fixture",
+            "rating": {"score": 7.1, "total": 55, "count": {
+                "1": 1, "2": 2, "3": 3, "4": 4, "5": 5,
+                "6": 6, "7": 7, "8": 8, "9": 9, "10": 10
+            }}
+        })).unwrap();
+        assert_eq!(metadata.rating_distribution, Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+        let mut cached = serde_json::to_value(&metadata).unwrap();
+        let restored: WorkMetadata = serde_json::from_value(cached.clone()).unwrap();
+        assert_eq!(restored.rating_distribution, metadata.rating_distribution);
+        cached.as_object_mut().unwrap().remove("ratingDistribution");
+        let older: WorkMetadata = serde_json::from_value(cached).unwrap();
+        assert_eq!(older.score, Some(7.1));
+        assert_eq!(older.rating_count, 55);
+        assert_eq!(older.rating_distribution, None);
+    }
+
+    #[test]
+    fn incomplete_or_invalid_counts_do_not_invent_a_distribution() {
+        for count in [json!(null), json!({}), json!({"5": 10, "6": 10}),
+            json!({"1": -1, "2": 0, "3": 0, "4": 0, "5": 0,
+                "6": 0, "7": 0, "8": 0, "9": 0, "10": 0})] {
+            let metadata = subject_to_metadata(&json!({
+                "id": 123, "name": "Rating fixture",
+                "rating": {"score": 7.1, "total": 20, "count": count}
+            })).unwrap();
+            assert_eq!(metadata.rating_distribution, None);
+            assert_eq!(metadata.score, Some(7.1));
+            assert_eq!(metadata.rating_count, 20);
+        }
+        let metadata = subject_to_metadata(&json!({
+            "id": 123, "name": "Not rated",
+            "rating": {"score": 0, "total": 0, "count": {
+                "1": 0, "2": 0, "3": 0, "4": 0, "5": 0,
+                "6": 0, "7": 0, "8": 0, "9": 0, "10": 0
+            }}
+        })).unwrap();
+        assert_eq!(metadata.rating_distribution, Some([0; 10]));
     }
 
     #[test]

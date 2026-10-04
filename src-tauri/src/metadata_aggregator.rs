@@ -476,6 +476,7 @@ pub(crate) fn merge_anilist(base: &mut WorkMetadata, supplement: &WorkMetadata) 
     if supplement.score.is_some() {
         base.score = supplement.score;
         base.score_provider.clone_from(&supplement.score_provider);
+        base.rating_distribution = supplement.rating_distribution;
     }
     merge_common(base, supplement);
 }
@@ -637,6 +638,7 @@ mod tests {
             score: None,
             rank: None,
             rating_count: 0,
+            rating_distribution: None,
             collection_count: 0,
             air_date: None,
             broadcast: None,
@@ -653,6 +655,7 @@ mod tests {
         let mut base = metadata("bangumi", "作品");
         base.score = Some(7.5);
         base.score_provider = Some("bangumi".to_string());
+        base.rating_distribution = Some([1; 10]);
         let mut tmdb = metadata("tmdb", "作品");
         tmdb.banner_url = Some("https://image.tmdb.org/t/p/original/a.jpg".to_string());
         tmdb.banner_provider = Some("tmdb".to_string());
@@ -664,6 +667,7 @@ mod tests {
         assert_eq!(base.banner_provider.as_deref(), Some("tmdb"));
         assert_eq!(base.score, Some(8.9));
         assert_eq!(base.score_provider.as_deref(), Some("anilist"));
+        assert_eq!(base.rating_distribution, None, "votes must belong to the same source as the score");
     }
 
     #[test]

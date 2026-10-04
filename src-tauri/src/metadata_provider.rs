@@ -137,6 +137,7 @@ mod tests {
             score: None,
             rank: None,
             rating_count: 0,
+            rating_distribution: None,
             collection_count: 0,
             air_date: None,
             broadcast: None,

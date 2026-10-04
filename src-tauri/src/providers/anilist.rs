@@ -248,6 +248,7 @@ fn map_media(item: AniListMedia) -> WorkMetadata {
         score: item.average_score.map(|score| score / 10.0),
         rank: None,
         rating_count: 0,
+        rating_distribution: None,
         collection_count: 0,
         air_date,
         broadcast: None,

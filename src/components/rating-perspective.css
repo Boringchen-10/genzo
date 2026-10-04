@@ -1,0 +1,27 @@
+.detail-toprow.rating-perspective-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+
+.rating-perspective { min-width: 0; padding-top: 2px; }
+.rating-perspective-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+.rating-perspective-heading h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 500; }
+.rating-perspective-summary { display: flex; align-items: baseline; gap: 8px; }
+.rating-perspective-summary strong { color: var(--text); font-size: 18px; font-variant-numeric: tabular-nums; }
+.rating-perspective-summary span { color: var(--quiet); font-size: 11px; }
+.rating-perspective-chart { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin: 18px 0 0; padding: 0; list-style: none; }
+.rating-perspective-chart li { min-width: 0; }
+.rating-perspective-bucket { position: relative; outline: none; border-radius: 4px; }
+.rating-perspective-track { display: flex; align-items: flex-end; justify-content: center; height: 140px; }
+.rating-perspective-bar { display: block; width: min(100%, 24px); border-radius: 5px 5px 0 0; background: color-mix(in srgb, var(--text) 44%, transparent); }
+.rating-perspective-tick { display: block; margin-top: 10px; color: var(--muted); text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.rating-perspective-bucket:hover .rating-perspective-bar, .rating-perspective-bucket:focus-visible .rating-perspective-bar { background: color-mix(in srgb, var(--text) 72%, transparent); }
+.rating-perspective-bucket:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.rating-perspective-tooltip { position: absolute; z-index: 2; top: -8px; left: 50%; transform: translate(-50%, -100%); padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--text); background: var(--bg-raised); white-space: nowrap; font-size: 11px; opacity: 0; pointer-events: none; }
+.rating-perspective-bucket:hover .rating-perspective-tooltip, .rating-perspective-bucket:focus-visible .rating-perspective-tooltip { opacity: 1; }
+.rating-perspective-chart li:first-child .rating-perspective-tooltip { left: 0; transform: translateY(-100%); }
+.rating-perspective-chart li:last-child .rating-perspective-tooltip { right: 0; left: auto; transform: translateY(-100%); }
+.rating-perspective-empty { display: flex; min-height: 164px; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--quiet); text-align: center; }
+.rating-perspective-empty p { margin: 0; font-size: 13px; }
+.rating-perspective-empty small { font-size: 11px; }
+.rating-perspective-count { margin: 12px 0 0; color: var(--quiet); font-size: 11px; }

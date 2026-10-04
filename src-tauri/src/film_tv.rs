@@ -378,6 +378,7 @@ pub(crate) fn metadata(item: &Value, kind: Kind, season: Option<i64>) -> AppResu
             .filter(|_| item["vote_count"].as_i64().unwrap_or(0) > 0),
         rank: None,
         rating_count: item["vote_count"].as_i64().unwrap_or(0),
+        rating_distribution: None,
         collection_count: 0,
         air_date: date,
         broadcast: None,

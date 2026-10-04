@@ -102,6 +102,8 @@ export interface WorkDetail extends Work {
   networkScore?: number | null;
   networkScoreProvider?: string | null;
   networkRatingCount?: number | null;
+  /** Vote counts for scores 1 through 10 from the selected network score provider. */
+  networkRatingDistribution?: number[] | null;
   fieldLocks: string[];
   candidates: MatchCandidate[];
   subtitleLinks: SubtitleLink[];
