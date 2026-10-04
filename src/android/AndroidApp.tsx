@@ -5,6 +5,7 @@ import { api } from "../api";
 import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
 import { playbackPercent, playbackTime, type PlaybackProgress } from "../playback";
+import { usePreferences } from "../store";
 import { androidApi, type VideoSource } from "./api";
 import AndroidPrototype from "./AndroidPrototype";
 import "./mobile.css";
@@ -19,6 +20,16 @@ const asset = (path: string | null | undefined) => path ? (/^(https?:|asset:|dat
 const routeFromHash = () => location.hash.slice(2) || "home";
 const bytes = (size: number) => size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(1)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
 const inputFor = (work: WorkDetail): WorkInput => ({ title: work.title, originalTitle: work.originalTitle, type: work.type, description: work.description, coverPath: work.coverPath, status: work.status, favorite: work.favorite, rating: work.rating, notes: work.notes, tags: work.tags });
+const hueToHex = (hue: number, dark: boolean) => {
+  const saturation = dark ? 0.48 : 0.66;
+  const lightness = dark ? 0.62 : 0.3;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const section = hue / 60;
+  const x = chroma * (1 - Math.abs((section % 2) - 1));
+  const [red, green, blue] = section < 1 ? [chroma, x, 0] : section < 2 ? [x, chroma, 0] : section < 3 ? [0, chroma, x] : section < 4 ? [0, x, chroma] : section < 5 ? [x, 0, chroma] : [chroma, 0, x];
+  const match = lightness - chroma / 2;
+  return `#${[red, green, blue].map(channel => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`;
+};
 
 const homeSections: { id: string; title: string; match: (work: WorkListItem) => boolean }[] = [
   { id: "anime", title: "动画", match: work => (work.category ?? work.type) === "anime" },
@@ -118,12 +129,26 @@ export default function AndroidApp() {
   const [filter, setFilter] = useState("all");
   const [limit, setLimit] = useState(48);
   const [profileTab, setProfileTab] = useState<"appearance" | "sources" | "provider">("appearance");
+  const accentHue = usePreferences(state => state.accentHue);
+  const glassBlur = usePreferences(state => state.glassBlur);
+  const cornerRadius = usePreferences(state => state.cornerRadius);
+  const setAccentHue = usePreferences(state => state.setAccentHue);
+  const setGlassBlur = usePreferences(state => state.setGlassBlur);
+  const setCornerRadius = usePreferences(state => state.setCornerRadius);
   const [modal, setModal] = useState<{ kind: "edit"; work: WorkDetail } | { kind: "organize"; group: UnassignedMediaGroup } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
   const scrollPositions = useRef<Record<string, number>>({});
   const refreshSequence = useRef(0);
   const dark = theme === "system" ? systemDark : theme === "dark";
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node) return;
+    node.style.setProperty("--accent-h", String(accentHue));
+    node.style.setProperty("--ui-blur", `${glassBlur}px`);
+    node.style.setProperty("--radius", `${cornerRadius}px`);
+  }, [accentHue, glassBlur, cornerRadius]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
   const title = top?.title || ({ sources: "来源管理", inbox: "待整理", diagnostics: "开发验证", bookshelf: "书架", explore: "发现" }[route]) || "作品详情";
@@ -242,7 +267,7 @@ export default function AndroidApp() {
       {task && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : ["failed", "interrupted", "cancelled"].includes(task.stage) && <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
     </section>; })}
   </>;
-  return <div className="android-app" data-theme={dark ? "dark" : "light"}>
+  return <div ref={rootRef} className="android-app" data-theme={dark ? "dark" : "light"}>
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
       {!top && <button className="gz-iconbtn gz-back" aria-label="返回" onClick={() => back()}><ArrowLeft /></button>}
       {error && <div className="gz-error" role="alert"><span>{error}</span><button className="gz-iconbtn" aria-label="关闭错误提示" onClick={() => setError("")}><X size={18} /></button></div>}
@@ -260,6 +285,19 @@ export default function AndroidApp() {
         <div className="gz-seg" role="tablist" aria-label="我的分页">{([["appearance", "外观"], ["sources", "来源管理"], ["provider", "数据源"]] as const).map(([id, label]) => <button role="tab" aria-selected={profileTab === id} key={id} onClick={() => setProfileTab(id)}>{label}</button>)}</div>
         {profileTab === "appearance" && <>
           <Section title="主题"><div className="gz-seg" role="radiogroup" aria-label="主题">{(["dark", "light", "system"] as ThemeMode[]).map(mode => <button role="radio" aria-checked={theme === mode} key={mode} onClick={() => void run(async () => { await api.setSetting("theme", mode); setTheme(mode); })}>{({ dark: "深色", light: "浅色", system: "跟随系统" })[mode]}</button>)}</div></Section>
+          <Section title="主题色" action={<output className="gz-set-value">{hueToHex(accentHue, dark)}</output>}>
+            <div className="gz-accent-row"><span className="gz-swatch" style={{ background: `hsl(${accentHue} ${dark ? 48 : 66}% ${dark ? 62 : 30}%)` }} aria-hidden="true" /><input type="range" min={0} max={359} value={accentHue} aria-label="主题色" onChange={event => setAccentHue(Number(event.target.value))} /></div>
+            <p className="gz-meta">作为强调色，并整体调和界面底色、面板与描边的色相，让配色保持统一。</p>
+          </Section>
+          <Section title="玻璃与背景模糊" action={<output className="gz-set-value">{glassBlur}px</output>}>
+            <input type="range" min={0} max={48} value={glassBlur} aria-label="玻璃与背景模糊" onChange={event => setGlassBlur(Number(event.target.value))} />
+            <p className="gz-meta">控制面板、浮层与弹窗的玻璃模糊程度（0 为完全清晰）。</p>
+          </Section>
+          <Section title="圆角大小" action={<output className="gz-set-value">{cornerRadius}px</output>}>
+            <input type="range" min={0} max={24} value={cornerRadius} aria-label="圆角大小" onChange={event => setCornerRadius(Number(event.target.value))} />
+            <p className="gz-meta">0 为直角，数值越大越圆润。</p>
+          </Section>
+          <button className="gz-btn" onClick={() => { setAccentHue(158); setGlassBlur(24); setCornerRadius(8); }}>恢复默认外观</button>
           <button className="gz-row-card" onClick={() => navigate("favorites")}><span className="gz-row-icon"><Heart /></span><span className="gz-row-main"><strong>我的收藏</strong><span className="gz-meta">{works.filter(work => work.favorite).length} 部已收藏</span></span><ChevronRight size={18} /></button>
           <Section title="当前预览范围"><div className="gz-panel"><p>本地目录授权、扫描索引、作品整理、收藏、个人记录和本地播放已接入。</p><p className="gz-meta">播放控件仍为原生验证界面；WebDAV 播放、自动字幕关联与更多资料管理正在接入。此预览只在电脑模拟器展示。</p></div></Section>
           <Section title="后续扩展">{futureCards}</Section>
