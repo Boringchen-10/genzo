@@ -61,7 +61,7 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-user, .android-app .gz-row { display: flex; align-items: center; gap: 12px; }
 .android-app .gz-seg { display: flex; border: 1px solid var(--line); border-radius: 8px; padding: 4px; background: var(--surface); }
 .android-app .gz-seg button { flex: 1; font-size: 13px; padding: 8px; color: var(--muted); }
-.android-app .gz-seg button[aria-checked="true"] { color: var(--accent); background: var(--bg-raised); }
+.android-app .gz-seg button[aria-checked="true"], .android-app .gz-seg button[aria-selected="true"] { color: var(--accent); background: var(--bg-raised); font-weight: 600; }
 .android-app .gz-source { margin-top: 16px; }
 .android-app .gz-switch { border-radius: 18px; width: 48px; padding: 5px; border: 1px solid var(--line); display: flex; align-items: center; background: var(--bg-raised); }
 .android-app .gz-switch span { width: 18px; height: 18px; border-radius: 50%; background: var(--quiet); }

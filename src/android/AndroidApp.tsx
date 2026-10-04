@@ -117,6 +117,7 @@ export default function AndroidApp() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [limit, setLimit] = useState(48);
+  const [profileTab, setProfileTab] = useState<"appearance" | "sources" | "provider">("appearance");
   const [modal, setModal] = useState<{ kind: "edit"; work: WorkDetail } | { kind: "organize"; group: UnassignedMediaGroup } | null>(null);
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
@@ -230,6 +231,17 @@ export default function AndroidApp() {
   const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
   const primary = route.startsWith("detail/") ? "library" : top ? route : "profile";
   const futureCards = <div className="gz-future-grid">{[{ route: "bookshelf", title: "书架", sub: "漫画 / 轻小说", icon: BookOpen }, { route: "explore", title: "发现", sub: "推荐内容", icon: Compass }].map(item => <button className="gz-panel" key={item.route} onClick={() => navigate(item.route)}><item.icon /><strong>{item.title}</strong><span className="gz-meta">{item.sub}</span><span className="gz-badge">Future · 预留</span></button>)}</div>;
+  const sourceManager = <>
+    <p className="gz-meta">授权你已下载视频的目录。扫描只建立索引，不复制视频；停用来源保留作品和个人记录。</p>
+    <div className="gz-actions"><button className="gz-btn primary" disabled={busy} onClick={() => void run(() => authorize())}><Plus size={18} />添加本地目录</button><button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(undefined, true))}>登记已授权目录</button></div>
+    {!sources.length && <Empty title="还没有视频来源"><p>选择目录并在系统选择器中点击“使用此文件夹”。</p></Empty>}
+    {sources.map(source => { const task = tasks.find(task => task.rootId === source.id); return <section className="gz-panel gz-source" key={source.id}>
+      <div className="gz-row"><Folder /><div className="gz-row-main"><strong>{source.label}</strong><span className="gz-meta">{source.kind === "saf" ? "本地授权目录" : "WebDAV 服务"}</span></div><button role="switch" aria-checked={source.enabled} aria-label={`${source.enabled ? "停用" : "启用"} ${source.label}`} className={`gz-switch ${source.enabled ? "active" : ""}`} disabled={busy} onClick={() => void run(async () => { await api.updateRoot(source.id, "video", !source.enabled); await refresh(); })}><span /></button></div>
+      <div className="gz-actions"><span className={`gz-badge ${source.state === "available" && source.enabled ? "ok" : "warn"}`}>{source.enabled ? sourceStates[source.state] || source.state : "已停用"}</span><span className="gz-meta">{source.lastScannedAt ? `上次扫描 ${new Date(source.lastScannedAt).toLocaleString("zh-CN")}` : "尚未扫描"}</span></div>
+      <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(); })}><RefreshCw size={16} />扫描</button>{source.kind === "saf" && <button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(source.id))}>重新授权</button>}</div>
+      {task && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : ["failed", "interrupted", "cancelled"].includes(task.stage) && <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
+    </section>; })}
+  </>;
   return <div className="android-app" data-theme={dark ? "dark" : "light"}>
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
       {!top && <button className="gz-iconbtn gz-back" aria-label="返回" onClick={() => back()}><ArrowLeft /></button>}
@@ -246,23 +258,27 @@ export default function AndroidApp() {
       </>}
       {route === "profile" && <>
         <div className="gz-user"><div className="gz-row-icon"><User /></div><div><strong>本机用户</strong><p className="gz-meta">Genzo · Android · 本地优先</p></div></div>
-        <Section title="外观"><div className="gz-seg" role="radiogroup" aria-label="主题">{(["dark", "light", "system"] as ThemeMode[]).map(mode => <button role="radio" aria-checked={theme === mode} key={mode} onClick={() => void run(async () => { await api.setSetting("theme", mode); setTheme(mode); })}>{({ dark: "深色", light: "浅色", system: "跟随系统" })[mode]}</button>)}</div></Section>
-        {[{ title: "我的收藏", sub: `${works.filter(work => work.favorite).length} 部已收藏`, route: "favorites", icon: Heart }, { title: "目录与来源", sub: `${sources.length} 个来源 · 授权与扫描`, route: "sources", icon: Folder }, { title: "待整理队列", sub: `${groups.length} 个分组待确认`, route: "inbox", icon: Inbox }].map(item => <button className="gz-row-card" key={item.route} onClick={() => navigate(item.route)}><span className="gz-row-icon"><item.icon /></span><span className="gz-row-main"><strong>{item.title}</strong><span className="gz-meta">{item.sub}</span></span><ChevronRight size={18} /></button>)}
-        <Section title="当前预览范围"><div className="gz-panel"><p>本地目录授权、扫描索引、作品整理、收藏、个人记录和本地播放已接入。</p><p className="gz-meta">播放控件仍为原生验证界面；WebDAV 播放、自动字幕关联与更多资料管理正在接入。此预览只在电脑模拟器展示。</p></div></Section>
-        <Section title="后续扩展">{futureCards}</Section>
-        <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
+        <div className="gz-seg" role="tablist" aria-label="我的分页">{([["appearance", "外观"], ["sources", "来源管理"], ["provider", "数据源"]] as const).map(([id, label]) => <button role="tab" aria-selected={profileTab === id} key={id} onClick={() => setProfileTab(id)}>{label}</button>)}</div>
+        {profileTab === "appearance" && <>
+          <Section title="主题"><div className="gz-seg" role="radiogroup" aria-label="主题">{(["dark", "light", "system"] as ThemeMode[]).map(mode => <button role="radio" aria-checked={theme === mode} key={mode} onClick={() => void run(async () => { await api.setSetting("theme", mode); setTheme(mode); })}>{({ dark: "深色", light: "浅色", system: "跟随系统" })[mode]}</button>)}</div></Section>
+          <button className="gz-row-card" onClick={() => navigate("favorites")}><span className="gz-row-icon"><Heart /></span><span className="gz-row-main"><strong>我的收藏</strong><span className="gz-meta">{works.filter(work => work.favorite).length} 部已收藏</span></span><ChevronRight size={18} /></button>
+          <Section title="当前预览范围"><div className="gz-panel"><p>本地目录授权、扫描索引、作品整理、收藏、个人记录和本地播放已接入。</p><p className="gz-meta">播放控件仍为原生验证界面；WebDAV 播放、自动字幕关联与更多资料管理正在接入。此预览只在电脑模拟器展示。</p></div></Section>
+          <Section title="后续扩展">{futureCards}</Section>
+          <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
+        </>}
+        {profileTab === "sources" && <>
+          {sourceManager}
+          <button className="gz-row-card" onClick={() => navigate("inbox")}><span className="gz-row-icon"><Inbox /></span><span className="gz-row-main"><strong>待整理队列</strong><span className="gz-meta">{groups.length} 个分组待确认</span></span><ChevronRight size={18} /></button>
+        </>}
+        {profileTab === "provider" && <>
+          <Section title="WebDAV 服务"><div className="gz-panel"><strong>WebDAV 与网盘服务</strong><p className="gz-meta">通过网盘的 WebDAV 服务接入远程视频，与网盘账号/API 直连是两种方式。已有协议正在接入安卓页面与远程播放验证。</p><span className="gz-badge warn">接入中</span></div></Section>
+          <Section title="网盘直连"><div className="gz-panel"><strong>账号 / API 直连</strong><p className="gz-meta">具体网盘直连需你确认服务后再接入；未确认前保留为扩展位置。</p><span className="gz-badge">Future · 预留</span></div></Section>
+          <Section title="元数据服务"><div className="gz-panel"><strong>资料与识别来源</strong><p className="gz-meta">动漫以 Bangumi 为主锚点，影视以 TMDB 为主源；刷新失败时保留已有资料。</p></div></Section>
+        </>}
         <p className="gz-footer">Genzo · 基于 Windows v0.5.0 · GPLv3</p>
       </>}
       {route === "sources" && <>
-        <p className="gz-meta">授权你已下载视频的目录。扫描只建立索引，不复制视频；停用来源保留作品和个人记录。</p>
-        <div className="gz-actions"><button className="gz-btn primary" disabled={busy} onClick={() => void run(() => authorize())}><Plus size={18} />添加本地目录</button><button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(undefined, true))}>登记已授权目录</button></div>
-        {!sources.length && <Empty title="还没有视频来源"><p>选择目录并在系统选择器中点击“使用此文件夹”。</p></Empty>}
-        {sources.map(source => { const task = tasks.find(task => task.rootId === source.id); return <section className="gz-panel gz-source" key={source.id}>
-          <div className="gz-row"><Folder /><div className="gz-row-main"><strong>{source.label}</strong><span className="gz-meta">{source.kind === "saf" ? "本地授权目录" : "WebDAV 服务"}</span></div><button role="switch" aria-checked={source.enabled} aria-label={`${source.enabled ? "停用" : "启用"} ${source.label}`} className={`gz-switch ${source.enabled ? "active" : ""}`} disabled={busy} onClick={() => void run(async () => { await api.updateRoot(source.id, "video", !source.enabled); await refresh(); })}><span /></button></div>
-          <div className="gz-actions"><span className={`gz-badge ${source.state === "available" && source.enabled ? "ok" : "warn"}`}>{source.enabled ? sourceStates[source.state] || source.state : "已停用"}</span><span className="gz-meta">{source.lastScannedAt ? `上次扫描 ${new Date(source.lastScannedAt).toLocaleString("zh-CN")}` : "尚未扫描"}</span></div>
-          <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(); })}><RefreshCw size={16} />扫描</button>{source.kind === "saf" && <button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(source.id))}>重新授权</button>}</div>
-          {task && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : ["failed", "interrupted", "cancelled"].includes(task.stage) && <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
-        </section>; })}
+        {sourceManager}
         <Section title="远程来源"><div className="gz-panel"><strong>WebDAV 与网盘服务</strong><p className="gz-meta">已有协议正在接入安卓页面与远程播放验证。通过网盘的 WebDAV 服务接入，与网盘账号/API 直连是两种方式。</p><span className="gz-badge warn">接入中</span></div></Section>
       </>}
       {route === "inbox" && <><p className="gz-meta">{groups.length} 个作品分组待整理。确认候选、手动创建，或关联已有作品。</p>{groups.length ? groups.slice(0, limit).map(group => <button className="gz-row-card" key={group.key} onClick={() => setModal({ kind: "organize", group })}><span className="gz-row-icon"><Film /></span><span className="gz-row-main"><strong>{group.title}</strong><span className="gz-meta">{group.fileCount} 个文件 · {bytes(group.totalSize)}</span><span className="gz-meta gz-truncate">{group.representative.fileName}</span></span><span className="gz-badge warn">{metadataStates[group.recognitionStatus]}</span></button>) : <Empty title="待整理队列为空"><p>扫描来源后，需要确认的作品会出现在这里。</p><button className="gz-btn" onClick={() => navigate("sources")}>管理来源</button></Empty>}{groups.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}</>}
