@@ -8,6 +8,8 @@
 
 **当前正式版：Windows x64 v0.5.0。安卓版本尚未交付。**
 
+`codex/personal-sync-v1` 分支另提供 **0.6.0-alpha.1 个人 WebDAV 同步测试版**，已有共用 Rust 核心和 Windows 验证入口，尚未正式发布。测试版使用独立数据目录，不覆盖正式版资料；安装包、使用步骤和验证边界见 [同步 V1 验证记录](docs/SYNC_V1_VALIDATION.md)。安卓客户端接入和阿里云实际部署仍待验证。
+
 - [下载安装器 Genzo_0.5.0_x64-setup.exe](https://github.com/Boringchen-10/genzo/releases/download/v0.5.0/Genzo_0.5.0_x64-setup.exe)
 - [发行说明与全部附件](https://github.com/Boringchen-10/genzo/releases/tag/v0.5.0)
 - [SHA-256 校验文件](https://github.com/Boringchen-10/genzo/releases/download/v0.5.0/SHA256SUMS.txt)
@@ -97,9 +99,27 @@ cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets
 node node_modules/@tauri-apps/cli/tauri.js build --bundles nsis -- --locked
 ```
 
-安装器产物：`src-tauri/target/release/bundle/nsis/Genzo_0.5.0_x64-setup.exe`。构建时需联网获取依赖 / WebView2 离线运行时；安装包内含运行时安装程序，用户无需构建工具。前端没有独立线上服务端，浏览器预览的模拟数据不等于真实桌面能力。
+默认安装器产物：`src-tauri/target/release/bundle/nsis/Genzo_<版本>_x64-setup.exe`；本开发分支版本为 0.6.0-alpha.1，正式下载仍为 v0.5.0。构建时需联网获取依赖 / WebView2 离线运行时；安装包内含运行时安装程序，用户无需构建工具。前端没有独立线上服务端，浏览器预览的模拟数据不等于真实桌面能力。
 
 开始修改前阅读 [AGENTS.md](AGENTS.md)、[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)、[ROADMAP.md](ROADMAP.md)、[DESIGN_DIRECTION.md](DESIGN_DIRECTION.md) 和 [AI_HANDOFF.md](AI_HANDOFF.md)。安卓开发以 **v0.5.0 注释标签**固定 Windows 发布源码，兼容性审查见 [ANDROID_BASELINE_V0.5.0.md](docs/ANDROID_BASELINE_V0.5.0.md)，不混入该版本。
+
+## 个人同步 V1 开发版
+
+为一个人在多台设备间交换动漫、电影、电视剧的资料和个人记录。每台设备使用自己的 SQLite；WebDAV 只保存同步文档，不传媒体、运行中的数据库、本地路径、播放器配置或账号密码。首次加入先读取远端；并发笔记保留双方，删除记录、待上传修改与失败重试持久保存。
+
+Windows 测试入口位于“设置 → 个人同步”，支持连接能力测试、创建 / 加入、立即同步、暂停 / 启用、更新凭据、冲突选择 / 合写和本地视频完整 SHA-256 版本确认。界面用于真实功能验证，正式界面等待 OpenDesign 确认。漫画、小说、游戏记录不在首版同步范围。
+
+- [共用协议](docs/SYNC_PROTOCOL_V1.md)、[接口和样例](docs/sync-v1/interfaces.ts)、[共享核心](crates/genzo-sync)、[OpenDesign 能力与事件清单](docs/SYNC_UI_CAPABILITIES.md)。
+- [Android 接入与联调顺序](docs/SYNC_ANDROID_INTEGRATION_V1.md)：复用同一核心，仍需 SAF、Keystore、生命周期和真实播放器接入。
+- [WebDAV 部署文件](deploy/webdav/README.md)：Apache + Caddy、HTTPS、个人认证、持久目录及备份。未连接或修改实际阿里云服务器。
+
+开发环境构建独立 Windows 测试安装器：
+
+```powershell
+node node_modules/@tauri-apps/cli/tauri.js build --config src-tauri/tauri.sync-test.conf.json --bundles nsis -- --locked
+```
+
+测试配置启用本机 WebView2 调试端口，仅用于开发验收，不能作为正式发布配置。v0.5.0 的标签、下载入口与安装器保持原样。
 
 ## 许可证与来源
 

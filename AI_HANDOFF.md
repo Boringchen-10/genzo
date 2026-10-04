@@ -1,5 +1,20 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 本轮交接：个人 WebDAV 同步 V1 Windows 测试版（2026-10-04）
+
+- 用户确认一个人多设备、Windows/Android、每设备 SQLite、HTTPS WebDAV 资料同步；最后收敛为“先实现第一版 WebDAV”。本轮交付共用契约/核心、Windows 验证入口、隔离服务验证与部署准备；阿里云实际部署、Android 应用接入/联合验收和 OpenDesign 正式界面未交付。已更新 PROJECT_CONTEXT、ROADMAP、DESIGN_DIRECTION，不把后续计划当作已实现。
+- 实际开发目录 `C:/Users/Administrator/.codex/worktrees/personal-sync-v1/二次元阅读器`，分支 `codex/personal-sync-v1`，基于主目录 `a38a9e36c19a9182b8534db54f78d6b06977acd4`。主目录的设计/详情/列表/缓存及 AI_HANDOFF 草稿保留，未覆盖、提交或混入；Android 工作树仅只读检查。下方“唯一活动工作目录”等旧条目是此前历史状态，本轮以此条为准。
+- 契约提交 `27a1113`：docs/SYNC_PROTOCOL_V1.md、docs/SYNC_UI_CAPABILITIES.md、docs/sync-v1 的 TypeScript 接口、JSON 样例/冲突夹具及存量库夹具。核心初始提交 `9dde815`，Windows 接入 `1fb1eb8`；`07fb891` 修复真实 IPC 字符串错误及 Android 夹具运行路径，`d10c551` 修复 JSON 评分 8/8.0 误报不可变操作篡改。**包内源码和推荐核心基线 `d10c551e203b600e9529ce1d6ab3f584dad0baca`**，不要只取最初核心提交。
+- `crates/genzo-sync` 是独立 GPLv3 Rust 核心，字段白名单/公共主锚点/因果操作/笔记多值冲突/删除记录/会话、事务持久日志、强 ETag CAS 与读回确认；不传运行中数据库、媒体、路径、授权、凭据、原始 provider JSON 或缓存。首次加入先读；响应丢失、认证过期与重启保留未确认操作；重复应用抑制回写。UI 个人同步最小面板和 OpenDesign 接入清单均为真实能力。
+- 新增迁移 `0026_personal_sync.sql`，历史 1–24 不修改；Android 已使用 `0025_android_saf.sql`，Windows 留出 25。旧库 ID、作品/文件关系和个人记录保留。视频全文件 SHA-256 + 公共分集 + 稳定属性才绑定续播，采样指纹不当作同版本证明。现有 PotPlayer 真采样事务接入会话，打开不算观看；历史无版本会话不补造绑定。协议保留 manual UUID 格式，但本轮没有手工跨端版本 ID 绑定接口。
+- 版本字段同步为 `0.6.0-alpha.1`；测试覆盖配置 `src-tauri/tauri.sync-test.conf.json` 使用产品 Genzo Sync Test / ID com.genzo.desktop.sync-test / 本机 CDP，仅用于测试。NSIS 安装包 `H:/二次元阅读器/artifacts/sync-v1/0.6.0-alpha.1/Genzo Sync Test_0.6.0-alpha.1_x64-setup.exe`，225,561,621 字节；SHA-256 `c5835b73314005c504bf5b01c98c7332a200d66aa23eae51952fdb0b02da35f1`。同目录有校验/源码清单、原生结果与截图，Git 忽略；不是正式 Release，不新建/覆盖 v0.5.0 标签和安装包。安装 EXE 与编译输出只差已核对的三字节 NSIS 标记。
+- 验证：TypeScript / Vite、前端 73 项、共享核心 15 项（协议 3 + 集成 12）、Windows Rust 264 项通过，14 项既有外部环境测试忽略；存量 v0.5 磁盘库升级 26 / 重开 / 个人数据保留通过；Android x86_64 原生核心与集成测试 --no-run 编译成功，未执行。隔离测试覆盖独立建库/首次加入/离线/并发笔记/删除/条件写/响应丢失/重复同步/重启/不同剪辑/锁定/私有图片/事务回滚。
+- 实际 Windows 测试安装、启动、重装和最终卸载退出 0；重装时原合成资料与待传 3 条保留，修复后重试归零。真实 Tauri IPC / WebView2 / SQLite / Windows 凭据管理器验证认证失败、探测/创建、协议测试端收藏修改、两份笔记冲突与合写、未保存草稿保护；三视口 1280×800、1440×900、1920×1080 无水平溢出并查看截图。其他端是兼容协议测试客户端，不是 Android 应用，不冒称物理窗口/双端实机验证。
+- 验证只用本轮合成库、作品、文件及 loopback 服务，未接触真实媒体或正式 `%APPDATA%/com.genzo.desktop`。证据/SQLite 一致备份在工作树 artifacts/sync-v1，测试产品已卸载，合成资料目录移入该忽略目录并删除仅对应的测试凭据，临时服务停止。交付安装包的新用户测试目录为空；正式资料与凭据未清理。
+- `deploy/webdav` 提供 Apache/Caddy/HTTPS/个人 htpasswd 认证/持久目录/备份准备。本机无 Docker，生产容器配置启动与校验未运行；尚无服务器/域名核对，不部署阿里云。`docs/SYNC_ANDROID_INTEGRATION_V1.md` 对照 Android 8f3c146 的 SAF/Keystore，要求复用核心/迁移，不造第二套协议。未授权向安卓任务发送消息，未发送。
+- 未验证与限制详见 docs/SYNC_V1_VALIDATION.md：真实 PotPlayer 播放/跨设备续播、Android 应用及双端联调、生产 HTTPS/备份恢复、干净系统 WebView2/SmartScreen；空间切换、删除恢复、主锚点重绑和会话人工选择界面未提供。启动 Android 模拟器被自动审批拒绝，未返回具体原因，没有重试或绕过；不把交叉编译说成运行通过。
+- 下一步先审阅并部署实际 HTTPS WebDAV、确认条件写能力，再由 Android 端接入同一共享核心并完成 PC→手机资料、收藏/笔记双向、同版本续播、离线/并发验收，最后接入正式设计。本轮源码分支单独交付，主目录未合并，已发布 Windows v0.5.0 仍为正式下载基线。
+
 ## 本轮交接：作品详情评分透视（2026-10-04）
 
 - 用户要求在原评分位置展示参考图的 1–10 分评分透视，并进一步确认去掉“我的评分”卡片、简介在左半栏、评分在右半栏。新增无框灰色柱状图，保留总分、来源和评价人数；鼠标悬停 / 键盘聚焦显示各分数人数与占比，零票不绘制柱子。
