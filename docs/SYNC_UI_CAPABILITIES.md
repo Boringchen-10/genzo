@@ -11,9 +11,10 @@
 | 开关自动同步 | sync_set_enabled | enabled | 暂停自动请求，保留资料与待传；手动同步仍可运行 |
 | 查看冲突 | sync_conflicts | Conflict[] | 笔记双方完整文本、设备 ID、时间；不可只显示“发生冲突” |
 | 解决冲突 | sync_resolve | entity、field、value | 选择/合并后再发布；解决删除或身份冲突不能静默复活 |
+| 更新凭据 | sync_update_credentials | username、password | 写入安全存储；不回读密码 |
 | 视频版本确认 | sync_bind_media | mediaFileId | 本地完整 SHA-256，长文件显示处理中；未确认版本不自动续播 |
 
-状态事件：`sync-status`，载荷与 `sync_status` 一致。宿主应在应用启动、返回前台、变更合并与播放结束时请求同步；网络失败保留待传，可再次手动重试。核心状态不放凭据。
+状态事件：`sync-status`，载荷与 `sync_status` 一致。宿主应在应用启动、返回前台、变更合并与播放结束时请求同步；网络失败保留待传，可再次手动重试。核心状态不放凭据。`sync-library-updated` 表示同步操作集合变化；列表可后台刷新，详情更新不得覆盖未保存笔记。
 
 | 范围 | V1 | 提示 |
 |---|---|---|

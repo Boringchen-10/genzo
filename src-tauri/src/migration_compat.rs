@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn v044_disk_library_upgrades_to_v050_and_reopens_without_data_loss() {
+    async fn v044_disk_library_upgrades_to_current_and_reopens_without_data_loss() {
         let directory = tempfile::tempdir().unwrap();
         let options = sqlx::sqlite::SqliteConnectOptions::new()
             .filename(directory.path().join("genzo.db"))
@@ -355,7 +355,7 @@ mod tests {
         run(&pool).await.unwrap();
         let old_ledger: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations WHERE version <= 11 ORDER BY version").fetch_all(&pool).await.unwrap();
         assert_eq!(old_ledger, ledger);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT MAX(version) FROM _sqlx_migrations").fetch_one(&pool).await.unwrap(), 24);
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT MAX(version) FROM _sqlx_migrations").fetch_one(&pool).await.unwrap(), sqlx::migrate!("./migrations").iter().map(|m|m.version).max().unwrap());
         assert_eq!(sqlx::query_as::<_, (String, String)>("SELECT work_id,path FROM media_files WHERE id='v'").fetch_one(&pool).await.unwrap(), ("w".into(), "C:/Media/01.mkv".into()));
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT position_ms FROM playback_progress WHERE media_file_id='v'").fetch_one(&pool).await.unwrap(), 45000);
         assert_eq!(sqlx::query_as::<_, (String, String)>("SELECT title,read_state FROM book_entry_overrides WHERE media_file_id='book'").fetch_one(&pool).await.unwrap(), ("人工卷名".into(), "reading".into()));
@@ -397,4 +397,29 @@ mod tests {
             pool.close().await;
         }
     }
+    #[tokio::test]
+    async fn v050_library_upgrade_preserves_ids_notes_locks_files_and_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = sqlx::sqlite::SqliteConnectOptions::new().filename(dir.path().join("genzo.db")).create_if_missing(true).foreign_keys(true);
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options.clone()).await.unwrap();
+        let mut previous = sqlx::migrate!("./migrations");
+        previous.migrations = Cow::Owned(previous.migrations.into_owned().into_iter().filter(|m| m.version <= 24).collect());
+        previous.run(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!("../../docs/sync-v1/fixtures/v050-library.sql")).execute(&pool).await.unwrap();
+        let ledger: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations ORDER BY version").fetch_all(&pool).await.unwrap();
+        run(&pool).await.unwrap();
+        pool.close().await;
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+        run(&pool).await.unwrap();
+        assert_eq!(sqlx::query_as::<_, (String, String)>("SELECT work_id,path FROM media_files WHERE id='legacy-file'").fetch_one(&pool).await.unwrap(), ("legacy-video".into(),"C:/FixtureOnly/01.mkv".into()));
+        assert_eq!(sqlx::query_scalar::<_, String>("SELECT notes FROM works WHERE id='legacy-video'").fetch_one(&pool).await.unwrap(), "原有个人笔记");
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT position_ms FROM playback_progress WHERE media_file_id='legacy-file'").fetch_one(&pool).await.unwrap(),45000);
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT locked FROM work_field_locks WHERE work_id='legacy-video'").fetch_one(&pool).await.unwrap(),1);
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM work_tags WHERE work_id='legacy-video'").fetch_one(&pool).await.unwrap(),1);
+        assert_eq!(sqlx::query_scalar::<_, String>("SELECT notes FROM works WHERE id='legacy-book'").fetch_one(&pool).await.unwrap(),"原有阅读笔记");
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT tracking FROM sync_runtime WHERE id=1").fetch_one(&pool).await.unwrap(),0);
+        let old: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations WHERE version<=24 ORDER BY version").fetch_all(&pool).await.unwrap();
+        assert_eq!(old,ledger);
+    }
+
 }

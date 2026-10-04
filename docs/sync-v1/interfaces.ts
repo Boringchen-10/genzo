@@ -9,6 +9,8 @@ export interface Change {
   field: string;
   value: unknown;
   observedAt: string;
+  /** Defaults to manual for initial V1 fixtures. Automatic scraper values use metadata. */
+  origin?: "manual" | "metadata";
 }
 export interface SyncDocument {
   protocolVersion: 1;

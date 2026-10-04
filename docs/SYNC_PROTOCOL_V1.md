@@ -32,13 +32,13 @@
 
 ## 操作与合并
 
-操作不可变，ID 是 `<deviceId>:<counter>`，counter 为持久单调递增整数；`context` 是操作发生时本机已经看到的各设备最大 counter。每条操作包含实体、字段、JSON 值、观察时间。时间仅展示，不作因果判断。若同 ID 出现不同内容，拒绝整个载荷；不得覆盖。
+操作不可变，ID 是 `<deviceId>:<counter>`，counter 为持久单调递增整数；`context` 是操作发生时本机已经看到的各设备最大 counter。每条操作包含实体、字段、JSON 值、观察时间，以及 `origin`（manual / metadata，省略时为 manual）。时间仅展示，不作因果判断。若同 ID 出现不同内容，拒绝整个载荷；不得覆盖。
 
 每个字段为因果多值寄存器。B.context[A.deviceId] >= A.counter 表示 B 看过 A，B 取代 A；同时发生的不同字段独立合并。并发同字段保留所有未被后续操作取代的候选，以 `(counter, deviceId)` 排序选定可重复的显示值。笔记冲突必须显示双方完整内容，用户选一份或合写后发布一个看过双方的操作。其他并发字段也可以由冲突接口查看/选择，不能按电脑时间或服务器到达顺序决定。
 
 字段白名单：`title`、`originalTitle`、`description`、`year`、`coverUrl`、`bannerUrl`、`status`、`favorite`、`rating`、`notes`、`anchor`、`id.<provider>`、`lock.<field>`、`source.<field>`、`tag.<名称>`、`episode.<provider>/<ID>`、`watched.<分集键>`、`session.<UUID>`、`deleted`。嵌套值按对应类型校验；拒绝未知字段和设备私有路径。单个字段最大 256 KiB。
 
-标签按每个名字的布尔操作合并，移除标签不影响其他设备新增的不同标签。人工锁定字段优先保留人工来源的值，自动刮削不得覆盖已锁定人工资料；解锁是独立操作。
+标签键按 SQLite NOCASE 的 ASCII 小写归一，按每个名字的布尔操作合并，移除标签不影响其他设备新增的不同标签。人工锁定字段优先保留人工来源的值，自动刮削不得覆盖已锁定人工资料；解锁是独立操作。
 
 观看会话独立 UUID，保存 episodeKey、versionKey（允许 null）、startedAt、observedAt、positionMs、durationMs、completed、ended。每次真正采集到有效位置才记录；打开文件不算观看。每个会话按字段寄存器规则更新，保留所有会话，倒退/重看合法，不能只取最大的播放位置。不同设备的并发会话保留双方，续播选择最近观察的会话并标明来源；设备时间不可信时可人工选定。已观看与续播分开，已看标记不意味着每个版本都存在可用续播时间。
 
