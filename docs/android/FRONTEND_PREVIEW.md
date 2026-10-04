@@ -29,7 +29,7 @@ SHA256：`65f7894aa3e89a43cf42ca9c26d9f5f3a6c505fe96f135cf6be321ff91f3d600`。�
 .\scripts\start-android-emulator.ps1 -Apk 'D:\DevTools\Android\Build\artifacts\Genzo-android-frontend-x86_64-debug.apk'
 ```
 
-启动 `Genzo_Pixel9_API36`，冷启动保留原 AVD 数据；GPU software / 关闭 Vulkan。工具、AVD、构建 / 日志 / 缓存 D，源代码 H。ADB 必须 `-s emulator-5554`，不要在双设备状态下用默认目标。
+启动 `Genzo_Pixel9_API36`，冷启动保留原 AVD 数据；GPU software / 关闭 Vulkan。脚本将该AVD默认设为冷启动，Studio下次启动也不自动恢复快照。工具、AVD、构建 / 日志 / 缓存 D，源代码 H。ADB 必须 `-s emulator-5554`，不要在双设备状态下用默认目标。
 
 ## 前端编辑位置
 

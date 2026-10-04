@@ -2,6 +2,7 @@
 
 ## 安卓可操作前端 / 模拟器优先（2026-10-04）
 
+- 用户随后截图报告Studio无法终止旧app；日志已执行assembleX86_64Debug，但模拟器shell与console均5秒超时、gRPC getVmState超时。停止已核对属于Genzo_Pixel9_API36的失响应qemu进程后，用原脚本software / 关闭Vulkan / 禁止载入快照冷启动，没有wipe-data。冷启动时包未登记，重装固定前端APK后恢复4作品 /1来源 /dark /available授权；已有应用数据仍在。新app force-stop返回0、pid消失、am start -W返回ok、MainActivity前台，已验证ADB恢复，未宣称GUI Run已通过。脚本将该AVD默认设为冷启动，并明确拒绝暂未断开的旧ADB连接，避免空数组报错；快照是否为失响应根因仍未确定。
 - 用户在Studio Run时截图报告选中 `armDebug` 与模拟器 `x86_64,arm64-v8a` 不兼容；实际ADB核对ABI相符，32位ARM变体选择错误。当前应在Build → Select Build Variant将app切为 `x86_64Debug`，目标选Genzo_Pixel9_API36；已通过ADB再次发起既有前端启动。尚未宣称切换后的GUI Run通过，说明见 `docs/android/ANDROID_STUDIO.md`。
 - 用户最新要求先在电脑模拟器展示有前端的程序，便于继续设计与加功能；暂停实物手机展示 / 安装。本轮只对 emulator-5554 部署与测试，一加保留第二阶段原型。
 - 阶段二已提交 `b384df7`；当前仍在同一独立工作树 / 分支。React 启动改为 AndroidApp，按 OpenDesign Android v1 接首页、媒体库、收藏、我的、来源、待整理、详情；深浅 / 系统主题保存共享设置，真实 DB 数据，无静态演示作品或角色资产。诊断页移到“我的 → 开发验证”。

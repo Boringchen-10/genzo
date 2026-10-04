@@ -74,4 +74,12 @@ IDE 默认 Universal 的 Rust 任务限定 arm64 / x86_64，两个任务均已�
 
 截图只证明错误变体的GUI Run失败；切换后的GUI Run尚待实际验证。ADB已重新发起模拟器中既有Genzo的启动，不安装手机、不改应用数据。
 
+### Run提示无法终止旧app
+
+用户后续截图报告 `Couldn't terminate previous instance of app`。日志确认这次已选择x86_64Debug；但模拟器虽列为device，shell与console均5秒无响应，Studio设备控制getVmState也超时。通过核对AVD名称后停止该qemu进程，按脚本software / 关闭Vulkan / 不载入快照冷启动恢复；未清空模拟器数据，也未重启共用ADB服务器或操作手机。包当时未登记，重新安装固定测试APK后，4作品 /1来源 /dark主题 /available目录授权恢复。
+
+恢复检查：实际已运行Genzo的force-stop退出0，pid查询不再有进程；随后am start -W返回Status ok、MainActivity前台。记录 / 截图在 `D:\DevTools\Android\Build\qa\studio-recovery`。GUI Run完整安装 / 启动仍待验证，不把ADB恢复等同于GUI Run通过。
+
+启动脚本同时将本AVD的 `fastboot.forceColdBoot=yes` / `fastboot.forceFastBoot=no` 写入D盘config.ini，使Studio后续启动也采用冷启动，保留userdata；快照与卡住的因果关系尚未确认。再次出现失响应时先使用设备管理器的冷启动操作，或在本工作树执行启动脚本；不要清除数据。旧ADB连接短暂残留时脚本现在给出等待断开再重试的提示，不再空数组报错。
+
 QA 指定 `GENZO_ANDROID_SERIAL=emulator-5554`、`GENZO_ANDROID_CDP_PORT=9227`、独立 `GENZO_ANDROID_QA_DIR`；手机默认 9226。系统镜像自带 WebView 133，QA 连接 CDP 使用 `noDefaults:true`，避免新版 Playwright 的浏览器上下文设置不受旧 WebView 支持。正式应用不依赖 CDP。
