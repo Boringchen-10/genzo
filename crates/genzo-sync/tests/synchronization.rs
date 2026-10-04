@@ -17,19 +17,35 @@ async fn pool() -> SqlitePool {
         )
         .await
         .unwrap();
-    let directory =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/migrations");
-    let mut files: Vec<_> = std::fs::read_dir(directory)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|s| s == "sql"))
-        .collect();
-    files.sort();
-    for file in files {
-        sqlx::raw_sql(&std::fs::read_to_string(file).unwrap())
-            .execute(&pool)
-            .await
-            .unwrap();
+    let migrations = [
+        include_str!("../../../src-tauri/migrations/0001_initial.sql"),
+        include_str!("../../../src-tauri/migrations/0002_metadata_matching.sql"),
+        include_str!("../../../src-tauri/migrations/0003_episode_subtitle_links.sql"),
+        include_str!("../../../src-tauri/migrations/0004_anime_episode_numbers.sql"),
+        include_str!("../../../src-tauri/migrations/0005_metadata_aggregation.sql"),
+        include_str!("../../../src-tauri/migrations/0006_work_banner_path.sql"),
+        include_str!("../../../src-tauri/migrations/0007_anime_file_structure.sql"),
+        include_str!("../../../src-tauri/migrations/0008_media_relocation_candidates.sql"),
+        include_str!("../../../src-tauri/migrations/0009_remote_storage.sql"),
+        include_str!("../../../src-tauri/migrations/0010_remote_relocation_guard.sql"),
+        include_str!("../../../src-tauri/migrations/0011_remove_unlinked_episode_placeholders.sql"),
+        include_str!("../../../src-tauri/migrations/0012_episode_type.sql"),
+        include_str!("../../../src-tauri/migrations/0013_recognition_history.sql"),
+        include_str!("../../../src-tauri/migrations/0014_playback_progress.sql"),
+        include_str!("../../../src-tauri/migrations/0015_scan_task_state.sql"),
+        include_str!("../../../src-tauri/migrations/0016_recognition_preferences.sql"),
+        include_str!("../../../src-tauri/migrations/0017_recognition_preference_indexes.sql"),
+        include_str!("../../../src-tauri/migrations/0018_episode_artwork_sources.sql"),
+        include_str!("../../../src-tauri/migrations/0019_episode_artwork_offset.sql"),
+        include_str!("../../../src-tauri/migrations/0020_bookshelf.sql"),
+        include_str!("../../../src-tauri/migrations/0021_resource_group_routes.sql"),
+        include_str!("../../../src-tauri/migrations/0022_root_destinations.sql"),
+        include_str!("../../../src-tauri/migrations/0023_book_volume_matches.sql"),
+        include_str!("../../../src-tauri/migrations/0024_book_entry_order.sql"),
+        include_str!("../../../src-tauri/migrations/0026_personal_sync.sql"),
+    ];
+    for migration in migrations {
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
     }
     store::initialize(&pool).await.unwrap();
     pool
