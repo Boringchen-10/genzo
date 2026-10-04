@@ -241,7 +241,6 @@ export default function AndroidApp() {
       </>}
       {(route === "library" || route === "favorites") && <>
         <label className="gz-search"><Search size={20} /><input type="search" aria-label="搜索媒体库" placeholder="搜索标题 / 原名 / 标签" value={query} onChange={event => { setQuery(event.target.value); setLimit(48); }} /></label>
-        {route === "library" && <div className="gz-chips"><button className="gz-chip active">媒体库</button><button className="gz-chip" onClick={() => navigate("inbox")}>待整理 · {groups.length}</button><button className="gz-chip" onClick={() => navigate("sources")}>来源管理</button></div>}
         <div className="gz-chips" role="radiogroup" aria-label="作品类型">{categories.map(item => <button className={`gz-chip ${filter === item.id ? "active" : ""}`} role="radio" aria-checked={filter === item.id} key={item.id} onClick={() => { setFilter(item.id); setLimit(48); }}>{item.title}</button>)}</div>
         <p className="gz-meta">共 {filtered.length} 部作品</p>{filtered.length ? <><div className="gz-grid">{filtered.slice(0, limit).map(card)}</div>{filtered.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}</> : <Empty title={route === "favorites" ? "还没有符合条件的收藏" : "没有匹配的作品"}><p>{query || filter !== "all" ? "试试其他关键词，或清除筛选。" : "添加来源并扫描，再到待整理中确认作品。"}</p><button className="gz-btn" onClick={() => { setQuery(""); setFilter("all"); if (!works.length) navigate("sources"); }}>{works.length ? "清除筛选" : "管理来源"}</button></Empty>}
       </>}
