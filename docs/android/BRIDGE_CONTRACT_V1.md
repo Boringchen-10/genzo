@@ -32,11 +32,13 @@ OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端�
 
 `delete_library_root` 和桌面 `add_library_root({path})` 不作为安卓 SAF 入口。移除来源的设计先用停用 / 撤销授权表达并保留资料；实际删除须另定确认与数据保留行为。
 
-## 安卓业务命令常量（新增，尚未实现）
+## 安卓业务命令常量（新增，逐项接入）
+
+已实现来源前三项（授权、状态、扫描）；其余播放 / 字幕业务接口尚未实现。来源返回状态是上次授权 / 扫描的结果，不在列表读取时联网或遍历整个目录。实时扫描仍读取共享 `list_scan_tasks`，事件接口待接入。
 
 | invoke 常量 | 参数 | 返回 |
 | --- | --- | --- |
-| `authorize_video_source` | `{label?:string, sourceId?:string}`；sourceId 为重新授权，目录由系统选择 | `{status:'authorized'|'cancelled'|'permission_denied',source?:VideoSource}` |
+| `authorize_video_source` | `{label?:string, sourceId?:string,reuseAuthorized?:boolean}`；默认系统选择，sourceId 为原目录重新授权；reuseAuthorized 只登记已由用户授权的最近目录，不扩大授权 | `{status:'authorized'|'cancelled'|'permission_denied',source?:VideoSource}` |
 | `scan_video_source` | `{sourceId:string}` | `{taskId:string}`；仅 SAF 或 WebDAV 视频来源，任务按快照跟踪 |
 | `get_video_source_states` | `{}` | `VideoSource[]`；与 shared roots 同 ID |
 | `open_internal_player` | `{mediaFileId:string,restart:boolean,subtitleId?:string}` | `PlayerSnapshot`；URI、凭据与临时代理地址不由页面提交 / 返回 |

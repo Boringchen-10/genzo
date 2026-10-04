@@ -624,13 +624,14 @@ pub async fn set_root_destination_in_pool(pool: &SqlitePool, id: &str, destinati
 #[tauri::command]
 pub async fn delete_library_root(id: String, state: State<'_, AppState>) -> AppResult<()> {
     let remote: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM remote_sources WHERE id = ?)")
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM remote_sources WHERE id = ? UNION ALL SELECT 1 FROM android_saf_sources WHERE source_id = ?)")
+            .bind(&id)
             .bind(&id)
             .fetch_one(&state.pool)
             .await?;
     if remote {
         return Err(AppError::Validation(
-            "WebDAV 来源请使用停用，以保留文件索引和离线缓存".into(),
+            "WebDAV / 安卓授权来源请使用停用，以保留文件索引和个人记录".into(),
         ));
     }
     let result = sqlx::query("DELETE FROM library_roots WHERE id = ?")

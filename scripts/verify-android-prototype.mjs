@@ -5,19 +5,21 @@ import { chromium } from "playwright-core";
 
 // Run against the installed debug prototype. SAF authorization is performed by the human on the phone.
 const packageId = "com.genzo.android";
-const adb = (...args) => execFileSync("adb", args, { encoding: "utf8" }).trim();
+const adb = (...args) => execFileSync("adb", ["-s", process.env.GENZO_ANDROID_SERIAL ?? "3B164M00Z0500000", ...args], { encoding: "utf8" }).trim();
 const output = process.env.GENZO_ANDROID_QA_DIR ?? "D:/DevTools/Android/Build/qa";
+const cdpPort = process.env.GENZO_ANDROID_CDP_PORT ?? "9226";
 mkdirSync(output, { recursive: true });
 const connect = async () => {
   let pid;
+  let ready = false;
   for (let attempt = 0; attempt < 30; attempt++) {
-    pid = adb("shell", "pidof", packageId);
-    if (pid && adb("shell", "cat", "/proc/net/unix").includes(`webview_devtools_remote_${pid}`)) break;
+    try { pid = adb("shell", "pidof", packageId); } catch { pid = ""; }
+    if (pid && adb("shell", "cat", "/proc/net/unix").includes(`webview_devtools_remote_${pid}`)) { ready = true; break; }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
-  assert.ok(pid, "The prototype must be installed and running");
-  adb("forward", "tcp:9226", `localabstract:webview_devtools_remote_${pid}`);
-  const browser = await chromium.connectOverCDP("http://127.0.0.1:9226");
+  assert.ok(pid && ready, "The prototype must be installed and its debug WebView running");
+  adb("forward", `tcp:${cdpPort}`, `localabstract:webview_devtools_remote_${pid}`);
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`, { noDefaults: true });
   const page = browser.contexts()[0].pages()[0];
   await page.waitForSelector("[data-testid=probe-result]");
   return { browser, page };
@@ -28,7 +30,7 @@ let { browser, page } = await connect();
 const before = await invoke(page, "android_probe", { write: true });
 assert.equal(before.platform, "android");
 assert.equal(before.integrity, "ok");
-assert.equal(before.migrations, 24);
+assert.equal(before.migrations, Number(process.env.GENZO_EXPECTED_MIGRATIONS ?? 25));
 assert.equal(before.databaseMarker, before.cacheMarker);
 assert.ok(before.databaseMarker);
 assert.equal(before.credentialMarkerMatches, true);
@@ -62,4 +64,4 @@ writeFileSync(`${output}/persistence-saf.json`, JSON.stringify({ before, after,
   source: { status: root.status, authorizedUri: root.uri },
   testFiles: files.files.map(({ name, uri, size }) => ({ name, uri, size })), denied }, null, 2));
 await browser.close();
-console.log("PASS: Android Rust/SQLite, 24 migrations, integrity, force-stop persistence, cache, SAF restart and permission denial");
+console.log("PASS: Android Rust/SQLite, migrations, integrity, force-stop persistence, cache, credential read rejection, SAF restart and permission denial");

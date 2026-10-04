@@ -172,7 +172,7 @@ pub async fn set_root_source_type(
         return Err(AppError::Validation("无效的来源类型".into()));
     }
     let result = sqlx::query(
-        "UPDATE library_roots SET source_type = ? WHERE id = ? AND source_type != 'webdav'",
+        "UPDATE library_roots SET source_type = ? WHERE id = ? AND source_type != 'webdav' AND NOT EXISTS(SELECT 1 FROM android_saf_sources WHERE source_id=library_roots.id)",
     )
     .bind(source_type)
     .bind(id)

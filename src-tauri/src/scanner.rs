@@ -23,6 +23,7 @@ struct ScannedFile {
     parsed_anime: Option<ParsedAnime>,
     content_fingerprint: Option<String>,
     remote: Option<(String, Option<String>)>,
+    saf: Option<crate::android_sources::DocumentLocator>,
     reused: bool,
 }
 
@@ -255,6 +256,7 @@ fn visit_directory(
             parsed_anime: (media_type == "video" && !reused).then(|| parse_file_name(&file_name)),
             content_fingerprint,
             remote: None,
+            saf: None,
             reused,
         };
         if !emit(WalkEvent::File(Box::new(file))) {
@@ -469,6 +471,26 @@ pub async fn scan_with_options(
     root_id: &str,
     retry: Option<(String, Vec<String>)>,
 ) -> AppResult<ScanResult> {
+    run_prepared(pool, prepare_scan(pool, root_id, retry).await?).await
+}
+
+pub struct PreparedScan {
+    root: LibraryRoot,
+    retry: Option<(String, Vec<String>)>,
+    job_id: String,
+    started_at: String,
+    task: std::sync::Arc<crate::scan_tasks::TaskHandle>,
+}
+
+impl PreparedScan {
+    pub fn id(&self) -> &str { &self.job_id }
+}
+
+pub async fn prepare_scan(
+    pool: &SqlitePool,
+    root_id: &str,
+    retry: Option<(String, Vec<String>)>,
+) -> AppResult<PreparedScan> {
     let root = sqlx::query_as::<_, LibraryRoot>(
         "SELECT id, path, kind, enabled, last_scanned_at, created_at, updated_at, source_type, availability FROM library_roots WHERE id = ?",
     )
@@ -491,7 +513,7 @@ pub async fn scan_with_options(
         ));
     }
     let directories = retry.as_ref().map(|(_, paths)| paths.clone());
-    if root.source_type != "webdav" {
+    if root.source_type != "webdav" && !root.path.starts_with("saf://") {
         if let Some(paths) = &directories {
             for path in paths {
                 if !(normalized_directory(path) == normalized_directory(&root.path)
@@ -521,8 +543,14 @@ pub async fn scan_with_options(
     }
 
     let task = crate::scan_tasks::register(&job_id, &root, scope_key, retry.is_some());
-    let result: AppResult<ScanResult> = async {
     crate::scan_tasks::persist(pool, &task).await?;
+    Ok(PreparedScan { root, retry, job_id, started_at, task })
+}
+
+pub async fn run_prepared(pool: &SqlitePool, prepared: PreparedScan) -> AppResult<ScanResult> {
+    let PreparedScan { root, retry, job_id, started_at, task } = prepared;
+    let directories = retry.as_ref().map(|(_, paths)| paths.clone());
+    let result: AppResult<ScanResult> = async {
     let lock = SCAN_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
     let _guard = tokio::select! {
         guard = lock.lock() => guard,
@@ -547,7 +575,9 @@ pub async fn scan_with_options(
         .bind(&root.path).bind(&root.path).bind(&root.path).bind(&root.path).fetch_all(pool).await?.into_iter()
         .map(|(path, size, modified, fingerprint)| (path.to_lowercase(), (size, modified, fingerprint))).collect();
     let walk = async {
-        if root.source_type == "webdav" {
+        if root.path.starts_with("saf://") {
+            collect_saf_files(pool, &root, include_hidden, directories.clone(), &known, &task).await
+        } else if root.source_type == "webdav" {
             collect_remote_files(pool, &root, include_hidden, directories.clone(), &known, &task).await
         } else {
             Ok(collect_local_tree_monitored(directories.clone().unwrap_or_else(|| vec![root.path.clone()]).into_iter().map(PathBuf::from).collect(), scan_kind, include_hidden, mounted_source, known, Some(&task)).await)
@@ -569,7 +599,8 @@ pub async fn scan_with_options(
         "SELECT path,kind,source_type,enabled FROM library_roots WHERE id=?")
         .bind(&root.id).fetch_optional(&mut *transaction).await?;
     let remote_config: Option<(String,String)> = sqlx::query_as(
-        "SELECT endpoint,directory FROM remote_sources WHERE id=?")
+        "SELECT endpoint,directory FROM remote_sources WHERE id=? UNION ALL SELECT tree_uri,'' FROM android_saf_sources WHERE source_id=?")
+        .bind(&root.id)
         .bind(&root.id).fetch_optional(&mut *transaction).await?;
     if !current_root.is_some_and(|(path,kind,source_type,enabled)| enabled && serde_json::to_string(&(path,kind,source_type,remote_config)).ok().as_deref() == Some(task.snapshot().scope_key.as_str())) {
         return Err(AppError::Validation("扫描期间来源配置已变更，本轮索引未提交，请重新扫描".into()));
@@ -773,11 +804,15 @@ pub async fn scan_with_options(
             sqlx::query("INSERT INTO remote_files(media_file_id,source_id,href,etag) SELECT id,?,?,? FROM media_files WHERE path = ? ON CONFLICT(media_file_id) DO UPDATE SET href=excluded.href,etag=excluded.etag WHERE remote_files.href IS NOT excluded.href OR remote_files.etag IS NOT excluded.etag")
                 .bind(&root.id).bind(href).bind(etag).bind(&file.path).execute(&mut *transaction).await?;
         }
+        if let Some(locator) = &file.saf {
+            sqlx::query("INSERT INTO android_documents(media_file_id,source_id,document_id,uri,parent_uri,relative_path) SELECT id,?,?,?,?,? FROM media_files WHERE path=? ON CONFLICT(media_file_id) DO UPDATE SET uri=excluded.uri,parent_uri=excluded.parent_uri,relative_path=excluded.relative_path WHERE android_documents.uri IS NOT excluded.uri OR android_documents.parent_uri IS NOT excluded.parent_uri OR android_documents.relative_path IS NOT excluded.relative_path")
+                .bind(&root.id).bind(&locator.document_id).bind(&locator.uri).bind(&locator.parent_uri).bind(&locator.relative_path).bind(&locator.path).execute(&mut *transaction).await?;
+        }
     }
 
     // Handles legacy records with no root or parsed episode, including moves
     // between scan roots, while preserving episode/subtitle associations.
-    if retry.is_none() && root.source_type == "local" && !mounted_source && errors.is_empty() && (added_count > 0 || updated_count > 0) {
+    if retry.is_none() && root.source_type == "local" && !root.path.starts_with("saf://") && !mounted_source && errors.is_empty() && (added_count > 0 || updated_count > 0) {
         crate::media_reconciliation::reconcile(&mut transaction, None).await?;
     }
 
@@ -795,7 +830,9 @@ pub async fn scan_with_options(
     };
     let errors_json = serde_json::to_string(&errors)?;
     sqlx::query("UPDATE library_roots SET availability = ? WHERE id = ?")
-        .bind(if errors.is_empty() {
+        .bind(if errors.iter().any(|error| error.contains("permission_denied")) {
+            "permission_denied"
+        } else if errors.is_empty() {
             "online"
         } else {
             "unavailable"
@@ -883,6 +920,97 @@ pub async fn scan_with_options(
 }
 
 static SCAN_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+async fn collect_saf_files(
+    pool: &SqlitePool,
+    root: &LibraryRoot,
+    hidden: bool,
+    directories: Option<Vec<String>>,
+    known: &FingerprintCache,
+    task: &crate::scan_tasks::TaskHandle,
+) -> AppResult<WalkOutput> {
+    let tree: String = sqlx::query_scalar("SELECT tree_uri FROM android_saf_sources WHERE source_id=?")
+        .bind(&root.id).fetch_one(pool).await?;
+    let names: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT path,file_name FROM media_files WHERE library_root_id=?")
+        .bind(&root.id).fetch_all(pool).await?.into_iter().collect();
+    walk_saf(&root.id, &tree, hidden, directories, known, &names, task,
+        |uri| async move { crate::android_sources::directory(&uri).await }).await
+}
+
+async fn walk_saf<F, Fut>(
+    source_id: &str, tree: &str, hidden: bool, directories: Option<Vec<String>>,
+    known: &FingerprintCache, names: &HashMap<String, String>,
+    task: &crate::scan_tasks::TaskHandle, enumerate: F,
+) -> AppResult<WalkOutput>
+where F: Fn(String) -> Fut, Fut: std::future::Future<Output = AppResult<crate::android_sources::Directory>> {
+    let mut pending: std::collections::VecDeque<(String, String)> = directories
+        .unwrap_or_else(|| vec![tree.into()]).into_iter().map(|uri| (uri, String::new())).collect();
+    let mut seen = HashSet::new();
+    let mut documents = HashSet::new();
+    let mut output = WalkOutput::default();
+    while let Some((uri, relative)) = pending.pop_front() {
+        task.check()?;
+        if uri != tree && !uri.starts_with(&format!("{tree}/document/")) {
+            return Err(AppError::Validation("重试目录超出安卓授权树范围".into()));
+        }
+        if !seen.insert(uri.clone()) { continue; }
+        task.update(|state| {
+            state.current_directory = relative.clone(); state.pending_directories = pending.len();
+        });
+        if seen.len() > 20_000 || output.files.len() > 200_000 {
+            output.errors.push("扫描范围过大，请拆分媒体源目录".into());
+            output.failed_directories.push(uri);
+            output.failed_directories.extend(pending.into_iter().map(|(uri, _)| uri));
+            break;
+        }
+        let directory = enumerate(uri.clone()).await;
+        match directory {
+            Ok(directory) if directory.status == "available" => {
+                for entry in directory.files {
+                    task.check()?;
+                    if !hidden && entry.name.starts_with('.') { continue; }
+                    if entry.name.is_empty() || entry.name.contains('/') || entry.name == ".." || entry.document_id.is_empty()
+                        || !entry.uri.starts_with(&format!("{tree}/document/")) {
+                        output.errors.push("source_offline：目录提供者返回无效条目".into());
+                        output.failed_directories.push(uri.clone());
+                        continue;
+                    }
+                    let relative_path = if relative.is_empty() { entry.name.clone() } else { format!("{relative}/{}", entry.name) };
+                    if entry.mime_type == "vnd.android.document/directory" {
+                        pending.push_back((entry.uri, relative_path));
+                        continue;
+                    }
+                    if !documents.insert(entry.document_id.clone()) { continue; }
+                    let extension = Path::new(&entry.name).extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+                    let media_type = classify_extension(&extension);
+                    let subtitle = matches!(extension.as_str(), "srt" | "ass" | "ssa" | "vtt" | "sub");
+                    if media_type != "video" && !subtitle { continue; }
+                    let path = crate::android_sources::virtual_path(source_id, &entry.document_id);
+                    let modified_at = entry.modified_ms.filter(|ms| *ms > 0).and_then(DateTime::<Utc>::from_timestamp_millis).map(|date| date.to_rfc3339());
+                    let reused = names.get(&path) == Some(&entry.name) && modified_at.is_some() && entry.size.is_some()
+                        && known.get(&path).is_some_and(|(size, modified, _)| Some(*size) == entry.size && *modified == modified_at);
+                    output.files.push(ScannedFile {
+                        path: path.clone(), file_name: entry.name.clone(), extension,
+                        media_type: media_type.into(), size: entry.size.unwrap_or(0).max(0), modified_at,
+                        parsed_anime: (!reused).then(|| crate::anime_parser::parse_media_path(&entry.name, Path::new(&relative_path), None)),
+                        content_fingerprint: None, remote: None,
+                        saf: Some(crate::android_sources::DocumentLocator { path, document_id: entry.document_id, uri: entry.uri,
+                            parent_uri: uri.clone(), relative_path }), reused,
+                    });
+                    task.update(|state| state.discovered = output.files.len());
+                }
+            }
+            result => {
+                let message = match result { Ok(directory) => directory.status, Err(error) => error.to_string() };
+                output.errors.push(format!("{relative}：{message}"));
+                output.failed_directories.push(uri);
+            }
+        }
+        task.update(|state| { state.visited_directories += 1; state.errors = output.errors.clone(); });
+    }
+    sort_scanned_files(&mut output);
+    Ok(output)
+}
 
 async fn collect_remote_files(
     pool: &SqlitePool,
@@ -987,6 +1115,7 @@ async fn collect_remote_files(
             }),
             content_fingerprint: None,
             remote: Some((entry.href, entry.etag)),
+            saf: None,
             reused,
         });
     }
@@ -1043,6 +1172,66 @@ mod tests {
     use crate::db;
     use chrono::Utc;
     use std::fs;
+
+    async fn saf_fixture() -> (SqlitePool, PreparedScan) {
+        let pool = db::test_pool().await.unwrap();
+        sqlx::raw_sql("INSERT INTO library_roots(id,path,kind,enabled,created_at,updated_at) VALUES('saf-test','saf://saf-test','video',1,'t','t'); INSERT INTO android_saf_sources(source_id,tree_uri,label) VALUES('saf-test','content://provider/tree/test','测试');").execute(&pool).await.unwrap();
+        let prepared = prepare_scan(&pool, "saf-test", None).await.unwrap();
+        (pool, prepared)
+    }
+
+    #[tokio::test]
+    async fn saf_recurses_keeps_case_identity_subtitles_and_failed_directories() {
+        let (_pool, prepared) = saf_fixture().await;
+        let tree = "content://provider/tree/test";
+        let sub = format!("{tree}/document/sub");
+        let denied = format!("{tree}/document/denied");
+        let directories = HashMap::from([
+            (tree.to_owned(), serde_json::json!({"status":"available","files":[
+                {"documentId":"sub","name":"Season 2","mimeType":"vnd.android.document/directory","uri":sub},
+                {"documentId":"denied","name":"Offline","mimeType":"vnd.android.document/directory","uri":denied}]})),
+            (sub, serde_json::json!({"status":"available","files":[
+                {"documentId":"A","name":"Example S02E03.mkv","mimeType":"video/x-matroska","size":42,"modifiedMs":1000,"uri":format!("{tree}/document/A")},
+                {"documentId":"a","name":"example S02E03.mkv","mimeType":"video/x-matroska","size":42,"modifiedMs":1000,"uri":format!("{tree}/document/a")},
+                {"documentId":"sub-ass","name":"Example S02E03.ass","mimeType":"text/plain","uri":format!("{tree}/document/sub-ass")},
+                {"documentId":"image","name":"cover.jpg","mimeType":"image/jpeg","uri":format!("{tree}/document/image")}]})),
+            (denied.clone(), serde_json::json!({"status":"permission_denied"})),
+        ]);
+        let known = HashMap::new();
+        let names = HashMap::new();
+        let output = walk_saf("saf-test", tree, false, None, &known, &names, &prepared.task,
+            |uri| { let response = directories[&uri].clone(); async move { Ok(serde_json::from_value(response).unwrap()) } }).await.unwrap();
+        assert_eq!(output.files.len(), 3);
+        assert_ne!(output.files[0].path, output.files[1].path);
+        assert!(output.files.iter().any(|file| file.extension == "ass"));
+        assert!(output.files.iter().filter(|file| file.media_type == "video").all(|file| file.parsed_anime.as_ref().unwrap().season == Some(2)));
+        assert_eq!(output.failed_directories, vec![denied]);
+        assert!(output.errors[0].contains("permission_denied"));
+        assert!(walk_saf("saf-test", tree, false, Some(vec!["content://other/tree/test".into()]), &known, &names, &prepared.task,
+            |_| async { unreachable!() }).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn saf_queued_cancellation_retains_index_and_personal_record() {
+        let (pool, prepared) = saf_fixture().await;
+        sqlx::raw_sql("INSERT INTO media_files(id,library_root_id,path,file_name,extension,media_type,size,created_at,updated_at) VALUES('retained','saf-test','saf://saf-test/61','a.mkv','mkv','video',42,'t','t'); INSERT INTO playback_progress(media_file_id,position_ms,duration_ms,updated_at) VALUES('retained',10000,40000,'t');").execute(&pool).await.unwrap();
+        let id = prepared.id().to_owned();
+        crate::scan_tasks::cancel(&pool, &id).await.unwrap();
+        assert!(run_prepared(&pool, prepared).await.is_err());
+        assert_eq!(sqlx::query_as::<_, (bool, i64)>("SELECT missing,position_ms FROM media_files JOIN playback_progress ON media_file_id=id").fetch_one(&pool).await.unwrap(), (false, 10000));
+        assert_eq!(crate::scan_tasks::list(&pool).await.unwrap()[0].stage, "cancelled");
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[tokio::test]
+    async fn unavailable_saf_provider_never_marks_known_media_missing() {
+        let (pool, prepared) = saf_fixture().await;
+        sqlx::query("INSERT INTO media_files(id,library_root_id,path,file_name,extension,media_type,size,created_at,updated_at) VALUES('retained','saf-test','saf://saf-test/61','a.mkv','mkv','video',42,'t','t')").execute(&pool).await.unwrap();
+        let result = run_prepared(&pool, prepared).await.unwrap();
+        assert_eq!(result.job.status, "completed_with_errors");
+        assert_eq!(result.job.missing_count, 0);
+        assert!(!sqlx::query_scalar::<_, bool>("SELECT missing FROM media_files WHERE id='retained'").fetch_one(&pool).await.unwrap());
+    }
 
     #[test]
     fn detects_unc_mounts_without_requiring_source_toggle() {

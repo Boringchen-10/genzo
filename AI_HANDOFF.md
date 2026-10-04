@@ -1,5 +1,19 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 安卓本地索引 / 电脑模拟器（2026-10-04）
+
+- 第一阶段已提交 `dfdbe85`，后续仍在 `codex/android-first` / `H:\二次元阅读器\.tmp\android-first`；主目录其他修改与 Windows 发布标签保持。
+- 增量 0025 新增 SAF 来源 / 文档定位表，保留既有根 / 媒体 / 作品模型及历史 CHECK / 迁移；虚拟 ID 字节编码与 URI / 相对目录分开，不将 Android URI 当 Windows 文件路径。目录只查询元数据，没有读取 / 下载完整视频。
+- `authorize_video_source`、`get_video_source_states`、`scan_video_source` 已实现；可登记用户先前授权的最近目录。任务预先创建后异步执行，复用共享 list / cancel / retry、事务与元数据复用；失败不标记旧文件缺失。来源列表返回已知授权 / 扫描状态，不进行全树探测。重新授权限定原目录，停用保留数据，来源删除与挂载类型修改被拒绝。
+- 一加原型从 24→25 迁移，持久化 / 缓存 / 凭据 marker 保留。真机与模拟器两层合成目录索引 4 视频 + SRT / ASS / SSA 三字幕，季集解析、重复扫描 ID / 文件更新时间戳与元数据复用、手工建作品 / 收藏 / 评分 / 状态 / 备注通过。队列取消、部分拒权 / 不可用保留由单元测试验证；手机实际撤权再授权和大库未验收。
+- Windows Rust 265通过 /14忽略 /0失败，前端72通过，TypeScript / Vite及Android两个ABI编译安装启动通过。存量0024合成库升级校验历史checksums、个人记录、进度与外键；不是用户真实库测试。两个设备本地播放样本QA已复测，截图已检查，HDR / 字体附件 / 复杂字幕等范围不扩大。
+- 用户要求电脑上也有可见模拟器，已创建并运行 `Genzo_Pixel9_API36`（Android16/API36、Google APIs revision7、x86_64、Pixel9、4GiB/4核），WHPX可用；一加同时在线。系统镜像 / AVD / emulator home在D；C盘三个本轮新建小元数据文件已移D，其余旧配置保留。自动GPU在VLC测试后有external memory import错误，现software并关闭Vulkan，重启后QA通过。
+- 使用 `scripts/start-android-emulator.ps1`，构建 `build-android.ps1 -Target x86_64`；真机默认aarch64。ADB明确 `-s`；QA手机9226 / 模拟器9227。系统镜像WebView133需CDP noDefaults；启动PID短暂为空的QA竞态已处理，不是应用崩溃。
+- Studio默认Universal限定两种已验证ABI，arm64 / x86_64 Rust构建任务均通过；普通CLI Android构建会覆盖IDE临时连接，需最后以 `-Studio -Target x86_64` 重新保持桥。目前构建桥存活，Studio与模拟器可见；GUI Run点击仍未验收。
+- 安卓原型解除Windows全局1024px最小宽度，模拟器viewport412/scrollWidth412；Windows样式不变。仍显示明确验证页，没有把它当OpenDesign正式交付。
+- 固定测试APK：D盘Build/artifacts/Genzo-android-stage2-arm64-debug.apk（SHA256 20c0ebb795708d83d30ab36f923e4d49a3364c5a86e3c69b494e259b657c94d8）与stage2-x86_64-debug.apk（b6dc261864d731d997c10545d0ce0c69f7e166ec0e310ce6f760d8687ad2aca9）；均已安装实测。QA结果在Build/qa/phone-stage2与emulator，不入Git。
+- **后续工作**：原始目录层级与共享作品文件夹分组衔接，自动刮削 / 候选 / 人工纠错 / 刷新手机闭环，稳定媒体ID的SQLite观看记录 / 续播、自动字幕多候选、WebDAV鉴权 / Range / 中断恢复、正式OpenDesign页面 / 原生控件及主题安全区。当前 `android_native` 为QA；正式玩家业务接口仍未实现。参照 `docs/android/SAF_INDEX.md`、`BRIDGE_CONTRACT_V1.md` 与 `VALIDATION.md`，不能把当前测试包称完整首版。
+
 ## 安卓第一阶段：兼容性 / 真机原型 / 播放内核（2026-10-04）
 
 - 用户已明确启动安卓视频首版：媒体管理 / 应用内播放，本地 SAF + 用户 WebDAV，动漫 / 电影 / 电视剧；漫画 / 轻小说阅读后续。此前仅兼容性审查 / 伴侣客户端讨论已被此次用户范围更新。保留 Windows 已有功能。

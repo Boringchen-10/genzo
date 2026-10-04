@@ -1,4 +1,4 @@
-param([switch]$Release, [switch]$Studio)
+param([switch]$Release, [switch]$Studio, [ValidateSet('aarch64','x86_64')][string]$Target = 'aarch64')
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $PSScriptRoot
 $androidTools = if ($env:GENZO_ANDROID_TOOLS) { $env:GENZO_ANDROID_TOOLS } else { 'D:\DevTools\Android' }
@@ -9,10 +9,13 @@ $env:CARGO_HOME = Join-Path $androidTools 'Cargo'
 $env:RUSTUP_HOME = Join-Path $androidTools 'Rustup'
 $env:GRADLE_USER_HOME = Join-Path $androidTools 'Gradle'
 $env:ANDROID_USER_HOME = Join-Path $androidTools 'AndroidUserHome'
+$env:ANDROID_EMULATOR_HOME = $env:ANDROID_USER_HOME
+$env:ANDROID_AVD_HOME = Join-Path $androidTools 'Avd'
 $env:CARGO_TARGET_DIR = Join-Path $androidTools 'Build\genzo'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 $env:CARGO_PROFILE_DEV_STRIP = 'symbols'
 $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = Join-Path $env:NDK_HOME 'toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android26-clang.cmd'
+$env:CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER = Join-Path $env:NDK_HOME 'toolchains\llvm\prebuilt\windows-x86_64\bin\x86_64-linux-android26-clang.cmd'
 $env:RUSTFLAGS = '-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-landroid -C link-arg=-llog -C link-arg=-lOpenSLES'
 $env:GENZO_ANDROID_BUILD_DIR = Join-Path $androidTools 'Build\gradle-genzo'
 $env:TEMP = Join-Path $androidTools 'Temp'
@@ -42,7 +45,7 @@ if ($Studio) {
     New-Item -ItemType Directory -Force -Path $gradleConfiguration | Out-Null
     # Android Studio's GRADLE_LOCAL_JAVA_HOME macro reads this ignored local file.
     $studioBuildSettings = @(('java.home=' + $env:JAVA_HOME.Replace('\', '/')), ('genzo.build.dir=' + $env:GENZO_ANDROID_BUILD_DIR.Replace('\', '/')))
-    foreach ($variable in @('GENZO_NODE','CARGO_HOME','RUSTUP_HOME','CARGO_TARGET_DIR','CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_DEV_STRIP','CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER','RUSTFLAGS','JAVA_HOME','ANDROID_HOME','NDK_HOME','TEMP','TMP')) {
+    foreach ($variable in @('GENZO_NODE','CARGO_HOME','RUSTUP_HOME','CARGO_TARGET_DIR','CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_DEV_STRIP','CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER','CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER','RUSTFLAGS','JAVA_HOME','ANDROID_HOME','NDK_HOME','TEMP','TMP')) {
         $studioBuildSettings += 'genzo.env.' + $variable + '=' + [Environment]::GetEnvironmentVariable($variable).Replace('\', '/')
     }
     $studioBuildSettings | Set-Content -LiteralPath (Join-Path $gradleConfiguration 'config.properties') -Encoding ascii
@@ -57,7 +60,7 @@ if ($Studio) {
 }
 Push-Location $projectDirectory
 try {
-    $buildArguments = @('node_modules/@tauri-apps/cli/tauri.js', 'android', 'build', '--apk', '--target', 'aarch64')
+    $buildArguments = @('node_modules/@tauri-apps/cli/tauri.js', 'android', 'build', '--apk', '--target', $Target)
     if (!$Release) { $buildArguments += '--debug' }
     if ($Studio) { $buildArguments += '--open' }
     & node @buildArguments

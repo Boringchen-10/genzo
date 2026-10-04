@@ -60,3 +60,26 @@ QA 使用已安装调试包的 WebView CDP，作用范围是 Genzo 原型 / 合�
 SAF 递归 / 大库 / 增量索引、来源启停与扫描重试、安卓刮削 / 人工确认闭环、稳定媒体 ID 的 SQLite 观看记录 / 首页续播、自动字幕多候选、WebDAV 鉴权 / Range / 中断恢复、TMDB Token 的安卓安全迁移、正式 OpenDesign 页面 / 原生控件、安全区 / 系统返回全流程、后台 / 进程回收恢复。当前原型使用 URI 哈希进度，不能计为正式观看记录交付。
 
 字体附件、复杂 ASS、高清 / 10-bit / HDR、多声道输出、其他 API / ABI 与 16 KiB 设备、历史库在手机上升级均需后续验证。Release 签名 / 公开分发对应源码与许可证清单未完成。普通 EncounteredError 不能可靠推断 decoder_unsupported，应作为 unknown 展示可重试信息。
+
+## 本地索引与电脑模拟器补充验证
+
+同日新增迁移 0025，手机原型由 24 迁移升级为 25；基线持久化标记 / 缓存 / 安全凭据保留。合成的存量 0024 库升级测试核对历史迁移校验和、收藏 / 备注 / 观看进度、外键与 SQLite 完整性；未操作用户 Windows 真实库。
+
+- Windows Rust 全套：265 通过、14 忽略、0 失败；日志 `D:\DevTools\Android\Build\windows-saf-tests.log`。
+- 前端 72 通过；两个 ABI 的 Android 构建均执行 TypeScript / Vite 构建，Kotlin / Rust 编译、安装和启动通过。
+- 一加真机与 Android 16 / API36 Pixel 9 模拟器均通过持久化 / 拒权 / 凭据 JS 读取拒绝、递归 SAF 索引、7 个视频 / 字幕条目的稳定身份 / 元数据复用、S02E03 解析、手工建作品 / 收藏 / 评分 / 状态 / 备注保留、来源停用拒绝扫描和删除保护。
+- 队列取消、目录部分拒权 / 来源不可用时保留索引由 Windows 单元验证；手机实际撤销授权再授权与大库仍待验收。原始目录层级已保存，共享文件夹分组后续适配，见 `SAF_INDEX.md`。
+- 两设备的原生播放器样本 QA 均通过。模拟器 host GPU 出现导入错误后改为 software 并关闭 Vulkan，冷启动后再次通过持久化 / 索引 / 播放 QA；它用于页面和交互，不替代手机解码 / 画质验收。
+- 模拟器 WebView 的 `innerWidth=scrollWidth=412`，已修复桌面 `min-width:1024px` 泄漏；仅 Android data-platform 覆盖，不改变 Windows 布局。
+- Studio 所用的 arm64 / x86_64 Rust 任务均通过。普通 CLI 构建覆盖临时连接曾导致 ConnectionRefused；最后重新启动 `-Studio` 桥并执行 `rustBuildUniversalDebug` 成功，日志 `studio-two-target-bridge.log`。不是 GUI Run 人工验收。
+
+结果分别在 `D:\DevTools\Android\Build\qa\phone-stage2` 和 `qa\emulator`，各含 `persistence-saf.json`、`saf-index.json`、`player.json` 与截图。脚本明确指定设备；测试媒体均在本轮 `Download/GenzoPrototype`，包括额外 Nested 合成拷贝，未触及原有真实媒体。
+
+固定的第二阶段测试包：
+
+| 用途 | 路径 | SHA256 |
+| --- | --- | --- |
+| 一加 / arm64 | `D:\DevTools\Android\Build\artifacts\Genzo-android-stage2-arm64-debug.apk` | `20c0ebb795708d83d30ab36f923e4d49a3364c5a86e3c69b494e259b657c94d8` |
+| 电脑 / x86_64 | `D:\DevTools\Android\Build\artifacts\Genzo-android-stage2-x86_64-debug.apk` | `b6dc261864d731d997c10545d0ce0c69f7e166ec0e310ce6f760d8687ad2aca9` |
+
+此处更新当前事实；上文第一阶段是 24 迁移 / arm64 的历史快照。当前仍未交付稳定 ID 的原生观看记录、自动字幕候选、安卓 WebDAV 播放、自动刮削 / 纠错手机闭环与正式 OpenDesign 页面，也没有正式发布。

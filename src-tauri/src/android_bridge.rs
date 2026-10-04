@@ -7,12 +7,12 @@ use tauri::Manager;
 #[cfg(target_os = "android")]
 struct AndroidBridge(tauri::plugin::PluginHandle<tauri::Wry>);
 #[cfg(target_os = "android")]
-static CREDENTIAL_HANDLE: std::sync::OnceLock<tauri::plugin::PluginHandle<tauri::Wry>> =
+static NATIVE_HANDLE: std::sync::OnceLock<tauri::plugin::PluginHandle<tauri::Wry>> =
     std::sync::OnceLock::new();
 
 #[cfg(target_os = "android")]
 pub fn credential_call(command: &str, payload: Value) -> AppResult<Value> {
-    CREDENTIAL_HANDLE
+    NATIVE_HANDLE
         .get()
         .ok_or_else(|| AppError::System("安卓安全存储尚未初始化".into()))?
         .run_mobile_plugin(command, payload)
@@ -25,12 +25,29 @@ pub fn init() -> TauriPlugin<tauri::Wry> {
             #[cfg(target_os = "android")]
             {
                 let handle = _api.register_android_plugin("com.genzo.android", "GenzoPlugin")?;
-                let _ = CREDENTIAL_HANDLE.set(handle.clone());
+                let _ = NATIVE_HANDLE.set(handle.clone());
                 _app.manage(AndroidBridge(handle));
             }
             Ok(())
         })
         .build()
+}
+
+pub async fn call(command: &str, payload: Value) -> AppResult<Value> {
+    #[cfg(target_os = "android")]
+    {
+        let handle = NATIVE_HANDLE.get()
+            .ok_or_else(|| AppError::System("安卓原生桥尚未初始化".into()))?.clone();
+        let command = command.to_owned();
+        tauri::async_runtime::spawn_blocking(move || handle.run_mobile_plugin(&command, payload)
+            .map_err(|_| AppError::System("安卓原生操作失败，请检查授权或播放器状态".into())))
+            .await.map_err(|error| AppError::System(error.to_string()))?
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (command, payload);
+        Err(AppError::System("此操作仅支持安卓".into()))
+    }
 }
 
 #[tauri::command]

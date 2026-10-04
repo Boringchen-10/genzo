@@ -8,6 +8,17 @@ export default function AndroidPrototype() {
   const [error, setError] = useState("");
   const [nativeResult, setNativeResult] = useState<unknown>(null);
   const [videoUri, setVideoUri] = useState("");
+  const [sourceId, setSourceId] = useState("");
+  const [tasks, setTasks] = useState<unknown>([]);
+  async function source(command: string, payload: Record<string, unknown> = {}) {
+    setBusy(true); setError("");
+    try {
+      const response = await invoke<{ source?: { id: string } }>(command, payload);
+      setNativeResult(response);
+      if (response.source) setSourceId(response.source.id);
+    } catch (reason) { setError(String(reason)); }
+    finally { setBusy(false); }
+  }
   async function native(command: string, payload: Record<string, unknown> = {}) {
     setBusy(true); setError("");
     try {
@@ -25,6 +36,17 @@ export default function AndroidPrototype() {
     finally { setBusy(false); }
   }
   useEffect(() => { void probe(false); }, []);
+  useEffect(() => {
+    if (!sourceId) return;
+    let active = true;
+    const poll = async () => {
+      try { const response = await invoke("list_scan_tasks"); if (active) setTasks(response); }
+      catch (reason) { if (active) setError(String(reason)); }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [sourceId]);
   return <main className="android-prototype">
     <h1>Genzo 安卓验证原型</h1>
     <p>Windows v0.5.0 基线 · 当前为能力验证页，正式页面按 OpenDesign 规范接入</p>
@@ -36,6 +58,12 @@ export default function AndroidPrototype() {
     <h2>目录授权与文件枚举</h2>
     <button disabled={busy} onClick={() => void native("pickTree")}>授权视频目录</button>
     <button disabled={busy} onClick={() => void native("listTree")}>读取已授权目录</button>
+    <h2>媒体索引验证</h2>
+    <button disabled={busy} onClick={() => void source("authorize_video_source", { reuseAuthorized: false })}>添加视频来源</button>
+    <button disabled={busy} onClick={() => void source("authorize_video_source", { reuseAuthorized: true })}>登记已授权目录</button>
+    <button disabled={busy || !sourceId} onClick={() => void source("scan_video_source", { sourceId })}>扫描当前来源</button>
+    <button disabled={busy} onClick={() => void source("get_video_source_states")}>查看来源状态</button>
+    <pre data-testid="scan-tasks">{JSON.stringify(tasks, null, 2)}</pre>
     <h2>原生播放器验证</h2>
     <button disabled={busy} onClick={() => void native("pickVideo")}>选择视频文件</button>
     <input aria-label="播放 URI" value={videoUri} onChange={(event) => setVideoUri(event.target.value)} placeholder="content:// 或测试流地址" />

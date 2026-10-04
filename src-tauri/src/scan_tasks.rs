@@ -72,7 +72,8 @@ impl TaskHandle {
 }
 pub async fn scope_key(pool: &SqlitePool, root: &LibraryRoot) -> AppResult<String> {
     let remote: Option<(String, String)> =
-        sqlx::query_as("SELECT endpoint,directory FROM remote_sources WHERE id=?")
+            sqlx::query_as("SELECT endpoint,directory FROM remote_sources WHERE id=? UNION ALL SELECT tree_uri,'' FROM android_saf_sources WHERE source_id=?")
+            .bind(&root.id)
             .bind(&root.id)
             .fetch_optional(pool)
             .await?;

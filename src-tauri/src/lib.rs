@@ -1,6 +1,7 @@
 mod anime_details;
 mod android_probe;
 mod android_bridge;
+mod android_sources;
 mod anime_parser;
 mod bangumi;
 mod book_metadata;
@@ -75,6 +76,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             android_probe::android_probe,
             android_bridge::android_native,
+            android_sources::authorize_video_source,
+            android_sources::get_video_source_states,
+            android_sources::scan_video_source,
             comic_cover_cache::cache_comic_explore_cover,
             comic_explore::list_comic_explore,
             comic_explore::get_comic_explore_themes,

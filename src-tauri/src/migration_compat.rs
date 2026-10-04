@@ -355,7 +355,7 @@ mod tests {
         run(&pool).await.unwrap();
         let old_ledger: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations WHERE version <= 11 ORDER BY version").fetch_all(&pool).await.unwrap();
         assert_eq!(old_ledger, ledger);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT MAX(version) FROM _sqlx_migrations").fetch_one(&pool).await.unwrap(), 24);
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT MAX(version) FROM _sqlx_migrations").fetch_one(&pool).await.unwrap(), sqlx::migrate!("./migrations").iter().map(|m| m.version).max().unwrap());
         assert_eq!(sqlx::query_as::<_, (String, String)>("SELECT work_id,path FROM media_files WHERE id='v'").fetch_one(&pool).await.unwrap(), ("w".into(), "C:/Media/01.mkv".into()));
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT position_ms FROM playback_progress WHERE media_file_id='v'").fetch_one(&pool).await.unwrap(), 45000);
         assert_eq!(sqlx::query_as::<_, (String, String)>("SELECT title,read_state FROM book_entry_overrides WHERE media_file_id='book'").fetch_one(&pool).await.unwrap(), ("人工卷名".into(), "reading".into()));

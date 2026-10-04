@@ -6,7 +6,7 @@ import { chromium } from "playwright-core";
 // Uses only the generated GenzoPrototype files and this app's debug bridge.
 const output = process.env.GENZO_ANDROID_QA_DIR ?? "D:/DevTools/Android/Build/qa";
 mkdirSync(output, { recursive: true });
-const browser = await chromium.connectOverCDP("http://127.0.0.1:9226");
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${process.env.GENZO_ANDROID_CDP_PORT ?? "9226"}`, { noDefaults: true });
 const page = browser.contexts()[0].pages()[0];
 const invoke = (command, payload = {}) => page.evaluate(({ command, payload }) =>
   window.__TAURI_INTERNALS__.invoke("android_native", { command, payload }), { command, payload });
@@ -32,7 +32,7 @@ const uri = name => {
 };
 const results = {};
 const capture = name => {
-  const png = execFileSync("adb", ["exec-out", "screencap", "-p"]);
+  const png = execFileSync("adb", ["-s", process.env.GENZO_ANDROID_SERIAL ?? "3B164M00Z0500000", "exec-out", "screencap", "-p"]);
   writeFileSync(`${output}/${name}.png`, png);
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 };

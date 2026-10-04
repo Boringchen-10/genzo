@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.os.CancellationSignal
 import androidx.activity.result.ActivityResult
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
@@ -14,6 +15,7 @@ import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @InvokeArg
 class TreeArgs { var uri: String? = null }
@@ -28,6 +30,7 @@ class ControlArgs { lateinit var action: String; var value: Double = 0.0; var ur
 class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
     private val preferences = activity.getSharedPreferences("genzo-prototype", 0)
     private val worker = Executors.newSingleThreadExecutor()
+    private val timeouts = Executors.newSingleThreadScheduledExecutor()
     private val credentials = CredentialStore(activity)
 
     @Command
@@ -79,22 +82,36 @@ class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
         worker.execute {
             try {
                 val tree = Uri.parse(storedUri)
+                val treeId = DocumentsContract.getTreeDocumentId(tree)
+                if (activity.contentResolver.persistedUriPermissions.none { permission ->
+                    permission.isReadPermission && permission.uri.authority == tree.authority &&
+                        DocumentsContract.isTreeUri(permission.uri) && DocumentsContract.getTreeDocumentId(permission.uri) == treeId
+                }) throw SecurityException("No persisted tree grant")
                 val documentId = if (DocumentsContract.isDocumentUri(activity, tree)) DocumentsContract.getDocumentId(tree)
-                    else DocumentsContract.getTreeDocumentId(tree)
+                    else treeId
                 val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId)
                 val files = JSArray()
                 val projection = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                     DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE,
                     DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-                activity.contentResolver.query(children, projection, null, null, null)?.use { cursor ->
-                    while (cursor.moveToNext()) {
-                        files.put(JSObject().put("documentId", cursor.getString(0)).put("name", cursor.getString(1))
-                            .put("mimeType", cursor.getString(2)).put("size", cursor.getLong(3))
-                            .put("modifiedMs", cursor.getLong(4)).put("uri",
-                                DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)).toString()))
-                    }
-                } ?: throw IllegalStateException("Source unavailable")
-                invoke.resolve(JSObject().put("status", "available").put("uri", storedUri).put("files", files))
+                val cancellation = CancellationSignal()
+                val timeout = timeouts.schedule({ cancellation.cancel() }, 15, TimeUnit.SECONDS)
+                var label: String? = null
+                try {
+                    val selected = DocumentsContract.buildDocumentUriUsingTree(tree, documentId)
+                    activity.contentResolver.query(selected, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                        null, null, null, cancellation)?.use { cursor -> if (cursor.moveToFirst()) label = cursor.getString(0) }
+                    activity.contentResolver.query(children, projection, null, null, null, cancellation)?.use { cursor ->
+                        while (cursor.moveToNext()) {
+                            if (files.length() >= 200000) throw IllegalStateException("Directory too large")
+                            files.put(JSObject().put("documentId", cursor.getString(0)).put("name", cursor.getString(1))
+                                .put("mimeType", cursor.getString(2)).put("size", if (cursor.isNull(3)) org.json.JSONObject.NULL else cursor.getLong(3))
+                                .put("modifiedMs", if (cursor.isNull(4)) org.json.JSONObject.NULL else cursor.getLong(4)).put("uri",
+                                    DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)).toString()))
+                        }
+                    } ?: throw IllegalStateException("Source unavailable")
+                } finally { timeout.cancel(false) }
+                invoke.resolve(JSObject().put("status", "available").put("uri", storedUri).put("label", label).put("files", files))
             } catch (_: SecurityException) {
                 invoke.resolve(JSObject().put("status", "permission_denied"))
             } catch (_: Exception) {

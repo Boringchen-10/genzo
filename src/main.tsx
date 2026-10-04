@@ -10,9 +10,11 @@ import "./bookshelf.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("找不到应用根节点");
+const isAndroid = /Android/i.test(navigator.userAgent);
+if (isAndroid) document.documentElement.dataset.platform = "android";
 
 createRoot(root).render(
   <StrictMode>
-    {/Android/i.test(navigator.userAgent) ? <AndroidPrototype /> : <App />}
+    {isAndroid ? <AndroidPrototype /> : <App />}
   </StrictMode>,
 );

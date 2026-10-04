@@ -1,3 +1,4 @@
+html[data-platform="android"], html[data-platform="android"] body, html[data-platform="android"] #root { min-width: 0; min-height: 0; height: auto; overflow: auto; }
 .android-prototype { min-height: 100dvh; padding: max(32px, env(safe-area-inset-top)) 20px max(32px, env(safe-area-inset-bottom)); background: #18191c; color: #eee; font: 16px/1.5 system-ui, sans-serif; }
 .android-prototype h1 { font-size: 24px; }
 .android-prototype h2 { font-size: 18px; margin-top: 24px; }

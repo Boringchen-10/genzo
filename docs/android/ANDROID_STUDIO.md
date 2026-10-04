@@ -43,3 +43,27 @@ SDK、NDK、Cargo、Gradle、APK 构建输出和测试样本均使用 D 盘。�
 项目本地配置还保存 Node、Cargo、NDK 链接器及 Rust 链接参数；Gradle `BuildTask` 使用这些配置调用同一 Tauri CLI，避免 Studio 继承旧环境后使用不存在的 `cc`。实际 `rustBuildArm64Debug` 已通过，日志为 `D:\DevTools\Android\Build\studio-rust-bridge-check-final.log`。
 
 2026-10-04 重启过程中发现 Studio 自身一个 JAR 损坏。已从校验匹配的官方安装包恢复该文件并检查全部 382 个 `lib/*.jar`，工程重新显示。此次只修复安装文件，不重建用户配置；具体校验和与备份位置见 `VALIDATION.md`。
+
+## 同时使用电脑模拟器与真机
+
+本机已创建并启动 `Genzo_Pixel9_API36`：Android 16 / API36、Google APIs x86_64 镜像 revision 7、Pixel 9 1080×2424 / 420 dpi、4 GiB 内存 / 4 核。WHPX 硬件虚拟化检查通过，未修改 BIOS 或 Windows 功能。
+
+系统镜像在 `D:\DevTools\Android\Sdk\system-images`，AVD 在 `D:\DevTools\Android\Avd`；显式 `ANDROID_EMULATOR_HOME` 指向 `D:\DevTools\Android\AndroidUserHome`。已有 C 盘配置保留，仅本轮新建的三个模拟器元数据文件移到 D 盘。自动 GPU 模式在 VLC 测试后出现 external memory import 错误，现启动脚本使用 software 图形模式并关闭 Vulkan，已重新验证；这不代表手机的解码 / HDR 能力。
+
+从工作树根目录启动可见窗口，安装已固定的电脑测试包：
+
+```powershell
+.\scripts\start-android-emulator.ps1 -Apk D:\DevTools\Android\Build\artifacts\Genzo-android-stage2-x86_64-debug.apk
+# 修改后重新构建电脑包；输出的通用文件名可能相同，内容按此次 target 选择。
+.\scripts\build-android.ps1 -Target x86_64
+adb -s emulator-5554 install -r D:\DevTools\Android\Build\gradle-genzo\app\outputs\apk\universal\debug\app-universal-debug.apk
+adb -s emulator-5554 shell am start -n com.genzo.android/.MainActivity
+```
+
+当前两个设备是 `emulator-5554` 和一加 `3B164M00Z0500000`，每次 ADB 安装 / 调试都指定 `-s`。手机包用默认 `-Target aarch64`；两个固定 APK 单独保存。不要依据文件名 `universal` 推断包包含全部 ABI。
+
+Studio 的目标设备菜单可选择运行中的模拟器或真机；Logcat 也选择同一个目标。[官方模拟器使用说明](https://developer.android.com/studio/run/emulator) 当前已验证 CLI 部署及可见独立模拟器窗口，尚未把 GUI Run 点击或 Running Devices 嵌入操作记为通过。React 修改通过构建更新，目前不是前端热更新会话。
+
+IDE 默认 Universal 的 Rust 任务限定 arm64 / x86_64，两个任务均已通过，日志 `D:\DevTools\Android\Build\studio-two-target-bridge.log`。若想单独构建可在 Build Variants 选择 `x86_64Debug` 或 `arm64Debug`。普通 CLI 构建会覆盖 Tauri 临时 IDE 连接配置；**完成其他命令行 Android 构建后，最后运行 `build-android.ps1 -Studio -Target x86_64`，保持该命令存活再在 Studio 构建**，避免旧连接出现 ConnectionRefused。
+
+QA 指定 `GENZO_ANDROID_SERIAL=emulator-5554`、`GENZO_ANDROID_CDP_PORT=9227`、独立 `GENZO_ANDROID_QA_DIR`；手机默认 9226。系统镜像自带 WebView 133，QA 连接 CDP 使用 `noDefaults:true`，避免新版 Playwright 的浏览器上下文设置不受旧 WebView 支持。正式应用不依赖 CDP。
