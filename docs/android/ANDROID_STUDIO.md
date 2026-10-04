@@ -68,4 +68,10 @@ Studio 的目标设备菜单可选择运行中的模拟器或真机；Logcat 也
 
 IDE 默认 Universal 的 Rust 任务限定 arm64 / x86_64，两个任务均已通过，日志 `D:\DevTools\Android\Build\studio-two-target-bridge.log`。若想单独构建可在 Build Variants 选择 `x86_64Debug` 或 `arm64Debug`。普通 CLI 构建会覆盖 Tauri 临时 IDE 连接配置；**完成其他命令行 Android 构建后，最后运行 `build-android.ps1 -Studio -Target x86_64`，保持该命令存活再在 Studio 构建**，避免旧连接出现 ConnectionRefused。
 
+### Run提示ABI不兼容
+
+用户截图报告：`The currently selected variant "armDebug" ... none ... compatible ... "x86_64, arm64-v8a"`。`armDebug` 是32位ARM，当前模拟器不支持这个ABI，且本工程当前验证的Rust目标只有arm64 / x86_64。先在 **Build → Select Build Variant** 打开变体面板，在 `app` 行的 **Active Build Variant** 选择 **`x86_64Debug`**，等待同步完成；顶部设备选择 **`Genzo_Pixel9_API36 / emulator-5554`**，再点击Run。`arm64Debug` 是另一个64位变体，不能与 `armDebug` 混淆；当前模拟器使用已验证的x86_64版本。
+
+截图只证明错误变体的GUI Run失败；切换后的GUI Run尚待实际验证。ADB已重新发起模拟器中既有Genzo的启动，不安装手机、不改应用数据。
+
 QA 指定 `GENZO_ANDROID_SERIAL=emulator-5554`、`GENZO_ANDROID_CDP_PORT=9227`、独立 `GENZO_ANDROID_QA_DIR`；手机默认 9226。系统镜像自带 WebView 133，QA 连接 CDP 使用 `noDefaults:true`，避免新版 Playwright 的浏览器上下文设置不受旧 WebView 支持。正式应用不依赖 CDP。
