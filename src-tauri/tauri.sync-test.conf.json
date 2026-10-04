@@ -1,0 +1,18 @@
+{
+  "productName": "Genzo Sync Test",
+  "identifier": "com.genzo.desktop.sync-test",
+  "build": { "beforeBuildCommand": "" },
+  "app": {
+    "windows": [{
+      "title": "Genzo Sync Test · WebDAV V1",
+      "width": 1440,
+      "height": 900,
+      "minWidth": 1024,
+      "minHeight": 640,
+      "additionalBrowserArgs": "--remote-debugging-port=9225",
+      "resizable": true,
+      "dragDropEnabled": false,
+      "center": true
+    }]
+  }
+}

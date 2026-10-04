@@ -208,6 +208,8 @@ struct Checkpoint {
     position: i64,
     duration: i64,
     at: String,
+    session_id: String,
+    started_at: String,
 }
 struct Tracking {
     id: String,
@@ -219,6 +221,7 @@ struct Tracking {
     resolve_after: Instant,
     seek: Option<i64>,
     pending: HashMap<String, Checkpoint>,
+    sessions: HashMap<String, (String, String)>,
 }
 impl Tracking {
     fn new(id: String, path: String, owner: String, seek: Option<i64>) -> Self {
@@ -232,6 +235,7 @@ impl Tracking {
             resolve_after: Instant::now(),
             seek,
             pending: HashMap::new(),
+            sessions: HashMap::new(),
         }
     }
     async fn sample(
@@ -301,12 +305,16 @@ impl Tracking {
         self.candidate.clear();
         self.candidate_count = 0;
         self.seek = None;
+        let (session_id, started_at) = self.sessions.entry(self.id.clone()).or_insert_with(||
+            (uuid::Uuid::new_v4().to_string(), genzo_sync::store::now())).clone();
         self.pending.insert(
             self.id.clone(),
             Checkpoint {
                 position,
                 duration,
                 at: chrono::Utc::now().to_rfc3339(),
+                session_id,
+                started_at,
             },
         );
         Ok(true)
@@ -315,7 +323,7 @@ impl Tracking {
         // Old samples retain their observation time even if a failed write is retried after switching.
         let mut error = None;
         for (id, value) in self.pending.clone() {
-            match save_at(pool, &id, tool, value.position, value.duration, &value.at).await {
+            match save_checkpoint(pool, &id, tool, value.position, value.duration, &value.at, Some((&value.session_id, &value.started_at))).await {
                 Ok(()) => {
                     self.pending.remove(&id);
                 }
@@ -374,6 +382,7 @@ async fn save(
     )
     .await
 }
+#[cfg(test)]
 async fn save_at(
     pool: &SqlitePool,
     id: &str,
@@ -381,6 +390,12 @@ async fn save_at(
     position: i64,
     duration: i64,
     at: &str,
+) -> AppResult<()> {
+    save_checkpoint(pool,id,tool,position,duration,at,None).await
+}
+async fn save_checkpoint(
+    pool: &SqlitePool, id: &str, tool: &str, position: i64, duration: i64, at: &str,
+    session: Option<(&str, &str)>,
 ) -> AppResult<()> {
     if !valid_sample(position, duration) {
         return Ok(());
@@ -390,6 +405,10 @@ async fn save_at(
     sqlx::query("INSERT INTO playback_progress (media_file_id,tool_id,position_ms,duration_ms,completed,updated_at) SELECT id,?,?,?,?,? FROM media_files WHERE id=? ON CONFLICT(media_file_id) DO UPDATE SET tool_id=excluded.tool_id,position_ms=excluded.position_ms,duration_ms=excluded.duration_ms,completed=excluded.completed,updated_at=excluded.updated_at WHERE excluded.updated_at >= playback_progress.updated_at")
         .bind(tool).bind(position).bind(duration).bind(completed).bind(at).bind(id)
         .execute(&mut *tx).await?;
+    if let Some((session_id, started_at)) = session {
+        genzo_sync::store::record_session(&mut tx,id,session_id,started_at,at,position,duration,completed)
+            .await.map_err(|error| AppError::Validation(format!("观看会话保存失败：{error}")))?;
+    }
     tx.commit().await?;
     Ok(())
 }
@@ -502,6 +521,11 @@ pub fn launch(
             std::thread::sleep(Duration::from_secs(1));
         }
         let result = tauri::async_runtime::block_on(tracker.flush(&pool, &tool));
+        if result.is_ok() {
+            let sessions: Vec<_> = tracker.sessions.values().map(|v| v.0.clone()).collect();
+            let _ = tauri::async_runtime::block_on(genzo_sync::store::finish_sessions(&pool,&sessions));
+            crate::personal_sync::request();
+        }
         status(
             &tracker.id,
             &tracker.owner,

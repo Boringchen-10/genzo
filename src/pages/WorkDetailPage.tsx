@@ -1,5 +1,6 @@
 import { availableForWork, firstWorkFile } from "../workSelection";
 import { usePlaybackProgress } from "../usePlaybackProgress";
+import { useSyncRefresh } from "../useSyncRefresh";
 import { latestPlayback } from "../playback";
 import { EpisodePlaybackProgress } from "../components/EpisodePlaybackProgress";
 import { EpisodeStill, EpisodeArtworkControl, useEpisodeArtwork } from "../components/EpisodeArtwork";
@@ -265,6 +266,14 @@ export function WorkDetailPage() {
     }
   }, [detailProvider, id]);
   useEffect(() => void load(), [load]);
+  const notesDraftDirty = useRef(false);
+  notesDraftDirty.current = !!work && notesDraft !== work.notes;
+  useSyncRefresh(() => {
+    void api.getWork(id).then(next => {
+      setWork(next);
+      if (!notesDraftDirty.current) setNotesDraft(next.notes);
+    }).catch(reason => setError(getErrorMessage(reason)));
+  });
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -672,7 +681,7 @@ export function WorkDetailPage() {
               <div className="notes-head"><h2 id="notesTitle">我的点评</h2><span className="notes-badge">{notesDirty ? "未保存" : "已保存"}</span></div>
               <label className="notes-label" htmlFor="notesInput">点评 / 备注</label>
               <textarea id="notesInput" ref={notesRef} rows={3} value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder="写下你对这部作品的点评、观后感或备注…" />
-              <div className="notes-foot"><small className="notes-hint">仅保存在本机。</small><button type="button" className="button primary" disabled={!notesDirty || notesSaving} onClick={() => void saveNotes()}>{notesSaving ? "保存中…" : "保存点评"}</button></div>
+              <div className="notes-foot"><small className="notes-hint">保存在本机；连接个人同步后可同步影视笔记。</small><button type="button" className="button primary" disabled={!notesDirty || notesSaving} onClick={() => void saveNotes()}>{notesSaving ? "保存中…" : "保存点评"}</button></div>
             </section>
 
             <section className="detail-section files-section">

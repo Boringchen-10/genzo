@@ -1280,12 +1280,13 @@ dependencies = [
 
 [[package]]
 name = "genzo"
-version = "0.5.0"
+version = "0.6.0-alpha.1"
 dependencies = [
  "anitomy-ng",
  "async-trait",
  "chrono",
  "dunce",
+ "genzo-sync",
  "image",
  "lru",
  "natord",
@@ -1310,6 +1311,21 @@ dependencies = [
  "walkdir",
  "windows",
  "zip",
+]
+
+[[package]]
+name = "genzo-sync"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "thiserror 2.0.20",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
