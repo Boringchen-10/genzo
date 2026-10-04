@@ -1,0 +1,8 @@
+.android-prototype { min-height: 100dvh; padding: max(32px, env(safe-area-inset-top)) 20px max(32px, env(safe-area-inset-bottom)); background: #18191c; color: #eee; font: 16px/1.5 system-ui, sans-serif; }
+.android-prototype h1 { font-size: 24px; }
+.android-prototype h2 { font-size: 18px; margin-top: 24px; }
+.android-prototype button { min-height: 48px; padding: 10px 16px; margin: 6px 8px 6px 0; border: 1px solid #666; border-radius: 4px; background: #303238; color: #fff; }
+.android-prototype button:disabled { opacity: .5; }
+.android-prototype pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: #22242a; padding: 12px; }
+.android-prototype [role="alert"] { color: #ffb3b3; }
+.android-prototype input { display: block; width: 100%; min-height: 48px; padding: 8px; background: #22242a; color: #eee; border: 1px solid #666; }

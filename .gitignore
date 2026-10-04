@@ -14,3 +14,5 @@ src-tauri/target/
 *.db
 *.db-shm
 *.db-wal
+src-tauri/gen/schemas/android-schema.json
+src-tauri/gen/schemas/mobile-schema.json

@@ -1,0 +1,1493 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Genzo Android 首版 · 移动端原型</title>
+  <style>
+/* OD-LAYOUT-PRIMITIVES v1 — structure only: display, flex/grid, overflow, wrapping, ratio.
+   Put this @layer first; product CSS outside the layer always wins. */
+@layer od-layout {
+  :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-field,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+
+  .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+  .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+  .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+  .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+  .od-fill    { flex: 1 1 0; min-width: 0; }
+  .od-fixed   { flex: none; }
+  .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+
+  .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+  :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+  .od-tile { display: grid; grid-template-rows: auto 1fr; }
+  :where(.od-tile) > :where(*) { display: block; }
+
+  .od-media { display: block; width: 100%; height: auto; aspect-ratio: var(--od-ratio, auto); }
+  .od-media-cover { object-fit: cover; }
+
+  .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .od-clamp-2, .od-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .od-clamp-2 { -webkit-line-clamp: 2; }
+  .od-clamp-3 { -webkit-line-clamp: 3; }
+  .od-lines-2 { min-height: calc(2 * 1.4em); }
+  .od-nowrap  { white-space: nowrap; }
+  .od-keep    { word-break: keep-all; overflow-wrap: anywhere; }
+
+  .od-screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+  .od-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+
+  .od-rail { display: flex; gap: var(--od-gap, 8px); overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+             padding-inline: var(--od-rail-pad, 16px); scroll-padding-inline: var(--od-rail-pad, 16px); }
+  .od-rail::-webkit-scrollbar { display: none; }
+  :where(.od-rail) > :where(*) { flex: none; scroll-snap-align: start; }
+  :where(.od-rail) > :where(:last-child) { margin-inline-end: var(--od-rail-pad, 16px); }
+
+  .od-spacer { flex: none; visibility: hidden; pointer-events: none; }
+  .od-touch  { min-width: 44px; min-height: 44px; }
+}
+/* /OD-LAYOUT-PRIMITIVES v1 */
+  </style>
+  <style>
+    /* ===== OD Next handheld shell — Android. Presentation chrome only. ===== */
+    :root {
+      --phone-screen-width: 412px;
+      --phone-screen-height: 915px;
+      --phone-bezel: 10px;
+      --phone-outer-radius: 46px;
+      --phone-screen-radius: 38px;
+      --phone-safe-top: 52px;
+      --phone-safe-bottom: 28px;
+      --phone-system-fg: #17181a;
+      --phone-screen-bg: #f6f7f9;
+      --phone-stage-bg: #e8eaee;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+      background:
+        radial-gradient(circle at 50% 14%, rgba(255,255,255,.95), transparent 36%),
+        var(--phone-stage-bg);
+      color: #191a1d;
+      font-family: Roboto, "Noto Sans", system-ui, sans-serif;
+    }
+
+    .phone-frame {
+      position: relative;
+      width: calc(var(--phone-screen-width) + var(--phone-bezel) * 2);
+      height: calc(var(--phone-screen-height) + var(--phone-bezel) * 2);
+      padding: var(--phone-bezel);
+      border-radius: var(--phone-outer-radius);
+      background:
+        linear-gradient(145deg, rgba(255,255,255,.2), transparent 18%),
+        linear-gradient(155deg, #414348 0%, #23252a 44%, #0c0d10 100%);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,.13),
+        inset 0 0 0 2px rgba(0,0,0,.84),
+        0 34px 72px -22px rgba(8,10,14,.56),
+        0 11px 25px -10px rgba(8,10,14,.34);
+      isolation: isolate;
+    }
+
+    .phone-frame::before,
+    .phone-frame::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      top: 92px;
+      bottom: 92px;
+      width: 2px;
+      background: linear-gradient(to bottom, transparent, rgba(255,255,255,.14) 18%, transparent 32%, transparent 72%, rgba(255,255,255,.07) 88%, transparent);
+    }
+    .phone-frame::before { left: 0; }
+    .phone-frame::after { right: 0; }
+
+    .hardware-button {
+      position: absolute;
+      right: -3px;
+      width: 4px;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #08090b, #2d3036 62%, #08090b);
+      box-shadow: inset 0 1px rgba(255,255,255,.1);
+    }
+    .hardware-button.volume { top: 205px; height: 92px; }
+    .hardware-button.power { top: 322px; height: 70px; background: linear-gradient(90deg, #08090b, #3c424c 62%, #08090b); }
+
+    .phone-screen {
+      position: relative;
+      width: var(--phone-screen-width);
+      height: var(--phone-screen-height);
+      overflow: hidden;
+      border-radius: var(--phone-screen-radius);
+      background: var(--phone-screen-bg);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+    }
+
+    .phone-content {
+      position: absolute;
+      inset: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      padding-top: var(--phone-safe-top);
+      padding-bottom: var(--phone-safe-bottom);
+      background: var(--phone-screen-bg);
+    }
+    .phone-content::-webkit-scrollbar { display: none; }
+
+    .punch-hole {
+      position: absolute;
+      z-index: 20;
+      top: 14px;
+      left: 50%;
+      width: 14px;
+      height: 14px;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: radial-gradient(circle at 38% 35%, #283343 0 10%, #090b0f 30%, #000 72%);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.08), inset 0 0 3px #000;
+      pointer-events: none;
+    }
+
+    .status-bar {
+      position: absolute;
+      z-index: 15;
+      inset: 0 0 auto;
+      height: var(--phone-safe-top);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr);
+      align-items: start;
+      padding: 14px 19px 0;
+      color: var(--phone-system-fg);
+      pointer-events: none;
+    }
+    .status-time {
+      justify-self: start;
+      display: flex;
+      align-items: center;
+      height: 16px;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: .01em;
+    }
+    .status-cutout-zone { width: 64px; }
+    .status-icons { justify-self: end; display: inline-flex; align-items: center; height: 16px; gap: 5px; }
+    .status-icons svg { display: block; flex: none; fill: currentColor; }
+    .status-icons .wifi { width: 15px; height: 12px; }
+    .status-icons .cellular { width: 14px; height: 12px; }
+    .status-icons .battery { width: 9px; height: 14px; }
+
+    .gesture-indicator {
+      position: absolute;
+      z-index: 20;
+      left: 50%;
+      bottom: 8px;
+      width: 108px;
+      height: 4px;
+      transform: translateX(-50%);
+      border-radius: 99px;
+      background: var(--phone-system-fg);
+      opacity: .86;
+      pointer-events: none;
+    }
+
+    @media (max-height: 998px) { .phone-frame { zoom: 0.9; } }
+    @media (max-height: 904px) { .phone-frame { zoom: 0.82; } }
+    @media (max-height: 829px) { .phone-frame { zoom: 0.74; } }
+    @media (max-height: 754px) { .phone-frame { zoom: 0.66; } }
+    @media (max-width: 480px) {
+      body { padding: 0; display: block; }
+      .phone-frame { width: 100%; height: 100dvh; padding: 0; border-radius: 0; background: none; box-shadow: none; zoom: 1; }
+      .phone-frame::before, .phone-frame::after, .hardware-button { display: none; }
+      .phone-screen { width: 100%; height: 100%; border-radius: 0; }
+    }
+  </style>
+  <style>
+    /* ===== Genzo Android app CSS (product surface) ===== */
+    :root {
+      --bg:#090d0f;
+      --bg-raised:#0f1518;
+      --surface:rgba(17,24,27,.72);
+      --surface-strong:rgba(18,25,29,.92);
+      --surface-soft:rgba(var(--tint),.055);
+      --tint:255,255,255;
+      --shade:9,13,15;
+      --line:rgba(var(--tint),.105);
+      --line-strong:rgba(var(--tint),.18);
+      --text:#f4f7f6;
+      --muted:#a8b0af;
+      --quiet:#77817f;
+      --accent:#75d2ad;
+      --accent-ink:#07120e;
+      --danger:#ff8e8e;
+      --warn:#e9c46a;
+      --radius:8px;
+      --radius-sm:4px;
+      --sheet-radius:16px;
+      --blur:24px;
+      --shadow:0 20px 60px rgba(0,0,0,.34);
+      --ease:220ms cubic-bezier(.2,.8,.2,1);
+      --pad:16px;
+      --topbar-h:56px;
+      --tabbar-h:56px;
+      --tap:44px;
+      --font-display:"Roboto Condensed","Bahnschrift SemiCondensed","Noto Sans SC",system-ui,sans-serif;
+      --font-body:"Roboto","Segoe UI Variable Text","Noto Sans SC","Microsoft YaHei UI",system-ui,sans-serif;
+    }
+    [data-theme="light"] {
+      --bg:#f3f6f5;
+      --bg-raised:#e7edeb;
+      --surface:rgba(255,255,255,.78);
+      --surface-strong:rgba(255,255,255,.94);
+      --tint:8,20,18;
+      --shade:243,246,245;
+      --line:rgba(8,20,18,.14);
+      --line-strong:rgba(8,20,18,.26);
+      --text:#16201e;
+      --muted:#53625e;
+      --quiet:#71807b;
+      --accent:#197a5b;
+      --warn:#9a7508;
+      --danger:#b64242;
+      --shadow:0 18px 44px rgba(20,40,35,.16);
+    }
+
+    body { background: radial-gradient(circle at 50% 12%, #141a1d, #05070a 62%); }
+    [data-theme="light"] body { background: radial-gradient(circle at 50% 12%, #ffffff, #dbe3e1 62%); }
+
+    .phone-screen .phone-content {
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    .app { height: 100%; }
+    .gz-screen { display: none; height: 100%; }
+    .gz-screen.active { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+    .gz-body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; scrollbar-width: none;
+      padding: 4px var(--pad) calc(var(--phone-safe-bottom) + var(--tabbar-h) + 14px); }
+    .gz-body::-webkit-scrollbar { display: none; }
+
+    /* ---------- typography ---------- */
+    .gz-display { font-family: var(--font-display); font-weight: 700; letter-spacing: 0; }
+    .gz-h1 { margin: 2px 0 6px; font-family: var(--font-display); font-size: clamp(30px,8.5vw,52px); line-height: 1.04; font-weight: 700; }
+    .gz-h2 { margin: 0; font-size: 18px; line-height: 1.3; font-weight: 700; }
+    .gz-eyebrow { color: var(--accent); font: 700 12px/1 var(--font-display); letter-spacing: .12em; text-transform: uppercase; }
+    .gz-meta { color: var(--muted); font-size: 13px; }
+    .gz-quiet { color: var(--quiet); font-size: 12px; }
+    .gz-num { font-variant-numeric: tabular-nums; }
+    .gz-section { margin: 20px 0 0; }
+    .gz-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .gz-section-head .gz-link { color: var(--accent); font-size: 13px; font-weight: 600; }
+
+    /* ---------- top bar ---------- */
+    .gz-topbar { position: relative; z-index: 12; display: flex; align-items: center; gap: 6px; min-height: var(--topbar-h);
+      padding: 8px var(--pad); background: rgba(var(--shade),.82); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+    .gz-topbar .gz-title { font-size: 18px; font-weight: 700; }
+    .gz-topbar .od-spacer { width: 44px; height: 44px; }
+    .gz-iconbtn { flex: none; width: var(--tap); height: var(--tap); display: grid; place-items: center; border: 0; border-radius: var(--radius);
+      background: transparent; color: var(--text); cursor: pointer; transition: background var(--ease), color var(--ease); }
+    .gz-iconbtn:hover { background: var(--surface-soft); }
+    .gz-iconbtn[aria-pressed="true"] { color: var(--accent); }
+    .gz-ic svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: block; }
+    .gz-ic.sm svg { width: 18px; height: 18px; }
+
+    /* ---------- buttons / chips / inputs ---------- */
+    .gz-btn { min-height: var(--tap); display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 18px;
+      border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); color: var(--text);
+      font: inherit; font-weight: 650; cursor: pointer; transition: transform var(--ease), background var(--ease), border-color var(--ease); }
+    .gz-btn:active { transform: scale(.98); }
+    .gz-btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+    .gz-btn.ghost { background: transparent; border-color: var(--line); }
+    .gz-btn.danger { border-color: color-mix(in srgb, var(--danger) 55%, transparent); color: var(--danger); background: transparent; }
+    .gz-btn.block { width: 100%; }
+    .gz-btn[disabled], .gz-btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+    .gz-chip { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 13px; border: 1px solid var(--line);
+      border-radius: 999px; background: rgba(var(--tint),.03); color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .gz-chip.active { background: rgba(117,210,173,.12); border-color: rgba(117,210,173,.36); color: var(--accent); }
+    .gz-input { width: 100%; height: 44px; padding: 0 12px 0 40px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: rgba(var(--shade),.5); color: var(--text); font: inherit; }
+    .gz-input::placeholder { color: var(--quiet); }
+    .gz-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .gz-search { position: relative; display: flex; align-items: center; }
+    .gz-search .gz-ic { position: absolute; left: 12px; color: var(--quiet); pointer-events: none; }
+    .gz-seg { display: grid; grid-auto-flow: column; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: rgba(var(--tint),.03); }
+    .gz-seg button { min-height: 34px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .gz-seg button.active, .gz-seg button[aria-checked="true"] { background: rgba(var(--tint),.09); color: var(--text); }
+
+    /* ---------- poster & cards ---------- */
+    .gz-poster { display: block; position: relative; overflow: hidden; aspect-ratio: 2/3; border-radius: var(--radius); border: 1px solid var(--line);
+      background-color: #111a1d; background-image: url("../assets/reference-primary.png"); background-size: auto 168%; background-repeat: no-repeat;
+      box-shadow: inset 0 1px rgba(var(--tint),.08); }
+    .gz-poster.p1 { background-position: 12% 20%; }
+    .gz-poster.p2 { background-position: 46% 30%; }
+    .gz-poster.p3 { background-position: 78% 18%; }
+    .gz-poster.p4 { background-position: 24% 62%; }
+    .gz-poster.p5 { background-position: 62% 70%; }
+    .gz-poster.p6 { background-position: 88% 52%; }
+    .gz-poster.missing { background-image: none; background-color: rgba(var(--tint),.025); border: 1px dashed var(--line-strong); display: grid; place-items: center; }
+    .gz-poster-miss { color: var(--quiet); font-size: 12px; }
+    .gz-poster-tag { position: absolute; left: 7px; bottom: 7px; z-index: 1; padding: 3px 6px; border-radius: var(--radius-sm);
+      background: rgba(9,13,15,.74); border: 1px solid var(--line); color: #dfe5e3; font-size: 10.5px; backdrop-filter: blur(8px); }
+    .gz-poster-fav { position: absolute; right: 6px; top: 6px; z-index: 1; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%;
+      background: rgba(9,13,15,.6); color: var(--accent); backdrop-filter: blur(8px); }
+    .gz-poster-fav svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
+    .gz-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+    .gz-card { display: grid; gap: 7px; padding: 0; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+    .gz-card:active .gz-poster { transform: scale(.98); }
+    .gz-card .gz-poster { transition: transform var(--ease); }
+    .gz-card-title { font-size: 13px; font-weight: 600; line-height: 1.35; }
+    .gz-card-meta { color: var(--quiet); font-size: 11px; }
+    @media (hover: hover) { .gz-card:hover .gz-poster { transform: translateY(-3px); border-color: var(--line-strong); } }
+
+    .gz-hero { position: relative; overflow: hidden; margin: 6px 0 0; border-radius: var(--radius); border: 1px solid var(--line); min-height: 260px;
+      background-color: #111a1d; background-image: linear-gradient(180deg, rgba(5,8,9,.05) 0%, rgba(5,8,9,.55) 58%, rgba(5,8,9,.92) 100%), url("../assets/reference-primary.png");
+      background-size: cover; background-position: 50% 22%; }
+    .gz-hero-inner { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 16px; display: grid; gap: 8px; }
+    .gz-hero .gz-h1 { color: #f4f7f6; }
+    .gz-hero-meta { display: flex; align-items: center; gap: 8px; color: #cdd4d2; font-size: 12px; }
+    .gz-hero-meta .dot::before { content: ""; display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); margin-right: 8px; vertical-align: middle; }
+    .gz-hero-actions { display: flex; gap: 10px; margin-top: 4px; }
+
+    .gz-continue { display: grid; grid-template-columns: 132px minmax(0,1fr); gap: 12px; align-items: center; width: 232px; padding: 8px;
+      border: 1px solid var(--line); border-radius: var(--radius); background: rgba(var(--tint),.035); color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+    .gz-continue-thumb { position: relative; overflow: hidden; aspect-ratio: 16/9; border-radius: calc(var(--radius) - 2px); border: 1px solid var(--line);
+      background-image: url("../assets/reference-secondary.png"); background-size: 230% auto; background-position: 50% 30%; }
+    .gz-continue-thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(5,8,9,.6), transparent 60%); }
+    .gz-continue-play { position: absolute; z-index: 2; left: 8px; bottom: 12px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+      background: rgba(9,13,15,.7); color: var(--accent); border: 1px solid var(--line-strong); }
+    .gz-continue-play svg { width: 13px; height: 13px; fill: currentColor; stroke: none; }
+    .gz-continue-prog { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(var(--tint),.18); }
+    .gz-continue-prog span { display: block; height: 100%; background: var(--accent); }
+    .gz-continue-body { display: grid; gap: 4px; }
+    .gz-continue-title { font-size: 14px; font-weight: 650; }
+    .gz-continue-meta { color: var(--quiet); font-size: 11.5px; }
+
+    /* ---------- list rows ---------- */
+    .gz-row-card { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 12px;
+      border: 1px solid var(--line); border-radius: var(--radius); background: rgba(var(--tint),.035); }
+    .gz-row-card + .gz-row-card { margin-top: 10px; }
+    .gz-row-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 10px; background: rgba(var(--tint),.05); color: var(--accent); }
+    .gz-row-main { display: grid; gap: 3px; }
+    .gz-row-title { font-size: 14px; font-weight: 650; }
+    .gz-row-sub { color: var(--quiet); font-size: 11.5px; }
+    .gz-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid var(--line); color: var(--muted); }
+    .gz-badge.ok { color: var(--accent); border-color: rgba(117,210,173,.34); background: rgba(117,210,173,.1); }
+    .gz-badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+    .gz-badge.err { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+    .gz-badge.future { color: var(--quiet); border-style: dashed; }
+
+    /* ---------- panels ---------- */
+    .gz-panel { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(var(--tint),.035); }
+    .gz-panel + .gz-panel { margin-top: 12px; }
+    .gz-scan-meter { height: 6px; border-radius: 999px; background: rgba(var(--tint),.14); overflow: hidden; }
+    .gz-scan-meter span { display: block; height: 100%; width: var(--v,0%); background: var(--accent); transition: width var(--ease); }
+    .gz-stats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin: 12px 0 4px; }
+    .gz-stat { display: grid; gap: 1px; }
+    .gz-stat b { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .gz-stat span { color: var(--quiet); font-size: 11px; }
+    .gz-errors { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+    .gz-errors li { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 8px; align-items: start; color: var(--muted); font-size: 12.5px; }
+
+    /* ---------- empty / state ---------- */
+    .gz-empty { display: grid; place-items: center; gap: 10px; text-align: center; padding: 40px 24px; color: var(--muted); }
+    .gz-empty .gz-ic { color: var(--quiet); }
+    .gz-empty .gz-ic svg { width: 40px; height: 40px; stroke-width: 1.4; }
+    .gz-empty h3 { margin: 0; font-size: 16px; color: var(--text); }
+    .gz-empty p { margin: 0; max-width: 34ch; font-size: 13px; line-height: 1.6; }
+    .gz-note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius); font-size: 12.5px; line-height: 1.55; border: 1px solid var(--line); color: var(--muted); background: rgba(var(--tint),.03); }
+    .gz-note.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+    .gz-note.err { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+
+    /* ---------- detail ---------- */
+    .gz-detail-hero { display: grid; grid-template-columns: 116px minmax(0,1fr); gap: 14px; align-items: end; padding-bottom: 6px; }
+    .gz-detail-cover { aspect-ratio: 2/3; border-radius: var(--radius); border: 1px solid var(--line-strong); background-color: #111a1d;
+      background-image: url("../assets/reference-primary.png"); background-size: auto 170%; background-position: 12% 20%; box-shadow: var(--shadow); }
+    .gz-detail-cover.missing { background-image: none; display: grid; place-items: center; border-style: dashed; color: var(--quiet); font-size: 12px; }
+    .gz-detail-title { margin: 0 0 4px; font-family: var(--font-display); font-size: 24px; line-height: 1.12; font-weight: 700; }
+    .gz-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .gz-tag { padding: 3px 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(var(--tint,.04)); color: var(--muted); font-size: 11.5px; }
+    .gz-rating { display: inline-flex; align-items: baseline; gap: 4px; }
+    .gz-rating b { color: var(--accent); font-family: var(--font-display); font-size: 22px; }
+    .gz-rating span { color: var(--quiet); font-size: 11px; }
+    .gz-progress-line { height: 4px; border-radius: 999px; background: rgba(var(--tint),.16); overflow: hidden; }
+    .gz-progress-line span { display: block; height: 100%; width: var(--v,0%); background: var(--accent); }
+    .gz-dl { margin: 0; display: grid; gap: 10px; }
+    .gz-dl > div { display: grid; grid-template-columns: 88px minmax(0,1fr); gap: 10px; align-items: baseline; }
+    .gz-dl dt { color: var(--quiet); font-size: 12px; }
+    .gz-dl dd { margin: 0; font-size: 13.5px; }
+    .gz-credits { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+    .gz-credits::-webkit-scrollbar { display: none; }
+    .gz-credit { flex: none; width: 84px; display: grid; gap: 6px; text-align: center; }
+    .gz-credit img { width: 84px; height: 114px; border-radius: var(--radius-sm); border: 1px solid var(--line); object-fit: cover; }
+    .gz-credit b { font-size: 12px; font-weight: 600; }
+    .gz-credit span { color: var(--quiet); font-size: 10.5px; }
+    .gz-epgrid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .gz-ep { display: grid; gap: 7px; padding: 7px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(var(--tint),.03); color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+    .gz-ep[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+    .gz-ep-thumb { position: relative; overflow: hidden; aspect-ratio: 16/9; border-radius: calc(var(--radius) - 2px); border: 1px solid var(--line);
+      background-image: url("../assets/reference-secondary.png"); background-size: 230% auto; background-position: 30% 30%; }
+    .gz-ep-thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(5,8,9,.5), transparent 62%); }
+    .gz-ep-num { position: absolute; z-index: 2; left: 6px; bottom: 6px; padding: 2px 6px; border-radius: var(--radius-sm); background: rgba(9,13,15,.72); color: #dfe5e3; font-size: 10.5px; }
+    .gz-ep-title { font-size: 12.5px; font-weight: 600; }
+    .gz-ep-meta { display: flex; align-items: center; gap: 6px; color: var(--quiet); font-size: 10.5px; }
+
+    /* ---------- detail ambient backdrop ---------- */
+    .gz-screen[data-route="detail"] { position: relative; }
+    .gz-screen[data-route="detail"] .gz-topbar { background: transparent; backdrop-filter: none; border-bottom-color: transparent; }
+    .gz-screen[data-route="detail"] .gz-body { position: relative; z-index: 1; }
+    .gz-detail-ambient { position: absolute; z-index: 0; left: 0; right: 0; top: 0; height: 54%; pointer-events: none; overflow: hidden; }
+    .gz-detail-ambient-img { position: absolute; inset: -16% -16% 0 -16%;
+      background-image: url("../assets/reference-primary.png"); background-repeat: no-repeat; background-size: auto 330%; background-position: 50% 22%;
+      filter: blur(46px) saturate(1.4) brightness(.9); transform: scale(1.06); transform-origin: 50% 28%;
+      opacity: 0; transition: opacity 560ms var(--ease), background-position 560ms var(--ease); }
+    .gz-screen[data-route="detail"].active .gz-detail-ambient-img { opacity: .92; }
+    .gz-detail-ambient::after { content: ""; position: absolute; inset: 0;
+      background: linear-gradient(180deg, rgba(var(--shade),.5) 0%, rgba(var(--shade),.22) 26%, transparent 46%),
+                  linear-gradient(180deg, transparent 0%, transparent 40%, var(--bg) 100%); }
+    [data-theme="light"] .gz-detail-ambient-img { filter: blur(46px) saturate(1.15) brightness(1.12); }
+    [data-theme="light"] .gz-detail-ambient::after { background: linear-gradient(180deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.25) 26%, transparent 46%),
+                  linear-gradient(180deg, transparent 0%, transparent 40%, var(--bg) 100%); }
+    @keyframes gz-detail-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .gz-screen[data-route="detail"].active #detailBody { animation: gz-detail-rise 420ms var(--ease) both; }
+
+    /* ---------- forms ---------- */
+    .gz-field { display: grid; gap: 6px; margin-bottom: 14px; }
+    .gz-field > label { font-size: 13px; font-weight: 600; }
+    .gz-field .req { color: var(--danger); }
+    .gz-field input, .gz-field select, .gz-field textarea { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: rgba(var(--shade),.5); color: var(--text); font: inherit; }
+    .gz-field textarea { min-height: 88px; resize: vertical; }
+    .gz-field .hint { color: var(--quiet); font-size: 11.5px; line-height: 1.5; }
+    .gz-field .err { color: var(--danger); font-size: 11.5px; }
+    .gz-field.invalid input { border-color: var(--danger); }
+
+    /* ---------- tab bar ---------- */
+    .gz-tabbar { position: absolute; z-index: 14; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4,1fr); gap: 2px;
+      padding: 6px 8px calc(var(--phone-safe-bottom) + 4px); background: rgba(var(--shade),.86); backdrop-filter: blur(var(--blur)); border-top: 1px solid var(--line); }
+    .gz-tabbar button { display: grid; justify-items: center; gap: 3px; min-height: 44px; padding: 4px; border: 0; border-radius: 10px; background: transparent; color: var(--quiet); font: inherit; font-size: 10.5px; cursor: pointer; }
+    .gz-tabbar button .gz-ic svg { width: 22px; height: 22px; }
+    .gz-tabbar button.active { color: var(--accent); background: rgba(117,210,173,.08); }
+    .gz-tabbar button.future { color: var(--quiet); opacity: .5; }
+
+    /* ---------- overlay host: dialog / sheet / toast ---------- */
+    .gz-overlay-host { position: absolute; inset: 0; z-index: 90; pointer-events: none; }
+    .gz-scrim { position: absolute; inset: 0; background: rgba(3,6,8,.72); backdrop-filter: blur(2px); pointer-events: auto; opacity: 0; transition: opacity var(--ease); }
+    .gz-scrim.show { opacity: 1; }
+    .gz-dialog { position: absolute; left: 12px; right: 12px; top: 50%; transform: translateY(-46%) scale(.98); max-width: 460px; margin-inline: auto; max-height: 82%; overflow-y: auto; scrollbar-width: none;
+      padding: 18px; border: 1px solid var(--line-strong); border-radius: var(--sheet-radius); background: var(--surface-strong); box-shadow: var(--shadow); pointer-events: auto; opacity: 0; transition: opacity var(--ease), transform var(--ease); }
+    .gz-dialog::-webkit-scrollbar { display: none; }
+    .gz-dialog.show { opacity: 1; transform: translateY(-50%) scale(1); }
+    .gz-sheet { position: absolute; left: 0; right: 0; bottom: 0; max-width: 520px; margin-inline: auto; max-height: 78%; display: grid; grid-template-rows: auto minmax(0,1fr);
+      border-radius: var(--sheet-radius) var(--sheet-radius) 0 0; background: var(--surface-strong); border-top: 1px solid var(--line-strong);
+      box-shadow: var(--shadow); transform: translateY(102%); transition: transform 260ms ease-out; pointer-events: auto; }
+    .gz-sheet.show { transform: translateY(0); }
+    .gz-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .gz-sheet-head h2 { margin: 0; font-size: 16px; }
+    .gz-sheet-body { overflow-y: auto; scrollbar-width: none; padding: 12px 16px calc(var(--phone-safe-bottom) + 16px); }
+    .gz-sheet-body::-webkit-scrollbar { display: none; }
+    .gz-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 10px 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; text-align: left; }
+    .gz-option:last-child { border-bottom: 0; }
+    .gz-option .gz-check { color: var(--accent); opacity: 0; }
+    .gz-option[aria-selected="true"] .gz-check { opacity: 1; }
+    .gz-option .gz-option-sub { display: block; color: var(--quiet); font-size: 11.5px; }
+    .gz-toast { position: absolute; left: 16px; right: 16px; bottom: calc(var(--phone-safe-bottom) + var(--tabbar-h) + 16px); max-width: 520px; margin-inline: auto; padding: 12px 14px; border: 1px solid var(--line-strong);
+      border-radius: var(--radius); background: var(--surface-strong); color: var(--text); font-size: 13px; box-shadow: var(--shadow); pointer-events: auto;
+      transform: translateY(12px); opacity: 0; transition: opacity var(--ease), transform var(--ease); }
+    .gz-toast.show { opacity: 1; transform: translateY(0); }
+    .gz-toast.err { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+
+    /* ---------- player overlay ---------- */
+    .gz-player { position: fixed; inset: 0; z-index: 120; display: none; place-items: center; background: radial-gradient(circle at 50% 30%, #0b1114, #030507 70%); }
+    .gz-player.open { display: grid; }
+    .gz-stage { position: relative; width: min(94vw, 412px); height: min(94vh, 915px); border-radius: 20px; overflow: hidden; background: #04070a; color: #f4f7f6;
+      border: 1px solid rgba(255,255,255,.08); box-shadow: 0 30px 80px rgba(0,0,0,.62); display: grid; grid-template-rows: auto minmax(0,1fr) auto; font-family: var(--font-body); }
+    .gz-player.landscape .gz-stage { width: min(96vw, 1000px); height: min(92vh, 446px); display: block; border-radius: 14px; }
+    .gz-ptop { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #070b0e; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .gz-ptop .gz-ptitle { min-width: 0; display: grid; gap: 1px; }
+    .gz-ptop .gz-ptitle b { font-size: 14px; font-weight: 650; }
+    .gz-ptop .gz-ptitle span { color: #9aa3a1; font-size: 11px; }
+    .gz-picon { flex: none; width: 42px; height: 42px; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; color: #e8edeb; cursor: pointer; }
+    .gz-picon:hover { background: rgba(255,255,255,.08); }
+    .gz-picon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .gz-pbody { position: relative; overflow: hidden; display: grid; grid-template-rows: auto 1fr; }
+    .gz-surface { position: relative; overflow: hidden; aspect-ratio: 16/9; background: #000; }
+    .gz-surface-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .82; }
+    .gz-surface-scrim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 42%, rgba(0,0,0,.05), rgba(0,0,0,.66)); }
+    .gz-surface-play { position: absolute; z-index: 2; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 64px; height: 64px; display: grid; place-items: center;
+      border-radius: 50%; border: 1.5px solid rgba(117,210,173,.7); background: rgba(9,13,15,.55); color: var(--accent); cursor: pointer; backdrop-filter: blur(6px); }
+    .gz-surface-play svg { width: 26px; height: 26px; fill: currentColor; stroke: none; }
+    .gz-native-tag { position: absolute; z-index: 2; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: var(--radius-sm);
+      border: 1px dashed rgba(255,255,255,.34); background: rgba(4,7,10,.6); color: #aab3b1; font-size: 10px; letter-spacing: .04em; }
+    .gz-unsupported { position: absolute; z-index: 4; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; background: rgba(4,7,10,.86); }
+    .gz-unsupported.on { display: grid; }
+    .gz-unsupported .gz-ic { color: var(--warn); }
+    .gz-unsupported .gz-ic svg { width: 40px; height: 40px; }
+    .gz-pinfo { padding: 14px 16px; display: grid; gap: 12px; align-content: start; }
+    .gz-pinfo .gz-pinfo-title { font-size: 15px; font-weight: 650; }
+    .gz-railrow { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+    .gz-prail { display: grid; justify-items: center; gap: 5px; min-height: 56px; padding: 8px 4px; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; background: rgba(255,255,255,.035); color: #d7dcdb; font: inherit; font-size: 11px; cursor: pointer; }
+    .gz-prail .gz-ic svg { width: 20px; height: 20px; }
+    .gz-prail.active { color: var(--accent); border-color: rgba(117,210,173,.4); background: rgba(117,210,173,.1); }
+    .gz-pctl { padding: 10px 16px calc(var(--phone-safe-bottom) + 12px); background: #070b0e; border-top: 1px solid rgba(255,255,255,.06); display: grid; gap: 8px; }
+    .gz-seek { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; color: #9aa3a1; font-size: 11px; }
+    .gz-range { appearance: none; width: 100%; height: 4px; border-radius: 999px; background: rgba(255,255,255,.2); accent-color: var(--accent); }
+    .gz-range::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid #04070a; }
+    .gz-transport { display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; gap: 6px; }
+    .gz-transport .gz-picon { justify-self: center; }
+    .gz-transport .play { width: 56px; height: 56px; border-radius: 50%; background: rgba(117,210,173,.14); color: var(--accent); }
+    .gz-transport .play svg { width: 26px; height: 26px; fill: currentColor; stroke: none; }
+    .gz-player.landscape .gz-ptop { position: absolute; top: 0; left: 0; right: 0; z-index: 3; background: linear-gradient(180deg, rgba(0,0,0,.72), transparent); border: 0; }
+    .gz-player.landscape .gz-pbody { position: absolute; inset: 0; display: block; }
+    .gz-player.landscape .gz-surface { height: 100%; aspect-ratio: auto; }
+    .gz-player.landscape .gz-pinfo { display: none; }
+    .gz-player.landscape .gz-pctl { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; background: linear-gradient(0deg, rgba(0,0,0,.78), transparent); border: 0; padding-top: 30px; }
+    .gz-player.landscape .gz-native-tag { top: auto; bottom: 96px; }
+    .gz-player .gz-sheet { position: absolute; z-index: 6; }
+    .gz-player .gz-scrim { z-index: 5; }
+
+    /* ---------- misc ---------- */
+    .gz-stack-16 { display: grid; gap: 16px; }
+    .gz-divider { height: 1px; background: var(--line); margin: 18px 0 0; }
+    .gz-kbd { font: inherit; font-size: 12px; padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--muted); }
+    .gz-legend { display: flex; flex-wrap: wrap; gap: 6px; }
+    .gz-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .phone-screen :where(button, [href], input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="phone-frame" data-phone-shell data-platform="android">
+    <span class="hardware-button volume" aria-hidden="true"></span>
+    <span class="hardware-button power" aria-hidden="true"></span>
+
+    <section class="phone-screen" data-phone-screen>
+      <main class="phone-content" data-phone-content>
+        <!-- APP CONTENT START -->
+        <div class="app" id="app">
+
+          <!-- ===== 首页 ===== -->
+          <section class="gz-screen active" data-route="home" aria-label="首页">
+            <header class="gz-topbar">
+              <span class="gz-display" style="font-size:20px;color:var(--accent);letter-spacing:.04em">GENZO</span>
+              <span class="od-spacer"></span>
+              <button class="gz-iconbtn gz-ic" id="homeSearchBtn" aria-label="搜索媒体库" data-tab="library"></button>
+              <button class="gz-iconbtn gz-ic" aria-label="设置" data-nav="profile"></button>
+            </header>
+            <div class="gz-body" id="homeBody"></div>
+          </section>
+
+          <!-- ===== 媒体库 ===== -->
+          <section class="gz-screen" data-route="library" aria-label="媒体库">
+            <header class="gz-topbar">
+              <span class="gz-title">媒体库</span>
+              <span class="od-spacer"></span>
+              <button class="gz-iconbtn gz-ic" aria-label="来源管理" data-nav="sources"></button>
+              <button class="gz-iconbtn gz-ic" aria-label="待整理" data-nav="inbox"></button>
+            </header>
+            <div class="gz-body" id="libraryBody"></div>
+          </section>
+
+          <!-- ===== 收藏 ===== -->
+          <section class="gz-screen" data-route="favorites" aria-label="收藏">
+            <header class="gz-topbar"><span class="gz-title">收藏</span></header>
+            <div class="gz-body" id="favoritesBody"></div>
+          </section>
+
+          <!-- ===== 我的 / 设置 ===== -->
+          <section class="gz-screen" data-route="profile" aria-label="我的">
+            <header class="gz-topbar"><span class="gz-title">我的</span></header>
+            <div class="gz-body" id="profileBody"></div>
+          </section>
+
+          <!-- ===== 来源管理（二级页） ===== -->
+          <section class="gz-screen" data-route="sources" aria-label="来源管理">
+            <header class="gz-topbar">
+              <button class="gz-iconbtn gz-ic" aria-label="返回" data-back></button>
+              <span class="gz-title">来源管理</span>
+              <span class="od-spacer"></span>
+              <button class="gz-iconbtn gz-ic" aria-label="添加来源" data-action="add-source"></button>
+            </header>
+            <div class="gz-body" id="sourcesBody"></div>
+          </section>
+
+          <!-- ===== 待整理（二级页） ===== -->
+          <section class="gz-screen" data-route="inbox" aria-label="待整理">
+            <header class="gz-topbar">
+              <button class="gz-iconbtn gz-ic" aria-label="返回" data-back></button>
+              <span class="gz-title">待整理</span>
+              <span class="od-spacer"></span>
+              <button class="gz-iconbtn gz-ic" aria-label="批量整理" data-action="inbox-help"></button>
+            </header>
+            <div class="gz-body" id="inboxBody"></div>
+          </section>
+
+          <!-- ===== 作品详情（二级页） ===== -->
+          <section class="gz-screen" data-route="detail" data-od-id="work-detail-screen" aria-label="作品详情">
+            <div class="gz-detail-ambient" aria-hidden="true"><div class="gz-detail-ambient-img" id="detailAmbientImg"></div></div>
+            <header class="gz-topbar">
+              <button class="gz-iconbtn gz-ic" aria-label="返回" data-back></button>
+              <span class="gz-title">作品详情</span>
+              <span class="od-spacer"></span>
+              <button class="gz-iconbtn gz-ic" aria-label="收藏" id="detailFavBtn" data-action="toggle-fav"></button>
+            </header>
+            <div class="gz-body" id="detailBody"></div>
+          </section>
+
+          <!-- ===== 探索（Future 预留） ===== -->
+          <section class="gz-screen" data-route="explore" aria-label="探索">
+            <header class="gz-topbar">
+              <button class="gz-iconbtn gz-ic" aria-label="返回" data-back></button>
+              <span class="gz-title">探索</span>
+            </header>
+            <div class="gz-body" id="exploreBody"></div>
+          </section>
+
+          <!-- ===== 书架（Future 预留） ===== -->
+          <section class="gz-screen" data-route="bookshelf" aria-label="书架">
+            <header class="gz-topbar">
+              <button class="gz-iconbtn gz-ic" aria-label="返回" data-back></button>
+              <span class="gz-title">书架</span>
+            </header>
+            <div class="gz-body" id="bookshelfBody"></div>
+          </section>
+
+        </div>
+        <!-- APP CONTENT END -->
+      </main>
+
+      <nav class="gz-tabbar" id="tabbar" aria-label="主导航"></nav>
+      <div class="gz-overlay-host" id="overlayHost"></div>
+
+      <div class="status-bar" aria-hidden="true">
+        <span class="status-time">9:41</span>
+        <span class="status-cutout-zone"></span>
+        <span class="status-icons">
+          <svg class="wifi" viewBox="0 0 16 12"><path d="M8 11.4 6.55 9.95a2.05 2.05 0 0 1 2.9 0L8 11.4Zm3.58-3.55-1.16 1.16a3.43 3.43 0 0 0-4.84 0L4.42 7.85a5.08 5.08 0 0 1 7.16 0Zm3-2.95-1.16 1.16a7.67 7.67 0 0 0-10.84 0L1.42 4.9a9.31 9.31 0 0 1 13.16 0Z"/></svg>
+          <svg class="cellular" viewBox="0 0 14 12"><path d="M1 11h2V8.5H1V11Zm3.35 0h2V6H4.35v5Zm3.35 0h2V3.5h-2V11Zm3.35 0h2V1h-2v10Z"/></svg>
+          <svg class="battery" viewBox="0 0 9 14"><path d="M3 0h3v1H3V0ZM2 1.5h5a1.25 1.25 0 0 1 1.25 1.25v9.75A1.5 1.5 0 0 1 6.75 14h-4.5a1.5 1.5 0 0 1-1.5-1.5V2.75A1.25 1.25 0 0 1 2 1.5Z"/></svg>
+        </span>
+      </div>
+      <div class="punch-hole" aria-hidden="true"></div>
+      <div class="gesture-indicator" aria-hidden="true"></div>
+    </section>
+  </div>
+
+  <!-- ===== 应用内播放器（覆盖横竖屏） ===== -->
+  <!-- Android 接入：整个播放器可保持为 HTML 覆盖层，或由原生播放 Activity 承载。
+       .gz-surface 是原生视频视图的占位：映射到 ExoPlayer 的 SurfaceView / TextureView。
+       .gz-pctl / .gz-ptop / 底部抽屉是 HTML 控制层，通过桥接事件与原生播放器通信。
+       事件契约（方向、命名、载荷）见 android/UI_HANDOFF.md。 -->
+  <div class="gz-player" id="player" role="dialog" aria-modal="true" aria-label="播放器" hidden>
+    <div class="gz-stage">
+      <div class="gz-overlay-host" id="playerOverlayHost"></div>
+      <div class="gz-ptop">
+        <button class="gz-picon" id="pClose" aria-label="关闭播放器" data-pctl="close"></button>
+        <span class="gz-ptitle">
+          <b id="pTitle" class="od-truncate">—</b>
+          <span id="pSub" class="od-truncate">—</span>
+        </span>
+        <span class="od-spacer"></span>
+        <button class="gz-picon" aria-label="切换横竖屏" data-pctl="rotate"></button>
+        <button class="gz-picon" aria-label="更多" data-pctl="more"></button>
+      </div>
+      <div class="gz-pbody">
+        <div class="gz-surface" data-native-surface>
+          <img class="gz-surface-img" src="../assets/reference-secondary.png" alt="" aria-hidden="true">
+          <div class="gz-surface-scrim"></div>
+          <button class="gz-surface-play" aria-label="播放 / 暂停" data-pctl="toggle"></button>
+          <span class="gz-native-tag">原生视频区域 · SurfaceView</span>
+          <div class="gz-unsupported" id="pUnsupported">
+            <div class="od-stack" style="--od-gap:10px;justify-items:center">
+              <span class="gz-ic" data-ic="warn"></span>
+              <strong>此视频无法直接播放</strong>
+              <p class="gz-quiet" style="max-width:30ch">当前设备不支持该文件的编码或封装（示例：HEVC 10bit + DTS）。可用「外部工具」打开，或先转码后再播放。</p>
+              <button class="gz-btn" data-pctl="external">用外部工具打开</button>
+            </div>
+          </div>
+        </div>
+        <div class="gz-pinfo">
+          <span class="gz-pinfo-title od-truncate" id="pInfoTitle">—</span>
+          <div class="gz-railrow">
+            <button class="gz-prail" data-pctl="sheet-speed"><span class="gz-ic" data-ic="speed"></span><span id="pSpeedLabel">1.0×</span></button>
+            <button class="gz-prail" data-pctl="sheet-audio"><span class="gz-ic" data-ic="audio"></span><span id="pAudioLabel">音轨</span></button>
+            <button class="gz-prail" data-pctl="sheet-sub"><span class="gz-ic" data-ic="sub"></span><span id="pSubLabel">字幕</span></button>
+            <button class="gz-prail" data-pctl="sheet-eps"><span class="gz-ic" data-ic="list"></span><span>分集</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="gz-pctl">
+        <div class="gz-seek">
+          <span class="gz-num" id="pCur">00:00</span>
+          <input class="gz-range" id="pSeek" type="range" min="0" max="1000" value="0" aria-label="播放进度">
+          <span class="gz-num" id="pDur">24:00</span>
+        </div>
+        <div class="gz-transport">
+          <button class="gz-picon" aria-label="上一集" data-pctl="prev"><span class="gz-ic" data-ic="prev"></span></button>
+          <button class="gz-picon" aria-label="快退 10 秒" data-pctl="back10"><span class="gz-ic" data-ic="back10"></span></button>
+          <button class="gz-picon play" aria-label="播放 / 暂停" data-pctl="toggle" id="pPlayBtn"></button>
+          <button class="gz-picon" aria-label="快进 10 秒" data-pctl="fwd10"><span class="gz-ic" data-ic="fwd10"></span></button>
+          <button class="gz-picon" aria-label="下一集" data-pctl="next"><span class="gz-ic" data-ic="next"></span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+    var root = document.documentElement;
+    var $ = function (s, c) { return (c || document).querySelector(s); };
+    var $$ = function (s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); };
+    var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); };
+    function svg(paths, extra) {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"' + (extra ? ' ' + extra : '') + '>' + paths + '</svg>';
+    }
+    var ICON = {
+      home: svg('<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10.5V20h12v-9.5"/>'),
+      library: svg('<rect x="4" y="4" width="7" height="16" rx="1.5"/><rect x="13" y="4" width="7" height="16" rx="1.5"/>'),
+      heart: svg('<path d="M12 20s-7-4.4-9-8.5C1.4 8.3 3.1 5 6.4 5c1.9 0 3.3 1 4.6 2.6C12.3 6 13.7 5 15.6 5 18.9 5 20.6 8.3 21 11.5 19 15.6 12 20 12 20Z"/>'),
+      heartFill: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-9-8.5C1.4 8.3 3.1 5 6.4 5c1.9 0 3.3 1 4.6 2.6C12.3 6 13.7 5 15.6 5 18.9 5 20.6 8.3 21 11.5 19 15.6 12 20 12 20Z"/></svg>',
+      user: svg('<circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c1.2-3.6 4-5.4 7-5.4S17.8 16.4 19 20"/>'),
+      back: svg('<path d="M15 18l-6-6 6-6"/>'),
+      search: svg('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/>'),
+      settings: svg('<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7"/>'),
+      folder: svg('<path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h3l2 2.5h8a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/>'),
+      cloud: svg('<path d="M7 18h9.5a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6-1.2A3.6 3.6 0 0 0 7 18Z"/>'),
+      scan: svg('<path d="M4 8V6a2 2 0 0 1 2-2h2M20 8V6a2 2 0 0 0-2-2h-2M4 16v2a2 2 0 0 0 2 2h2M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M4 12h16"/>'),
+      inbox: svg('<path d="M4 13.5 6 6h12l2 7.5"/><path d="M4 13.5h4l1.2 2.2h5.6L16 13.5h4v4.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'),
+      play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>',
+      pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5" width="3.6" height="14" rx="1"/><rect x="13.4" y="5" width="3.6" height="14" rx="1"/></svg>',
+      prev: svg('<path d="M6 6v12"/><path d="M18 6 9 12l9 6z" fill="currentColor" stroke="none"/>'),
+      next: svg('<path d="M18 6v12"/><path d="M6 6l9 6-9 6z" fill="currentColor" stroke="none"/>'),
+      back10: svg('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 5v3.4h3.4"/><text x="12" y="15.5" text-anchor="middle" font-size="7.5" fill="currentColor" stroke="none">10</text>'),
+      fwd10: svg('<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 5v3.4h-3.4"/><text x="12" y="15.5" text-anchor="middle" font-size="7.5" fill="currentColor" stroke="none">10</text>'),
+      rotate: svg('<path d="M4 9a8 8 0 0 1 13-3"/><path d="M20 15a8 8 0 0 1-13 3"/><path d="M17 3v3.4h-3.4M7 21v-3.4h3.4"/>'),
+      more: svg('<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>'),
+      speed: svg('<path d="M12 20a8 8 0 1 0-8-8"/><path d="M12 12l4-3"/>'),
+      audio: svg('<path d="M5 9v6h3l4 3V6L8 9z"/><path d="M16 8.5a4.5 4.5 0 0 1 0 7"/>'),
+      sub: svg('<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M7 14h4M13 14h4M7 11h3M12 11h5"/>'),
+      list: svg('<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>'),
+      warn: svg('<path d="M12 4 21 19H3z"/><path d="M12 10v4M12 16.6v.2"/>'),
+      offline: svg('<path d="M3 8.5C6 6 9 4.8 12 4.8s6 1.2 9 3.7"/><path d="M3.5 14h17"/><path d="M3 3l18 18"/>'),
+      plus: svg('<path d="M12 5v14M5 12h14"/>'),
+      external: svg('<path d="M14 5h5v5"/><path d="M19 5l-8 8"/><path d="M18 13v5a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 18V8a1.5 1.5 0 0 1 1.5-1.5H11"/>'),
+      check: svg('<path d="M5 12.5 10 17l9-10"/>'),
+      info: svg('<circle cx="12" cy="12" r="8.2"/><path d="M12 11v5M12 8.2v.2"/>'),
+      refresh: svg('<path d="M20 11a8 8 0 1 0-1.6 5.5"/><path d="M20 5v6h-6"/>'),
+      chevron: svg('<path d="M9 6l6 6-6 6"/>')
+    };
+    function icon(name, cls) { return '<span class="gz-ic' + (cls ? ' ' + cls : '') + '">' + ICON[name] + '</span>'; }
+    $$("[data-ic]").forEach(function (n) { n.innerHTML = ICON[n.getAttribute("data-ic")] || ""; });
+    document.querySelectorAll(".gz-iconbtn:empty").forEach(function (b, i) {});
+    // fill topbar icons declared empty via aria-label mapping
+    (function () {
+      var map = { "搜索媒体库": "search", "设置": "settings", "来源管理": "folder", "待整理": "inbox", "添加来源": "plus", "批量整理": "info", "返回": "back", "收藏": "heart", "更多": "more", "切换横竖屏": "rotate", "关闭播放器": "back", "播放 / 暂停": "pause", "上一集": "prev", "下一集": "next", "快退 10 秒": "back10", "快进 10 秒": "fwd10" };
+      $$(".gz-iconbtn").forEach(function (b) { if (!b.innerHTML.trim()) { var t = b.getAttribute("aria-label"); if (map[t]) b.innerHTML = ICON[map[t]]; } });
+    })();
+
+    /* ---------------- demo data (设计演示数据 / fixture) ---------------- */
+    var WORKS = [
+      { id: "frieren", title: "葬送的芙莉莲", sub: "葬送のフリーレン", type: "动画", year: 2023, status: "连载中", tags: ["奇幻", "冒险"], fav: true, eps: 28, local: 28, web: 8.7, rating: 9, poster: "p1", progress: { ep: 16, pct: 42 },
+        desc: "勇者一行讨伐魔王后，精灵魔法使芙莉莲踏上理解“人类”的旅程。本作为设计演示数据。" },
+      { id: "slime", title: "关于我转生变成史莱姆这档事", sub: "転生したらスライムだった件", type: "动画", year: 2018, status: "连载中", tags: ["异世界", "奇幻"], fav: true, eps: 48, local: 46, web: 8.1, rating: 8, poster: "p2", progress: { ep: 8, pct: 75 },
+        desc: "转生为史莱姆的三上悟在异世界建立国家。设计演示数据。" },
+      { id: "demon", title: "鬼灭之刃", sub: "鬼滅の刃", type: "动画", year: 2019, status: "连载中", tags: ["动作", "奇幻"], fav: false, eps: 26, local: 26, web: 8.5, rating: 0, poster: "p3", progress: { ep: 3, pct: 18 },
+        desc: "为拯救化为鬼的妹妹，炭治郎加入鬼杀队。设计演示数据。" },
+      { id: "kaguya", title: "辉夜大小姐想让我告白～天才们的恋爱头脑战～", sub: "かぐや様は告らせたい", type: "动画", year: 2019, status: "已完结", tags: ["恋爱", "喜剧"], fav: true, eps: 12, local: 12, web: 8.4, rating: 0, poster: "p4",
+        desc: "秀知院学园的学生会正副会长互相试探心意。超长标题用于验证截断与换行规则。" },
+      { id: "kimi", title: "你的名字。", sub: "君の名は。", type: "电影", year: 2016, status: "已完结", tags: ["爱情", "奇幻"], fav: true, eps: 1, local: 1, web: 8.4, rating: 9, poster: "p5",
+        desc: "东京少年与乡下少女在梦中交换身体。设计演示数据。" },
+      { id: "attack", title: "进击的巨人", sub: "進撃の巨人", type: "动画", year: 2013, status: "已完结", tags: ["动作", "黑暗"], fav: false, eps: 87, local: 87, web: 9.0, rating: 0, poster: "p6",
+        desc: "人类在巨人的威胁下蜷缩于高墙之内。设计演示数据。" },
+      { id: "jujutsu", title: "咒术回战", sub: "呪術廻戦", type: "动画", year: 2020, status: "连载中", tags: ["动作", "超自然"], fav: false, eps: 47, local: 40, web: 8.6, rating: 0, poster: "p2",
+        desc: "吞下诅咒之指的少年进入咒术高专。第 11 集用于演示“播放不支持”。设计演示数据。" },
+      { id: "spy", title: "间谍过家家", sub: "SPY×FAMILY", type: "动画", year: 2022, status: "连载中", tags: ["喜剧", "日常"], fav: true, eps: 37, local: 37, web: 8.5, rating: 0, poster: "p3",
+        desc: "间谍、杀手与超能力少女组成的伪装家庭。设计演示数据。" },
+      { id: "tenki", title: "天气之子", sub: "天気の子", type: "电影", year: 2019, status: "已完结", tags: ["爱情", "奇幻"], fav: false, eps: 1, local: 0, web: 7.7, rating: 0, poster: "p5",
+        desc: "离家少年与能改变天气的少女。本地文件缺失，用于演示“无本地 / 播放禁用”。设计演示数据。" },
+      { id: "got", title: "权力的游戏", sub: "Game of Thrones", type: "电视剧", year: 2011, status: "已完结", tags: ["奇幻", "剧情"], fav: false, eps: 73, local: 0, web: 9.3, rating: 0, poster: "missing",
+        desc: "维斯特洛大陆的权力斗争。封面缺失，用于演示“缺图”占位。设计演示数据。" }
+    ];
+    var byId = {}; WORKS.forEach(function (w) { byId[w.id] = w; });
+
+    var SOURCES = [
+      { id: "d", name: "本地目录 · D:\\Media\\Anime", kind: "本地", icon: "folder", status: "ok", label: "已启用", works: 214, files: 3280, synced: "2 小时前" },
+      { id: "e", name: "本地目录 · E:\\Movies", kind: "本地", icon: "folder", status: "ok", label: "已启用", works: 96, files: 410, synced: "昨天 21:40" },
+      { id: "w", name: "WebDAV · dav.example.com/anime", kind: "WebDAV", icon: "cloud", status: "auth", label: "鉴权失败", works: 0, files: 0, synced: "—", future: true },
+      { id: "a", name: "阿里云盘 · 我的资源", kind: "网盘", icon: "cloud", status: "denied", label: "授权被拒绝", works: 0, files: 0, synced: "—", future: true },
+      { id: "f", name: "本地目录 · F:\\BD 备份", kind: "本地", icon: "folder", status: "off", label: "已停用", works: 0, files: 0, synced: "3 天前" }
+    ];
+    var SCAN = { state: "idle", progress: 0, discovered: 0, added: 0, updated: 0, missing: 0,
+      errors: ["D:\\Media\\Anime\\Show A\\S02\\E07.mkv —— 权限不足，无法读取", "E:\\Movies\\Old\\movie.iso —— 不受支持的封装格式"] };
+    var INBOX = [
+      { key: "[SubsPlease] Frieren - S01", title: "Frieren S01", folder: "D:\\Media\\Anime\\Frieren", count: 12, rep: "E01 1080p.mkv" },
+      { key: "[Nekomoe] Kimi no Na wa", title: "Kimi no Na wa", folder: "E:\\Movies\\KimiNoNaWa", count: 1, rep: "movie.mkv" },
+      { key: "[Unknown] 2024 Q3 Batch", title: "2024 Q3 Batch", folder: "D:\\Incoming\\2024Q3", count: 47, rep: "EP01.mp4" }
+    ];
+    var CANDIDATES = [
+      { title: "葬送的芙莉莲", year: 2023, provider: "Bangumi", score: 94, reason: "文件名 + 年份", fav: true },
+      { title: "葬送のフリーレン", year: 2023, provider: "Bangumi", score: 88, reason: "原名匹配" },
+      { title: "Frieren: Beyond Journey's End", year: 2023, provider: "Bangumi", score: 71, reason: "英文别名" }
+    ];
+
+    var state = { libraryFilter: "全部", libraryQuery: "", libraryTab: "library", favoritesFilter: "全部", theme: "dark", detailId: "frieren", inboxOpen: null };
+
+    /* ---------------- helpers ---------------- */
+    var FILTERS = ["全部", "动画", "电影", "电视剧", "收藏"];
+    function matches(w, f, q) {
+      if (f === "收藏" && !w.fav) return false;
+      if (f !== "全部" && f !== "收藏" && w.type !== f) return false;
+      if (q) { var s = (w.title + " " + w.sub + " " + w.tags.join(" ")).toLowerCase(); if (s.indexOf(q.toLowerCase()) < 0) return false; }
+      return true;
+    }
+    function posterHTML(w) {
+      var cls = w.poster === "missing" ? "gz-poster missing" : "gz-poster " + w.poster;
+      var tag = w.poster === "missing" ? '<span class="gz-poster-miss">缺图</span>' : '<span class="gz-poster-tag">' + esc(w.type) + '</span>';
+      var fav = w.fav ? '<span class="gz-poster-fav" aria-hidden="true">' + ICON.heartFill + '</span>' : "";
+      return '<span class="' + cls + '">' + tag + fav + '</span>';
+    }
+    function workCard(w) {
+      return '<button class="gz-card" data-work="' + w.id + '" aria-label="' + esc(w.title) + '，' + esc(w.type) + '">' +
+        posterHTML(w) +
+        '<span class="gz-card-title od-truncate">' + esc(w.title) + '</span>' +
+        '<span class="gz-card-meta od-truncate">' + esc(w.type) + ' · ' + w.year + '</span>' +
+        '</button>';
+    }
+    function continueCard(w) {
+      var p = w.progress;
+      return '<button class="gz-continue" data-play="' + w.id + '" data-ep="' + p.ep + '" aria-label="继续观看 ' + esc(w.title) + ' 第 ' + p.ep + ' 集">' +
+        '<span class="gz-continue-thumb"><span class="gz-continue-play">' + ICON.play + '</span><span class="gz-continue-prog"><span style="width:' + p.pct + '%"></span></span></span>' +
+        '<span class="gz-continue-body"><span class="gz-continue-title od-truncate">' + esc(w.title) + '</span>' +
+        '<span class="gz-continue-meta od-truncate">第 ' + p.ep + ' 集 · 已看 ' + p.pct + '%</span></span>' +
+        '</button>';
+    }
+    function chipRow(active, attr) {
+      return '<div class="od-rail" style="--od-gap:8px" role="tablist">' + FILTERS.map(function (f) {
+        return '<button class="gz-chip' + (f === active ? " active" : "") + '" ' + attr + '="' + f + '" role="tab" aria-selected="' + (f === active) + '">' + f + '</button>';
+      }).join("") + '</div>';
+    }
+    function emptyState(iconName, title, text, cta) {
+      return '<div class="gz-empty">' + icon(iconName) + '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p>' + (cta || "") + '</div>';
+    }
+
+    /* ---------------- screen renderers ---------------- */
+    function renderHome() {
+      var featured = byId.frieren;
+      var cont = WORKS.filter(function (w) { return w.progress; });
+      var recent = WORKS.filter(function (w) { return w.id !== "got"; }).slice(0, 6);
+      $('#homeBody').innerHTML =
+        '<section class="gz-hero">' +
+          '<div class="gz-hero-inner">' +
+            '<span class="gz-eyebrow">焦点作品 · 设计演示数据</span>' +
+            '<h1 class="gz-h1 od-keep">葬送的芙莉莲</h1>' +
+            '<div class="gz-hero-meta"><span>' + featured.type + '</span><span class="dot">' + featured.year + '</span><span class="dot">' + featured.tags.join(" / ") + '</span></div>' +
+            '<div class="gz-hero-actions">' +
+              '<button class="gz-btn primary" data-play="' + featured.id + '" data-ep="16">' + icon("play", "sm") + '继续观看</button>' +
+              '<button class="gz-btn ghost" data-work="' + featured.id + '">' + icon("info", "sm") + '详情</button>' +
+            '</div>' +
+          '</div>' +
+        '</section>' +
+        '<div style="margin-top:14px">' + continueEmptyHint(cont) + '</div>' +
+        section("继续观看", "", "") +
+        '<div class="od-rail" style="--od-gap:12px;--od-rail-pad:0">' + (cont.length ? cont.map(continueCard).join("") : emptyInline()) + '</div>' +
+        section("最近添加", "媒体库", "library") +
+        '<div class="gz-grid">' + recent.map(workCard).join("") + '</div>' +
+        '<section class="gz-panel gz-section">' +
+          '<div class="gz-section-head"><h2 class="gz-h2">来源与扫描</h2><button class="gz-link" data-nav="sources">管理</button></div>' +
+          '<div class="gz-meta">3 个来源 · 310 部作品 · 3,690 个文件</div>' +
+          '<div class="od-row" style="--od-gap:8px;margin-top:10px"><span class="gz-badge ok">扫描正常</span><span class="gz-badge warn">2 个待整理</span><span class="gz-badge err">2 项失败</span></div>' +
+        '</section>' +
+        '<section class="gz-section">' +
+          '<div class="gz-section-head"><h2 class="gz-h2">后续扩展</h2><span class="gz-quiet">Future · 未实现</span></div>' +
+          '<div class="od-grid" style="--od-cols:2;--od-gap:12px">' +
+            futureCard("bookshelf", "list", "书架", "漫画 / 轻小说") +
+            futureCard("explore", "search", "探索", "发现 / 推荐") +
+          '</div>' +
+        '</section>';
+    }
+    function section(title, linkText, nav) {
+      return '<div class="gz-section-head" style="margin-top:20px;margin-bottom:12px"><h2 class="gz-h2">' + esc(title) + '</h2>' +
+        (linkText ? '<button class="gz-link gz-meta" data-nav="' + nav + '">' + esc(linkText) + '</button>' : '') + '</div>';
+    }
+    function emptyInline() { return '<div class="gz-panel gz-meta" style="width:100%">暂无继续观看记录。开始播放后会自动出现在这里。</div>'; }
+    function continueEmptyHint() { return ""; }
+    function futureCard(route, ic, title, sub) {
+      return '<button class="gz-panel od-stack" style="--od-gap:8px;text-align:left;color:var(--text);cursor:pointer" data-nav="' + route + '">' +
+        icon(ic) + '<strong style="font-size:14px">' + esc(title) + '</strong>' +
+        '<span class="gz-quiet">' + esc(sub) + '</span><span class="gz-badge future">Future · 预留</span></button>';
+    }
+
+    function libList() { return WORKS.filter(function (w) { return matches(w, state.libraryFilter, state.libraryQuery); }); }
+    function libGridHTML(list) {
+      return list.length ? '<div class="gz-grid">' + list.map(workCard).join("") + '</div>'
+        : emptyState("library", "没有匹配的作品", state.libraryQuery ? '未找到与“' + state.libraryQuery + '”相关的作品，试试其它关键词或清除筛选。' : "当前筛选下没有作品，切换类型或添加来源后再试。",
+            '<button class="gz-btn" data-action="clear-filter">清除筛选</button>');
+    }
+    function renderLibrary() {
+      var list = libList();
+      $('#libraryBody').innerHTML =
+        '<div class="gz-search" style="margin-bottom:12px">' + icon("search", "sm") +
+          '<input class="gz-input" id="libSearch" type="search" value="' + esc(state.libraryQuery) + '" placeholder="搜索标题 / 原名 / 标签" aria-label="搜索媒体库">' +
+        '</div>' +
+        '<div class="od-row" style="--od-gap:8px;margin-bottom:12px;flex-wrap:nowrap;overflow:auto">' +
+          '<button class="gz-chip' + (state.libraryTab === "library" ? " active" : "") + '" data-tab="library">媒体库</button>' +
+          '<button class="gz-chip' + (state.libraryTab === "inbox" ? " active" : "") + '" data-nav="inbox">待整理 · 2</button>' +
+          '<button class="gz-chip" data-nav="sources">来源管理</button>' +
+        '</div>' +
+        chipRow(state.libraryFilter, "data-filter") +
+        '<div class="gz-quiet" id="libCount" style="margin:14px 0 10px">共 ' + list.length + ' 部作品</div>' +
+        '<div id="libGrid">' + libGridHTML(list) + '</div>';
+      var input = $('#libSearch');
+      if (input) input.addEventListener("input", function () { state.libraryQuery = input.value; var l = libList(); $('#libGrid').innerHTML = libGridHTML(l); $('#libCount').textContent = "共 " + l.length + " 部作品"; });
+    }
+
+    function renderFavorites() {
+      var list = WORKS.filter(function (w) { return w.fav && matches(w, state.favoritesFilter, ""); });
+      var grid = list.length ? '<div class="gz-grid">' + list.map(workCard).join("") + '</div>'
+        : emptyState("heart", "还没有收藏", "在作品详情点击右上角收藏，或调整上方类型筛选。");
+      $('#favoritesBody').innerHTML = chipRow(state.favoritesFilter, "data-ff") + '<div style="height:14px"></div>' + grid;
+    }
+
+    function renderProfile() {
+      var themeBtns = [["dark", "深色"], ["light", "浅色"], ["system", "跟随系统"]].map(function (t) {
+        return '<button data-action="theme" data-value="' + t[0] + '" role="radio" aria-checked="' + (state.theme === t[0]) + '">' + t[1] + '</button>';
+      }).join("");
+      $('#profileBody').innerHTML =
+        '<div class="od-row" style="--od-gap:12px;margin-bottom:16px">' +
+          '<span class="gz-row-icon">' + ICON.user + '</span>' +
+          '<div class="gz-row-main"><span class="gz-row-title">本机用户</span><span class="gz-row-sub">Genzo · Android 首版 · 本地优先</span></div>' +
+        '</div>' +
+        '<section class="gz-panel"><h2 class="gz-h2" style="margin-bottom:12px">外观</h2>' +
+          '<div class="gz-seg" role="radiogroup" aria-label="主题">' + themeBtns + '</div>' +
+          '<p class="gz-quiet" style="margin:10px 0 0">强调色 <span style="color:var(--accent)">#75d2ad</span> · 圆角 8px · 动效 220ms（与桌面端一致）</p>' +
+        '</section>' +
+        settingRow("folder", "目录与来源", "本地 / WebDAV / 网盘", "sources") +
+        settingRow("inbox", "待整理队列", "2 个分组待确认", "inbox") +
+        settingRow("scan", "扫描与刮削", "上次扫描：2 小时前", "sources") +
+        '<section class="gz-panel" style="margin-top:12px"><h2 class="gz-h2" style="margin-bottom:6px">状态与边界演示</h2>' +
+          '<p class="gz-quiet" style="margin:0 0 12px">以下状态在原型中可直接预览，用于开发接入与验收。</p>' +
+          '<div class="od-cluster" style="--od-gap:8px">' +
+            [["empty", "空列表"], ["long", "超长标题"], ["missing", "缺图"], ["permission", "授权拒绝"], ["auth", "鉴权失败"], ["scanfail", "扫描失败"], ["nosub", "字幕缺失"], ["unsupported", "播放不支持"], ["offline", "离线"]].map(function (s) {
+              return '<button class="gz-chip" data-action="state" data-value="' + s[0] + '">' + s[1] + '</button>';
+            }).join("") +
+          '</div>' +
+        '</section>' +
+        '<section class="gz-panel" style="margin-top:12px"><h2 class="gz-h2" style="margin-bottom:8px">能力状态图例</h2>' +
+          '<div class="gz-legend">' +
+            '<span class="gz-badge ok">已实现</span><span class="gz-badge warn">部分</span><span class="gz-badge err">待补齐</span><span class="gz-badge future">Future</span>' +
+          '</div>' +
+          '<p class="gz-quiet" style="margin:10px 0 0">状态含义与接口证据见 android/CAPABILITY_MAP.md。</p>' +
+        '</section>' +
+        '<section class="gz-section"><div class="gz-section-head"><h2 class="gz-h2">后续扩展</h2><span class="gz-quiet">Future</span></div>' +
+          '<div class="od-grid" style="--od-cols:2;--od-gap:12px">' +
+            futureCard("bookshelf", "list", "书架", "漫画 / 轻小说") +
+            futureCard("explore", "search", "探索", "发现 / 推荐") +
+          '</div></section>' +
+        '<p class="gz-quiet" style="margin:20px 0 0">Genzo UI v1 · Android 首版原型 · 全部内容为设计演示数据，不代表已接入后端。</p>';
+    }
+    function settingRow(ic, title, sub, nav) {
+      return '<button class="gz-row-card" style="width:100%;margin-top:12px;text-align:left;font:inherit;color:var(--text);cursor:pointer" data-nav="' + nav + '">' +
+        '<span class="gz-row-icon">' + ICON[ic] + '</span>' +
+        '<span class="gz-row-main"><span class="gz-row-title">' + esc(title) + '</span><span class="gz-row-sub">' + esc(sub) + '</span></span>' +
+        '<span class="gz-ic sm" style="color:var(--quiet)">' + ICON.chevron + '</span></button>';
+    }
+
+    function renderSources() {
+      var rows = SOURCES.map(function (s) {
+        var badge = s.status === "ok" ? '<span class="gz-badge ok">' + s.label + '</span>'
+          : s.status === "off" ? '<span class="gz-badge">' + s.label + '</span>'
+          : s.status === "auth" ? '<span class="gz-badge err">' + s.label + '</span>'
+          : '<span class="gz-badge err">' + s.label + '</span>';
+        var sub = s.status === "ok" ? s.works + " 部 · " + s.files + " 文件 · " + s.synced
+          : s.status === "auth" ? "凭据已过期或被拒绝，需重新登录"
+          : s.status === "denied" ? "用户拒绝了授权请求"
+          : "已停用，扫描时跳过";
+        var future = s.future ? '<span class="gz-badge future">Future</span>' : "";
+        var actions = '<div class="od-row" style="--od-gap:6px;margin-top:10px">' +
+          '<button class="gz-chip" data-action="source-toggle" data-id="' + s.id + '">' + (s.status === "off" ? "启用" : "停用") + '</button>' +
+          (s.future ? '<button class="gz-chip" data-action="source-auth" data-id="' + s.id + '">重新授权</button>'
+                    : '<button class="gz-chip" data-action="source-check" data-id="' + s.id + '">校验</button>') +
+          '<button class="gz-chip" data-action="source-scan" data-id="' + s.id + '">扫描</button>' +
+          '<button class="gz-chip" data-action="source-delete" data-id="' + s.id + '">删除</button>' +
+        '</div>';
+        return '<div class="gz-row-card" style="grid-template-columns:auto minmax(0,1fr)">' +
+          '<span class="gz-row-icon">' + ICON[s.icon] + '</span>' +
+          '<span class="gz-row-main">' +
+            '<span class="od-row" style="--od-gap:6px"><span class="gz-row-title od-truncate" style="flex:1">' + esc(s.name) + '</span>' + future + '</span>' +
+            '<span class="od-row" style="--od-gap:6px;margin-top:2px"><span class="gz-row-sub od-truncate" style="flex:1">' + esc(s.kind) + ' · ' + esc(sub) + '</span>' + badge + '</span>' +
+            actions +
+          '</span></div>';
+      }).join("");
+      $('#sourcesBody').innerHTML =
+        '<div class="gz-note" style="margin-bottom:12px">' + icon("info", "sm") + '<span>本地目录为已实现能力；WebDAV 与网盘为 Future，仅展示配置与错误态，不可用。</span></div>' +
+        scanPanel() + rows;
+    }
+    function scanPanel() {
+      var s = SCAN, running = s.state === "running";
+      var meter = '<div class="gz-scan-meter" style="margin:10px 0 2px"><span style="--v:' + (s.state === "idle" ? 0 : s.state === "running" ? s.progress : 100) + '%"></span></div>';
+      var stats = '<div class="gz-stats">' +
+        stat(s.discovered, "已发现") + stat(s.added, "新增") + stat(s.updated, "更新") + stat(s.missing, "缺失") + '</div>';
+      var head = running ? '<span class="gz-badge warn">扫描中 · ' + s.progress + '%</span>'
+        : s.state === "error" ? '<span class="gz-badge err">完成但有问题</span>'
+        : '<span class="gz-badge">未在扫描</span>';
+      var errors = s.state === "error"
+        ? '<ul class="gz-errors">' + s.errors.map(function (e) { return '<li>' + icon("warn", "sm") + '<span class="od-clamp-2">' + esc(e) + '</span></li>'; }).join("") + '</ul>' +
+          '<button class="gz-btn" data-action="scan-retry" style="margin-top:12px">' + icon("refresh", "sm") + '重试失败项</button>'
+        : "";
+      var action = running ? "" : '<button class="gz-btn primary" data-action="scan-start" style="margin-top:12px">开始扫描</button>';
+      return '<section class="gz-panel"><div class="gz-section-head"><h2 class="gz-h2">扫描状态</h2>' + head + '</div>' + meter + stats + errors + action + '</section>';
+    }
+    function stat(v, l) { return '<div class="gz-stat"><b>' + v + '</b><span>' + l + '</span></div>'; }
+
+    function renderInbox() {
+      var open = state.inboxOpen;
+      var rows = INBOX.map(function (g) {
+        var expanded = open === g.key;
+        var actions = expanded
+          ? '<div style="margin-top:12px"><div class="gz-note" style="margin-bottom:10px">' + icon("info", "sm") + '<span>选择要匹配的候选作品，确认后写入元数据；仅本机保存。</span></div>' +
+              CANDIDATES.map(function (c, i) {
+                return '<button class="gz-option" data-action="confirm-cand" data-key="' + esc(g.key) + '" data-cand="' + i + '" aria-selected="' + (i === 0) + '">' +
+                  '<span class="od-stack" style="--od-gap:2px"><span>' + esc(c.title) + '（' + c.year + '）</span>' +
+                  '<span class="gz-option-sub">' + esc(c.provider) + ' · 置信度 ' + c.score + '% · ' + esc(c.reason) + '</span></span>' +
+                  '<span class="gz-check">' + icon("check", "sm") + '</span></button>';
+              }).join("") +
+              '<div class="od-row" style="--od-gap:8px;margin-top:12px"><button class="gz-btn primary od-fill" data-action="confirm-match" data-key="' + esc(g.key) + '">确认匹配</button>' +
+              '<button class="gz-btn ghost" data-action="inbox-close">取消</button></div></div>'
+          : '<div class="od-row" style="--od-gap:8px;margin-top:10px"><button class="gz-chip" data-action="inbox-open" data-key="' + esc(g.key) + '">手动识别</button>' +
+            '<button class="gz-chip" data-action="scrape-open" data-key="' + esc(g.key) + '">刮削候选</button></div>';
+        return '<div class="gz-panel"><div class="od-row-top" style="--od-gap:12px">' +
+          '<span class="gz-row-icon">' + ICON.inbox + '</span>' +
+          '<span class="od-stack od-fill" style="--od-gap:4px">' +
+            '<span class="gz-row-title od-truncate">' + esc(g.title) + '</span>' +
+            '<span class="gz-row-sub od-truncate">' + esc(g.folder) + '</span>' +
+            '<span class="od-row" style="--od-gap:8px"><span class="gz-badge warn">' + g.count + ' 个文件</span><span class="gz-badge">待整理</span></span>' +
+            actions +
+          '</span></div></div>';
+      }).join("");
+      $('#inboxBody').innerHTML =
+        '<div class="gz-note" style="margin-bottom:12px">' + icon("info", "sm") + '<span>未分配媒体的分组。识别与刮削由后端完成，确认候选后才写入元数据。</span></div>' + rows;
+    }
+
+    function renderDetail() {
+      var w = byId[state.detailId] || WORKS[0];
+      var favBtn = $('#detailFavBtn');
+      if (favBtn) favBtn.setAttribute("aria-pressed", w.fav ? "true" : "false");
+      var cover = w.poster === "missing" ? '<div class="gz-detail-cover missing">缺图</div>'
+        : '<div class="gz-detail-cover" style="background-position:' + posterPos(w.poster) + '"></div>';
+      var ambient = document.getElementById("detailAmbientImg");
+      if (ambient) ambient.style.backgroundPosition = w.poster === "missing" ? "50% 30%" : posterPos(w.poster);
+      var eps = episodesFor(w);
+      var canPlay = w.local > 0;
+      var epCards = eps.slice(0, w.eps > 24 ? 12 : eps.length).map(function (e) {
+        var disabled = !e.local || e.unsupported;
+        var tag = e.unsupported ? '<span class="gz-badge err">不支持</span>'
+          : !e.local ? '<span class="gz-badge">无本地</span>'
+          : e.watched ? '<span class="gz-badge ok">已看</span>' : '<span class="gz-badge">未看</span>';
+        return '<button class="gz-ep" ' + (disabled ? 'aria-disabled="true"' : 'data-play="' + w.id + '" data-ep="' + e.n + '"') + ' aria-label="' + esc(e.name) + '，' + esc(tag.replace(/<[^>]+>/g, "")) + '">' +
+          '<span class="gz-ep-thumb"><span class="gz-ep-num">EP ' + String(e.n).padStart(2, "0") + '</span></span>' +
+          '<span class="gz-ep-title od-truncate">' + esc(e.name) + '</span>' +
+          '<span class="gz-ep-meta"><span class="od-nowrap">' + e.res + '</span>' + tag + '</span>' +
+          '</button>';
+      }).join("");
+      var more = w.eps > 24 ? '<button class="gz-btn block" data-action="more-eps" style="margin-top:12px">查看全部 ' + w.eps + ' 集</button>' : "";
+      var continueBtn = w.progress
+        ? '<button class="gz-btn primary" data-play="' + w.id + '" data-ep="' + w.progress.ep + '">' + icon("play", "sm") + '继续观看 · 第 ' + w.progress.ep + ' 集</button>'
+        : canPlay ? '<button class="gz-btn primary" data-play="' + w.id + '" data-ep="1">' + icon("play", "sm") + '开始播放</button>'
+        : '<button class="gz-btn" aria-disabled="true">' + icon("play", "sm") + '无本地文件</button>';
+      $('#detailBody').innerHTML =
+        '<div class="gz-detail-hero">' + cover +
+          '<div><span class="gz-eyebrow od-truncate">' + esc(w.type) + ' · ' + w.year + '</span>' +
+            '<h1 class="gz-detail-title od-keep">' + esc(w.title) + '</h1>' +
+            '<div class="gz-meta od-truncate">' + esc(w.sub) + '</div>' +
+            '<div class="od-row" style="--od-gap:10px;margin-top:8px"><span class="gz-rating"><b>' + w.web.toFixed(1) + '</b><span>网络评分</span></span><span class="gz-badge">' + esc(w.status) + '</span></div>' +
+            '<div class="gz-tags">' + w.tags.map(function (t) { return '<span class="gz-tag">' + esc(t) + '</span>'; }).join("") + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="margin-top:16px">' + continueBtn + '</div>' +
+        (w.progress ? '<div class="gz-progress-line" style="margin-top:10px"><span style="--v:' + w.progress.pct + '%"></span></div><div class="gz-quiet" style="margin-top:6px">上次观看：第 ' + w.progress.ep + ' 集 · ' + w.progress.pct + '%</div>' : "") +
+        (w.local === 0 ? '<div class="gz-note warn" style="margin-top:14px">' + icon("warn", "sm") + '<span>库中没有可播放的本地文件。请先添加来源或重新扫描。</span></div>' : "") +
+        '<section class="gz-section"><p class="od-clamp-3" style="margin:0;color:var(--muted);font-size:14px">' + esc(w.desc) + '</p></section>' +
+        '<section class="gz-panel" style="margin-top:20px"><div class="gz-section-head"><h2 class="gz-h2">元数据识别</h2><span class="gz-badge ok">已匹配</span></div>' +
+          '<p class="gz-meta" style="margin:0 0 10px">当前匹配：<strong style="color:var(--text)">' + esc(w.title) + '</strong> · 来源 Bangumi（含授权状态登记）</p>' +
+          '<div class="od-row" style="--od-gap:8px"><button class="gz-btn ghost" data-action="rematch">重新识别</button><button class="gz-btn ghost" data-action="manual">手动选择</button></div>' +
+        '</section>' +
+        '<section class="gz-section"><div class="gz-section-head"><h2 class="gz-h2">分集与文件</h2><span class="gz-quiet">共 ' + w.eps + ' 集 · 库中 ' + w.local + ' 集</span></div>' +
+          '<div class="gz-epgrid">' + epCards + '</div>' + more + '</section>' +
+        '<section class="gz-section"><h2 class="gz-h2" style="margin-bottom:12px">作品信息</h2>' +
+          '<dl class="gz-dl">' +
+            dl("原名", w.sub) + dl("类型", w.type) + dl("年份", String(w.year)) + dl("连载", w.status) +
+            dl("同步时间", "2026-09-27 14:16") + dl("数据来源", "Bangumi · 设计演示数据") +
+          '</dl></section>' +
+        '<section class="gz-section"><div class="gz-section-head"><h2 class="gz-h2">制作人员与角色</h2><span class="gz-quiet">图像授权待确认</span></div>' +
+          '<div class="gz-credits">' +
+            credit("../assets/characters/character-1.png", "芙莉莲", "魔法使") +
+            credit("../assets/characters/character-2.png", "费伦", "魔法使") +
+            credit("../assets/characters/character-3.png", "修塔尔克", "战士") +
+            credit("../assets/characters/character-4.png", "欣梅尔", "勇者") +
+            credit("../assets/characters/character-5.png", "海塔", "僧侣") +
+            credit("../assets/characters/character-6.png", "艾森", "战士") +
+          '</div>' +
+          '<p class="gz-quiet" style="margin:12px 0 0">角色图像为本地设计演示素材，来源与授权未确认，不得随产品发布。</p>' +
+        '</section>';
+    }
+    function dl(k, v) { return '<div><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>'; }
+    function credit(src, name, role) { return '<div class="gz-credit"><img src="' + src + '" width="84" height="114" alt="' + esc(name) + ' 角色图" loading="lazy"><b>' + esc(name) + '</b><span>' + esc(role) + '</span></div>'; }
+    function posterPos(p) { return ({ p1: "12% 20%", p2: "46% 30%", p3: "78% 18%", p4: "24% 62%", p5: "62% 70%", p6: "88% 52%" })[p] || "50% 30%"; }
+
+    function isUnsupported(w, ep) { return w.id === "jujutsu" && ep === 11; }
+    function episodesFor(w) {
+      if (w.eps === 1) {
+        return [{ n: 1, name: w.type === "电影" ? "正片" : "第 1 集", local: w.local > 0, res: "4K", watched: false, unsupported: false }];
+      }
+      var list = [];
+      for (var i = 1; i <= w.eps; i++) {
+        list.push({ n: i, name: "第 " + i + " 集", local: i <= w.local, res: i % 5 === 0 ? "4K" : "1080p", watched: w.progress ? i < w.progress.ep : false, unsupported: isUnsupported(w, i) });
+      }
+      return list;
+    }
+
+    function renderExplore() { $('#exploreBody').innerHTML = futureScreen("search", "探索", "发现页、本季日程与关键词搜索为后续扩展。", "对应能力 EXPLORE-001/002/006 均为 NEW_REQUIRED，路线图未覆盖，本版不提供可用入口。"); }
+    function renderBookshelf() { $('#bookshelfBody').innerHTML = futureScreen("list", "书架", "漫画、轻小说、画集与小说的阅读管理为后续扩展。", "对应能力 BOOKSHELF-001 读取已有；内置阅读器 PLAYER-002 为 NEW_REQUIRED，本版仅预留入口。"); }
+    function futureScreen(ic, title, sub, note) {
+      return emptyState(ic, title + " · 即将推出", sub, "") +
+        '<div class="gz-note" style="margin-top:8px">' + icon("info", "sm") + '<span>' + esc(note) + '</span></div>' +
+        '<div style="margin-top:16px"><button class="gz-btn block" data-back>返回</button></div>';
+    }
+
+    /* ---------------- player ---------------- */
+    var player = { work: null, ep: 1, playing: true, pct: 0, dur: 1440, speed: 1, audio: "日语原声", sub: "关闭", offset: 0, landscape: false, unsupported: false, timer: null };
+    var SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+    var AUDIOS = ["日语原声", "中文配音", "评论音轨"];
+    var SUBS = [["关闭", "不显示字幕", true], ["内嵌 · 简体中文", "来自容器内嵌轨", true], ["内嵌 · 繁體中文", "来自容器内嵌轨", true], ["外挂 · frieren.zh.ass", "本地外部字幕文件", false]];
+
+    function openPlayer(workId, ep) {
+      var w = byId[workId]; if (!w) return;
+      if (w.local === 0) { toast("该作品没有可播放的本地文件", "err"); return; }
+      clearOverlay();
+      player.work = w; player.ep = ep || 1; player.playing = true; player.pct = ep === (w.progress ? w.progress.ep : -1) ? (w.progress.pct / 100) : 0;
+      player.unsupported = isUnsupported(w, player.ep);
+      player.sub = "关闭"; player.offset = 0; player.audio = "日语原声";
+      var el = $('#player'); el.hidden = false; requestAnimationFrame(function () { el.classList.add("open"); });
+      updatePlayerUI();
+      if (player.playing && !player.unsupported) startTicker();
+      announceNative();
+    }
+    function closePlayer() { stopTicker(); clearOverlay(); var el = $('#player'); el.classList.remove("open", "landscape"); el.hidden = true; player.landscape = false; }
+    function updatePlayerUI() {
+      var w = player.work; if (!w) return;
+      var eps = episodesFor(w);
+      var maxEp = w.eps;
+      $('#pTitle').textContent = w.title;
+      $('#pSub').textContent = w.eps === 1 ? (w.type + " · 正片") : ("第 " + player.ep + " / " + maxEp + " 集");
+      $('#pInfoTitle').textContent = w.title + (w.eps === 1 ? "" : " · 第 " + player.ep + " 集");
+      var cur = Math.round(player.pct * player.dur);
+      $('#pCur').textContent = fmt(cur); $('#pDur').textContent = fmt(player.dur);
+      $('#pSeek').value = String(Math.round(player.pct * 1000));
+      $('#pSpeedLabel').textContent = player.speed.toFixed(player.speed % 1 === 0 ? 1 : 2) + "×";
+      $('#pAudioLabel').textContent = player.audio.split(" ")[0];
+      $('#pSubLabel').textContent = player.sub === "关闭" ? "字幕" : player.sub.split(" · ")[1] || "字幕";
+      $('#pPlayBtn').innerHTML = player.playing ? ICON.pause : ICON.play;
+      $('#pUnsupported').classList.toggle("on", player.unsupported);
+    }
+    function fmt(s) { s = Math.max(0, Math.round(s)); var m = Math.floor(s / 60), ss = s % 60; return String(m).padStart(2, "0") + ":" + String(ss).padStart(2, "0"); }
+    function togglePlay() { if (player.unsupported) { toast("此编码不受支持，无法播放", "err"); return; } player.playing = !player.playing; updatePlayerUI(); if (player.playing) startTicker(); else stopTicker(); }
+    function startTicker() {
+      stopTicker();
+      player.timer = setInterval(function () {
+        if (player.unsupported) return;
+        player.pct = Math.min(1, player.pct + 0.004);
+        if (player.pct >= 1) { stopTicker(); player.playing = false; }
+        updatePlayerUI();
+      }, 500);
+    }
+    function stopTicker() { if (player.timer) { clearInterval(player.timer); player.timer = null; } }
+    function step(delta) { player.pct = Math.min(1, Math.max(0, player.pct + delta / player.dur)); updatePlayerUI(); }
+    function switchEp(d) {
+      var maxEp = player.work.eps; var n = player.ep + d;
+      if (n < 1 || n > maxEp) { toast(n < 1 ? "已经是第一集" : "已经是最后一集"); return; }
+      player.ep = n; player.pct = 0; player.unsupported = isUnsupported(player.work, n); updatePlayerUI();
+      toast("已切换到第 " + n + " 集");
+    }
+    function announceNative() {
+      // Android 桥：通知原生播放器装载媒体（示例契约）
+      try { window.dispatchEvent(new CustomEvent("genzo:player-load", { detail: { workId: player.work.id, episode: player.ep, uri: "", audio: player.audio, subtitle: player.sub } })); } catch (e) {}
+    }
+
+    /* ---------------- overlays: sheet / dialog / toast ---------------- */
+    var host = $('#overlayHost');
+    var pvHost = $('#playerOverlayHost');
+    var overlay = null;
+    var closeIcon = '<span class="gz-ic">' + ICON.back + '</span>';
+    function clearOverlay() { if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay); overlay = null; }
+    function openSheet(title, bodyHTML, target) {
+      clearOverlay();
+      overlay = document.createElement("div");
+      overlay.innerHTML = '<div class="gz-scrim"></div><div class="gz-sheet" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><div class="gz-sheet-head"><h2>' + esc(title) + '</h2><button class="gz-iconbtn" aria-label="关闭" data-ov="close">' + closeIcon + '</button></div><div class="gz-sheet-body">' + bodyHTML + '</div></div>';
+      (target || host).appendChild(overlay);
+      requestAnimationFrame(function () { var s = overlay.querySelector(".gz-scrim"), sh = overlay.querySelector(".gz-sheet"); if (s) s.classList.add("show"); if (sh) sh.classList.add("show"); });
+    }
+    function openDialog(innerHTML) {
+      clearOverlay();
+      overlay = document.createElement("div");
+      overlay.innerHTML = '<div class="gz-scrim"></div><div class="gz-dialog" role="dialog" aria-modal="true">' + innerHTML + '</div>';
+      host.appendChild(overlay);
+      requestAnimationFrame(function () { var s = overlay.querySelector(".gz-scrim"), d = overlay.querySelector(".gz-dialog"); if (s) s.classList.add("show"); if (d) d.classList.add("show"); });
+    }
+    function toast(msg, kind) {
+      var pl = document.getElementById("player");
+      var target = (pl && pl.classList.contains("open")) ? pvHost : host;
+      var t = document.createElement("div"); t.className = "gz-toast" + (kind === "err" ? " err" : "");
+      t.setAttribute("role", "status"); t.textContent = msg; target.appendChild(t);
+      requestAnimationFrame(function () { t.classList.add("show"); });
+      setTimeout(function () { t.classList.remove("show"); setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 260); }, 2200);
+    }
+    document.addEventListener("click", function (e) {
+      if (e.target.classList.contains("gz-scrim") || e.target.closest("[data-ov='close']")) { clearOverlay(); }
+    }, true);
+
+    var SHEET_BUILDERS = {
+      "sheet-speed": function () {
+        openSheet("播放速度", SPEEDS.map(function (s) {
+          return '<button class="gz-option" data-action="set-speed" data-value="' + s + '" aria-selected="' + (s === player.speed) + '"><span>' + s.toFixed(s % 1 === 0 ? 1 : 2) + '×</span><span class="gz-check">' + icon("check", "sm") + '</span></button>';
+        }).join(""), pvHost);
+      },
+      "sheet-audio": function () {
+        openSheet("音轨", AUDIOS.map(function (a) {
+          return '<button class="gz-option" data-action="set-audio" data-value="' + esc(a) + '" aria-selected="' + (a === player.audio) + '"><span>' + esc(a) + '</span><span class="gz-check">' + icon("check", "sm") + '</span></button>';
+        }).join(""), pvHost);
+      },
+      "sheet-sub": function () {
+        var subBody = SUBS.map(function (s) {
+          var off = !s[2];
+          return '<button class="gz-option" data-action="set-sub" data-value="' + esc(s[0]) + '" aria-selected="' + (s[0] === player.sub) + '">' +
+            '<span class="od-stack" style="--od-gap:2px"><span>' + esc(s[0]) + '</span><span class="gz-option-sub">' + esc(s[1]) + (off ? " · 未找到，需手动加载" : "") + '</span></span>' +
+            '<span class="gz-check">' + icon("check", "sm") + '</span></button>';
+        }).join("");
+        var offset = player.sub === "关闭" ? "" :
+          '<div class="gz-divider"></div><div class="od-row" style="--od-gap:10px;margin-top:12px"><span class="od-fill">字幕偏移</span>' +
+          '<button class="gz-chip" data-action="sub-offset" data-value="-1">-0.5s</button><span class="gz-num od-nowrap" style="min-width:64px;text-align:center">' + (player.offset > 0 ? "+" : "") + player.offset.toFixed(1) + 's</span>' +
+          '<button class="gz-chip" data-action="sub-offset" data-value="1">+0.5s</button></div>';
+        var miss = '<div class="gz-note" style="margin-top:12px">' + icon("warn", "sm") + '<span>未在内嵌轨中找到匹配语言，可加载本地外挂字幕文件。</span></div>';
+        openSheet("字幕", subBody + miss + offset, pvHost);
+      },
+      "sheet-eps": function () {
+        var w = player.work; var eps = episodesFor(w).slice(0, w.eps > 24 ? 24 : w.eps);
+        openSheet("分集 · 共 " + w.eps + " 集", eps.map(function (e) {
+          var dis = !e.local || e.unsupported;
+          return '<button class="gz-option" ' + (dis ? 'aria-disabled="true"' : 'data-action="set-ep" data-value="' + e.n + '"') + ' aria-selected="' + (e.n === player.ep) + '">' +
+            '<span class="od-stack" style="--od-gap:2px"><span>' + esc(e.name) + '</span><span class="gz-option-sub">' + e.res + (e.unsupported ? " · 不支持" : !e.local ? " · 无本地文件" : "") + '</span></span>' +
+            '<span class="gz-check">' + icon("check", "sm") + '</span></button>';
+        }).join(""), pvHost);
+      }
+    };
+
+    function handleAction(action, el) {
+      switch (action) {
+        case "more-eps": toast("已展示前 24 集（示例）"); break;
+        case "clear-filter": state.libraryFilter = "全部"; state.libraryQuery = ""; renderLibrary(); break;
+        case "rematch": toast("已请求重新识别（示例）"); break;
+        case "manual": navigate("/inbox"); break;
+        case "toggle-fav": {
+          var w = byId[state.detailId]; w.fav = !w.fav; renderDetail(); toast(w.fav ? "已加入收藏" : "已取消收藏");
+          break;
+        }
+        case "add-source": openSourceDialog(); break;
+        case "source-toggle": {
+          var s = SOURCES.filter(function (x) { return x.id === el.getAttribute("data-id"); })[0];
+          if (s.future) { toast("远程来源为 Future，暂不可用", "err"); break; }
+          s.status = s.status === "off" ? "ok" : "off"; s.label = s.status === "ok" ? "已启用" : "已停用"; renderSources(); break;
+        }
+        case "source-check": toast("来源连接正常（示例）"); break;
+        case "source-auth": toast("授权流程未实现 · Future", "err"); break;
+        case "source-scan": startScan(); navigate("/sources"); break;
+        case "source-delete": confirmDialog("删除来源？", "将移除该来源及其索引记录，不会删除你的原始文件。", "删除", function () { var i = SOURCES.map(function (x) { return x.id; }).indexOf(el.getAttribute("data-id")); if (i >= 0) SOURCES.splice(i, 1); renderSources(); toast("已删除来源"); }); break;
+        case "scan-start": startScan(); break;
+        case "scan-retry": toast("正在重试失败项（示例）"); break;
+        case "inbox-open": state.inboxOpen = el.getAttribute("data-key"); renderInbox(); break;
+        case "inbox-close": state.inboxOpen = null; renderInbox(); break;
+        case "scrape-open": toast("刮削候选：" + el.getAttribute("data-key") + "（示例）"); break;
+        case "confirm-cand": el.parentNode.querySelectorAll(".gz-option").forEach(function (o) { o.setAttribute("aria-selected", o === el ? "true" : "false"); }); break;
+        case "confirm-match": state.inboxOpen = null; renderInbox(); toast("已确认匹配 · 写入元数据（示例）"); break;
+        case "inbox-help": toast("批量整理为后续能力（Future）"); break;
+        case "state": openState(el.getAttribute("data-value")); break;
+        case "state-perm-settings": toast("已请求跳转系统权限设置（示例）"); break;
+        case "state-pick-sub": toast("已打开文件选择器，可加载 .ass / .srt 外挂字幕（示例）"); break;
+        case "state-sub-offset": toast("字幕偏移调整（示例）"); break;
+        case "theme": setTheme(el.getAttribute("data-value")); break;
+        case "set-speed": player.speed = parseFloat(el.getAttribute("data-value")); clearOverlay(); updatePlayerUI(); toast("播放速度 " + player.speed + "×"); break;
+        case "set-audio": player.audio = el.getAttribute("data-value"); clearOverlay(); updatePlayerUI(); toast("音轨：" + player.audio); break;
+        case "set-sub": player.sub = el.getAttribute("data-value"); clearOverlay(); updatePlayerUI(); toast(player.sub === "关闭" ? "字幕已关闭" : "字幕：" + player.sub); break;
+        case "sub-offset": player.offset = Math.round((player.offset + parseFloat(el.getAttribute("data-value")) * 0.5) * 10) / 10; SHEET_BUILDERS["sheet-sub"](); break;
+        case "set-ep": player.ep = parseInt(el.getAttribute("data-value"), 10); player.pct = 0; player.unsupported = false; clearOverlay(); updatePlayerUI(); toast("已切换到第 " + player.ep + " 集"); break;
+        case "external": toast("已请求用外部工具打开（示例）"); break;
+      }
+    }
+    function startScan() {
+      if (SCAN.state === "running") return;
+      SCAN.state = "running"; SCAN.progress = 0; renderSources();
+      var iv = setInterval(function () {
+        SCAN.progress += 12;
+        if (SCAN.progress >= 100) {
+          clearInterval(iv);
+          SCAN.state = "error"; SCAN.discovered = 312; SCAN.added = 6; SCAN.updated = 18; SCAN.missing = 3;
+          renderSources(); toast("扫描完成，但有 2 项失败", "err");
+        } else { renderSources(); }
+      }, 260);
+    }
+    function openSourceDialog() {
+      openDialog(
+        '<h2 style="margin:0 0 6px;font-size:18px">添加来源</h2>' +
+        '<p class="gz-quiet" style="margin:0 0 14px">本地目录为已实现能力；WebDAV 与网盘为 Future，仅演示表单与错误态。</p>' +
+        '<div class="gz-field"><label for="srcType">来源类型 <span class="req">*</span></label><select id="srcType"><option>本地目录</option><option>WebDAV（Future）</option><option>网盘（Future）</option></select></div>' +
+        '<div class="gz-field" id="pathField"><label for="srcPath">目录路径 <span class="req">*</span></label><input id="srcPath" placeholder="例如 D:\\Media\\Anime"><span class="hint">仅索引路径，不移动或修改你的文件。</span></div>' +
+        '<div class="gz-field" id="authField" hidden><label>服务器地址</label><input placeholder="https://dav.example.com/anime"><span class="hint">凭据由系统安全存储；当前版本未实现。</span></div>' +
+        '<div class="gz-field" id="permNote" hidden><div class="gz-note err">' + icon("warn", "sm") + '<span>授权被拒绝：需要「所有文件访问」权限才能索引该目录。</span></div></div>' +
+        '<div class="od-row" style="--od-gap:8px;margin-top:6px"><button class="gz-btn primary od-fill" data-ov="submit-source">保存</button><button class="gz-btn ghost" data-ov="close">取消</button></div>'
+      );
+      var sel = $("#srcType"), pathField = $("#pathField"), authField = $("#authField");
+      sel.addEventListener("change", function () {
+        var remote = sel.value.indexOf("Future") >= 0;
+        pathField.hidden = remote; authField.hidden = !remote;
+      });
+      var submit = overlay.querySelector("[data-ov='submit-source']");
+      submit.addEventListener("click", function () {
+        var path = $("#srcPath"), invalid = false;
+        if (!backendRemote(sel.value)) {
+          if (!path.value.trim()) { path.parentNode.classList.add("invalid"); invalid = true; }
+          else { path.parentNode.classList.remove("invalid"); }
+          if (path.value.trim().toUpperCase().indexOf("C:") === 0) { $("#permNote").hidden = false; invalid = true; }
+        }
+        if (invalid && !$("#permNote").hidden) { toast("无法访问该目录：权限被拒绝", "err"); return; }
+        clearOverlay(); toast(backendRemote(sel.value) ? "远程来源为 Future，未保存" : "已添加本地目录（示例）", backendRemote(sel.value) ? "err" : "");
+      });
+    }
+    function backendRemote(v) { return v.indexOf("Future") >= 0; }
+    function confirmDialog(title, text, okText, onOk) {
+      openDialog('<h2 style="margin:0 0 8px;font-size:18px">' + esc(title) + '</h2><p class="gz-meta" style="margin:0 0 16px">' + esc(text) + '</p>' +
+        '<div class="od-row" style="--od-gap:8px"><button class="gz-btn danger od-fill" data-ov="ok">' + esc(okText) + '</button><button class="gz-btn ghost" data-ov="close">取消</button></div>');
+      overlay.querySelector("[data-ov='ok']").addEventListener("click", function () { clearOverlay(); onOk(); });
+    }
+
+    var STATES = {
+      empty: function () { return emptyState("library", "空列表", "这里还没有内容。添加来源或调整筛选后再试。", '<button class="gz-btn" data-action="add-source">添加来源</button>'); },
+      long: function () { return '<div class="gz-row-card"><span class="gz-row-icon">' + ICON.folder + '</span><span class="gz-row-main"><span class="gz-row-title od-truncate">辉夜大小姐想让我告白～天才们的恋爱头脑战～ 第 3 季 第 11 集 特别篇</span><span class="gz-row-sub od-truncate">D:\\Media\\Anime\\Kaguya-sama wa Kokurasetai S3\\[SubsPlease] Kaguya-sama - 11 (1080p) [F8A2C1].mkv</span></span></div><p class="gz-quiet" style="margin-top:10px">列表内长标题与长路径截断，详情页完整展示；不产生 1–2 字孤行。</p>'; },
+      missing: function () { return '<div style="width:120px">' + posterHTML({ poster: "missing", type: "电视剧" }) + '</div><p class="gz-quiet" style="margin-top:10px">缺图时使用虚线占位并标注文字，不出现灰块或破图。</p>'; },
+      permission: function () { return '<div class="gz-note err">' + icon("warn", "sm") + '<span><strong>授权被拒绝</strong><br>需要「所有文件访问」权限才能索引该目录。前往系统设置授权后重试。</span></div><button class="gz-btn" style="margin-top:12px" data-action="state-perm-settings">前往系统设置</button>'; },
+      auth: function () { return '<div class="gz-note err">' + icon("warn", "sm") + '<span><strong>鉴权失败</strong><br>WebDAV 凭据已过期或被服务器拒绝（401）。请重新输入账号或应用密码。</span></div><button class="gz-btn" style="margin-top:12px" data-action="source-auth" data-id="w">重新登录</button>'; },
+      scanfail: function () { return '<div class="gz-panel">' + scanPanel() + '</div>'; },
+      nosub: function () { return '<div class="gz-note warn">' + icon("warn", "sm") + '<span><strong>未找到字幕</strong><br>该视频没有内嵌字幕轨，也未在目录中发现同名字幕文件。可手动加载 .ass / .srt 外挂字幕，或调整字幕偏移。</span></div><div class="od-row" style="--od-gap:8px;margin-top:12px"><button class="gz-btn ghost od-fill" data-action="state-pick-sub">加载外挂字幕</button><button class="gz-btn ghost" data-action="state-sub-offset">字幕偏移</button></div>'; },
+      unsupported: function () { return '<div class="gz-note err">' + icon("warn", "sm") + '<span><strong>播放不支持</strong><br>文件编码或封装不被当前设备解码器支持（示例：HEVC 10bit + DTS）。可用外部工具打开，或转码后再播放。</span></div><button class="gz-btn ghost" style="margin-top:12px" data-action="external">用外部工具打开</button>'; },
+      offline: function () { return emptyState("offline", "当前离线", "远程来源的内容暂不可用，已缓存的本地内容仍可浏览与播放。", "") + '<div class="gz-note" style="margin-top:8px">' + icon("info", "sm") + '<span>恢复网络后会自动重新校验远程来源。</span></div>'; }
+    };
+    function openState(id) {
+      var fn = STATES[id]; if (!fn) return;
+      openSheet("状态预览 · " + id, fn());
+    }
+
+    /* ---------------- theme ---------------- */
+    function setTheme(mode) {
+      state.theme = mode;
+      var resolved = mode === "system" ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : mode;
+      root.setAttribute("data-theme", resolved);
+      if (currentRoute() === "profile") renderProfile();
+      toast("主题：" + (mode === "system" ? "跟随系统" : mode === "light" ? "浅色" : "深色"));
+    }
+
+    /* ---------------- router ---------------- */
+    var TAB_ROUTES = ["home", "library", "favorites", "profile"];
+    function currentRoute() { var h = location.hash.replace(/^#\/?/, ""); return (h.split("/")[0] || "home"); }
+    function navigate(path) { location.hash = path; }
+    function goBack() { if (overlay) { clearOverlay(); return; } if ($("#player").classList.contains("open")) { closePlayer(); return; } if (history.length > 1) history.back(); else navigate("/home"); }
+    function renderRoute() {
+      clearOverlay();
+      var raw = location.hash.replace(/^#\/?/, ""); var parts = raw.split("/"); var route = parts[0] || "home"; var param = parts[1];
+      $$(".gz-screen").forEach(function (s) { s.classList.toggle("active", s.getAttribute("data-route") === route); });
+      if (route === "detail" && param) state.detailId = param;
+      if (route === "detail") renderDetail();
+      else if (route === "home") renderHome();
+      else if (route === "library") { state.libraryTab = "library"; renderLibrary(); }
+      else if (route === "favorites") renderFavorites();
+      else if (route === "profile") renderProfile();
+      else if (route === "sources") renderSources();
+      else if (route === "inbox") { state.libraryTab = "inbox"; state.inboxOpen = null; renderInbox(); }
+      else if (route === "explore") renderExplore();
+      else if (route === "bookshelf") renderBookshelf();
+      updateTabbar(route);
+      var body = $(".gz-screen.active .gz-body"); if (body) body.scrollTop = 0;
+    }
+    function updateTabbar(route) {
+      $$("#tabbar button").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-route") === route); });
+    }
+    function renderTabbar() {
+      var items = [["home", "首页", "home"], ["library", "媒体库", "library"], ["favorites", "收藏", "heart"], ["profile", "我的", "user"]];
+      $("#tabbar").innerHTML = items.map(function (t) {
+        return '<button data-route="' + t[0] + '" data-tab="' + t[0] + '" aria-label="' + t[1] + '">' + icon(t[2]) + '<span>' + t[1] + '</span></button>';
+      }).join("");
+    }
+
+    /* ---------------- global events ---------------- */
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      var nav = t.closest("[data-nav]"); if (nav) { navigate("/" + nav.getAttribute("data-nav")); return; }
+      var tab = t.closest("[data-tab]"); if (tab) { navigate("/" + tab.getAttribute("data-tab")); return; }
+      var back = t.closest("[data-back]"); if (back) { goBack(); return; }
+      var work = t.closest("[data-work]"); if (work) { navigate("/detail/" + work.getAttribute("data-work")); return; }
+      var play = t.closest("[data-play]"); if (play) { openPlayer(play.getAttribute("data-play"), parseInt(play.getAttribute("data-ep"), 10)); return; }
+      var filter = t.closest("[data-filter]"); if (filter) { state.libraryFilter = filter.getAttribute("data-filter"); renderLibrary(); return; }
+      var ff = t.closest("[data-ff]"); if (ff) { state.favoritesFilter = ff.getAttribute("data-ff"); renderFavorites(); return; }
+      var act = t.closest("[data-action]"); if (act) { handleAction(act.getAttribute("data-action"), act); return; }
+    });
+    var playerRoot = $("#player");
+    playerRoot.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-pctl]"); if (!b) return;
+      var p = b.getAttribute("data-pctl");
+      if (p === "close") closePlayer();
+      else if (p === "toggle") togglePlay();
+      else if (p === "prev") switchEp(-1);
+      else if (p === "next") switchEp(1);
+      else if (p === "back10") step(-10);
+      else if (p === "fwd10") step(10);
+      else if (p === "rotate") { player.landscape = !player.landscape; playerRoot.classList.toggle("landscape", player.landscape); }
+      else if (p === "more") toast("更多：截图 / 音画同步 / 投屏（示例）");
+      else if (p === "external") toast("已请求用外部工具打开（示例）");
+      else if (SHEET_BUILDERS[p]) SHEET_BUILDERS[p]();
+    });
+    var seek = $("#pSeek");
+    if (seek) seek.addEventListener("input", function () { player.pct = parseInt(seek.value, 10) / 1000; updatePlayerUI(); });
+    window.addEventListener("hashchange", renderRoute);
+    window.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { if (overlay) clearOverlay(); else if (playerRoot.classList.contains("open")) closePlayer(); }
+      else if ((e.key === " " || e.code === "Space") && playerRoot.classList.contains("open") && !/INPUT|TEXTAREA/.test((e.target.tagName || ""))) { e.preventDefault(); togglePlay(); }
+      else if (e.key === "ArrowRight" && playerRoot.classList.contains("open")) step(10);
+      else if (e.key === "ArrowLeft" && playerRoot.classList.contains("open")) step(-10);
+    });
+    // Android 系统返回：映射到历史后退 / 关闭覆盖层（接入时由原生 onBackPressed 转发同一处理）。
+    window.goBack = goBack;
+
+    /* ---------------- boot ---------------- */
+    renderTabbar();
+    var prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+    state.theme = "system";
+    root.setAttribute("data-theme", prefersLight ? "light" : "dark");
+    renderRoute();
+  })();
+  </script>
+</body>
+</html>

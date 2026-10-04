@@ -58,13 +58,27 @@ pub fn delete(id: &str) {
     let _ = unsafe { CredDeleteW(&target, CRED_TYPE_GENERIC, None) };
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "android")]
+pub fn save(id: &str, value: &Credentials) -> AppResult<()> {
+    crate::android_bridge::credential_call("saveCredentials", serde_json::json!({"id": id, "username": value.username, "password": value.password}))?;
+    Ok(())
+}
+#[cfg(target_os = "android")]
+pub fn read(id: &str) -> AppResult<Credentials> {
+    Ok(serde_json::from_value(crate::android_bridge::credential_call("readCredentials", serde_json::json!({"id": id}))?)?)
+}
+#[cfg(target_os = "android")]
+pub fn delete(id: &str) {
+    let _ = crate::android_bridge::credential_call("deleteCredentials", serde_json::json!({"id": id}));
+}
+
+#[cfg(not(any(windows, target_os = "android")))]
 pub fn save(_: &str, _: &Credentials) -> AppResult<()> {
     Err(AppError::System("当前凭据存储仅支持 Windows".into()))
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 pub fn read(_: &str) -> AppResult<Credentials> {
     Err(AppError::System("当前凭据存储仅支持 Windows".into()))
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 pub fn delete(_: &str) {}

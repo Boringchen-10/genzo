@@ -1,4 +1,6 @@
 mod anime_details;
+mod android_probe;
+mod android_bridge;
 mod anime_parser;
 mod bangumi;
 mod book_metadata;
@@ -46,6 +48,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(android_bridge::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let state = tauri::async_runtime::block_on(db::initialize(app.handle()))
@@ -70,6 +73,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            android_probe::android_probe,
+            android_bridge::android_native,
             comic_cover_cache::cache_comic_explore_cover,
             comic_explore::list_comic_explore,
             comic_explore::get_comic_explore_themes,

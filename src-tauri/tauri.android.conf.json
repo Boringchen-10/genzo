@@ -1,0 +1,9 @@
+{
+  "identifier": "com.genzo.android",
+  "app": {
+    "windows": [{ "title": "Genzo Android Prototype", "decorations": true, "transparent": false, "shadow": true, "windowEffects": null }]
+  },
+  "bundle": {
+    "android": { "minSdkVersion": 26 }
+  }
+}

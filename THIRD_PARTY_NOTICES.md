@@ -51,7 +51,13 @@ Genzo 的侧栏、首页媒体布局和主题实现基于 Seanime 的 GPLv3 界�
 
 `public/demo` 中的临时主题预览图片来自 Unsplash 图片服务，只能通过开发预览参数使用。正式应用界面不会加载这些图片；没有用户封面时使用 Genzo 自有的类型占位视觉。
 
-本项目未捆绑 VLC、mpv、PotPlayer、MPC-BE 等外部程序。自动检测仅检查用户机器上的典型安装路径。
+Windows 包不捆绑 VLC、mpv、PotPlayer、MPC-BE 等外部程序。自动检测仅检查用户机器上的典型安装路径。Android 的 LibVLC 依赖单独说明如下。
+
+## Android LibVLC
+
+安卓原型使用 VideoLAN 发布的 `org.videolan.android:libvlc-all:3.7.7` AAR，以 JNI / Java API 在进程内播放原始媒体。发布者 [Maven POM](https://repo.maven.apache.org/maven2/org/videolan/android/libvlc-all/3.7.7/libvlc-all-3.7.7.pom) 声明 LGPL-2.1，源码仓库为 [VideoLAN libvlcjni](https://code.videolan.org/videolan/libvlcjni)，核心源码为 [VLC](https://code.videolan.org/videolan/vlc)。Genzo 的集成代码继续使用 GPLv3；不移植上游播放器 UI、商标、Logo 或第三方媒体。
+
+最终公开分发前须归档与精确 AAR 构建匹配的核心 / JNI / 编解码依赖源码、许可证与构建说明，保留 LGPL 修改 / 重新链接要求；不能把 JNI sources.jar 当全部核心对应源码。本阶段仅生成本机 / 用户设备调试 APK，未做正式公开发布。包体与内核评估见 `docs/android/PLAYER_EVALUATION.md`。
 
 PotPlayer 进度适配使用其 Windows 消息协议及安装目录的 `CmdLine64.txt` 参数说明；接口常量核对自 [PotPlayerControl 的 InternalSimpleCmd.h](https://github.com/ld3l/PotPlayerControl/blob/main/InternalSimpleCmd.h)。适配器为独立 Rust 实现，未复制该项目的控制器实现、商标或素材，也未捆绑 PotPlayer。该接口在不同播放器版本中可能变化，连接或文件核对失败时保留旧进度。
 

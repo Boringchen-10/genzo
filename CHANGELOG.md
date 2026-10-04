@@ -4,7 +4,10 @@ Genzo 的重要变更记录在此文件中。格式参考 Keep a Changelog，版
 
 ## [Unreleased]
 
-暂无。安卓兼容性审查和后续规划不代表功能交付。
+### Added
+
+- 从 Windows v0.5.0 隔离开发的安卓能力验证工程：Tauri 2 / arm64、一加真机 SQLite / 缓存 / SAF 持久化、Android Keystore WebDAV 凭据适配和 LibVLC 3.7.7 原生播放原型。
+- Android Studio / D 盘构建脚本、可重复合成样本及真机 QA，OpenDesign 七项回应 / 桥接契约、内核评估与测试边界。此为未发布的调试原型，完整安卓媒体库 / WebDAV 播放与正式页面后续接入；Windows 已发布功能保留。
 
 ## [0.5.0] - 2026-10-03
 

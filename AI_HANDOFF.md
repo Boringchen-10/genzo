@@ -1,5 +1,21 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 安卓第一阶段：兼容性 / 真机原型 / 播放内核（2026-10-04）
+
+- 用户已明确启动安卓视频首版：媒体管理 / 应用内播放，本地 SAF + 用户 WebDAV，动漫 / 电影 / 电视剧；漫画 / 轻小说阅读后续。此前仅兼容性审查 / 伴侣客户端讨论已被此次用户范围更新。保留 Windows 已有功能。
+- 实际从发布 `v0.5.0` / `81b41d1ddb076cad784a9eb909fc147b2f3db538` 创建 `codex/android-first`；工作树 `H:\二次元阅读器\.tmp\android-first`。本地与 GitHub tag 对象 `82bc6d821c83b484fd9fc2782d69acc5c0535e15` / 解引用均核对，标签未移动。根目录 main 的 UI / 缓存 / OpenDesign 草稿等其他修改未纳入本分支，不覆盖它们。
+- 新增 `src-tauri/gen/android`，包名 `com.genzo.android` 与 Windows 分开；React 按 Android UA 进入明确标注的诊断原型。Windows 保留原 App / 配置，Rust 桌面凭据逻辑未改。
+- D 盘已有 SDK / NDK r27 / Java17 / Cargo / Gradle 可用；CLI2.11.4 / Rust Tauri2.11.5，Kotlin2.2.10 / AGP8.11.0 / Gradle8.14.3。构建 / cache / temp / 测试片均在 D 盘，代码 H 盘；脚本 `scripts/build-android.ps1`，中文路径 / 跨盘 Kotlin 增量问题已解决。
+- 真机已验证：OnePlus PLK110（用户的一加 15），Android16 API36 arm64、4 KiB 页。编译 / 安装 / 启动、Rust invoke、24 迁移与 SQLite integrity、强制停止后的 DB / 图片缓存 marker / Keystore AES-GCM 凭据、SAF 持久访问和未授权 URI 拒绝通过。用户报告已授权目录，最新实际 URI 为 Download/GenzoPrototype 子树；仅测试合成文件，未索引或读取其他真实视频内容。
+- LibVLC3.7.7 已作为首版主内核：合成 H264 MP4、H265 MKV，暂停 / seek / 1.5x、双 AAC 音轨、内嵌 ASS、外挂 SRT / ASS / SSA v4、偏移、方向、URI 哈希的原型续播通过。截图实际查看；缓冲完成状态不恢复的缺陷已修复并复测。字体附件 / 复杂特效 / HDR / 音频输出 / 远程业务仍未验收。没有转码或复制完整本地视频。
+- ZIP16K 与四个原生库 ELF LOAD0x4000 检查通过，只是静态检查，尚无16K设备实测。debug 原型 APK 不等于正式发行 / 最终包体。
+- 用户要求使用 Android Studio 方便查看，已重新显示工程；Studio实际日志确认 system/log 及 GradleJDK/syncTEMP在D。`build-android.ps1 -Studio` 保持 Tauri IDE桥，不关闭其后台命令就可继续Studio构建；本地配置传递 NDK 链接器等环境，`rustBuildArm64Debug` 实际通过。IDE用户配置小文件留原C位置，其余现有配置保留。启动错误定位为 IDE 安装 JAR CRC 损坏，已备份并从已校验官方安装包恢复，382 个 lib JAR CRC 检查通过。GUI Run 尚未记录为通过。
+- Windows 回归 `cargo test` 260通过 /14忽略 /0失败，包含存量迁移测试；前端72通过、TypeScript/Vite构建通过。手机暂只初始化基线库，不能声称手机历史库升级已验。QA脚本 / 结果位置见 `docs/android/VALIDATION.md`。
+- 已完整阅读 OpenDesign 手机 CODEX_PROMPT / HANDOFF / Token / 状态 / 导航 / 能力表，原件归档 `design/open-design/android-v1`（没有复制未授权角色资产）。七项回应与冻结桥接见 `docs/android/CODEX_RESPONSE.md`、`BRIDGE_CONTRACT_V1.md`；设计表旧 v0.1 判断不能覆盖实际v0.5.0。其 WebDAV Future 与用户范围冲突，按用户要求首版保留 WebDAV。正式页面 React，独立 native Activity 播放；用 Tauri invoke/listen，不新增手写JS接口。
+- **下一阶段未完成**：SAF递归来源 / 增量索引 / 任务 / 取消重试，接共享候选 / 纠错 / 刷新 / 收藏，稳定媒体ID SQLite观看记录 / 首页续播、自动字幕候选、WebDAV鉴权Range断线、正式OpenDesign页面 / 原生控件、主题安全区与错误流程。当前 `android_native` 是QA入口，不能被当正式业务API。
+- 第一阶段报告 / 包体依据：`docs/android/PLAYER_EVALUATION.md` 与 `VALIDATION.md`；Windows发布审查保留在 `docs/RELEASE_V0.5.0.md` / `ANDROID_BASELINE_V0.5.0.md`，后者是实现前快照，当前事实以上文与验证报告为准。版本仍保留发布基线号，无 Android 正式标签或公开Release。
+- 固定测试 APK：`D:\DevTools\Android\Build\artifacts\Genzo-android-stage1-arm64-debug.apk`，153,817,025 字节，SHA256 `3304df1fcd14372654319b72c7cd0d5021cf873d4880e8e6343dbf269e61dc03`，已重新安装并完成真机 QA。凭据 JS 读取拒绝检查也已通过。APK / 本机 QA 原始结果不入 Git，不能将原型当作完整安卓首版。
+
 ## Windows v0.5.0 发布准备（2026-10-03）
 
 - 发布分支 codex/release-v0.5.0，托管工作树 C:/Users/Administrator/.codex/worktrees/bookshelf-backend/二次元阅读器；主目录仍保留未完成草稿。已提交有效桌面集成 8297f4d、旧库兼容修复 68ea401 和用户指南 df147f4。
