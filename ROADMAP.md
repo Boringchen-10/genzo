@@ -1,5 +1,7 @@
 # Genzo 路线记录
 
+2026-10-05：个人同步 V1 已接入主目录的 `pnpm tauri dev` / `pnpm dev:desktop` 开发入口，桌面端可独立使用 WebDAV，无需等待 Android。保留现有 Windows 资料与界面草稿，Android 后续复用同一协议和 Rust 核心；正式设计、生产部署与双端验收继续分别推进。
+
 ## 当前实施：个人同步 V1（2026-10-04）
 
 1. 共用协议、样例、接口与测试夹具提交，供 Android 与 OpenDesign 接入。

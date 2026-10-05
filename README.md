@@ -8,7 +8,7 @@
 
 **当前正式版：Windows x64 v0.5.0。安卓版本尚未交付。**
 
-`codex/personal-sync-v1` 分支另提供 **0.6.0-alpha.1 个人 WebDAV 同步测试版**，已有共用 Rust 核心和 Windows 验证入口，尚未正式发布。测试版使用独立数据目录，不覆盖正式版资料；安装包、使用步骤和验证边界见 [同步 V1 验证记录](docs/SYNC_V1_VALIDATION.md)。安卓客户端接入和阿里云实际部署仍待验证。
+当前开发源码已接入 **0.6.0-alpha.1 个人 WebDAV 同步**，可在主目录通过 `pnpm tauri dev` 或 `pnpm dev:desktop` 使用，不依赖 Android 完成。尚未正式发布；另交付的测试安装包使用独立数据目录，而正常桌面开发入口沿用现有 Genzo 资料库。安装包、使用步骤和验证边界见 [同步 V1 验证记录](docs/SYNC_V1_VALIDATION.md)。安卓客户端接入和阿里云实际部署仍待验证。
 
 - [下载安装器 Genzo_0.5.0_x64-setup.exe](https://github.com/Boringchen-10/genzo/releases/download/v0.5.0/Genzo_0.5.0_x64-setup.exe)
 - [发行说明与全部附件](https://github.com/Boringchen-10/genzo/releases/tag/v0.5.0)
