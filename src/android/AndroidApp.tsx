@@ -268,7 +268,7 @@ export default function AndroidApp() {
   const [bookTab, setBookTab] = useState<"default" | "volume" | "chapter">("default");
   const [bookPage, setBookPage] = useState(1);
   const [bookQuery, setBookQuery] = useState("");
-  const [detailTab, setDetailTab] = useState<"overview" | "episodes" | "characters" | "related" | "staff">("overview");
+  const [detailTab, setDetailTab] = useState<"overview" | "episodes" | "characters" | "related" | "staff">("episodes");
   const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
   const [structureState, setStructureState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -385,7 +385,7 @@ export default function AndroidApp() {
     setBookEntryState("idle");
     setBookTab("default");
     setBookPage(1);
-    setDetailTab("overview");
+    setDetailTab("episodes");
     setStructure(null);
     setStructureState("idle");
     if (workId) void api.getWork(workId).then(work => {
@@ -452,8 +452,8 @@ export default function AndroidApp() {
     setQuery(tag); setFilter("all"); setLimit(48); navigate("library");
   };
   const detailTabs: { id: "overview" | "episodes" | "characters" | "related" | "staff"; label: string }[] = [
-    { id: "overview", label: "概览" },
     { id: "episodes", label: "剧集" },
+    { id: "overview", label: "概览" },
     { id: "characters", label: "角色" },
     { id: "related", label: "关联" },
     { id: "staff", label: "制作人员" },
