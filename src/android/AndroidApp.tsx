@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Download, Film, Filter, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, Network, Palette, Play, Plus, RefreshCw, Search, Settings, Shuffle, SlidersHorizontal, User, UserPlus, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Download, Film, Filter, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, User, UserPlus, X } from "lucide-react";
 import { api } from "../api";
 import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
@@ -261,7 +261,6 @@ export default function AndroidApp() {
   const [browseState, setBrowseState] = useState<"loading" | "available" | "empty" | "error">("loading");
   const [shelfType, setShelfType] = useState<"comic" | "novel">("comic");
   const [shelfSort, setShelfSort] = useState<"updated" | "collected" | "browsed">("updated");
-  const [shelfUpdated, setShelfUpdated] = useState(false);
   const [sortSheet, setSortSheet] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
@@ -420,7 +419,7 @@ export default function AndroidApp() {
   const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase())));
   const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
   const shelfSortOptions = [{ id: "updated" as const, label: "作品更新时间", hint: "按作品最近更新的时间排序" }, { id: "collected" as const, label: "收藏时间", hint: "按加入书架的时间排序" }, { id: "browsed" as const, label: "浏览时间", hint: "按最近浏览的时间排序" }];
-  const shelfWorks = allWorks.filter(work => work.type === shelfType).filter(work => !shelfUpdated || Date.parse(work.updatedAt) > Date.parse(work.createdAt)).sort((a, b) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const shelfWorks = allWorks.filter(work => work.type === shelfType).sort((a, b) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   const primary = route.startsWith("detail/") ? "library" : top ? route : "profile";
   const sourceManager = <>
     <p className="gz-meta">授权你已下载视频的目录。扫描只建立索引，不复制视频；停用来源保留作品和个人记录。</p>
@@ -542,8 +541,7 @@ export default function AndroidApp() {
           {([["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={shelfType === id} className={shelfType === id ? "active" : ""} onClick={() => { setShelfType(id); setLimit(48); }}>{label}</button>)}
         </div>
         <div className="gz-shelf-bar">
-          <button className={`gz-chip${shelfUpdated ? " active" : ""}`} aria-pressed={shelfUpdated} onClick={() => { setShelfUpdated(value => !value); setLimit(48); }}><Filter size={15} />有更新</button>
-          <button className="gz-chip gz-chip-plain" onClick={() => setSortSheet(true)}><Shuffle size={15} />换一换</button>
+          <button className="gz-chip" aria-haspopup="dialog" onClick={() => setSortSheet(true)}><Filter size={15} />有更新</button>
         </div>
         {shelfWorks.length ? <>
           <p className="gz-meta">共 {shelfWorks.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>
