@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:desktop": "tauri dev",
     "dev:e2e": "tauri dev --config src-tauri/tauri.e2e.conf.json",
     "build": "tsc -b && vite build",
     "check": "tsc -b",

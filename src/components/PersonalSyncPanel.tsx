@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { isTauri } from "@tauri-apps/api/core";
 import { personalSync, type Conflict, type SyncStatus } from "../personalSync";
 import { dataProvider } from "../data";
 import type { MediaFile, WorkListItem } from "../types";
@@ -7,6 +8,7 @@ import { getErrorMessage } from "../utils";
 import "./personal-sync.css";
 
 export function PersonalSyncPanel() {
+  const desktop = isTauri();
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [endpoint, setEndpoint] = useState("");
   const [username, setUsername] = useState("");
@@ -27,6 +29,7 @@ export function PersonalSyncPanel() {
     if (value.connected) setConflicts(await personalSync.conflicts());
   }, []);
   useEffect(() => {
+    if (!desktop) return;
     let stopped = false;
     void refresh().catch(e => setError(getErrorMessage(e)));
     let dispose: (() => void) | undefined;
@@ -34,7 +37,7 @@ export function PersonalSyncPanel() {
       if (!stopped) { setStatus(event.payload); if (!event.payload.running && event.payload.connected) void refresh().catch(e => setError(getErrorMessage(e))); }
     }).then(fn => { if (stopped) fn(); else dispose = fn; }).catch(() => {});
     return () => { stopped = true; dispose?.(); };
-  }, [refresh]);
+  }, [desktop, refresh]);
   useEffect(() => {
     if (status?.connected) void dataProvider.listWorks().then(list => setWorks(list.filter(w => w.type === "video"))).catch(e => setError(getErrorMessage(e)));
   }, [status?.connected]);
@@ -46,6 +49,7 @@ export function PersonalSyncPanel() {
   };
   const input = { endpoint, username, password, deviceName, allowLoopbackHttp: loopback };
   const blocked = busy || status?.running;
+  if (!desktop) return <section className="personal-sync-panel" aria-label="个人同步验证"><h2>个人同步 · 第一版</h2><p>浏览器预览没有本机数据库与安全凭据能力。请在项目目录运行 <code>pnpm tauri dev</code> 或 <code>pnpm dev:desktop</code>，在桌面窗口中使用 WebDAV 同步。</p></section>;
   return <section className="personal-sync-panel" aria-label="个人同步验证">
     <h2>个人同步 · 第一版</h2>
     <p className="quiet-inline">同步动漫、电影、电视剧的资料与个人记录。媒体文件、路径和密码保存在各设备。此处为功能验证入口。</p>
