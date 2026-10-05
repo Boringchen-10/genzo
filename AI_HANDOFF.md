@@ -2,6 +2,8 @@
 
 ## 本轮交接：主目录 pnpm 桌面 WebDAV 接入（2026-10-05）
 
+- 主目录同步源码提交：0dae95df479e2c39cc16f1e2e77625e0593c9dce（feat(sync): integrate verified WebDAV into desktop development）；本次后续交接提交仅记录已验证基线，不重建安装包。
+
 - 用户当前确认 Android 尚未完成，先在 Windows 开发入口使用 WebDAV。已将验证分支增量接入主目录 H:/二次元阅读器；Windows 可独立运行，不依赖 Android。pnpm tauri dev 与新增 pnpm dev:desktop 都启动真实桌面后端；单独 pnpm dev 仅浏览器预览，设置面板明确提示启动方式，不模拟同步或索取密码。
 - 来源基线 codex/personal-sync-v1 的 bce3678，新增 cf03f0e（桌面启动入口、浏览器提示与首页同步刷新）、6725d5e（Vite 生成目录监听修复及开发验证脚本）。共享核心/迁移未另造格式，推荐核心仍为 d10c551；协议/Android 接入文档与夹具一并纳入主目录。本次主目录提交只包含同步接入，不含其他进行中的设计/列表/详情/缓存草稿。
 - 原有草稿先逐文件备份并校验；共享页面仅增量插入同步刷新，暂存区从原提交的页面加同步改动构建，保留工作区其他修改。私人备份和 draft-preservation.json 在 artifacts/sync-dev-integration，均忽略、不上传。AI_HANDOFF 原有历史条目删除也保持为未提交草稿。
