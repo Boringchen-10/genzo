@@ -9,7 +9,7 @@ export default defineConfig({
     strictPort: true,
     host: "127.0.0.1",
     watch: {
-      ignored: ["**/src-tauri/target/**", "**/.tooling/**", "**/.pnpm-store/**"],
+      ignored: ["**/src-tauri/target/**", "**/crates/**/target/**", "**/artifacts/**", "**/.tmp/**", "**/.tooling/**", "**/.pnpm-store/**"],
     },
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
