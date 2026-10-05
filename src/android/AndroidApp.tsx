@@ -5,7 +5,7 @@ import { api } from "../api";
 import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
 import { playbackPercent, playbackTime, type PlaybackProgress } from "../playback";
-import { usePreferences } from "../store";
+import { usePreferences, type ThemeStyle } from "../store";
 import { androidApi, type VideoSource } from "./api";
 import AndroidPrototype from "./AndroidPrototype";
 import "./mobile.css";
@@ -20,16 +20,109 @@ const asset = (path: string | null | undefined) => path ? (/^(https?:|asset:|dat
 const routeFromHash = () => location.hash.slice(2) || "home";
 const bytes = (size: number) => size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(1)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
 const inputFor = (work: WorkDetail): WorkInput => ({ title: work.title, originalTitle: work.originalTitle, type: work.type, description: work.description, coverPath: work.coverPath, status: work.status, favorite: work.favorite, rating: work.rating, notes: work.notes, tags: work.tags });
-const hueToHex = (hue: number, dark: boolean) => {
-  const saturation = dark ? 0.48 : 0.66;
-  const lightness = dark ? 0.62 : 0.3;
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const hslToHex = (hue: number, sat: number, light: number) => {
+  const saturation = clamp(sat, 0, 100) / 100;
+  const lightness = clamp(light, 0, 100) / 100;
   const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
-  const section = hue / 60;
+  const section = (((hue % 360) + 360) % 360) / 60;
   const x = chroma * (1 - Math.abs((section % 2) - 1));
   const [red, green, blue] = section < 1 ? [chroma, x, 0] : section < 2 ? [x, chroma, 0] : section < 3 ? [0, chroma, x] : section < 4 ? [0, x, chroma] : section < 5 ? [x, 0, chroma] : [chroma, 0, x];
   const match = lightness - chroma / 2;
   return `#${[red, green, blue].map(channel => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`;
 };
+const hslToHsv = (hue: number, sat: number, light: number) => {
+  const saturation = clamp(sat, 0, 100) / 100;
+  const lightness = clamp(light, 0, 100) / 100;
+  const value = lightness + saturation * Math.min(lightness, 1 - lightness);
+  const hsvSat = value === 0 ? 0 : 2 * (1 - lightness / value);
+  return { h: hue, s: hsvSat * 100, v: value * 100 };
+};
+const hsvToHsl = (hue: number, sat: number, value: number) => {
+  const hsvSat = clamp(sat, 0, 100) / 100;
+  const hsvVal = clamp(value, 0, 100) / 100;
+  const lightness = hsvVal * (1 - hsvSat / 2);
+  const sl = lightness === 0 || lightness === 1 ? 0 : (hsvVal - lightness) / Math.min(lightness, 1 - lightness);
+  return { hue, sat: sl * 100, light: lightness * 100 };
+};
+const hsvToHex = (hue: number, sat: number, value: number) => {
+  const hsvSat = clamp(sat, 0, 100) / 100;
+  const hsvVal = clamp(value, 0, 100) / 100;
+  const chroma = hsvVal * hsvSat;
+  const section = (((hue % 360) + 360) % 360) / 60;
+  const x = chroma * (1 - Math.abs((section % 2) - 1));
+  const [red, green, blue] = section < 1 ? [chroma, x, 0] : section < 2 ? [x, chroma, 0] : section < 3 ? [0, chroma, x] : section < 4 ? [0, x, chroma] : section < 5 ? [x, 0, chroma] : [chroma, 0, x];
+  const match = hsvVal - chroma;
+  return `#${[red, green, blue].map(channel => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`;
+};
+const themeStyles: { id: ThemeStyle; label: string; sat: number; light: number; rainbow?: boolean }[] = [
+  { id: "soft", label: "柔和", sat: 1, light: 1 },
+  { id: "vivid", label: "鲜明", sat: 1.35, light: 1 },
+  { id: "expressive", label: "表现", sat: 1.55, light: 1.06 },
+  { id: "accurate", label: "准确", sat: 0.78, light: 0.96 },
+  { id: "content", label: "内容", sat: 1.1, light: 1 },
+  { id: "neutral", label: "中性", sat: 0.4, light: 1 },
+  { id: "mono", label: "黑白", sat: 0, light: 1 },
+  { id: "rainbow", label: "彩虹", sat: 1.4, light: 1.05, rainbow: true },
+];
+const presetSwatches = [
+  { hex: "#5a6b70", h: 194, s: 10, l: 40 },
+  { hex: "#0f9b8e", h: 174, s: 82, l: 33 },
+  { hex: "#3b6cf6", h: 224, s: 91, l: 60 },
+  { hex: "#2fa84f", h: 135, s: 56, l: 42 },
+  { hex: "#f5a623", h: 38, s: 91, l: 55 },
+  { hex: "#ef4b7c", h: 338, s: 84, l: 62 },
+  { hex: "#1f7ae0", h: 210, s: 76, l: 50 },
+  { hex: "#7b3ff2", h: 264, s: 87, l: 60 },
+  { hex: "#b23bd6", h: 287, s: 66, l: 54 },
+  { hex: "#14b8c4", h: 184, s: 82, l: 42 },
+  { hex: "#2e9e6b", h: 154, s: 55, l: 40 },
+  { hex: "#8bc34a", h: 88, s: 51, l: 53 },
+  { hex: "#f0a500", h: 41, s: 100, l: 47 },
+  { hex: "#f4522e", h: 12, s: 90, l: 57 },
+  { hex: "#2f6bff", h: 224, s: 100, l: 59 },
+];
+const rainbowGradient = "conic-gradient(from 0deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)";
+function ColorPicker({ hue, sat, light, onCancel, onConfirm }: { hue: number; sat: number; light: number; onCancel: () => void; onConfirm: (value: { hue: number; sat: number; light: number }) => void }) {
+  const initial = hslToHsv(hue, sat, light);
+  const [h, setH] = useState(Math.round(initial.h));
+  const [s, setS] = useState(clamp(initial.s, 0, 100));
+  const [v, setV] = useState(clamp(initial.v, 0, 100));
+  const ring = useRef<HTMLDivElement>(null);
+  const square = useRef<HTMLDivElement>(null);
+  const mode = useRef<"hue" | "sv" | null>(null);
+  const pickHue = (clientX: number, clientY: number) => {
+    const rect = ring.current?.getBoundingClientRect();
+    if (!rect) return;
+    const angle = Math.atan2(clientX - (rect.left + rect.width / 2), -(clientY - (rect.top + rect.height / 2))) * 180 / Math.PI;
+    setH(Math.round((angle + 360) % 360));
+  };
+  const pickSv = (clientX: number, clientY: number) => {
+    const rect = square.current?.getBoundingClientRect();
+    if (!rect) return;
+    setS(clamp((clientX - rect.left) / rect.width * 100, 0, 100));
+    setV(clamp((1 - (clientY - rect.top) / rect.height) * 100, 0, 100));
+  };
+  const end = () => { mode.current = null; };
+  const rad = h * Math.PI / 180;
+  return <div className="gz-scrim gz-scrim-center" onClick={onCancel}><section className="gz-sheet gz-picker" role="dialog" aria-modal="true" aria-label="自定义主题色" onClick={event => event.stopPropagation()}>
+    <p className="gz-meta">点击色盘选择自定义主题色</p>
+    <div className="gz-picker-ring" ref={ring} style={{ background: rainbowGradient }}
+      onPointerDown={event => { mode.current = "hue"; event.currentTarget.setPointerCapture(event.pointerId); pickHue(event.clientX, event.clientY); }}
+      onPointerMove={event => { if (mode.current === "hue") pickHue(event.clientX, event.clientY); }}
+      onPointerUp={end} onPointerCancel={end}>
+      <span className="gz-picker-hue" style={{ left: `${50 + 45 * Math.sin(rad)}%`, top: `${50 - 45 * Math.cos(rad)}%` }} aria-hidden="true" />
+      <div className="gz-picker-square" ref={square} style={{ background: `linear-gradient(to right, #fff, rgba(255,255,255,0)), linear-gradient(to top, #000, rgba(0,0,0,0)), hsl(${h} 100% 50%)` }}
+        onPointerDown={event => { event.stopPropagation(); mode.current = "sv"; event.currentTarget.setPointerCapture(event.pointerId); pickSv(event.clientX, event.clientY); }}
+        onPointerMove={event => { if (mode.current === "sv") pickSv(event.clientX, event.clientY); }}
+        onPointerUp={event => { event.stopPropagation(); end(); }} onPointerCancel={end}>
+        <span className="gz-picker-sv" style={{ left: `${s}%`, top: `${100 - v}%` }} aria-hidden="true" />
+      </div>
+    </div>
+    <output className="gz-picker-hex">{hsvToHex(h, s, v).toUpperCase()}</output>
+    <div className="gz-picker-actions"><button className="gz-btn" onClick={onCancel}>取消</button><button className="gz-btn primary" onClick={() => onConfirm(hsvToHsl(h, s, v))}>确定</button></div>
+  </section></div>;
+}
 
 const homeSections: { id: string; title: string; match: (work: WorkListItem) => boolean }[] = [
   { id: "anime", title: "动画", match: work => (work.category ?? work.type) === "anime" },
@@ -136,11 +229,27 @@ export default function AndroidApp() {
   const [filter, setFilter] = useState("all");
   const [limit, setLimit] = useState(48);
   const accentHue = usePreferences(state => state.accentHue);
+  const accentSat = usePreferences(state => state.accentSat);
+  const accentLight = usePreferences(state => state.accentLight);
+  const themeStyle = usePreferences(state => state.themeStyle);
+  const coverBrightness = usePreferences(state => state.coverBrightness);
+  const amoled = usePreferences(state => state.amoled);
+  const fontScale = usePreferences(state => state.fontScale);
+  const shadowScale = usePreferences(state => state.shadowScale);
   const glassBlur = usePreferences(state => state.glassBlur);
   const cornerRadius = usePreferences(state => state.cornerRadius);
   const setAccentHue = usePreferences(state => state.setAccentHue);
+  const setAccentSat = usePreferences(state => state.setAccentSat);
+  const setAccentLight = usePreferences(state => state.setAccentLight);
+  const setThemeStyle = usePreferences(state => state.setThemeStyle);
+  const setCoverBrightness = usePreferences(state => state.setCoverBrightness);
+  const setAmoled = usePreferences(state => state.setAmoled);
+  const setFontScale = usePreferences(state => state.setFontScale);
+  const setShadowScale = usePreferences(state => state.setShadowScale);
   const setGlassBlur = usePreferences(state => state.setGlassBlur);
   const setCornerRadius = usePreferences(state => state.setCornerRadius);
+  const resetAppearance = usePreferences(state => state.resetAppearance);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [modal, setModal] = useState<{ kind: "edit"; work: WorkDetail } | { kind: "organize"; group: UnassignedMediaGroup } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
@@ -148,13 +257,22 @@ export default function AndroidApp() {
   const scrollPositions = useRef<Record<string, number>>({});
   const refreshSequence = useRef(0);
   const dark = theme === "system" ? systemDark : theme === "dark";
+  const accentStyle = themeStyles.find(item => item.id === themeStyle) ?? { id: "soft" as ThemeStyle, label: "柔和", sat: 1, light: 1 };
+  const accentSatValue = clamp(accentSat * accentStyle.sat, 0, 100);
+  const accentLightValue = dark ? clamp(accentLight * accentStyle.light, 10, 92) : clamp(accentLight * accentStyle.light * 0.5, 12, 46);
+  const accentHex = hslToHex(accentHue, accentSatValue, accentLightValue);
   useEffect(() => {
     const node = rootRef.current;
     if (!node) return;
     node.style.setProperty("--accent-h", String(accentHue));
+    node.style.setProperty("--accent-s", `${accentSatValue}%`);
+    node.style.setProperty("--accent-l", `${accentLightValue}%`);
     node.style.setProperty("--ui-blur", `${glassBlur}px`);
     node.style.setProperty("--radius", `${cornerRadius}px`);
-  }, [accentHue, glassBlur, cornerRadius]);
+    node.style.setProperty("--cover-brightness", String(coverBrightness / 100));
+    node.style.setProperty("--shadow-scale", String(shadowScale));
+    node.style.fontSize = `${(16 * fontScale) / 100}px`;
+  }, [accentHue, accentSatValue, accentLightValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
   const title = top?.title || ({ sources: "来源管理", inbox: "待整理", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", appearance: "外观" }[route]) || "作品详情";
@@ -273,7 +391,7 @@ export default function AndroidApp() {
       {task && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : ["failed", "interrupted", "cancelled"].includes(task.stage) && <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
     </section>; })}
   </>;
-  return <div ref={rootRef} className="android-app" data-theme={dark ? "dark" : "light"}>
+  return <div ref={rootRef} className="android-app" data-theme={dark ? "dark" : "light"} data-amoled={amoled ? "true" : "false"}>
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
       {!top && <button className="gz-iconbtn gz-back" aria-label="返回" onClick={() => back()}><ArrowLeft /></button>}
       {error && <div className="gz-error" role="alert"><span>{error}</span><button className="gz-iconbtn" aria-label="关闭错误提示" onClick={() => setError("")}><X size={18} /></button></div>}
@@ -311,10 +429,36 @@ export default function AndroidApp() {
         <p className="gz-footer">Genzo · 基于 Windows v0.5.0 · GPLv3</p>
       </>}
       {route === "appearance" && <>
-        <Section title="主题"><div className="gz-seg" role="radiogroup" aria-label="主题">{(["dark", "light", "system"] as ThemeMode[]).map(mode => <button role="radio" aria-checked={theme === mode} key={mode} onClick={() => void run(async () => { await api.setSetting("theme", mode); setTheme(mode); })}>{({ dark: "深色", light: "浅色", system: "跟随系统" })[mode]}</button>)}</div></Section>
-        <Section title="主题色" action={<output className="gz-set-value">{hueToHex(accentHue, dark)}</output>}>
-          <div className="gz-accent-row"><span className="gz-swatch" style={{ background: `hsl(${accentHue} ${dark ? 48 : 66}% ${dark ? 62 : 30}%)` }} aria-hidden="true" /><input type="range" min={0} max={359} value={accentHue} aria-label="主题色" onChange={event => setAccentHue(Number(event.target.value))} /></div>
-          <p className="gz-meta">作为强调色，并整体调和界面底色、面板与描边的色相，让配色保持统一。</p>
+        <Section title="主题模式" action={<span className="gz-meta">{theme === "system" ? `跟随系统（当前${dark ? "深色" : "浅色"}）` : theme === "dark" ? "深色" : "浅色"}</span>}>
+          <div className="gz-field-row"><span className="gz-row-main"><strong>主题模式</strong><span className="gz-meta">深色 / 浅色 / 跟随系统</span></span><select className="gz-select" aria-label="主题模式" value={theme} onChange={event => void run(async () => { const mode = event.target.value as ThemeMode; await api.setSetting("theme", mode); setTheme(mode); })}><option value="system">系统</option><option value="dark">深色</option><option value="light">浅色</option></select></div>
+        </Section>
+        <Section title="暗色模式封面亮度" action={<output className="gz-set-value">{coverBrightness}%</output>}>
+          <input type="range" min={20} max={100} value={coverBrightness} aria-label="暗色模式封面亮度" onChange={event => setCoverBrightness(Number(event.target.value))} />
+          <p className="gz-meta">仅深色主题下调整封面亮度，数值越低封面越暗。</p>
+        </Section>
+        <Section title="主题风格">
+          <div className="gz-style-chips" role="radiogroup" aria-label="主题风格">{themeStyles.map(item => <button key={item.id} role="radio" aria-checked={themeStyle === item.id} className={`gz-style-chip ${themeStyle === item.id ? "active" : ""}`} onClick={() => setThemeStyle(item.id)}><span className={`gz-style-dot ${item.rainbow ? "rainbow" : ""}`} style={item.rainbow ? undefined : { background: hslToHex(accentHue, clamp(accentSat * item.sat, 0, 100), clamp(accentLight * item.light, 10, 92)) }} aria-hidden="true" />{item.label}</button>)}</div>
+          <p className="gz-meta">主题风格调整强调色的饱和与明度，与主题色共同决定整体配色气质。</p>
+        </Section>
+        <Section title="主题色" action={<output className="gz-set-value">{accentHex.toUpperCase()}</output>}>
+          <div className="gz-accent-row"><button className="gz-swatch" aria-label="打开取色盘" style={{ background: accentStyle.rainbow ? rainbowGradient : accentHex }} onClick={() => setPickerOpen(true)} /><span className="gz-meta">点击色盘选择自定义主题色</span></div>
+          <div className="gz-swatches">{presetSwatches.map(color => <button key={color.hex} className={`gz-swatch-sm ${accentHue === color.h ? "active" : ""}`} style={{ background: color.hex }} aria-label={`主题色 ${color.hex}`} onClick={() => { setAccentHue(color.h); setAccentSat(color.s); setAccentLight(color.l); }} />)}</div>
+        </Section>
+        <button type="button" className="gz-toggle-row" disabled>
+          <span className="gz-row-main"><strong>动态颜色</strong><span className="gz-meta">基于壁纸动态生成配色（Android 12+，待接入）</span></span>
+          <span className="gz-switch" aria-hidden="true"><span /></span>
+        </button>
+        <button type="button" role="switch" aria-checked={amoled} className="gz-toggle-row" onClick={() => setAmoled(!amoled)}>
+          <span className="gz-row-main"><strong>AMOLED 纯黑模式</strong><span className="gz-meta">在深色主题中使用纯黑背景</span></span>
+          <span className={`gz-switch ${amoled ? "active" : ""}`} aria-hidden="true"><span /></span>
+        </button>
+        <Section title="默认字体大小" action={<output className="gz-set-value">{fontScale}%</output>}>
+          <input type="range" min={85} max={130} value={fontScale} aria-label="默认字体大小" onChange={event => setFontScale(Number(event.target.value))} />
+          <p className="gz-meta">当前默认正文 16px，标题与辅助文字会按比例调整。</p>
+        </Section>
+        <Section title="统一阴影大小" action={<output className="gz-set-value">{shadowScale.toFixed(1)}</output>}>
+          <input type="range" min={0} max={3} step={0.1} value={shadowScale} aria-label="统一阴影大小" onChange={event => setShadowScale(Number(event.target.value))} />
+          <p className="gz-meta">统一调整卡片与面板的阴影强度，0 为关闭。</p>
         </Section>
         <Section title="玻璃与背景模糊" action={<output className="gz-set-value">{glassBlur}px</output>}>
           <input type="range" min={0} max={48} value={glassBlur} aria-label="玻璃与背景模糊" onChange={event => setGlassBlur(Number(event.target.value))} />
@@ -324,7 +468,7 @@ export default function AndroidApp() {
           <input type="range" min={0} max={24} value={cornerRadius} aria-label="圆角大小" onChange={event => setCornerRadius(Number(event.target.value))} />
           <p className="gz-meta">0 为直角，数值越大越圆润。</p>
         </Section>
-        <button className="gz-btn" onClick={() => { setAccentHue(158); setGlassBlur(24); setCornerRadius(8); }}>恢复默认外观</button>
+        <button className="gz-btn" onClick={resetAppearance}>恢复默认外观</button>
         <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
       </>}
       {route === "sources" && <>
@@ -356,5 +500,6 @@ export default function AndroidApp() {
     {toast && <div className="gz-toast" role="status">{toast}</div>}
     {busy && <div className="gz-busy" role="status"><LoaderCircle size={18} />正在处理…</div>}
     {modal && <div className="gz-scrim" onClick={() => setModal(null)}><section ref={sheet} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-dialog-title" onClick={event => event.stopPropagation()}><div className="gz-section-head"><h2 id="gz-dialog-title">{modal.kind === "edit" ? "个人记录" : "整理作品"}</h2><button className="gz-iconbtn" aria-label="关闭" onClick={() => setModal(null)}><X /></button></div>{error && <p className="gz-error" role="alert">{error}</p>}{modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { const updated = await api.updateWork(modal.work.id, input); setDetail(updated); await refresh(); setModal(null); setToast("个人记录已保存"); })} /> : <Organize group={modal.group} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}</section></div>}
+    {pickerOpen && <ColorPicker hue={accentHue} sat={accentSat} light={accentLight} onCancel={() => setPickerOpen(false)} onConfirm={value => { setAccentHue(Math.round(value.hue)); setAccentSat(Math.round(value.sat)); setAccentLight(Math.round(value.light)); setPickerOpen(false); }} />}
   </div>;
 }
