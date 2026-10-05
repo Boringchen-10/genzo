@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, BookOpen, Check, ChevronRight, CircleHelp, Compass, Film, Folder, Heart, Home, Inbox, Library, LoaderCircle, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Download, Film, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, User, UserPlus, X } from "lucide-react";
 import { api } from "../api";
 import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
@@ -54,6 +54,13 @@ function Empty({ title, children }: { title: string; children: React.ReactNode }
 }
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return <section className="gz-section"><div className="gz-section-head"><h2>{title}</h2>{action}</div>{children}</section>;
+}
+function MenuRow({ label, icon: Icon, subtitle, onClick, chevron = true, dot = false }: { label: string; icon: React.ComponentType<{ size?: number | string }>; subtitle?: string; onClick?: () => void; chevron?: boolean; dot?: boolean }) {
+  return <button type="button" className="gz-menu-row" onClick={onClick}>
+    <span className="gz-menu-iconwrap"><Icon size={22} />{dot && <span className="gz-menu-dot" aria-hidden="true" />}</span>
+    <span className="gz-menu-body"><strong>{label}</strong>{subtitle && <span className="gz-meta gz-truncate">{subtitle}</span>}</span>
+    {chevron && <ChevronRight className="gz-menu-arrow" size={18} aria-hidden="true" />}
+  </button>;
 }
 function WorkEditor({ work, onSave, busy }: { work: WorkDetail; onSave: (input: WorkInput) => void; busy: boolean }) {
   const [input, setInput] = useState(() => inputFor(work));
@@ -128,7 +135,6 @@ export default function AndroidApp() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [limit, setLimit] = useState(48);
-  const [profileTab, setProfileTab] = useState<"appearance" | "sources" | "provider">("appearance");
   const accentHue = usePreferences(state => state.accentHue);
   const glassBlur = usePreferences(state => state.glassBlur);
   const cornerRadius = usePreferences(state => state.cornerRadius);
@@ -151,7 +157,7 @@ export default function AndroidApp() {
   }, [accentHue, glassBlur, cornerRadius]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
-  const title = top?.title || ({ sources: "来源管理", inbox: "待整理", diagnostics: "开发验证", bookshelf: "书架", explore: "发现" }[route]) || "作品详情";
+  const title = top?.title || ({ sources: "来源管理", inbox: "待整理", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", appearance: "外观" }[route]) || "作品详情";
 
   async function refresh() {
     const sequence = ++refreshSequence.current;
@@ -282,38 +288,51 @@ export default function AndroidApp() {
         <p className="gz-meta">共 {filtered.length} 部作品</p>{filtered.length ? <><div className="gz-grid">{filtered.slice(0, limit).map(card)}</div>{filtered.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}</> : <Empty title={route === "favorites" ? "还没有符合条件的收藏" : "没有匹配的作品"}><p>{query || filter !== "all" ? "试试其他关键词，或清除筛选。" : "添加来源并扫描，再到待整理中确认作品。"}</p><button className="gz-btn" onClick={() => { setQuery(""); setFilter("all"); if (!works.length) navigate("sources"); }}>{works.length ? "清除筛选" : "管理来源"}</button></Empty>}
       </>}
       {route === "profile" && <>
-        <div className="gz-seg" role="tablist" aria-label="我的分页">{([["appearance", "外观"], ["sources", "来源管理"], ["provider", "数据源"]] as const).map(([id, label]) => <button role="tab" aria-selected={profileTab === id} key={id} onClick={() => setProfileTab(id)}>{label}</button>)}</div>
-        {profileTab === "appearance" && <>
-          <Section title="主题"><div className="gz-seg" role="radiogroup" aria-label="主题">{(["dark", "light", "system"] as ThemeMode[]).map(mode => <button role="radio" aria-checked={theme === mode} key={mode} onClick={() => void run(async () => { await api.setSetting("theme", mode); setTheme(mode); })}>{({ dark: "深色", light: "浅色", system: "跟随系统" })[mode]}</button>)}</div></Section>
-          <Section title="主题色" action={<output className="gz-set-value">{hueToHex(accentHue, dark)}</output>}>
-            <div className="gz-accent-row"><span className="gz-swatch" style={{ background: `hsl(${accentHue} ${dark ? 48 : 66}% ${dark ? 62 : 30}%)` }} aria-hidden="true" /><input type="range" min={0} max={359} value={accentHue} aria-label="主题色" onChange={event => setAccentHue(Number(event.target.value))} /></div>
-            <p className="gz-meta">作为强调色，并整体调和界面底色、面板与描边的色相，让配色保持统一。</p>
-          </Section>
-          <Section title="玻璃与背景模糊" action={<output className="gz-set-value">{glassBlur}px</output>}>
-            <input type="range" min={0} max={48} value={glassBlur} aria-label="玻璃与背景模糊" onChange={event => setGlassBlur(Number(event.target.value))} />
-            <p className="gz-meta">控制面板、浮层与弹窗的玻璃模糊程度（0 为完全清晰）。</p>
-          </Section>
-          <Section title="圆角大小" action={<output className="gz-set-value">{cornerRadius}px</output>}>
-            <input type="range" min={0} max={24} value={cornerRadius} aria-label="圆角大小" onChange={event => setCornerRadius(Number(event.target.value))} />
-            <p className="gz-meta">0 为直角，数值越大越圆润。</p>
-          </Section>
-          <button className="gz-btn" onClick={() => { setAccentHue(158); setGlassBlur(24); setCornerRadius(8); }}>恢复默认外观</button>
-          <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
-        </>}
-        {profileTab === "sources" && <>
-          {sourceManager}
-          <button className="gz-row-card" onClick={() => navigate("inbox")}><span className="gz-row-icon"><Inbox /></span><span className="gz-row-main"><strong>待整理队列</strong><span className="gz-meta">{groups.length} 个分组待确认</span></span><ChevronRight size={18} /></button>
-        </>}
-        {profileTab === "provider" && <>
-          <Section title="WebDAV 服务"><div className="gz-panel"><strong>WebDAV 与网盘服务</strong><p className="gz-meta">通过网盘的 WebDAV 服务接入远程视频，与网盘账号/API 直连是两种方式。已有协议正在接入安卓页面与远程播放验证。</p><span className="gz-badge warn">接入中</span></div></Section>
-          <Section title="网盘直连"><div className="gz-panel"><strong>账号 / API 直连</strong><p className="gz-meta">具体网盘直连需你确认服务后再接入；未确认前保留为扩展位置。</p><span className="gz-badge">Future · 预留</span></div></Section>
-          <Section title="元数据服务"><div className="gz-panel"><strong>资料与识别来源</strong><p className="gz-meta">动漫以 Bangumi 为主锚点，影视以 TMDB 为主源；刷新失败时保留已有资料。</p></div></Section>
-        </>}
+        <div className="gz-menu">
+          <div className="gz-menu-group">
+            <MenuRow label="未登录" icon={UserPlus} chevron={false} onClick={() => setToast("账号功能待接入")} />
+            <MenuRow label="通用" icon={SlidersHorizontal} onClick={() => navigate("future/通用")} />
+            <MenuRow label="外观" icon={Palette} onClick={() => navigate("appearance")} />
+            <MenuRow label="网络" icon={Network} onClick={() => navigate("sources")} />
+          </div>
+          <div className="gz-menu-group">
+            <MenuRow label="下载中心" icon={Download} onClick={() => navigate("future/下载中心")} />
+            <MenuRow label="浏览记录" icon={History} onClick={() => navigate("future/浏览记录")} />
+            <MenuRow label="书签" icon={Bookmark} onClick={() => navigate("future/书签")} />
+            <MenuRow label="继续阅读漫画" icon={BookOpen} subtitle={continueItems[0] ? `${continueItems[0].title} · ${continueItems[0].fileName}` : "暂无阅读记录"} onClick={() => navigate("future/继续阅读漫画")} />
+            <MenuRow label="阅读统计" icon={BarChart3} onClick={() => navigate("future/阅读统计")} />
+          </div>
+          <div className="gz-menu-group">
+            <MenuRow label="AI配置" icon={Bot} onClick={() => navigate("future/AI配置")} />
+            <MenuRow label="通知中心" icon={Bell} dot onClick={() => navigate("future/通知中心")} />
+            <MenuRow label="关于" icon={Info} onClick={() => navigate("diagnostics")} />
+          </div>
+        </div>
         <p className="gz-footer">Genzo · 基于 Windows v0.5.0 · GPLv3</p>
+      </>}
+      {route === "appearance" && <>
+        <Section title="主题"><div className="gz-seg" role="radiogroup" aria-label="主题">{(["dark", "light", "system"] as ThemeMode[]).map(mode => <button role="radio" aria-checked={theme === mode} key={mode} onClick={() => void run(async () => { await api.setSetting("theme", mode); setTheme(mode); })}>{({ dark: "深色", light: "浅色", system: "跟随系统" })[mode]}</button>)}</div></Section>
+        <Section title="主题色" action={<output className="gz-set-value">{hueToHex(accentHue, dark)}</output>}>
+          <div className="gz-accent-row"><span className="gz-swatch" style={{ background: `hsl(${accentHue} ${dark ? 48 : 66}% ${dark ? 62 : 30}%)` }} aria-hidden="true" /><input type="range" min={0} max={359} value={accentHue} aria-label="主题色" onChange={event => setAccentHue(Number(event.target.value))} /></div>
+          <p className="gz-meta">作为强调色，并整体调和界面底色、面板与描边的色相，让配色保持统一。</p>
+        </Section>
+        <Section title="玻璃与背景模糊" action={<output className="gz-set-value">{glassBlur}px</output>}>
+          <input type="range" min={0} max={48} value={glassBlur} aria-label="玻璃与背景模糊" onChange={event => setGlassBlur(Number(event.target.value))} />
+          <p className="gz-meta">控制面板、浮层与弹窗的玻璃模糊程度（0 为完全清晰）。</p>
+        </Section>
+        <Section title="圆角大小" action={<output className="gz-set-value">{cornerRadius}px</output>}>
+          <input type="range" min={0} max={24} value={cornerRadius} aria-label="圆角大小" onChange={event => setCornerRadius(Number(event.target.value))} />
+          <p className="gz-meta">0 为直角，数值越大越圆润。</p>
+        </Section>
+        <button className="gz-btn" onClick={() => { setAccentHue(158); setGlassBlur(24); setCornerRadius(8); }}>恢复默认外观</button>
+        <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
       </>}
       {route === "sources" && <>
         {sourceManager}
+        <button className="gz-row-card" onClick={() => navigate("inbox")}><span className="gz-row-icon"><Inbox /></span><span className="gz-row-main"><strong>待整理队列</strong><span className="gz-meta">{groups.length} 个分组待确认</span></span><ChevronRight size={18} /></button>
         <Section title="远程来源"><div className="gz-panel"><strong>WebDAV 与网盘服务</strong><p className="gz-meta">已有协议正在接入安卓页面与远程播放验证。通过网盘的 WebDAV 服务接入，与网盘账号/API 直连是两种方式。</p><span className="gz-badge warn">接入中</span></div></Section>
+        <Section title="网盘直连"><div className="gz-panel"><strong>账号 / API 直连</strong><p className="gz-meta">具体网盘直连需你确认服务后再接入；未确认前保留为扩展位置。</p><span className="gz-badge">Future · 预留</span></div></Section>
+        <Section title="元数据服务"><div className="gz-panel"><strong>资料与识别来源</strong><p className="gz-meta">动漫以 Bangumi 为主锚点，影视以 TMDB 为主源；刷新失败时保留已有资料。</p></div></Section>
       </>}
       {route === "inbox" && <><p className="gz-meta">{groups.length} 个作品分组待整理。确认候选、手动创建，或关联已有作品。</p>{groups.length ? groups.slice(0, limit).map(group => <button className="gz-row-card" key={group.key} onClick={() => setModal({ kind: "organize", group })}><span className="gz-row-icon"><Film /></span><span className="gz-row-main"><strong>{group.title}</strong><span className="gz-meta">{group.fileCount} 个文件 · {bytes(group.totalSize)}</span><span className="gz-meta gz-truncate">{group.representative.fileName}</span></span><span className="gz-badge warn">{metadataStates[group.recognitionStatus]}</span></button>) : <Empty title="待整理队列为空"><p>扫描来源后，需要确认的作品会出现在这里。</p><button className="gz-btn" onClick={() => navigate("sources")}>管理来源</button></Empty>}{groups.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}</>}
       {workId && (detail ? <>
@@ -330,6 +349,7 @@ export default function AndroidApp() {
         {bookWorks.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}
       </> : <Empty title="书架还是空的"><p>漫画与轻小说阅读将在后续版本接入；添加来源并扫描后，作品会先显示在这里。</p><button className="gz-btn" onClick={() => navigate("sources")}>管理来源</button></Empty>)}
       {route === "explore" && <Empty title={`${title} · Future`}><p>发现与推荐保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
+      {route.startsWith("future/") && <Empty title={`${decodeURIComponent(route.slice(7))} · Future`}><p>该能力尚未接入，保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
       {route === "diagnostics" && <AndroidPrototype />}
     </main>
     <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
