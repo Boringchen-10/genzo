@@ -13,7 +13,7 @@
 | 来源 | SAF 添加 / 最近已授权目录登记；点击来源行直接进入文件夹分级浏览；仅保留「扫描」（进行中显示进度与取消、失败显示重试），不再显示启停开关、重新授权与扫描完成汇总 |
 | 浏览目录 | 仅显示文件夹，PC 式点击分级下钻：从授权目录根（总文件夹）逐级进入子文件夹，面包屑可回跳上层，系统返回键逐级退出；文件不在列表中展示，识别逻辑从简 |
 | 待整理 | 共享分组 / 文件范围、手动创建 / 关联、候选搜索 / 确认接口 |
-| 详情 | 作品资料、收藏、个人状态 / 评分 / 备注、已关联视频播放、已匹配资料刷新接口 |
+| 详情 | 按作品类型分流：影视显示作品资料、收藏、个人状态 / 评分 / 备注、已关联视频播放、已匹配资料刷新接口；漫画 / 轻小说显示书籍版式（类型 / 年份 / 评分与章节统计、标签、下载 / 评论 / 收藏、默认 / 单行本 / 分话章节网格与分页），阅读器仍待接入 |
 
 底部主导航为 首页 / 媒体库 / 书架 / 发现 / 我的 五项，仅显示图标，当前选中项才展开文字。「我的」为分组菜单，外观 / 网络（来源管理、待整理）为子页，其余未接入项显示 Future 占位。
 
@@ -63,6 +63,8 @@ Android Studio 工程为 `src-tauri/gen/android`；React 文件在工程外层�
 2026-10-05启动时，Studio模式完成原生编译后 APK 输出仍是昨日文件。保持该桥进程，显式运行 `src-tauri/gen/android/gradlew.bat :app:assembleX86_64Debug` 后才生成最新包，本次安装实际来自 `D:\DevTools\Android\Build\gradle-genzo\app\outputs\apk\x86_64\debug\app-x86_64-debug.apk`。Gradle使用D盘Java17、`GRADLE_USER_HOME`及TEMP；不要把Universal与x86_64输出混用，安装前核对时间，安装后核对新页面。
 
 ## 验证与范围
+
+2026-10-05 漫画 / 轻小说作品详情页：`src/android/AndroidApp.tsx` 详情路由按 `detail.type` 分流，`comic` / `novel` 使用书籍版式（`.gz-book-head` / `.gz-book-chips` / `.gz-book-pills` / `.gz-book-stats` / `.gz-book-actions` / `.gz-book-tabs` / `.gz-chapter-grid`），影视仍用 `.gz-detail-head`。新增 `bookApi.entries(workId)` 读取真实章节：默认（全部）/ 单行本（按 `volumeNumber`）/ 分话（按 `chapterNumber`）三种分组，单行本与分话在无对应数据时隐藏；章节网格显示话号 / 卷号、文件格式徽章、缺失与在读状态，超过 72 条时分页（`.gz-book-groups`）并带回到顶部按钮。模拟器（`emulator-5554`）验收：种子漫画「魔都精兵的奴隶」（24 个 `.cbz` 章节）渲染 默认 24 / 分话 24（无单行本故隐藏），分话视图首项「第01话」，深 / 浅主题正常；并回归影视详情（4 部视频作品，点击 `#/detail/eba43f8c…` 仍显示 `.gz-detail-head` 与 1 集）与书架（漫画 / 轻小说分区、1 张漫画卡、排序行）不受影响。
 
 2026-10-05 书架工具行精简：删除「换一换」，把「有更新」移到右侧（`.gz-shelf-bar` 改为 `justify-content: flex-end`），点击「有更新」打开「排序方式」弹层（`aria-haspopup="dialog"`）；同时移除 `shelfUpdated` 状态与按更新时间过滤、`Shuffle` 图标引用与 `.gz-chip-plain` 规则。模拟器（`emulator-5554`）验收：书架工具行仅剩右侧「有更新」，点击弹出排序弹层（作品更新时间 / 收藏时间 / 浏览时间）。
 
