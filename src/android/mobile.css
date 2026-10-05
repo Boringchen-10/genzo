@@ -246,3 +246,45 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-related-main span { display: block; font-size: 12px; color: var(--muted); }
 @media (max-width: 374px) { .android-app .gz-book-head { grid-template-columns: 100px minmax(0,1fr); gap: 12px; } .android-app .gz-chapter-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
 @media (min-width: 700px) { .android-app .gz-chapter-grid { grid-template-columns: repeat(6, minmax(0,1fr)); } .android-app .gz-book-head { grid-template-columns: 148px minmax(0,1fr); } }
+
+/* Explore (发现) */
+.android-app .gz-explore-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.android-app .gz-explore-tabs { flex: 1; }
+.android-app .gz-explore-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px 12px; }
+.android-app .gz-explore-grid .gz-cover { width: auto; }
+.android-app .gz-explore-poster { display: grid; place-items: center; aspect-ratio: 2 / 3; overflow: hidden; border-radius: var(--radius); background: var(--bg-raised); color: var(--quiet); }
+.android-app .gz-explore-poster img { width: 100%; height: 100%; object-fit: cover; }
+.android-app .gz-rank-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.android-app .gz-rank-row { display: grid; grid-template-columns: 24px 44px minmax(0,1fr); align-items: center; gap: 10px; width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-align: left; }
+.android-app .gz-rank-index { font-size: 14px; font-weight: 700; color: var(--quiet); text-align: center; }
+.android-app .gz-rank-cover { display: grid; place-items: center; width: 44px; aspect-ratio: 2 / 3; overflow: hidden; border-radius: 6px; background: var(--bg-raised); color: var(--quiet); }
+.android-app .gz-rank-cover img { width: 100%; height: 100%; object-fit: cover; }
+.android-app .gz-rank-body { display: grid; gap: 2px; min-width: 0; }
+.android-app .gz-rank-body strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.android-app .gz-rank-body .gz-meta { display: inline-flex; align-items: center; gap: 3px; }
+.android-app .gz-explore-sheet { position: relative; }
+.android-app .gz-explore-sheet .gz-sheet-close { position: absolute; top: 10px; right: 10px; }
+.android-app .gz-explore-detail { display: grid; grid-template-columns: 108px minmax(0,1fr); gap: 12px; margin: 8px 0 14px; }
+.android-app .gz-explore-detail-cover { display: grid; place-items: center; aspect-ratio: 2 / 3; overflow: hidden; border-radius: var(--radius); background: var(--bg-raised); color: var(--quiet); }
+.android-app .gz-explore-detail-cover img { width: 100%; height: 100%; object-fit: cover; }
+.android-app .gz-explore-detail-info { display: grid; align-content: start; gap: 6px; min-width: 0; }
+.android-app .gz-explore-detail-info h2 { font-size: 16px; }
+.android-app .gz-explore-detail-actions { display: grid; gap: 8px; margin-top: 14px; }
+@media (min-width: 700px) { .android-app .gz-explore-grid { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+
+/* Network (网络) */
+.android-app .gz-network { display: grid; gap: 16px; padding-bottom: 8px; }
+.android-app .gz-net-card { display: grid; gap: 12px; padding: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); -webkit-backdrop-filter: blur(var(--ui-blur)); backdrop-filter: blur(var(--ui-blur)); }
+.android-app .gz-net-head { display: flex; align-items: center; gap: 8px; color: var(--accent); }
+.android-app .gz-net-head h2 { flex: 1; font-size: 15px; color: var(--text); }
+.android-app .gz-net-card .gz-field { margin-bottom: 0; }
+.android-app .gz-net-card .gz-field span { font-size: 12px; color: var(--muted); }
+.android-app .gz-net-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+.android-app .gz-node-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.android-app .gz-node { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 8px; align-items: center; }
+.android-app .gz-node-name { grid-column: 1 / -1; }
+.android-app .gz-node-latency { font-size: 12px; color: var(--quiet); white-space: nowrap; }
+.android-app .gz-node-latency.good { color: var(--accent); }
+.android-app .gz-node-latency.slow { color: var(--warn); }
+.android-app .gz-net-save { display: grid; gap: 8px; }
+@media (prefers-reduced-motion: no-preference) { .android-app .gz-spin { animation: gz-spin 1s linear infinite; } }

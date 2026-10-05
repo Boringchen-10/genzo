@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Download, Film, Filter, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, MessageSquare, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, User, UserPlus, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Database, Download, Film, Filter, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, MessageSquare, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, User, UserPlus, X } from "lucide-react";
 import { api, bookApi } from "../api";
 import type { BookEntry } from "../bookData";
 import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
@@ -9,6 +9,8 @@ import { playbackPercent, playbackTime, type PlaybackProgress } from "../playbac
 import { usePreferences, type ThemeStyle } from "../store";
 import { androidApi, isDirectoryEntry, type DocumentEntry, type VideoSource } from "./api";
 import AndroidPrototype from "./AndroidPrototype";
+import ExplorePanel from "./ExplorePanel";
+import NetworkPanel from "./NetworkPanel";
 import "./mobile.css";
 
 const tabs = [{ route: "home", title: "首页", icon: Home }, { route: "library", title: "媒体库", icon: Library }, { route: "bookshelf", title: "书架", icon: BookOpen }, { route: "explore", title: "发现", icon: Compass }, { route: "profile", title: "我的", icon: User }];
@@ -299,7 +301,7 @@ export default function AndroidApp() {
   }, [accentHue, accentSatValue, accentLightValue, neutralSatValue, neutralLiftValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
-  const title = top?.title || ({ sources: "来源管理", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", appearance: "外观" }[route]) || "作品详情";
+  const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观" }[route]) || "作品详情";
 
   async function refresh() {
     const sequence = ++refreshSequence.current;
@@ -503,7 +505,8 @@ export default function AndroidApp() {
             <MenuRow label="未登录" icon={UserPlus} chevron={false} onClick={() => setToast("账号功能待接入")} />
             <MenuRow label="通用" icon={SlidersHorizontal} onClick={() => navigate("future/通用")} />
             <MenuRow label="外观" icon={Palette} onClick={() => navigate("appearance")} />
-            <MenuRow label="网络" icon={Network} onClick={() => navigate("sources")} />
+            <MenuRow label="网络" icon={Network} onClick={() => navigate("network")} />
+            <MenuRow label="资料库" icon={Database} subtitle="本地目录与来源管理" onClick={() => navigate("sources")} />
           </div>
           <div className="gz-menu-group">
             <MenuRow label="下载中心" icon={Download} onClick={() => navigate("future/下载中心")} />
@@ -649,7 +652,8 @@ export default function AndroidApp() {
           {bookQuery ? <button className="gz-btn" onClick={() => setBookQuery("")}>清除标签筛选</button> : <button className="gz-btn" disabled={busy} onClick={() => void run(refresh)}>刷新</button>}
         </div>}
       </>}
-      {route === "explore" && <Empty title={`${title} · Future`}><p>发现与推荐保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
+      {route === "explore" && <ExplorePanel onToast={setToast} />}
+      {route === "network" && <NetworkPanel onToast={setToast} />}
       {route.startsWith("future/") && <Empty title={`${decodeURIComponent(route.slice(7))} · Future`}><p>该能力尚未接入，保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
       {route === "diagnostics" && <AndroidPrototype />}
     </main>
