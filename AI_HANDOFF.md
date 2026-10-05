@@ -1,5 +1,14 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 安卓模拟器继续前端迭代（2026-10-05）
+
+- 用户要求打开电脑虚拟安卓继续优化已有前端，仍只部署模拟器。本轮核对 `codex/android-first` / HEAD `8f3c146`，起始工作区干净；保留 OpenDesign 最新五项导航、首页分类滑轨及「我的」三段分页 / 外观控件，没有修改前端。主目录 Windows 与其他未提交修改未触碰。
+- Studio 内嵌 Genzo 模拟器的 shell 再次超时，日志存在 getVmState DEADLINE_EXCEEDED。仅停止核对过的该 AVD qemu，用已有脚本 software / 关闭 Vulkan / 冷启动打开独立可见窗口。首次窗口启动后退出，日志为正常关闭信息，原因未确定；再次启动、安装与启动成功，没有 wipe-data、卸载或清除应用数据。
+- TS / Vite 与 x86_64 Rust 编译通过。`build-android.ps1 -Studio -Target x86_64` 保持 IDE 桥后，发现两个 APK 输出仍为昨日时间；显式运行 Gradle `:app:assembleX86_64Debug` 成功，生成 `Build/gradle-genzo/app/outputs/apk/x86_64/debug/app-x86_64-debug.apk`。不得只据编译完成或旧 APK 文件存在判断最新前端已打包，需核对输出及安装后界面。
+- 最新固定包 `D:\DevTools\Android\Build\artifacts\Genzo-android-frontend-20261005-x86_64-debug.apk`，121,287,503 字节，SHA256 `fd1605433a1e5c8f182ddb399025aad628b6033b6b0d2bebf507c4e376073506`。旧包保留；本轮没有生成或部署手机包。
+- 实际安装 / `am start -W` 返回成功；WebView 检查首页 / 媒体库 / 书架 / 发现 / 我的五导航，以及外观三个滑块显示。四作品、一 SAF 来源、available 目录授权与深色设置保留；用户已有色相208 / 模糊28 / 圆角8未重置。五页412px视口均无横向溢出，已查看首页和外观截图。结果 `Build/qa/frontend-20261005`；这只是新页面启动检查，没有重复上一阶段完整来源 / 播放 / Windows 回归，也没有验收热更新或 Studio GUI Run。
+- Android Studio、独立模拟器窗口及 Tauri IDE 桥已保持打开。当前 React 修改仍通过构建 / 安装更新；`scripts/verify-android-ui.mjs` 的旧「我的 → 目录与来源」选择器需在后续完整回归前适配新的分页，不能据旧脚本断言新导航已经完整验收。
+
 ## 安卓可操作前端 / 模拟器优先（2026-10-04）
 
 - 用户希望OpenDesign也能修改实际前端，边看边指挥迭代，要求生成可转发Prompt。已写 `docs/android/OPENDESIGN_ITERATION_PROMPT.md`，区分共享工作树直接修改与独立环境导出补丁；原生与后端由Codex维护，实时通道未验收，不声称OpenDesign已能访问本地目录。前端改动按实际接口，WebDAV是首版待接入目标、书架 / 探索为Future。后续优先核对OpenDesign访问能力与搭建模拟器热更新。

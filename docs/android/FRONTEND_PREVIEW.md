@@ -24,14 +24,14 @@
 
 ## 独立测试 APK
 
-`D:\DevTools\Android\Build\artifacts\Genzo-android-frontend-x86_64-debug.apk`
+`D:\DevTools\Android\Build\artifacts\Genzo-android-frontend-20261005-x86_64-debug.apk`
 
-SHA256：`65f7894aa3e89a43cf42ca9c26d9f5f3a6c505fe96f135cf6be321ff91f3d600`。只面向电脑 x86_64 模拟器；当前未生成或部署这一前端版本的真机交付包。独立包包含前端，不需要电脑开发服务器。
+SHA256：`fd1605433a1e5c8f182ddb399025aad628b6033b6b0d2bebf507c4e376073506`，121,287,503 字节。包含2026-10-05源码 `8f3c146` 的五项导航与新外观设置。只面向电脑 x86_64 模拟器；当前未生成或部署这一前端版本的真机交付包。独立包包含前端，不需要电脑开发服务器。2026-10-04的旧固定包仍保留，不能用它展示后续前端修改。
 
 在工作树 PowerShell 运行：
 
 ```powershell
-.\scripts\start-android-emulator.ps1 -Apk 'D:\DevTools\Android\Build\artifacts\Genzo-android-frontend-x86_64-debug.apk'
+.\scripts\start-android-emulator.ps1 -Apk 'D:\DevTools\Android\Build\artifacts\Genzo-android-frontend-20261005-x86_64-debug.apk'
 ```
 
 启动 `Genzo_Pixel9_API36`，冷启动保留原 AVD 数据；GPU software / 关闭 Vulkan。脚本将该AVD默认设为冷启动，Studio下次启动也不自动恢复快照。工具、AVD、构建 / 日志 / 缓存 D，源代码 H。ADB 必须 `-s emulator-5554`，不要在双设备状态下用默认目标。
@@ -57,8 +57,12 @@ Android Studio 工程为 `src-tauri/gen/android`；React 文件在工程外层�
 
 普通构建提示成功后再安装；`-Studio` 模式构建结束仍会等待 IDE，不能把未退出误判为未完成。Studio目标选 `Genzo_Pixel9_API36 / emulator-5554`，Build Variants 选 `x86_64Debug`；React不在Kotlin文件里，修改位置见上方。GUI Run点击尚未验收，当前实际部署由指定模拟器的脚本完成。其他CLI Android构建会替换临时连接，之后需重新运行最后一条。日志与两个JVM的配置见 `ANDROID_STUDIO.md`。
 
+2026-10-05启动时，Studio模式完成原生编译后 APK 输出仍是昨日文件。保持该桥进程，显式运行 `src-tauri/gen/android/gradlew.bat :app:assembleX86_64Debug` 后才生成最新包，本次安装实际来自 `D:\DevTools\Android\Build\gradle-genzo\app\outputs\apk\x86_64\debug\app-x86_64-debug.apk`。Gradle使用D盘Java17、`GRADLE_USER_HOME`及TEMP；不要把Universal与x86_64输出混用，安装前核对时间，安装后核对新页面。
+
 ## 验证与范围
 
-`scripts/verify-android-ui.mjs` 限定模拟器及 GenzoPrototype 合成目录，覆盖来源启停 / 新扫描、手动整理、搜索空态、收藏 / 评分 / 备注、系统返回关闭抽屉 / 播放器、原生播放、React后台的SQLite进度、首页续播和深浅布局。强制停止后重新连接新WebView，断言DB个人记录 / 进度、主题、来源授权恢复。结果 / 截图在 `D:\DevTools\Android\Build\qa\frontend`。
+2026-10-05新包启动检查通过：五项导航与外观三个滑块显示，五页412px无横向溢出，4作品 / 1来源 / available目录授权 / 用户外观设置保留。结果与已检查截图在 `D:\DevTools\Android\Build\qa\frontend-20261005`；未重复完整来源 / 播放回归。
+
+2026-10-04的 `scripts/verify-android-ui.mjs` 限定模拟器及 GenzoPrototype 合成目录，覆盖来源启停 / 新扫描、手动整理、搜索空态、收藏 / 评分 / 备注、系统返回关闭抽屉 / 播放器、原生播放、React后台的SQLite进度、首页续播和深浅布局。强制停止后重新连接新WebView，断言DB个人记录 / 进度、主题、来源授权恢复。结果 / 截图在 `D:\DevTools\Android\Build\qa\frontend`。旧脚本「我的 → 目录与来源」选择器需适配新分页后才能继续完整回归。
 
 模拟器视口412px且无横向溢出；顶部 / 底部导航不盖主内容。安全区由原生系统 inset 处理，IME开启时保留可见区；系统返回先关闭键盘，再到应用抽屉 / 路由。首屏缺图和空态按实际数据渲染。Windows三尺寸模拟IPC首页 / 媒体库检查通过，72项前端、266项Rust /14忽略通过；不是所有 Windows 原生窗口与设备兼容验收。
