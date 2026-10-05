@@ -83,6 +83,9 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-seg button { flex: 1; font-size: 13px; padding: 8px; color: var(--muted); }
 .android-app .gz-seg button[aria-checked="true"], .android-app .gz-seg button[aria-selected="true"] { color: var(--accent); background: var(--bg-raised); font-weight: 600; }
 .android-app .gz-source { margin-top: 16px; }
+.android-app .gz-row-link { width: 100%; text-align: left; }
+.android-app .gz-row-link:disabled { opacity: 1; cursor: default; }
+.android-app .gz-row-link .gz-row-main strong { font-size: 14px; }
 .android-app .gz-switch { border-radius: 18px; width: 48px; padding: 5px; border: 1px solid var(--line); display: flex; align-items: center; background: var(--bg-raised); }
 .android-app .gz-switch span { width: 18px; height: 18px; border-radius: 50%; background: var(--quiet); }
 .android-app .gz-switch.active { justify-content: flex-end; }
