@@ -12,6 +12,14 @@ export interface PlayerSnapshot {
   positionMs: number; durationMs: number | null;
   error?: { code: string; message: string; retryable: boolean } | null;
 }
+export interface DocumentEntry {
+  documentId: string; name: string; mimeType: string;
+  size: number | null; modifiedMs: number | null; uri: string;
+}
+export interface TreeListing {
+  status: string; label?: string | null; uri?: string; files?: DocumentEntry[];
+}
+export const isDirectoryEntry = (entry: DocumentEntry) => entry.mimeType === "vnd.android.document/directory";
 export const androidApi = {
   sources: () => invoke<VideoSource[]>("get_video_source_states"),
   authorize: (sourceId?: string, reuseAuthorized = false) => invoke<{ status: string; source?: VideoSource }>("authorize_video_source", { sourceId, reuseAuthorized }),
@@ -19,6 +27,7 @@ export const androidApi = {
   tasks: () => invoke<ScanTask[]>("list_scan_tasks"),
   cancel: (id: string) => invoke<void>("cancel_scan_task", { id }),
   retry: (id: string) => invoke<void>("retry_scan_task", { id }),
+  listTree: (uri?: string) => invoke<TreeListing>("android_native", { command: "listTree", payload: uri ? { uri } : {} }),
   play: (mediaFileId: string, restart = false) => invoke<PlayerSnapshot>("open_internal_player", { mediaFileId, restart }),
   state: () => invoke<PlayerSnapshot>("get_internal_player_state"),
   progress: async (): Promise<PlaybackOverview> => { await androidApi.state(); return api.playbackProgress(); },

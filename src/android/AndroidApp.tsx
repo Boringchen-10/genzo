@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArrowLeft, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Download, Film, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, User, UserPlus, X } from "lucide-react";
 import { api } from "../api";
@@ -6,7 +6,7 @@ import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDe
 import { activeScan, type ScanTask } from "../scanTasks";
 import { playbackPercent, playbackTime, type PlaybackProgress } from "../playback";
 import { usePreferences, type ThemeStyle } from "../store";
-import { androidApi, type VideoSource } from "./api";
+import { androidApi, isDirectoryEntry, type DocumentEntry, type VideoSource } from "./api";
 import AndroidPrototype from "./AndroidPrototype";
 import "./mobile.css";
 
@@ -257,6 +257,9 @@ export default function AndroidApp() {
   const resetAppearance = usePreferences(state => state.resetAppearance);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [modal, setModal] = useState<{ kind: "edit"; work: WorkDetail } | { kind: "organize"; group: UnassignedMediaGroup } | null>(null);
+  const [browseStack, setBrowseStack] = useState<{ name: string; uri: string | null }[]>([]);
+  const [browseFolders, setBrowseFolders] = useState<DocumentEntry[]>([]);
+  const [browseState, setBrowseState] = useState<"loading" | "available" | "empty" | "error">("loading");
   const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
@@ -285,7 +288,7 @@ export default function AndroidApp() {
   }, [accentHue, accentSatValue, accentLightValue, neutralSatValue, neutralLiftValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
-  const title = top?.title || ({ sources: "来源管理", inbox: "待整理", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", appearance: "外观" }[route]) || "作品详情";
+  const title = top?.title || ({ sources: "来源管理", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", appearance: "外观" }[route]) || "作品详情";
 
   async function refresh() {
     const sequence = ++refreshSequence.current;
@@ -314,6 +317,7 @@ export default function AndroidApp() {
   }
   function back() {
     if (modal) { setModal(null); return true; }
+    if (route === "browse" && browseStack.length > 1) { browseUp(); return true; }
     if (route === "home") return false;
     scrollPositions.current[route] = main.current?.scrollTop ?? 0;
     if (history.state?.genzoDepth > 0) history.back();
@@ -344,7 +348,7 @@ export default function AndroidApp() {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") back(); };
     addEventListener("keydown", escape);
     return () => { delete windowWithBack.__genzoBack; removeEventListener("keydown", escape); };
-  }, [route, modal]);
+  }, [route, modal, browseStack]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -385,6 +389,29 @@ export default function AndroidApp() {
     if (result.status === "permission_denied") throw new Error("没有目录读取授权。请重新选择目录，并在系统提示中确认。");
     if (result.status === "authorized") { await refresh(); setToast("来源已添加，可以开始扫描"); }
   }
+  async function loadFolders(uri: string | null) {
+    setBrowseState("loading");
+    try {
+      const listing = await androidApi.listTree(uri ?? undefined);
+      if (listing.status !== "available") { setBrowseFolders([]); setBrowseState("error"); setError(listing.status === "permission_denied" ? "目录授权已失效，请在系统选择器中重新授权该目录。" : "来源暂时无法访问，请稍后重试。"); return; }
+      const folders = (listing.files ?? []).filter(isDirectoryEntry);
+      setBrowseFolders(folders);
+      setBrowseState(folders.length ? "available" : "empty");
+    } catch (reason) { setBrowseFolders([]); setBrowseState("error"); setError(String(reason)); }
+  }
+  function openBrowse(name: string, uri: string | null) {
+    setBrowseStack([{ name, uri }]);
+    navigate("browse");
+    void loadFolders(uri);
+  }
+  function enterFolder(entry: DocumentEntry) {
+    setBrowseStack(stack => [...stack, { name: entry.name, uri: entry.uri }]);
+    void loadFolders(entry.uri);
+  }
+  function browseTo(index: number) {
+    setBrowseStack(stack => { const next = stack.slice(0, index + 1); void loadFolders(next.at(-1)?.uri ?? null); return next; });
+  }
+  function browseUp() { setBrowseStack(stack => { const next = stack.slice(0, -1); if (next.length) void loadFolders(next.at(-1)?.uri ?? null); return next; }); }
   const card = (work: WorkListItem) => <button className="gz-card" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><strong>{work.title}</strong><span className="gz-meta">{statuses[work.status]} · {work.mediaCount} 个文件</span></button>;
   const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase())));
   const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
@@ -397,7 +424,7 @@ export default function AndroidApp() {
     {sources.map(source => { const task = tasks.find(task => task.rootId === source.id); return <section className="gz-panel gz-source" key={source.id}>
       <div className="gz-row"><Folder /><div className="gz-row-main"><strong>{source.label}</strong><span className="gz-meta">{source.kind === "saf" ? "本地授权目录" : "WebDAV 服务"}</span></div><button role="switch" aria-checked={source.enabled} aria-label={`${source.enabled ? "停用" : "启用"} ${source.label}`} className={`gz-switch ${source.enabled ? "active" : ""}`} disabled={busy} onClick={() => void run(async () => { await api.updateRoot(source.id, "video", !source.enabled); await refresh(); })}><span /></button></div>
       <div className="gz-actions"><span className={`gz-badge ${source.state === "available" && source.enabled ? "ok" : "warn"}`}>{source.enabled ? sourceStates[source.state] || source.state : "已停用"}</span><span className="gz-meta">{source.lastScannedAt ? `上次扫描 ${new Date(source.lastScannedAt).toLocaleString("zh-CN")}` : "尚未扫描"}</span></div>
-      <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(); })}><RefreshCw size={16} />扫描</button>{source.kind === "saf" && <button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(source.id))}>重新授权</button>}</div>
+      <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(); })}><RefreshCw size={16} />扫描</button>{source.kind === "saf" && <button className="gz-btn" disabled={busy} onClick={() => openBrowse(source.label, null)}><Folder size={16} />浏览目录</button>}{source.kind === "saf" && <button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(source.id))}>重新授权</button>}</div>
       {task && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : ["failed", "interrupted", "cancelled"].includes(task.stage) && <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
     </section>; })}
   </>;
@@ -493,6 +520,11 @@ export default function AndroidApp() {
         <Section title="元数据服务"><div className="gz-panel"><strong>资料与识别来源</strong><p className="gz-meta">动漫以 Bangumi 为主锚点，影视以 TMDB 为主源；刷新失败时保留已有资料。</p></div></Section>
       </>}
       {route === "inbox" && <><p className="gz-meta">{groups.length} 个作品分组待整理。确认候选、手动创建，或关联已有作品。</p>{groups.length ? groups.slice(0, limit).map(group => <button className="gz-row-card" key={group.key} onClick={() => setModal({ kind: "organize", group })}><span className="gz-row-icon"><Film /></span><span className="gz-row-main"><strong>{group.title}</strong><span className="gz-meta">{group.fileCount} 个文件 · {bytes(group.totalSize)}</span><span className="gz-meta gz-truncate">{group.representative.fileName}</span></span><span className="gz-badge warn">{metadataStates[group.recognitionStatus]}</span></button>) : <Empty title="待整理队列为空"><p>扫描来源后，需要确认的作品会出现在这里。</p><button className="gz-btn" onClick={() => navigate("sources")}>管理来源</button></Empty>}{groups.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}</>}
+      {route === "browse" && <>
+        <nav className="gz-breadcrumb" aria-label="目录路径">{browseStack.map((node, index) => <Fragment key={index}>{index > 0 && <ChevronRight size={14} />}<button className="gz-crumb" disabled={index === browseStack.length - 1} onClick={() => browseTo(index)}>{node.name}</button></Fragment>)}</nav>
+        <p className="gz-meta">仅显示文件夹，点击进入下一级目录。</p>
+        {browseState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取目录…</p> : browseState === "available" ? <div className="gz-menu">{browseFolders.map(entry => <button className="gz-row-card" key={entry.uri} onClick={() => enterFolder(entry)}><span className="gz-row-icon"><Folder /></span><span className="gz-row-main"><strong>{entry.name}</strong><span className="gz-meta">{entry.modifiedMs ? new Date(entry.modifiedMs).toLocaleDateString("zh-CN") : "文件夹"}</span></span><ChevronRight size={18} /></button>)}</div> : browseState === "empty" ? <Empty title="没有下级文件夹"><p>当前目录下没有子文件夹，可以返回上一级。</p><button className="gz-btn" onClick={() => navigate("sources")}>返回来源</button></Empty> : <Empty title="无法读取目录"><p>请返回来源管理重新授权该目录。</p><button className="gz-btn" onClick={() => navigate("sources")}>返回来源</button></Empty>}
+      </>}
       {workId && (detail ? <>
         <section className="gz-detail-head"><Poster work={detail} /><div><span className="gz-badge">{metadataStates[detail.metadataStatus]}</span><h2>{detail.title}</h2>{detail.originalTitle && <p className="gz-meta">{detail.originalTitle}</p>}<p className="gz-meta">{detail.metadataYear ?? "年份未填写"} · {statuses[detail.status]}</p><div className="gz-actions"><button className={`gz-iconbtn ${detail.favorite ? "gz-accent" : ""}`} aria-label={detail.favorite ? "取消收藏" : "加入收藏"} disabled={busy} onClick={() => void run(() => favorite(detail))}><Heart fill={detail.favorite ? "currentColor" : "none"} /></button><button className="gz-btn" onClick={() => setModal({ kind: "edit", work: detail })}><Settings size={16} />个人记录</button></div></div></section>
         <div className="gz-actions"><span className="gz-badge">{detail.rating === null ? "未评分" : `我的评分 ${detail.rating}`}</span>{detail.tags.map(tag => <span className="gz-badge" key={tag}>{tag}</span>)}</div>

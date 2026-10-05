@@ -38,6 +38,9 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-set-inline .gz-row-main { flex: 1; }
 .android-app .gz-appearance-actions { display: grid; gap: 12px; margin-top: 20px; }
 .android-app .gz-appearance-actions .gz-row-card { margin-top: 0; }
+.android-app .gz-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-bottom: 8px; color: var(--quiet); }
+.android-app .gz-crumb { display: inline-flex; align-items: center; padding: 6px 4px; font-size: 14px; font-weight: 500; color: var(--accent); max-width: 62vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.android-app .gz-crumb:disabled { color: var(--text); font-weight: 600; }
 .android-app .gz-meta { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .android-app .gz-link { color: var(--accent); display: inline-flex; align-items: center; font-size: 13px; gap: 4px; }
 .android-app .gz-panel { padding: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
