@@ -55,15 +55,15 @@ const hsvToHex = (hue: number, sat: number, value: number) => {
   const match = hsvVal - chroma;
   return `#${[red, green, blue].map(channel => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`;
 };
-const themeStyles: { id: ThemeStyle; label: string; sat: number; light: number; rainbow?: boolean }[] = [
-  { id: "soft", label: "柔和", sat: 1, light: 1 },
-  { id: "vivid", label: "鲜明", sat: 1.35, light: 1 },
-  { id: "expressive", label: "表现", sat: 1.55, light: 1.06 },
-  { id: "accurate", label: "准确", sat: 0.78, light: 0.96 },
-  { id: "content", label: "内容", sat: 1.1, light: 1 },
-  { id: "neutral", label: "中性", sat: 0.4, light: 1 },
-  { id: "mono", label: "黑白", sat: 0, light: 1 },
-  { id: "rainbow", label: "彩虹", sat: 1.4, light: 1.05, rainbow: true },
+const themeStyles: { id: ThemeStyle; label: string; sat: number; light: number; neutral: number; lift?: number; rainbow?: boolean }[] = [
+  { id: "soft", label: "柔和", sat: 0.95, light: 1, neutral: 28, lift: 0 },
+  { id: "vivid", label: "鲜明", sat: 1.4, light: 1.06, neutral: 48, lift: 1.2 },
+  { id: "expressive", label: "表现", sat: 1.6, light: 1.12, neutral: 62, lift: 2.4 },
+  { id: "accurate", label: "准确", sat: 0.85, light: 0.94, neutral: 14, lift: 0 },
+  { id: "content", label: "内容", sat: 1.15, light: 1, neutral: 34, lift: 0.6 },
+  { id: "neutral", label: "中性", sat: 0.4, light: 0.98, neutral: 8, lift: 1 },
+  { id: "mono", label: "黑白", sat: 0, light: 1, neutral: 0, lift: 1.5 },
+  { id: "rainbow", label: "彩虹", sat: 1.45, light: 1.06, neutral: 58, lift: 1.5, rainbow: true },
 ];
 const presetSwatches = [
   { hex: "#5a6b70", h: 194, s: 10, l: 40 },
@@ -257,9 +257,11 @@ export default function AndroidApp() {
   const scrollPositions = useRef<Record<string, number>>({});
   const refreshSequence = useRef(0);
   const dark = theme === "system" ? systemDark : theme === "dark";
-  const accentStyle = themeStyles.find(item => item.id === themeStyle) ?? { id: "soft" as ThemeStyle, label: "柔和", sat: 1, light: 1 };
+  const accentStyle = themeStyles.find(item => item.id === themeStyle) ?? { id: "soft" as ThemeStyle, label: "柔和", sat: 1, light: 1, neutral: 30 };
   const accentSatValue = clamp(accentSat * accentStyle.sat, 0, 100);
   const accentLightValue = dark ? clamp(accentLight * accentStyle.light, 10, 92) : clamp(accentLight * accentStyle.light * 0.5, 12, 46);
+  const neutralSatValue = clamp(accentStyle.neutral, 0, 100);
+  const neutralLiftValue = accentStyle.lift ?? 0;
   const accentHex = hslToHex(accentHue, accentSatValue, accentLightValue);
   useEffect(() => {
     const node = rootRef.current;
@@ -267,12 +269,14 @@ export default function AndroidApp() {
     node.style.setProperty("--accent-h", String(accentHue));
     node.style.setProperty("--accent-s", `${accentSatValue}%`);
     node.style.setProperty("--accent-l", `${accentLightValue}%`);
+    node.style.setProperty("--n-s", String(neutralSatValue));
+    node.style.setProperty("--n-lift", String(neutralLiftValue));
     node.style.setProperty("--ui-blur", `${glassBlur}px`);
     node.style.setProperty("--radius", `${cornerRadius}px`);
     node.style.setProperty("--cover-brightness", String(coverBrightness / 100));
     node.style.setProperty("--shadow-scale", String(shadowScale));
     node.style.fontSize = `${(16 * fontScale) / 100}px`;
-  }, [accentHue, accentSatValue, accentLightValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
+  }, [accentHue, accentSatValue, accentLightValue, neutralSatValue, neutralLiftValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
   const title = top?.title || ({ sources: "来源管理", inbox: "待整理", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", appearance: "外观" }[route]) || "作品详情";
@@ -391,7 +395,8 @@ export default function AndroidApp() {
       {task && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : ["failed", "interrupted", "cancelled"].includes(task.stage) && <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
     </section>; })}
   </>;
-  return <div ref={rootRef} className="android-app" data-theme={dark ? "dark" : "light"} data-amoled={amoled ? "true" : "false"}>
+  return <div ref={rootRef} className="android-app" data-theme={dark ? "dark" : "light"} data-amoled={amoled ? "true" : "false"} data-style={themeStyle}>
+    <div className="gz-rainbow-layer" aria-hidden="true" />
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
       {!top && <button className="gz-iconbtn gz-back" aria-label="返回" onClick={() => back()}><ArrowLeft /></button>}
       {error && <div className="gz-error" role="alert"><span>{error}</span><button className="gz-iconbtn" aria-label="关闭错误提示" onClick={() => setError("")}><X size={18} /></button></div>}
@@ -438,7 +443,7 @@ export default function AndroidApp() {
         </Section>
         <Section title="主题风格">
           <div className="gz-style-chips" role="radiogroup" aria-label="主题风格">{themeStyles.map(item => <button key={item.id} role="radio" aria-checked={themeStyle === item.id} className={`gz-style-chip ${themeStyle === item.id ? "active" : ""}`} onClick={() => setThemeStyle(item.id)}><span className={`gz-style-dot ${item.rainbow ? "rainbow" : ""}`} style={item.rainbow ? undefined : { background: hslToHex(accentHue, clamp(accentSat * item.sat, 0, 100), clamp(accentLight * item.light, 10, 92)) }} aria-hidden="true" />{item.label}</button>)}</div>
-          <p className="gz-meta">主题风格调整强调色的饱和与明度，与主题色共同决定整体配色气质。</p>
+          <p className="gz-meta">主题风格会同时调整强调色强度与界面底色、面板的染色程度，切换后整体配色气质随之变化。</p>
         </Section>
         <Section title="主题色" action={<output className="gz-set-value">{accentHex.toUpperCase()}</output>}>
           <div className="gz-accent-row"><button className="gz-swatch" aria-label="打开取色盘" style={{ background: accentStyle.rainbow ? rainbowGradient : accentHex }} onClick={() => setPickerOpen(true)} /><span className="gz-meta">点击色盘选择自定义主题色</span></div>
