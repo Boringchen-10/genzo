@@ -147,7 +147,7 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app input, .android-app select, .android-app textarea { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; background: var(--bg-raised); font-size: 16px; }
 .android-app textarea { resize: vertical; }
 .android-app .gz-candidates { display: grid; gap: 12px; margin: 16px 0; }
-@media (max-width: 374px) { .android-app .gz-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .android-app .gz-detail-head { grid-template-columns: 100px minmax(0,1fr); gap: 12px; } }
+@media (max-width: 374px) { .android-app .gz-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .android-app .gz-explore-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .android-app .gz-detail-head { grid-template-columns: 100px minmax(0,1fr); gap: 12px; } }
 @media (min-width: 700px) { .android-app .gz-grid { grid-template-columns: repeat(6,minmax(0,1fr)); } .android-app .gz-scroll { padding-inline: 24px; } .android-app .gz-sheet { max-width: 560px; } }
 @media (hover:hover) { .android-app button:hover:not(:disabled) { filter: brightness(1.12); } }
 @media (prefers-reduced-motion: no-preference) { .android-app .gz-loading svg, .android-app .gz-busy svg { animation: gz-spin 1s linear infinite; } @keyframes gz-spin { to { transform: rotate(360deg); } } }
@@ -250,7 +250,7 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 /* Explore (发现) */
 .android-app .gz-explore-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .android-app .gz-explore-tabs { flex: 1; }
-.android-app .gz-explore-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px 12px; }
+.android-app .gz-explore-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px 12px; }
 .android-app .gz-explore-grid .gz-cover { width: auto; }
 .android-app .gz-explore-poster { display: grid; place-items: center; aspect-ratio: 2 / 3; overflow: hidden; border-radius: var(--radius); background: var(--bg-raised); color: var(--quiet); }
 .android-app .gz-explore-poster img { width: 100%; height: 100%; object-fit: cover; }
@@ -270,7 +270,7 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-explore-detail-info { display: grid; align-content: start; gap: 6px; min-width: 0; }
 .android-app .gz-explore-detail-info h2 { font-size: 16px; }
 .android-app .gz-explore-detail-actions { display: grid; gap: 8px; margin-top: 14px; }
-@media (min-width: 700px) { .android-app .gz-explore-grid { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+@media (min-width: 700px) { .android-app .gz-explore-grid { grid-template-columns: repeat(6, minmax(0,1fr)); } }
 
 /* Network (网络) */
 .android-app .gz-network { display: grid; gap: 16px; padding-bottom: 8px; }
@@ -288,3 +288,19 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-node-latency.slow { color: var(--warn); }
 .android-app .gz-net-save { display: grid; gap: 8px; }
 @media (prefers-reduced-motion: no-preference) { .android-app .gz-spin { animation: gz-spin 1s linear infinite; } }
+
+/* View Transitions: page slides between primary tabs, shared-element morphs from a cover into the detail header. */
+@keyframes gz-vt-in-right { from { transform: translateX(26%); opacity: .35; } to { transform: translateX(0); opacity: 1; } }
+@keyframes gz-vt-out-left { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-20%); opacity: 0; } }
+@keyframes gz-vt-in-left { from { transform: translateX(-26%); opacity: .35; } to { transform: translateX(0); opacity: 1; } }
+@keyframes gz-vt-out-right { from { transform: translateX(0); opacity: 1; } to { transform: translateX(20%); opacity: 0; } }
+html::view-transition-old(root), html::view-transition-new(root) { animation-duration: 220ms; }
+html[data-trans="page"]::view-transition-old(root), html[data-trans="page"]::view-transition-new(root) { animation: none; }
+html[data-trans="page"][data-nav="forward"]::view-transition-old(gz-page) { animation: gz-vt-out-left 300ms cubic-bezier(.2,.8,.2,1) both; }
+html[data-trans="page"][data-nav="forward"]::view-transition-new(gz-page) { animation: gz-vt-in-right 320ms cubic-bezier(.2,.8,.2,1) both; }
+html[data-trans="page"][data-nav="back"]::view-transition-old(gz-page) { animation: gz-vt-out-right 300ms cubic-bezier(.2,.8,.2,1) both; }
+html[data-trans="page"][data-nav="back"]::view-transition-new(gz-page) { animation: gz-vt-in-left 320ms cubic-bezier(.2,.8,.2,1) both; }
+html[data-trans="morph"]::view-transition-group(*) { animation-duration: 360ms; animation-timing-function: cubic-bezier(.2,.8,.2,1); }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

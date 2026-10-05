@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Database, Download, Film, Filter, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, MessageSquare, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, User, UserPlus, X } from "lucide-react";
 import { api, bookApi } from "../api";
@@ -20,6 +21,15 @@ const taskStages: Record<string, string> = { queued: "等待扫描", scanning: "
 const metadataStates: Record<string, string> = { unmatched: "待整理", candidate_pending: "待确认", matched: "已匹配", manually_created: "手动整理", error: "识别失败" };
 const asset = (path: string | null | undefined) => path ? (/^(https?:|asset:|data:|blob:)/.test(path) ? path : convertFileSrc(path)) : undefined;
 const routeFromHash = () => location.hash.slice(2) || "home";
+type ViewTransitionHandle = { finished: Promise<void> };
+const startViewTransition = (callback: () => void | Promise<void>): ViewTransitionHandle | null => {
+  const doc = document as Document & { startViewTransition?: (callback: () => void | Promise<void>) => ViewTransitionHandle };
+  if (typeof doc.startViewTransition !== "function") return null;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
+  return doc.startViewTransition(callback);
+};
+const coverTransitionName = (id: string) => `gz-cover-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+const coverSelector = (id: string) => `[data-cover-id="${id.replace(/["\\]/g, "\\$&")}"]`;
 const bytes = (size: number) => size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(1)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
 const inputFor = (work: WorkDetail): WorkInput => ({ title: work.title, originalTitle: work.originalTitle, type: work.type, description: work.description, coverPath: work.coverPath, status: work.status, favorite: work.favorite, rating: work.rating, notes: work.notes, tags: work.tags });
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -139,7 +149,7 @@ function Poster({ work }: { work: WorkListItem | WorkDetail }) {
   const [failed, setFailed] = useState(false);
   const url = asset(work.coverPath);
   useEffect(() => setFailed(false), [url]);
-  return <div className={`gz-poster ${!url || failed ? "missing" : ""}`}>
+  return <div className={`gz-poster ${!url || failed ? "missing" : ""}`} data-cover-id={work.id}>
     {url && !failed ? <img src={url} alt={work.title} onError={() => setFailed(true)} /> : <><Film aria-hidden="true" /><span>暂无封面</span></>}
     {work.favorite && <span className="gz-fav"><Heart size={14} fill="currentColor" /></span>}
   </div>;
@@ -278,6 +288,12 @@ export default function AndroidApp() {
   const sheet = useRef<HTMLElement>(null);
   const scrollPositions = useRef<Record<string, number>>({});
   const refreshSequence = useRef(0);
+  const incomingDetail = useRef<WorkDetail | null>(null);
+  const pendingNav = useRef<{ cover: string; kind: "forward" | "back" } | null>(null);
+  const transitionSeq = useRef(0);
+  const routeRef = useRef(route);
+  const lastHashRef = useRef(location.hash);
+  routeRef.current = route;
   const dark = theme === "system" ? systemDark : theme === "dark";
   const accentStyle = themeStyles.find(item => item.id === themeStyle) ?? { id: "soft" as ThemeStyle, label: "柔和", sat: 1, light: 1, neutral: 30 };
   const accentSatValue = clamp(accentSat * accentStyle.sat, 0, 100);
@@ -317,11 +333,55 @@ export default function AndroidApp() {
     try { await operation(); } catch (reason) { setError(String(reason)); }
     finally { setBusy(false); }
   }
+  function resetTransitionNames() {
+    main.current?.style.removeProperty("view-transition-name");
+    document.querySelectorAll<HTMLElement>("[data-cover-id]").forEach(node => node.style.removeProperty("view-transition-name"));
+  }
+  function setCoverName(id: string, active: boolean) {
+    const node = document.querySelector<HTMLElement>(coverSelector(id));
+    if (!node) return;
+    if (active) node.style.setProperty("view-transition-name", coverTransitionName(id));
+    else node.style.removeProperty("view-transition-name");
+  }
+  function runMorph(id: string, kind: "forward" | "back", commit: () => void | Promise<void>) {
+    const root = document.documentElement;
+    const seq = ++transitionSeq.current;
+    resetTransitionNames();
+    setCoverName(id, true);
+    root.dataset.trans = "morph"; root.dataset.nav = kind;
+    const transition = startViewTransition(async () => { await commit(); setCoverName(id, true); });
+    if (!transition) { void commit(); if (transitionSeq.current === seq) { setCoverName(id, false); delete root.dataset.trans; delete root.dataset.nav; } return; }
+    void transition.finished.finally(() => { if (transitionSeq.current === seq) { setCoverName(id, false); delete root.dataset.trans; delete root.dataset.nav; } });
+  }
+  function withPageTransition(kind: "forward" | "back", commit: () => void) {
+    const root = document.documentElement;
+    const page = main.current;
+    const seq = ++transitionSeq.current;
+    resetTransitionNames();
+    page?.style.setProperty("view-transition-name", "gz-page");
+    root.dataset.trans = "page"; root.dataset.nav = kind;
+    const transition = startViewTransition(() => flushSync(commit));
+    if (!transition) { commit(); if (transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } return; }
+    void transition.finished.finally(() => { if (transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } });
+  }
   function navigate(next: string) {
     if (next === route) return;
     scrollPositions.current[route] = main.current?.scrollTop ?? 0;
     history.pushState({ genzoDepth: (history.state?.genzoDepth ?? 0) + 1 }, "", `#/${next}`);
-    setRoute(next);
+    lastHashRef.current = location.hash;
+    if (next.startsWith("detail/")) {
+      const id = decodeURIComponent(next.slice(7));
+      runMorph(id, "forward", async () => {
+        let work: WorkDetail | null = null;
+        try { work = await api.getWork(id); } catch { work = null; }
+        incomingDetail.current = work;
+        flushSync(() => { if (work) setDetail(work); setRoute(next); });
+      });
+      return;
+    }
+    const nextTab = tabs.findIndex(tab => tab.route === next);
+    const currentTab = tabs.findIndex(tab => tab.route === primary);
+    withPageTransition(nextTab >= 0 && currentTab >= 0 && nextTab < currentTab ? "back" : "forward", () => setRoute(next));
   }
   function openCategory(category: string) {
     setFilter(category);
@@ -334,13 +394,34 @@ export default function AndroidApp() {
     if (route === "browse" && browseStack.length > 1) { browseUp(); return true; }
     if (route === "home") return false;
     scrollPositions.current[route] = main.current?.scrollTop ?? 0;
-    if (history.state?.genzoDepth > 0) history.back();
-    else { history.replaceState({ genzoDepth: 0 }, "", "#/home"); setRoute("home"); }
+    const coverId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
+    if (history.state?.genzoDepth > 0) {
+      if (coverId) pendingNav.current = { cover: coverId, kind: "back" };
+      history.back();
+    } else if (coverId) {
+      history.replaceState({ genzoDepth: 0 }, "", "#/home");
+      lastHashRef.current = location.hash;
+      runMorph(coverId, "back", () => flushSync(() => setRoute("home")));
+    } else {
+      history.replaceState({ genzoDepth: 0 }, "", "#/home");
+      lastHashRef.current = location.hash;
+      withPageTransition("back", () => setRoute("home"));
+    }
     return true;
   }
   useEffect(() => {
     if (!location.hash) history.replaceState({ genzoDepth: 0 }, "", "#/home");
-    const changed = () => setRoute(routeFromHash());
+    lastHashRef.current = location.hash;
+    const changed = () => {
+      if (location.hash === lastHashRef.current) return;
+      lastHashRef.current = location.hash;
+      const next = routeFromHash();
+      if (next === routeRef.current) return;
+      const pending = pendingNav.current;
+      pendingNav.current = null;
+      if (pending) runMorph(pending.cover, pending.kind, () => flushSync(() => setRoute(next)));
+      else withPageTransition("back", () => setRoute(next));
+    };
     addEventListener("popstate", changed); addEventListener("hashchange", changed);
     void refresh().catch(reason => setError(String(reason))).finally(() => setLoading(false));
     void api.getSetting("theme").then(value => { if (["light", "dark", "system"].includes(value ?? "")) setTheme(value as ThemeMode); }).catch(reason => setError(String(reason)));
@@ -381,7 +462,6 @@ export default function AndroidApp() {
   useEffect(() => { if (route !== "bookshelf") setBookQuery(""); }, [route]);
   useEffect(() => {
     let active = true;
-    setDetail(null);
     setDetailError("");
     setBookEntries([]);
     setBookEntryState("idle");
@@ -390,7 +470,11 @@ export default function AndroidApp() {
     setDetailTab("episodes");
     setStructure(null);
     setStructureState("idle");
-    if (workId) void api.getWork(workId).then(work => {
+    if (!workId) { setDetail(null); return; }
+    const preset = incomingDetail.current?.id === workId ? incomingDetail.current : null;
+    incomingDetail.current = null;
+    setDetail(preset);
+    void (preset ? Promise.resolve(preset) : api.getWork(workId)).then(work => {
       if (!active) return;
       setDetail(work);
       if (work.type === "comic" || work.type === "novel") {
