@@ -129,12 +129,13 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app[data-theme="dark"] .gz-poster img { filter: brightness(var(--cover-brightness, 1)); }
 .android-app .gz-panel, .android-app .gz-row-card, .android-app .gz-menu-group { box-shadow: 0 6px 20px rgba(0,0,0, calc(0.26 * var(--shadow-scale, 1))); }
 .android-app .gz-scrim-center { align-items: center; }
-.android-app .gz-picker { width: calc(100% - 32px); max-width: 320px; border-radius: calc(var(--radius) + 8px); }
-.android-app .gz-picker-ring { position: relative; width: 232px; height: 232px; max-width: 68vw; max-height: 68vw; margin: 20px auto 8px; border-radius: 50%; touch-action: none; }
-.android-app .gz-picker-hue { position: absolute; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
-.android-app .gz-picker-square { position: absolute; inset: 26%; border-radius: 8px; touch-action: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
-.android-app .gz-picker-sv { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
-.android-app .gz-picker-hex { display: block; text-align: center; margin: 16px 0; font-size: 15px; font-weight: 600; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.android-app .gz-picker { width: calc(100% - 24px); max-width: 384px; border-radius: calc(var(--radius) + 8px); }
+.android-app .gz-picker-blocks { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; margin: 16px 0; }
+.android-app .gz-picker-block { aspect-ratio: 1; width: 100%; height: auto; min-height: 0; padding: 0; border-radius: 10px; border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+.android-app .gz-picker-block.active { border-color: var(--text); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
+.android-app .gz-picker-preview { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 4px 0 16px; }
+.android-app .gz-picker-preview-dot { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
+.android-app .gz-picker-hex { font-size: 15px; font-weight: 600; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .android-app .gz-picker-actions { display: flex; gap: 12px; margin-top: 0; }
 .android-app .gz-picker-actions .gz-btn { flex: 1; }
 .android-app input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; min-height: 44px; padding: 0; border: 0; background: transparent; }

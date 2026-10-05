@@ -31,30 +31,13 @@ const hslToHex = (hue: number, sat: number, light: number) => {
   const match = lightness - chroma / 2;
   return `#${[red, green, blue].map(channel => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`;
 };
-const hslToHsv = (hue: number, sat: number, light: number) => {
-  const saturation = clamp(sat, 0, 100) / 100;
-  const lightness = clamp(light, 0, 100) / 100;
-  const value = lightness + saturation * Math.min(lightness, 1 - lightness);
-  const hsvSat = value === 0 ? 0 : 2 * (1 - lightness / value);
-  return { h: hue, s: hsvSat * 100, v: value * 100 };
-};
-const hsvToHsl = (hue: number, sat: number, value: number) => {
-  const hsvSat = clamp(sat, 0, 100) / 100;
-  const hsvVal = clamp(value, 0, 100) / 100;
-  const lightness = hsvVal * (1 - hsvSat / 2);
-  const sl = lightness === 0 || lightness === 1 ? 0 : (hsvVal - lightness) / Math.min(lightness, 1 - lightness);
-  return { hue, sat: sl * 100, light: lightness * 100 };
-};
-const hsvToHex = (hue: number, sat: number, value: number) => {
-  const hsvSat = clamp(sat, 0, 100) / 100;
-  const hsvVal = clamp(value, 0, 100) / 100;
-  const chroma = hsvVal * hsvSat;
-  const section = (((hue % 360) + 360) % 360) / 60;
-  const x = chroma * (1 - Math.abs((section % 2) - 1));
-  const [red, green, blue] = section < 1 ? [chroma, x, 0] : section < 2 ? [x, chroma, 0] : section < 3 ? [0, chroma, x] : section < 4 ? [0, x, chroma] : section < 5 ? [x, 0, chroma] : [chroma, 0, x];
-  const match = hsvVal - chroma;
-  return `#${[red, green, blue].map(channel => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`;
-};
+const pickerHues = [0, 45, 90, 135, 180, 225, 270, 315];
+const pickerTones = [{ s: 34, l: 84 }, { s: 55, l: 70 }, { s: 75, l: 57 }, { s: 88, l: 45 }, { s: 72, l: 31 }];
+const pickerGrays = [96, 84, 70, 56, 42, 30, 18, 9].map(l => ({ h: 0, s: 0, l }));
+const pickerPalette: { h: number; s: number; l: number }[] = [
+  ...pickerTones.flatMap(tone => pickerHues.map(hue => ({ h: hue, s: tone.s, l: tone.l }))),
+  ...pickerGrays,
+];
 const themeStyles: { id: ThemeStyle; label: string; sat: number; light: number; neutral: number; lift?: number; rainbow?: boolean }[] = [
   { id: "soft", label: "柔和", sat: 0.95, light: 1, neutral: 28, lift: 0 },
   { id: "vivid", label: "鲜明", sat: 1.4, light: 1.06, neutral: 48, lift: 1.2 },
@@ -84,43 +67,17 @@ const presetSwatches = [
 ];
 const rainbowGradient = "conic-gradient(from 0deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)";
 function ColorPicker({ hue, sat, light, onCancel, onConfirm }: { hue: number; sat: number; light: number; onCancel: () => void; onConfirm: (value: { hue: number; sat: number; light: number }) => void }) {
-  const initial = hslToHsv(hue, sat, light);
-  const [h, setH] = useState(Math.round(initial.h));
-  const [s, setS] = useState(clamp(initial.s, 0, 100));
-  const [v, setV] = useState(clamp(initial.v, 0, 100));
-  const ring = useRef<HTMLDivElement>(null);
-  const square = useRef<HTMLDivElement>(null);
-  const mode = useRef<"hue" | "sv" | null>(null);
-  const pickHue = (clientX: number, clientY: number) => {
-    const rect = ring.current?.getBoundingClientRect();
-    if (!rect) return;
-    const angle = Math.atan2(clientX - (rect.left + rect.width / 2), -(clientY - (rect.top + rect.height / 2))) * 180 / Math.PI;
-    setH(Math.round((angle + 360) % 360));
-  };
-  const pickSv = (clientX: number, clientY: number) => {
-    const rect = square.current?.getBoundingClientRect();
-    if (!rect) return;
-    setS(clamp((clientX - rect.left) / rect.width * 100, 0, 100));
-    setV(clamp((1 - (clientY - rect.top) / rect.height) * 100, 0, 100));
-  };
-  const end = () => { mode.current = null; };
-  const rad = h * Math.PI / 180;
+  const [h, setH] = useState(Math.round(((hue % 360) + 360) % 360));
+  const [s, setS] = useState(Math.round(clamp(sat, 0, 100)));
+  const [l, setL] = useState(Math.round(clamp(light, 0, 100)));
+  const current = hslToHex(h, s, l);
   return <div className="gz-scrim gz-scrim-center" onClick={onCancel}><section className="gz-sheet gz-picker" role="dialog" aria-modal="true" aria-label="自定义主题色" onClick={event => event.stopPropagation()}>
-    <p className="gz-meta">点击色盘选择自定义主题色</p>
-    <div className="gz-picker-ring" ref={ring} style={{ background: rainbowGradient }}
-      onPointerDown={event => { mode.current = "hue"; event.currentTarget.setPointerCapture(event.pointerId); pickHue(event.clientX, event.clientY); }}
-      onPointerMove={event => { if (mode.current === "hue") pickHue(event.clientX, event.clientY); }}
-      onPointerUp={end} onPointerCancel={end}>
-      <span className="gz-picker-hue" style={{ left: `${50 + 45 * Math.sin(rad)}%`, top: `${50 - 45 * Math.cos(rad)}%` }} aria-hidden="true" />
-      <div className="gz-picker-square" ref={square} style={{ background: `linear-gradient(to right, #fff, rgba(255,255,255,0)), linear-gradient(to top, #000, rgba(0,0,0,0)), hsl(${h} 100% 50%)` }}
-        onPointerDown={event => { event.stopPropagation(); mode.current = "sv"; event.currentTarget.setPointerCapture(event.pointerId); pickSv(event.clientX, event.clientY); }}
-        onPointerMove={event => { if (mode.current === "sv") pickSv(event.clientX, event.clientY); }}
-        onPointerUp={event => { event.stopPropagation(); end(); }} onPointerCancel={end}>
-        <span className="gz-picker-sv" style={{ left: `${s}%`, top: `${100 - v}%` }} aria-hidden="true" />
-      </div>
+    <p className="gz-meta">点按色块选择自定义主题色</p>
+    <div className="gz-picker-blocks" role="listbox" aria-label="颜色色块">
+      {pickerPalette.map((color, index) => { const active = h === color.h && s === color.s && l === color.l; const hex = hslToHex(color.h, color.s, color.l); return <button key={index} type="button" role="option" aria-selected={active} className={`gz-picker-block ${active ? "active" : ""}`} style={{ background: hex }} aria-label={`色块 ${hex.toUpperCase()}`} onClick={() => { setH(color.h); setS(color.s); setL(color.l); }} />; })}
     </div>
-    <output className="gz-picker-hex">{hsvToHex(h, s, v).toUpperCase()}</output>
-    <div className="gz-picker-actions"><button className="gz-btn" onClick={onCancel}>取消</button><button className="gz-btn primary" onClick={() => onConfirm(hsvToHsl(h, s, v))}>确定</button></div>
+    <div className="gz-picker-preview"><span className="gz-picker-preview-dot" style={{ background: current }} aria-hidden="true" /><output className="gz-picker-hex">{current.toUpperCase()}</output></div>
+    <div className="gz-picker-actions"><button className="gz-btn" onClick={onCancel}>取消</button><button className="gz-btn primary" onClick={() => onConfirm({ hue: h, sat: s, light: l })}>确定</button></div>
   </section></div>;
 }
 
@@ -446,7 +403,7 @@ export default function AndroidApp() {
           <p className="gz-meta">主题风格会同时调整强调色强度与界面底色、面板的染色程度，切换后整体配色气质随之变化。</p>
         </Section>
         <Section title="主题色" action={<output className="gz-set-value">{accentHex.toUpperCase()}</output>}>
-          <div className="gz-accent-row"><button className="gz-swatch" aria-label="打开取色盘" style={{ background: accentStyle.rainbow ? rainbowGradient : accentHex }} onClick={() => setPickerOpen(true)} /><span className="gz-meta">点击色盘选择自定义主题色</span></div>
+          <div className="gz-accent-row"><button className="gz-swatch" aria-label="打开取色板" style={{ background: accentStyle.rainbow ? rainbowGradient : accentHex }} onClick={() => setPickerOpen(true)} /><span className="gz-meta">点按色块选择自定义主题色</span></div>
           <div className="gz-swatches">{presetSwatches.map(color => <button key={color.hex} className={`gz-swatch-sm ${accentHue === color.h ? "active" : ""}`} style={{ background: color.hex }} aria-label={`主题色 ${color.hex}`} onClick={() => { setAccentHue(color.h); setAccentSat(color.s); setAccentLight(color.l); }} />)}</div>
         </Section>
         <button type="button" className="gz-toggle-row" disabled>
