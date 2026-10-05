@@ -3,7 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Download, Film, Filter, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, MessageSquare, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, User, UserPlus, X } from "lucide-react";
 import { api, bookApi } from "../api";
 import type { BookEntry } from "../bookData";
-import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
+import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
 import { playbackPercent, playbackTime, type PlaybackProgress } from "../playback";
 import { usePreferences, type ThemeStyle } from "../store";
@@ -267,6 +267,10 @@ export default function AndroidApp() {
   const [bookEntryState, setBookEntryState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [bookTab, setBookTab] = useState<"default" | "volume" | "chapter">("default");
   const [bookPage, setBookPage] = useState(1);
+  const [bookQuery, setBookQuery] = useState("");
+  const [detailTab, setDetailTab] = useState<"overview" | "episodes" | "characters" | "related" | "staff">("overview");
+  const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
+  const [structureState, setStructureState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
@@ -372,6 +376,7 @@ export default function AndroidApp() {
     return () => { removeEventListener("keydown", trap); previous?.focus(); };
   }, [modal]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2800); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => { if (route !== "bookshelf") setBookQuery(""); }, [route]);
   useEffect(() => {
     let active = true;
     setDetail(null);
@@ -380,12 +385,18 @@ export default function AndroidApp() {
     setBookEntryState("idle");
     setBookTab("default");
     setBookPage(1);
+    setDetailTab("overview");
+    setStructure(null);
+    setStructureState("idle");
     if (workId) void api.getWork(workId).then(work => {
       if (!active) return;
       setDetail(work);
       if (work.type === "comic" || work.type === "novel") {
         setBookEntryState("loading");
         void bookApi.entries(work.id).then(entries => { if (active) { setBookEntries(entries); setBookEntryState("ready"); } }).catch(reason => { if (active) { setBookEntries([]); setBookEntryState("error"); setError(String(reason)); } });
+      } else {
+        setStructureState("loading");
+        void api.getAnimeWorkStructure(work.id).then(result => { if (active) { setStructure(result); setStructureState("ready"); } }).catch(() => { if (active) { setStructure(null); setStructureState("error"); } });
       }
     }).catch(reason => { if (active) { setError(String(reason)); setDetailError(String(reason)); } });
     return () => { active = false; };
@@ -435,7 +446,18 @@ export default function AndroidApp() {
   const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase())));
   const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
   const shelfSortOptions = [{ id: "updated" as const, label: "作品更新时间", hint: "按作品最近更新的时间排序" }, { id: "collected" as const, label: "收藏时间", hint: "按加入书架的时间排序" }, { id: "browsed" as const, label: "浏览时间", hint: "按最近浏览的时间排序" }];
-  const shelfWorks = allWorks.filter(work => work.type === shelfType).sort((a, b) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const shelfWorks = allWorks.filter(work => work.type === shelfType).filter(work => !bookQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(bookQuery.toLowerCase()))).sort((a, b) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const openTag = (tag: string, type?: MediaFile["mediaType"]) => {
+    if (type === "comic" || type === "novel") { setBookQuery(tag); setShelfType(type); navigate("bookshelf"); return; }
+    setQuery(tag); setFilter("all"); setLimit(48); navigate("library");
+  };
+  const detailTabs: { id: "overview" | "episodes" | "characters" | "related" | "staff"; label: string }[] = [
+    { id: "overview", label: "概览" },
+    { id: "episodes", label: "剧集" },
+    { id: "characters", label: "角色" },
+    { id: "related", label: "关联" },
+    { id: "staff", label: "制作人员" },
+  ];
   const chapterLabel = (entry: BookEntry) => entry.chapterNumber !== null ? `第${String(Math.round(entry.chapterNumber)).padStart(2, "0")}话` : entry.volumeNumber !== null ? `第${String(Math.round(entry.volumeNumber)).padStart(2, "0")}卷` : entry.title;
   const bookTabs = [
     { id: "default" as const, label: "默认", entries: bookEntries },
@@ -569,7 +591,7 @@ export default function AndroidApp() {
               {detail.metadataYear && <span className="gz-book-chip">{detail.metadataYear} 年</span>}
               {detail.metadata && <span className="gz-book-chip">{detail.metadata.provider}</span>}
             </div>
-            {detail.tags.length > 0 && <div className="gz-book-pills">{detail.tags.map(tag => <span className="gz-book-pill" key={tag}><i aria-hidden="true" />{tag}</span>)}</div>}
+            {detail.tags.length > 0 && <div className="gz-book-pills">{detail.tags.map(tag => <button className="gz-book-pill" key={tag} onClick={() => openTag(tag, detail.type)}><i aria-hidden="true" />{tag}</button>)}</div>}
             <div className="gz-book-stats">
               {detail.networkScore != null && <span className="gz-book-stat"><Star size={13} />{detail.networkScore.toFixed(1)} 分</span>}
               <span className="gz-book-stat"><BookOpen size={13} />{bookEntries.length} 话</span>
@@ -596,17 +618,24 @@ export default function AndroidApp() {
         </> : <div className="gz-shelf-empty"><span className="gz-shelf-badge"><BookOpen size={26} /></span><h2>还没有章节</h2><p>{bookEntryState === "error" ? "章节目录读取失败，请稍后重试。" : "这个作品还没有可阅读的章节文件。"}</p></div>}
       </> : <>
         <section className="gz-detail-head"><Poster work={detail} /><div><span className="gz-badge">{metadataStates[detail.metadataStatus]}</span><h2>{detail.title}</h2>{detail.originalTitle && <p className="gz-meta">{detail.originalTitle}</p>}<p className="gz-meta">{detail.metadataYear ?? "年份未填写"} · {statuses[detail.status]}</p><div className="gz-actions"><button className={`gz-iconbtn ${detail.favorite ? "gz-accent" : ""}`} aria-label={detail.favorite ? "取消收藏" : "加入收藏"} disabled={busy} onClick={() => void run(() => favorite(detail))}><Heart fill={detail.favorite ? "currentColor" : "none"} /></button><button className="gz-btn" onClick={() => setModal({ kind: "edit", work: detail })}><Settings size={16} />个人记录</button></div></div></section>
-        <div className="gz-actions"><span className="gz-badge">{detail.rating === null ? "未评分" : `我的评分 ${detail.rating}`}</span>{detail.tags.map(tag => <span className="gz-badge" key={tag}>{tag}</span>)}</div>
-        <Section title="作品简介"><p className="gz-description">{detail.description || "暂无作品简介。可以在待整理中匹配资料。"}</p></Section>
-        <Section title="本地视频" action={<span className="gz-meta">{detail.mediaFiles.filter(file => file.mediaType === "video").length} 个</span>}><div className="gz-episodes">{detail.mediaFiles.filter(file => file.mediaType === "video").map(file => { const saved = progress.find(item => item.mediaFileId === file.id); return <button className="gz-episode" key={file.id} disabled={busy || file.missing} onClick={() => void run(() => play(file.id))}><div className="gz-episode-cover"><Play /><span>{file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.extension.toUpperCase()}</span>{saved && <progress max={100} value={playbackPercent(saved)} />}</div><strong>{file.fileName}</strong><span className="gz-meta">{file.missing ? "文件缺失" : saved?.completed ? "已看完" : saved ? `续播 ${playbackTime(saved.positionMs)}` : `${bytes(file.size)} · 未播放`}</span></button>; })}</div>{!detail.mediaFiles.some(file => file.mediaType === "video") && <p className="gz-panel gz-meta">尚未关联视频。可在待整理中关联本地文件。</p>}</Section>
-        <Section title="个人备注"><p className="gz-description">{detail.notes || "还没有写下备注。"}</p></Section>
-        <Section title="资料管理"><button className="gz-btn" disabled={busy || !detail.metadata} onClick={() => void run(async () => { await api.refreshWorkMetadata(detail.id); setDetail(await api.getWork(detail.id)); await refresh(); setToast("作品资料已刷新"); })}><RefreshCw size={16} />刷新已匹配资料</button><p className="gz-meta">{detail.metadata ? `资料来源 ${detail.metadata.provider}；刷新失败时保留已有资料。` : "当前为手动作品，尚未绑定资料来源。"}</p></Section>
+        <div className="gz-detail-tabs" role="tablist" aria-label="作品详情分类">{detailTabs.map(tab => <button type="button" role="tab" key={tab.id} aria-selected={detailTab === tab.id} className={detailTab === tab.id ? "active" : ""} onClick={() => setDetailTab(tab.id)}>{tab.label}</button>)}</div>
+        {detailTab === "overview" && <>
+          {detail.tags.length > 0 && <div className="gz-actions">{detail.tags.map(tag => <button type="button" className="gz-tag" key={tag} onClick={() => openTag(tag)}>{tag}</button>)}</div>}
+          <Section title="作品简介"><p className="gz-description">{detail.description || "暂无作品简介。可以在待整理中匹配资料。"}</p></Section>
+          <Section title="个人备注"><p className="gz-description">{detail.notes || "还没有写下备注。"}</p></Section>
+          <Section title="资料管理"><button className="gz-btn" disabled={busy || !detail.metadata} onClick={() => void run(async () => { await api.refreshWorkMetadata(detail.id); setDetail(await api.getWork(detail.id)); await refresh(); setToast("作品资料已刷新"); })}><RefreshCw size={16} />刷新已匹配资料</button><p className="gz-meta">{detail.metadata ? `资料来源 ${detail.metadata.provider}；刷新失败时保留已有资料。` : "当前为手动作品，尚未绑定资料来源。"}</p></Section>
+        </>}
+        {detailTab === "episodes" && <Section title="本地视频" action={<span className="gz-meta">{detail.mediaFiles.filter(file => file.mediaType === "video").length} 个</span>}><div className="gz-episodes">{detail.mediaFiles.filter(file => file.mediaType === "video").map(file => { const saved = progress.find(item => item.mediaFileId === file.id); return <button className="gz-episode" key={file.id} disabled={busy || file.missing} onClick={() => void run(() => play(file.id))}><div className="gz-episode-cover"><Play /><span>{file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.extension.toUpperCase()}</span>{saved && <progress max={100} value={playbackPercent(saved)} />}</div><strong>{file.fileName}</strong><span className="gz-meta">{file.missing ? "文件缺失" : saved?.completed ? "已看完" : saved ? `续播 ${playbackTime(saved.positionMs)}` : `${bytes(file.size)} · 未播放`}</span></button>; })}</div>{!detail.mediaFiles.some(file => file.mediaType === "video") && <p className="gz-panel gz-meta">尚未关联视频。可在待整理中关联本地文件。</p>}</Section>}
+        {detailTab === "characters" && <Section title="角色" action={structure ? <span className="gz-meta">{structure.characters.length} 位</span> : undefined}>{structureState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取角色资料…</p> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无角色资料。匹配 Bangumi 资料后可显示。</p> : structure.characters.length ? <div className="gz-credit-list">{structure.characters.map(character => <div className="gz-credit" key={character.externalId}><span className="gz-credit-avatar">{character.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{character.name}</strong><span>{[character.role, character.actors.join(" / ")].filter(Boolean).join(" · ") || "角色"}</span></span></div>)}</div> : <p className="gz-panel gz-meta">没有角色资料。</p>}</Section>}
+        {detailTab === "related" && <Section title="关联" action={structure ? <span className="gz-meta">{structure.seasons.length} 部</span> : undefined}>{structureState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取关联作品…</p> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无关联资料。</p> : structure.seasons.length ? <div className="gz-related-list">{structure.seasons.map(season => { const local = season.localWorkId; const body = <><span className="gz-credit-avatar">{season.title.slice(0, 1)}</span><span className="gz-related-main"><strong>{season.title}</strong><span>{[season.relation, season.seasonNumber ? `第 ${season.seasonNumber} 季` : null, season.current ? "当前作品" : null].filter(Boolean).join(" · ")}</span></span></>; return local ? <button type="button" className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId} onClick={() => navigate(`detail/${encodeURIComponent(local)}`)}>{body}<ChevronRight size={16} /></button> : <div className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId}>{body}</div>; })}</div> : <p className="gz-panel gz-meta">没有关联作品。</p>}</Section>}
+        {detailTab === "staff" && <Section title="制作人员" action={structure ? <span className="gz-meta">{structure.staff.length} 位</span> : undefined}>{structureState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取制作人员…</p> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无制作人员资料。</p> : structure.staff.length ? <div className="gz-credit-list">{structure.staff.map(credit => <div className="gz-credit" key={credit.externalId}><span className="gz-credit-avatar">{credit.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{credit.name}</strong><span>{credit.role}</span></span></div>)}</div> : <p className="gz-panel gz-meta">没有制作人员资料。</p>}</Section>}
       </>) : detailError ? <Empty title="无法读取作品详情"><p>{detailError}</p><button className="gz-btn" onClick={back}>返回</button></Empty> : <p className="gz-loading">正在读取作品详情…</p>)}
       {route === "bookshelf" && <>
         <div className="gz-shelf-tabs" role="tablist" aria-label="书架分类">
           {([["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={shelfType === id} className={shelfType === id ? "active" : ""} onClick={() => { setShelfType(id); setLimit(48); }}>{label}</button>)}
         </div>
         <div className="gz-shelf-bar">
+          {bookQuery && <button className="gz-chip active" onClick={() => setBookQuery("")}>标签：{bookQuery}<X size={13} /></button>}
           <button className="gz-chip" aria-haspopup="dialog" onClick={() => setSortSheet(true)}><Filter size={15} />有更新</button>
         </div>
         {shelfWorks.length ? <>
@@ -615,9 +644,9 @@ export default function AndroidApp() {
           {shelfWorks.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}
         </> : <div className="gz-shelf-empty">
           <span className="gz-shelf-badge"><Bookmark size={26} /></span>
-          <h2>书架空空如也</h2>
-          <p>去找点好看的{shelfType === "comic" ? "漫画" : "轻小说"}吧</p>
-          <button className="gz-btn" disabled={busy} onClick={() => void run(refresh)}>刷新</button>
+          <h2>{bookQuery ? "没有匹配的作品" : "书架空空如也"}</h2>
+          <p>{bookQuery ? `没有带「${bookQuery}」标签的${shelfType === "comic" ? "漫画" : "轻小说"}。` : `去找点好看的${shelfType === "comic" ? "漫画" : "轻小说"}吧`}</p>
+          {bookQuery ? <button className="gz-btn" onClick={() => setBookQuery("")}>清除标签筛选</button> : <button className="gz-btn" disabled={busy} onClick={() => void run(refresh)}>刷新</button>}
         </div>}
       </>}
       {route === "explore" && <Empty title={`${title} · Future`}><p>发现与推荐保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}

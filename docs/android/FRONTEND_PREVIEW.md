@@ -13,7 +13,7 @@
 | 来源 | SAF 添加 / 最近已授权目录登记；点击来源行直接进入文件夹分级浏览；仅保留「扫描」（进行中显示进度与取消、失败显示重试），不再显示启停开关、重新授权与扫描完成汇总 |
 | 浏览目录 | 仅显示文件夹，PC 式点击分级下钻：从授权目录根（总文件夹）逐级进入子文件夹，面包屑可回跳上层，系统返回键逐级退出；文件不在列表中展示，识别逻辑从简 |
 | 待整理 | 共享分组 / 文件范围、手动创建 / 关联、候选搜索 / 确认接口 |
-| 详情 | 按作品类型分流：影视显示作品资料、收藏、个人状态 / 评分 / 备注、已关联视频播放、已匹配资料刷新接口；漫画 / 轻小说显示书籍版式（类型 / 年份 / 评分与章节统计、标签、下载 / 评论 / 收藏、默认 / 单行本 / 分话章节网格与分页），阅读器仍待接入 |
+| 详情 | 按作品类型分流：影视详情为分段标签页（概览 / 剧集 / 角色 / 关联 / 制作人员），概览含可点击标签、作品简介、个人备注、资料管理，剧集列已关联视频，角色 / 关联 / 制作人员读作品资料结构（缺资料时显示占位），不再显示「我的评分」；漫画 / 轻小说显示书籍版式（类型 / 年份 / 评分与章节统计、可点击标签、下载 / 评论 / 收藏、默认 / 单行本 / 分话章节网格与分页），阅读器仍待接入 |
 
 底部主导航为 首页 / 媒体库 / 书架 / 发现 / 我的 五项，仅显示图标，当前选中项才展开文字。「我的」为分组菜单，外观 / 网络（来源管理、待整理）为子页，其余未接入项显示 Future 占位。
 
@@ -63,6 +63,8 @@ Android Studio 工程为 `src-tauri/gen/android`；React 文件在工程外层�
 2026-10-05启动时，Studio模式完成原生编译后 APK 输出仍是昨日文件。保持该桥进程，显式运行 `src-tauri/gen/android/gradlew.bat :app:assembleX86_64Debug` 后才生成最新包，本次安装实际来自 `D:\DevTools\Android\Build\gradle-genzo\app\outputs\apk\x86_64\debug\app-x86_64-debug.apk`。Gradle使用D盘Java17、`GRADLE_USER_HOME`及TEMP；不要把Universal与x86_64输出混用，安装前核对时间，安装后核对新页面。
 
 ## 验证与范围
+
+2026-10-05 详情页标签 / 分段切换：漫画 / 轻小说详情收窄章节标签与操作行（`.gz-book-tabs` 按钮内边距 5px 2px 8px、字号 13px，小标 11px、下划线 16px/2.5px；`.gz-book-action` 最小高 36px、字号 13px、图标 15px），标签改为可点击按钮 `.gz-book-pill`（`button` + `focus-visible`）。点击漫画标签调用 `openTag(tag, type)`：`comic` / `novel` 跳转 `#/bookshelf` 并写入 `bookQuery`，书架按类型过滤并把标签作为 `标签：<x>` 芯片显示在工具行（可点击清除，空结果显示「没有匹配的作品」+ 清除按钮）；影视标签仍跳转媒体库带搜索词。影视详情移除「我的评分」，改为参考图分段标签栏 `.gz-detail-tabs`（概览 / 剧集 / 角色 / 关联 / 制作人员）：概览显示可点击 `.gz-tag` 标签、作品简介、个人备注、资料管理；剧集列已关联视频；角色 / 关联 / 制作人员读 `api.getAnimeWorkStructure(workId)`（`structure.characters` / `seasons` / `staff`），加载 / 失败回退为「暂无…资料」占位。新增 `detailTab` / `structure` / `structureState` / `bookQuery` 状态与 `.gz-tag` / `.gz-detail-tabs` / `.gz-credit*` / `.gz-related*` 样式。模拟器（`emulator-5554`）验收：漫画详情 默认 24 / 分话 24、标签为按钮「奇幻 / 日本 / 漫画」，点击「奇幻」→ `#/bookshelf`，芯片「标签：奇幻」+「共 1 部」命中「魔都精兵的奴隶」，清除芯片后标签消失；影视详情分段栏切换正常（概览 / 剧集 / 角色，「角色 → 暂无角色资料。匹配 Bangumi 资料后可显示。」），全文不含「我的评分」。
 
 2026-10-05 漫画 / 轻小说作品详情页：`src/android/AndroidApp.tsx` 详情路由按 `detail.type` 分流，`comic` / `novel` 使用书籍版式（`.gz-book-head` / `.gz-book-chips` / `.gz-book-pills` / `.gz-book-stats` / `.gz-book-actions` / `.gz-book-tabs` / `.gz-chapter-grid`），影视仍用 `.gz-detail-head`。新增 `bookApi.entries(workId)` 读取真实章节：默认（全部）/ 单行本（按 `volumeNumber`）/ 分话（按 `chapterNumber`）三种分组，单行本与分话在无对应数据时隐藏；章节网格显示话号 / 卷号、文件格式徽章、缺失与在读状态，超过 72 条时分页（`.gz-book-groups`）并带回到顶部按钮。模拟器（`emulator-5554`）验收：种子漫画「魔都精兵的奴隶」（24 个 `.cbz` 章节）渲染 默认 24 / 分话 24（无单行本故隐藏），分话视图首项「第01话」，深 / 浅主题正常；并回归影视详情（4 部视频作品，点击 `#/detail/eba43f8c…` 仍显示 `.gz-detail-head` 与 1 集）与书架（漫画 / 轻小说分区、1 张漫画卡、排序行）不受影响。
 
