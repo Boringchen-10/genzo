@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Download, Film, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, User, UserPlus, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronRight, CircleHelp, Compass, Download, Film, Filter, Folder, Heart, History, Home, Inbox, Info, Library, LoaderCircle, Network, Palette, Play, Plus, RefreshCw, Search, Settings, Shuffle, SlidersHorizontal, User, UserPlus, X } from "lucide-react";
 import { api } from "../api";
 import type { MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
@@ -259,6 +259,10 @@ export default function AndroidApp() {
   const [browseStack, setBrowseStack] = useState<{ name: string; uri: string | null }[]>([]);
   const [browseFolders, setBrowseFolders] = useState<DocumentEntry[]>([]);
   const [browseState, setBrowseState] = useState<"loading" | "available" | "empty" | "error">("loading");
+  const [shelfType, setShelfType] = useState<"comic" | "novel">("comic");
+  const [shelfSort, setShelfSort] = useState<"updated" | "collected" | "browsed">("updated");
+  const [shelfUpdated, setShelfUpdated] = useState(false);
+  const [sortSheet, setSortSheet] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
@@ -316,6 +320,7 @@ export default function AndroidApp() {
   }
   function back() {
     if (modal) { setModal(null); return true; }
+    if (sortSheet) { setSortSheet(false); return true; }
     if (route === "browse" && browseStack.length > 1) { browseUp(); return true; }
     if (route === "home") return false;
     scrollPositions.current[route] = main.current?.scrollTop ?? 0;
@@ -347,7 +352,7 @@ export default function AndroidApp() {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") back(); };
     addEventListener("keydown", escape);
     return () => { delete windowWithBack.__genzoBack; removeEventListener("keydown", escape); };
-  }, [route, modal, browseStack]);
+  }, [route, modal, browseStack, sortSheet]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -414,7 +419,8 @@ export default function AndroidApp() {
   const card = (work: WorkListItem) => <button className="gz-card" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><strong>{work.title}</strong><span className="gz-meta">{statuses[work.status]} · {work.mediaCount} 个文件</span></button>;
   const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase())));
   const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
-  const bookWorks = allWorks.filter(work => work.type === "comic" || work.type === "novel").sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const shelfSortOptions = [{ id: "updated" as const, label: "作品更新时间", hint: "按作品最近更新的时间排序" }, { id: "collected" as const, label: "收藏时间", hint: "按加入书架的时间排序" }, { id: "browsed" as const, label: "浏览时间", hint: "按最近浏览的时间排序" }];
+  const shelfWorks = allWorks.filter(work => work.type === shelfType).filter(work => !shelfUpdated || Date.parse(work.updatedAt) > Date.parse(work.createdAt)).sort((a, b) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   const primary = route.startsWith("detail/") ? "library" : top ? route : "profile";
   const sourceManager = <>
     <p className="gz-meta">授权你已下载视频的目录。扫描只建立索引，不复制视频；停用来源保留作品和个人记录。</p>
@@ -531,11 +537,25 @@ export default function AndroidApp() {
         <Section title="个人备注"><p className="gz-description">{detail.notes || "还没有写下备注。"}</p></Section>
         <Section title="资料管理"><button className="gz-btn" disabled={busy || !detail.metadata} onClick={() => void run(async () => { await api.refreshWorkMetadata(detail.id); setDetail(await api.getWork(detail.id)); await refresh(); setToast("作品资料已刷新"); })}><RefreshCw size={16} />刷新已匹配资料</button><p className="gz-meta">{detail.metadata ? `资料来源 ${detail.metadata.provider}；刷新失败时保留已有资料。` : "当前为手动作品，尚未绑定资料来源。"}</p></Section>
       </> : detailError ? <Empty title="无法读取作品详情"><p>{detailError}</p><button className="gz-btn" onClick={back}>返回</button></Empty> : <p className="gz-loading">正在读取作品详情…</p>)}
-      {route === "bookshelf" && (bookWorks.length ? <>
-        <p className="gz-meta">共 {bookWorks.length} 部 · 漫画与轻小说阅读将在后续版本接入</p>
-        <div className="gz-grid">{bookWorks.slice(0, limit).map(card)}</div>
-        {bookWorks.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}
-      </> : <Empty title="书架还是空的"><p>漫画与轻小说阅读将在后续版本接入；添加来源并扫描后，作品会先显示在这里。</p><button className="gz-btn" onClick={() => navigate("sources")}>管理来源</button></Empty>)}
+      {route === "bookshelf" && <>
+        <div className="gz-shelf-tabs" role="tablist" aria-label="书架分类">
+          {([["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={shelfType === id} className={shelfType === id ? "active" : ""} onClick={() => { setShelfType(id); setLimit(48); }}>{label}</button>)}
+        </div>
+        <div className="gz-shelf-bar">
+          <button className={`gz-chip${shelfUpdated ? " active" : ""}`} aria-pressed={shelfUpdated} onClick={() => { setShelfUpdated(value => !value); setLimit(48); }}><Filter size={15} />有更新</button>
+          <button className="gz-chip gz-chip-plain" onClick={() => setSortSheet(true)}><Shuffle size={15} />换一换</button>
+        </div>
+        {shelfWorks.length ? <>
+          <p className="gz-meta">共 {shelfWorks.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>
+          <div className="gz-grid">{shelfWorks.slice(0, limit).map(card)}</div>
+          {shelfWorks.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}
+        </> : <div className="gz-shelf-empty">
+          <span className="gz-shelf-badge"><Bookmark size={26} /></span>
+          <h2>书架空空如也</h2>
+          <p>去找点好看的{shelfType === "comic" ? "漫画" : "轻小说"}吧</p>
+          <button className="gz-btn" disabled={busy} onClick={() => void run(refresh)}>刷新</button>
+        </div>}
+      </>}
       {route === "explore" && <Empty title={`${title} · Future`}><p>发现与推荐保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
       {route.startsWith("future/") && <Empty title={`${decodeURIComponent(route.slice(7))} · Future`}><p>该能力尚未接入，保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
       {route === "diagnostics" && <AndroidPrototype />}
@@ -545,5 +565,15 @@ export default function AndroidApp() {
     {busy && <div className="gz-busy" role="status"><LoaderCircle size={18} />正在处理…</div>}
     {modal && <div className="gz-scrim" onClick={() => setModal(null)}><section ref={sheet} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-dialog-title" onClick={event => event.stopPropagation()}><div className="gz-section-head"><h2 id="gz-dialog-title">{modal.kind === "edit" ? "个人记录" : "整理作品"}</h2><button className="gz-iconbtn" aria-label="关闭" onClick={() => setModal(null)}><X /></button></div>{error && <p className="gz-error" role="alert">{error}</p>}{modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { const updated = await api.updateWork(modal.work.id, input); setDetail(updated); await refresh(); setModal(null); setToast("个人记录已保存"); })} /> : <Organize group={modal.group} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}</section></div>}
     {pickerOpen && <ColorPicker hue={accentHue} sat={accentSat} light={accentLight} onCancel={() => setPickerOpen(false)} onConfirm={value => { setAccentHue(Math.round(value.hue)); setAccentSat(Math.round(value.sat)); setAccentLight(Math.round(value.light)); setPickerOpen(false); }} />}
+    {sortSheet && <div className="gz-scrim" onClick={() => setSortSheet(false)}><section className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-sort-title" onClick={event => event.stopPropagation()}>
+      <span className="gz-sheet-handle" aria-hidden="true" />
+      <h2 id="gz-sort-title" className="gz-sheet-title">排序方式</h2>
+      <div className="gz-sort-list">
+        {shelfSortOptions.map(option => <button type="button" key={option.id} className={`gz-sort-row${shelfSort === option.id ? " active" : ""}`} aria-pressed={shelfSort === option.id} onClick={() => { setShelfSort(option.id); setSortSheet(false); }}>
+          <span className="gz-sort-main"><strong>{option.label}</strong><span className="gz-meta">{option.hint}</span></span>
+          {shelfSort === option.id && <Check className="gz-sort-check" size={18} />}
+        </button>)}
+      </div>
+    </section></div>}
   </div>;
 }
