@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0-alpha.1 — 个人同步测试版（未正式发布）
+
+- 新增 Windows/Android 共用的个人 WebDAV V1 协议、Rust 核心、增量 SQLite 日志及安全条件写。
+- 影视资料、公共 ID、人工锁定、收藏/标签/个人评分/笔记、分集资料和观看会话合并；并发笔记保留双方，删除记录防止旧设备复活。
+- Windows 设置增加最小真实验证入口；实际 PotPlayer 采样携带会话，完整 SHA-256 确认同分集同版本后才跨设备续播。
+- 提供独立应用 ID 的 NSIS 测试安装包、阿里云部署准备与 Android 接入说明；尚未进行生产部署或双端实机联调。
+- 保留 v0.5.0 发布标签和安装包。
+
+
 Genzo 的重要变更记录在此文件中。格式参考 Keep a Changelog，版本号遵循 Semantic Versioning。
 
 ## [Unreleased]

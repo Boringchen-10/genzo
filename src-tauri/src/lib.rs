@@ -18,6 +18,7 @@ mod grouping;
 mod launcher;
 mod library_maintenance;
 mod playback;
+mod personal_sync;
 #[cfg(windows)]
 mod potplayer;
 mod media_mapping;
@@ -53,6 +54,7 @@ pub fn run() {
             db::allow_cached_images(app.handle(), &state.cover_cache_path)?;
             db::allow_cached_images(app.handle(), &state.thumbnail_cache_path)?;
             let metadata_pool = state.pool.clone();
+            personal_sync::start(app.handle().clone(), state.pool.clone());
             app.manage(state);
             tauri::async_runtime::spawn_blocking(|| {
                 if let Err(error) = explore::warm_embedded_index() {
@@ -69,7 +71,19 @@ pub fn run() {
             }
             Ok(())
         })
+        .on_window_event(|_, event| {
+            if matches!(event, tauri::WindowEvent::Focused(true)) { personal_sync::request(); }
+        })
         .invoke_handler(tauri::generate_handler![
+            personal_sync::sync_status,
+            personal_sync::sync_test_connection,
+            personal_sync::sync_connect,
+            personal_sync::sync_now,
+            personal_sync::sync_set_enabled,
+            personal_sync::sync_update_credentials,
+            personal_sync::sync_conflicts,
+            personal_sync::sync_resolve,
+            personal_sync::sync_bind_media,
             comic_cover_cache::cache_comic_explore_cover,
             comic_explore::list_comic_explore,
             comic_explore::get_comic_explore_themes,

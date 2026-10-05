@@ -1,6 +1,6 @@
 [package]
 name = "genzo"
-version = "0.5.0"
+version = "0.6.0-alpha.1"
 description = "Genzo - 你的私人次元媒体库"
 authors = ["Genzo contributors"]
 edition = "2021"
@@ -14,6 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+genzo-sync = { path = "../crates/genzo-sync" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }

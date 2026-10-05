@@ -8,6 +8,7 @@ import type { WorkListItem } from "../types";
 import { getErrorMessage } from "../utils";
 import { matchesLibraryCategory } from "../libraryCategory";
 import "../favorites.css";
+import { useSyncRefresh } from "../useSyncRefresh";
 
 const categories = [["all", "全部"], ["anime", "动漫"], ["movie", "电影"], ["tv", "电视剧"], ["comic", "漫画"], ["novel", "小说"], ["game", "游戏"]] as const;
 
@@ -18,13 +19,14 @@ export function FavoritesPage() {
   const category = categories.find(([value]) => value === params.get("category"))?.[0] ?? "all";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const load = useCallback(async () => {
-    setLoading(true); setError("");
+  const load = useCallback(async (background = false) => {
+    if (!background) setLoading(true); setError("");
     try { setWorks((await api.listWorks()).filter((work) => work.favorite)); }
     catch (reason: unknown) { setError(getErrorMessage(reason)); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => void load(), [load]);
+  useSyncRefresh(() => void load(true));
   const filtered = useMemo(() => works.filter((work) => matchesLibraryCategory(work, category) && (!query.trim() || `${work.title} ${work.originalTitle ?? ""}`.toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN")))), [category, query, works]);
   return <div className="page workspace-page gnz-favorites-page">
     <header className="page-header gnz-favorites-header">

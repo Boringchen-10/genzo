@@ -1,3 +1,4 @@
+import { useSyncRefresh } from "../useSyncRefresh";
 import { RetryImagesButton } from "../components/ResilientImage";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { LibraryMaintenance } from "../components/LibraryMaintenance";
@@ -131,6 +132,7 @@ export function LibraryPage() {
     }
   }, []);
   useEffect(() => { void load(); }, [load, activeSection]);
+  useSyncRefresh(() => void load(true));
 
   /* 「资源目录」已独立为侧栏「资源库」(/sources)：旧的 ?tab=sources 深链重定向过去，避免留下第二个入口。 */
   useEffect(() => {

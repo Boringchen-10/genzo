@@ -5,6 +5,7 @@ import { ErrorState, LoadingState } from "./common";
 import { usePreferences, useToasts } from "../store";
 import type { AppInfo, ThemeMode } from "../types";
 import { getErrorMessage } from "../utils";
+import { PersonalSyncPanel } from "./PersonalSyncPanel";
 
 const hueToHex = (hue: number, dark: boolean) => {
   const saturation = dark ? 0.48 : 0.66;
@@ -38,7 +39,7 @@ export function SettingsPanel() {
   const [savingTmdb, setSavingTmdb] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"theme" | "download">("theme");
+  const [tab, setTab] = useState<"theme" | "download" | "sync">("theme");
   const darkAppearance = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   const load = useCallback(async () => {
@@ -104,9 +105,10 @@ export function SettingsPanel() {
       <div className="settings-drawer-tabs" role="tablist" aria-label="设置分类">
         <button className={tab === "theme" ? "active" : ""} type="button" role="tab" aria-selected={tab === "theme"} onClick={() => setTab("theme")}>主题</button>
         <button className={tab === "download" ? "active" : ""} type="button" role="tab" aria-selected={tab === "download"} onClick={() => setTab("download")}>下载与备份</button>
+        <button className={tab === "sync" ? "active" : ""} type="button" role="tab" aria-selected={tab === "sync"} onClick={() => setTab("sync")}>个人同步</button>
       </div>
 
-      {tab === "theme" ? (
+      {tab === "sync" ? <PersonalSyncPanel /> : tab === "theme" ? (
       <section className="settings-panel" aria-label="主题设置">
         <div className="setting">
           <label>主题</label>

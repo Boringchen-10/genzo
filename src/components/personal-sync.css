@@ -1,0 +1,16 @@
+.personal-sync-panel { display: grid; gap: 14px; min-width: 0; }
+.personal-sync-panel h2, .personal-sync-panel h3, .personal-sync-panel p { margin: 0; }
+.personal-sync-panel .field { display: grid; gap: 6px; min-width: 0; }
+.personal-sync-panel input, .personal-sync-panel select, .personal-sync-panel textarea { min-width: 0; width: 100%; }
+.personal-sync-panel details { display: grid; border-top: 1px solid var(--border); padding-top: 12px; }
+.personal-sync-panel details > :not(summary) { margin-top: 12px; }
+.personal-sync-panel summary { cursor: pointer; }
+.sync-status { display: grid; gap: 6px; }
+.sync-status span { font-size: 13px; opacity: .8; }
+.sync-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.sync-check { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sync-check input { width: auto; }
+.sync-address, .sync-error { overflow-wrap: anywhere; }
+.sync-error { color: var(--danger, #df8a82); }
+.sync-conflict { display: grid; gap: 12px; border-top: 1px solid var(--border); padding-top: 14px; }
+.sync-conflict pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 260px; overflow-y: auto; }

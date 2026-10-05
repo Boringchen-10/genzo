@@ -1,0 +1,7 @@
+{
+    email {$ACME_EMAIL}
+}
+{$SYNC_DOMAIN} {
+    # Caddy serves HTTPS; the upstream stays on the isolated container network.
+    reverse_proxy webdav:8080
+}

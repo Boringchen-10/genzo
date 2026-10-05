@@ -1,11 +1,12 @@
 {
   "name": "genzo",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0-alpha.1",
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:desktop": "tauri dev",
     "dev:e2e": "tauri dev --config src-tauri/tauri.e2e.conf.json",
     "build": "tsc -b && vite build",
     "check": "tsc -b",
