@@ -580,4 +580,42 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 400ms; 
 .android-app .gz-confirm { width: calc(100% - 32px); max-width: 360px; border-radius: calc(var(--radius) + 8px); padding: 20px; }
 .android-app .gz-confirm-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
 .android-app .gz-confirm-actions { display: flex; gap: 10px; margin-top: 18px; }
+
+/* Sync & backup (同步备份): settings overview, Bangumi sync, WebDAV sync (2026-10-06). */
+.android-app .gz-sync-intro, .android-app .gz-sync-hero { display: flex; align-items: center; gap: 12px; margin: 4px 2px 16px; }
+.android-app .gz-sync-badge { display: grid; place-items: center; width: 46px; height: 46px; flex: none; border-radius: 14px; color: var(--accent); background: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / .16); }
+.android-app .gz-sync-icon { display: grid; place-items: center; width: 46px; height: 46px; flex: none; border-radius: 14px; color: #fff; background: linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 44%), hsl(calc(var(--accent-h) + 22) var(--accent-s) 30%)); }
+.android-app .gz-sync-icon.webdav { background: linear-gradient(135deg, #5a8ae0, #2f4f8f); }
+.android-app .gz-sync-icon.lg { width: 54px; height: 54px; border-radius: 17px; }
+.android-app .gz-sync-icon.sm { width: 34px; height: 34px; border-radius: 10px; color: var(--accent); background: var(--bg-raised); }
+.android-app .gz-sync-title { font-size: 20px; font-weight: 700; }
+.android-app .gz-sync-card { padding: 16px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px); background: var(--surface); -webkit-backdrop-filter: blur(var(--ui-blur)); backdrop-filter: blur(var(--ui-blur)); box-shadow: 0 6px 20px rgba(0,0,0, calc(0.26 * var(--shadow-scale, 1))); }
+.android-app .gz-sync-card-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+.android-app .gz-sync-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.android-app .gz-sync-name { margin: 2px 0 4px; font-size: 17px; font-weight: 700; }
+.android-app .gz-sync-tags { margin: 10px 0 14px; font-size: 12px; color: var(--quiet); }
+.android-app .gz-sync-action { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 44px; padding: 10px; border: 0; border-radius: 999px; background: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / .16); color: var(--accent); font-size: 14px; font-weight: 600; }
+.android-app .gz-sync-note { margin: 10px 2px 0; }
+.android-app .gz-sync-account { margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.android-app .gz-sync-account.is-open { border-color: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / .5); }
+.android-app .gz-sync-account-head { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; text-align: left; }
+.android-app .gz-sync-chevron { color: var(--quiet); transition: transform 200ms var(--gz-ease); }
+.android-app .gz-sync-account.is-open .gz-sync-chevron, .android-app .gz-sync-pref-head[aria-expanded="true"] .gz-sync-chevron { transform: rotate(180deg); }
+.android-app .gz-sync-account-body { display: grid; gap: 10px; padding: 0 14px 14px; }
+.android-app .gz-sync-field { position: relative; display: flex; align-items: center; }
+.android-app .gz-sync-field input { width: 100%; min-height: 46px; padding: 10px 44px 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); color: var(--text); }
+.android-app .gz-sync-eye { position: absolute; right: 4px; width: 40px; height: 40px; display: grid; place-items: center; color: var(--muted); }
+.android-app .gz-sync-account-actions { display: flex; align-items: center; gap: 10px; }
+.android-app .gz-sync-link { display: inline-flex; align-items: center; gap: 5px; padding: 8px 4px; color: var(--accent); font-size: 13px; font-weight: 600; }
+.android-app .gz-sync-account-actions .gz-btn { flex: 1; }
+.android-app .gz-sync-secondary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 46px; margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 14px; font-weight: 600; }
+.android-app .gz-sync-pref { margin-top: 14px; }
+.android-app .gz-sync-pref-head { margin-top: 0; }
+.android-app .gz-sync-pref-body { display: grid; gap: 8px; margin-top: 10px; }
+.android-app .gz-sync-cloud { margin-bottom: 12px; }
+.android-app .gz-sync-server-form { display: grid; gap: 10px; margin: 14px 0; }
+.android-app .gz-sync-save { width: 100%; margin-top: 4px; }
+@media (hover: none) {
+  .android-app :is(.gz-sync-action, .gz-sync-secondary, .gz-sync-cloud):active { transform: scale(.97); }
+}
 .android-app .gz-confirm-actions .gz-btn { flex: 1; }

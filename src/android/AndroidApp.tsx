@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { AlignJustify, ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Compass, Database, Download, FileText, Film, Filter, Flame, Folder, Footprints, Heart, HeartCrack, History, Home, Inbox, Info, Layers, Library, LoaderCircle, MessageCircle, MessageSquare, MoreHorizontal, Network, Palette, Pencil, PieChart, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, Trash2, User, X } from "lucide-react";
+import { AlignJustify, ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Cloud, Compass, Database, Download, ExternalLink, Eye, EyeOff, FileText, Film, Filter, Flame, Folder, Footprints, Heart, HeartCrack, History, Home, Inbox, Info, Layers, Library, LoaderCircle, MessageCircle, MessageSquare, MoreHorizontal, Network, Palette, Pencil, PieChart, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { api, bookApi } from "../api";
 import type { BookEntry } from "../bookData";
 import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
@@ -371,6 +371,9 @@ export default function AndroidApp() {
   const [historyClear, setHistoryClear] = useState(false);
   const [historyItem, setHistoryItem] = useState<PlaybackProgress | null>(null);
   const [statsConfig, setStatsConfig] = useState({ enabled: true, overview: true, genres: true, activity: true, chart: "heatmap" as "heatmap" | "bar" });
+  const [sync, setSync] = useState({ bangumi: false, webdav: false, token: "", tokenVisible: false, accountOpen: true, auto: false, pref: "local" as "local" | "remote", prefOpen: false, enabled: false, content: { history: true, favorites: true, danmaku: false } });
+  const [syncServer, setSyncServer] = useState(false);
+  const [serverForm, setServerForm] = useState({ endpoint: "", username: "", password: "", visible: false });
   const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
@@ -410,7 +413,7 @@ export default function AndroidApp() {
   }, [accentHue, accentSatValue, accentLightValue, neutralSatValue, neutralLiftValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
-  const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观", history: "浏览记录", "reading-stats": "阅读统计", "reading-stats-settings": "阅读统计设置" }[route]) || "作品详情";
+  const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观", history: "浏览记录", "reading-stats": "阅读统计", "reading-stats-settings": "阅读统计设置", sync: "同步备份", "sync/bangumi": "追番同步", "sync/webdav": "多设备同步" }[route]) || "作品详情";
 
   async function refresh() {
     const sequence = ++refreshSequence.current;
@@ -497,6 +500,7 @@ export default function AndroidApp() {
     if (historyItem) { setHistoryItem(null); return true; }
     if (historyClear) { setHistoryClear(false); return true; }
     if (historyEdit) { setHistoryEdit(false); return true; }
+    if (syncServer) { setSyncServer(false); return true; }
     if (subviewBack.current?.()) return true;
     if (route === "browse" && browseStack.length > 1) { browseUp(); return true; }
     if (route === "home") return false;
@@ -559,7 +563,7 @@ export default function AndroidApp() {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") back(); };
     addEventListener("keydown", escape);
     return () => { delete windowWithBack.__genzoBack; removeEventListener("keydown", escape); };
-  }, [route, modal, browseStack, sortSheet, statusSheet, historyItem, historyClear, historyEdit]);
+  }, [route, modal, browseStack, sortSheet, statusSheet, historyItem, historyClear, historyEdit, syncServer]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -797,6 +801,90 @@ export default function AndroidApp() {
     </SettingBlock>
     <button type="button" className="gz-setting-danger" onClick={() => setToast("清除阅读统计数据待后端接入")}><Trash2 size={18} />清除</button>
   </>;
+  const syncSettingsPage = <>
+    <div className="gz-sync-intro">
+      <span className="gz-sync-badge" aria-hidden="true"><RefreshCw size={22} /></span>
+      <div><h1 className="gz-sync-title">让追番保持同步</h1><p className="gz-meta">选择需要的服务，也可以同时使用。</p></div>
+    </div>
+    <section className="gz-sync-card">
+      <div className="gz-sync-card-head"><span className="gz-sync-icon" aria-hidden="true"><BookOpen size={22} /></span><span className={`gz-badge${sync.bangumi ? " ok" : ""}`}>{sync.bangumi ? "已连接" : "未连接"}</span></div>
+      <p className="gz-sync-label">Bangumi</p>
+      <h2 className="gz-sync-name">追番同步</h2>
+      <p className="gz-meta">与 Bangumi 保持相同的追番状态。</p>
+      <p className="gz-sync-tags">想看 · 在看 · 看过 · 搁置 · 抛弃</p>
+      <button type="button" className="gz-sync-action" onClick={() => navigate("sync/bangumi")}><ChevronRight size={16} />连接 Bangumi</button>
+    </section>
+    <section className="gz-sync-card">
+      <div className="gz-sync-card-head"><span className="gz-sync-icon webdav" aria-hidden="true"><Cloud size={22} /></span><span className={`gz-badge${sync.webdav ? " ok" : ""}`}>{sync.webdav ? "已配置" : "未配置"}</span></div>
+      <p className="gz-sync-label">WebDAV</p>
+      <h2 className="gz-sync-name">多设备同步</h2>
+      <p className="gz-meta">通过自己的云盘，在其他设备接着看。</p>
+      <p className="gz-sync-tags">观看记录 · 收藏 · 弹幕屏蔽词</p>
+      <button type="button" className="gz-sync-action" onClick={() => navigate("sync/webdav")}><ChevronRight size={16} />设置 WebDAV</button>
+    </section>
+    <p className="gz-meta gz-sync-note">同步备份为界面预览：Bangumi 授权与 WebDAV 连接接口待后端接入，当前不会上传或改动任何数据。</p>
+  </>;
+  const bangumiSyncPage = <>
+    <div className="gz-sync-hero">
+      <span className="gz-sync-icon lg" aria-hidden="true"><BookOpen size={26} /></span>
+      <div><h1 className="gz-sync-title">Bangumi</h1><p className="gz-meta">同步想看、在看、看过等追番状态。</p></div>
+    </div>
+    <section className={`gz-sync-account${sync.accountOpen ? " is-open" : ""}`}>
+      <button type="button" className="gz-sync-account-head" aria-expanded={sync.accountOpen} onClick={() => setSync(state => ({ ...state, accountOpen: !state.accountOpen }))}>
+        <span className="gz-sync-icon sm" aria-hidden="true"><User size={18} /></span>
+        <span className="gz-row-main"><strong>连接 Bangumi 账号</strong><span className="gz-meta">使用 Access Token 授权</span></span>
+        <ChevronDown className="gz-sync-chevron" size={18} aria-hidden="true" />
+      </button>
+      {sync.accountOpen && <div className="gz-sync-account-body">
+        <label className="gz-sync-field">
+          <input type={sync.tokenVisible ? "text" : "password"} placeholder="Access Token" aria-label="Access Token" value={sync.token} onChange={event => setSync(state => ({ ...state, token: event.target.value }))} />
+          <button type="button" className="gz-sync-eye" aria-label={sync.tokenVisible ? "隐藏令牌" : "显示令牌"} onClick={() => setSync(state => ({ ...state, tokenVisible: !state.tokenVisible }))}>{sync.tokenVisible ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+        </label>
+        <div className="gz-sync-account-actions">
+          <button type="button" className="gz-sync-link" onClick={() => setToast("获取授权码需在浏览器打开 Bangumi，待后端接入")}><ExternalLink size={16} />获取授权码</button>
+          <button type="button" className="gz-btn primary" disabled={!sync.token.trim()} onClick={() => { setSync(state => ({ ...state, bangumi: true })); setToast("Bangumi 授权校验待后端接入"); }}><Check size={16} />验证并保存</button>
+        </div>
+      </div>}
+    </section>
+    <button type="button" role="switch" aria-checked={sync.auto} disabled={!sync.bangumi} className="gz-toggle-row" onClick={() => setSync(state => ({ ...state, auto: !state.auto }))}>
+      <span className="gz-row-main"><strong>自动同步追番</strong><span className="gz-meta">{sync.bangumi ? "更新追番状态时自动同步到 Bangumi。" : "请先连接 Bangumi 账号"}</span></span>
+      <span className={`gz-switch ${sync.auto ? "active" : ""}`} aria-hidden="true"><span /></span>
+    </button>
+    <button type="button" className="gz-sync-secondary" disabled={!sync.bangumi} onClick={() => setToast("立即同步追番待后端接入")}><RefreshCw size={16} />立即同步追番</button>
+    <section className="gz-sync-pref">
+      <button type="button" className="gz-toggle-row gz-sync-pref-head" aria-expanded={sync.prefOpen} onClick={() => setSync(state => ({ ...state, prefOpen: !state.prefOpen }))}>
+        <span className="gz-sync-icon sm" aria-hidden="true"><SlidersHorizontal size={18} /></span>
+        <span className="gz-row-main"><strong>同步偏好</strong><span className="gz-meta">状态冲突时：{sync.pref === "local" ? "本地优先" : "远端优先"}</span></span>
+        <ChevronDown className="gz-sync-chevron" size={18} aria-hidden="true" />
+      </button>
+      {sync.prefOpen && <div className="gz-sync-pref-body">
+        {([["local", "本地优先", "状态冲突时保留本机状态，再推送到远端。"], ["remote", "远端优先", "状态冲突时以 Bangumi 远端状态为准。"]] as const).map(([id, label, hint]) => <button type="button" key={id} role="radio" aria-checked={sync.pref === id} className={`gz-choice-row${sync.pref === id ? " active" : ""}`} onClick={() => setSync(state => ({ ...state, pref: id }))}><span className="gz-choice-dot" aria-hidden="true"><SlidersHorizontal size={16} /></span><span className="gz-row-main"><strong>{label}</strong><span className="gz-meta">{hint}</span></span></button>)}
+      </div>}
+    </section>
+    <p className="gz-meta gz-sync-note">Bangumi 账号授权与追番同步接口待后端接入，当前为界面预览。</p>
+  </>;
+  const webdavSyncContentRows = [["history", "观看记录", "自动同步播放进度与历史记录"], ["favorites", "收藏", "在收藏页同步所有追番分类"], ["danmaku", "弹幕屏蔽词", "启动和修改规则后自动同步，包含关键词与正则表达式"]] as const;
+  const webdavSyncPage = <>
+    <div className="gz-sync-hero">
+      <span className="gz-sync-icon lg webdav" aria-hidden="true"><Cloud size={26} /></span>
+      <div><h1 className="gz-sync-title">WebDAV</h1><p className="gz-meta">连接自己的云盘，同步观看记录、收藏与弹幕屏蔽词。</p></div>
+    </div>
+    <button type="button" className="gz-row-card gz-sync-cloud" onClick={() => setSyncServer(true)}>
+      <span className="gz-row-icon"><Cloud /></span>
+      <span className="gz-row-main"><strong>连接你的云盘</strong><span className="gz-meta">{sync.webdav ? "已配置 WebDAV 服务器，可随时重新填写。" : "需要支持 WebDAV 的云盘或服务器"}</span></span>
+      <ChevronRight size={18} />
+    </button>
+    <button type="button" role="switch" aria-checked={sync.enabled} disabled={!sync.webdav} className="gz-toggle-row" onClick={() => setSync(state => ({ ...state, enabled: !state.enabled }))}>
+      <span className="gz-row-main"><strong>启用 WebDAV</strong><span className="gz-meta">{sync.webdav ? "开启后在其他设备接着看，需保持连接可用。" : "请先配置服务器"}</span></span>
+      <span className={`gz-switch ${sync.enabled ? "active" : ""}`} aria-hidden="true"><span /></span>
+    </button>
+    <SettingBlock title="同步内容">
+      {webdavSyncContentRows.map(([id, label, hint]) => <button type="button" key={id} role="switch" aria-checked={sync.content[id]} disabled={!sync.enabled} className="gz-toggle-row" onClick={() => setSync(state => ({ ...state, content: { ...state.content, [id]: !state.content[id] } }))}><span className="gz-row-main"><strong>{label}</strong><span className="gz-meta">{hint}</span></span><span className={`gz-switch ${sync.content[id] ? "active" : ""}`} aria-hidden="true"><span /></span></button>)}
+    </SettingBlock>
+    <button type="button" className="gz-sync-secondary" disabled={!sync.enabled || !sync.content.history} onClick={() => setToast("同步观看记录待后端接入")}><RefreshCw size={16} />立即同步观看记录</button>
+    <button type="button" className="gz-sync-secondary" disabled={!sync.enabled || !sync.content.danmaku} onClick={() => setToast("同步弹幕屏蔽词待后端接入")}><RefreshCw size={16} />立即同步弹幕屏蔽词</button>
+    <p className="gz-meta gz-sync-note">WebDAV 同步接口待后端接入，当前为界面预览，不会上传或改动任何数据。</p>
+  </>;
   return <div ref={rootRef} className="android-app" data-theme={dark ? "dark" : "light"} data-amoled={amoled ? "true" : "false"} data-style={themeStyle}>
     <div className="gz-rainbow-layer" aria-hidden="true" />
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
@@ -854,6 +942,7 @@ export default function AndroidApp() {
           <MenuRow label="资料库" icon={Database} subtitle="本地目录与来源管理" onClick={() => navigate("sources")} />
         </MenuSection>
         <MenuSection label="数据与应用">
+          <MenuRow label="同步备份" icon={RefreshCw} subtitle="追番与多设备同步" onClick={() => navigate("sync")} />
           <MenuRow label="书签" icon={Bookmark} onClick={() => navigate("future/书签")} />
           <MenuRow label="阅读统计" icon={BarChart3} onClick={() => navigate("reading-stats")} />
           <MenuRow label="通知中心" icon={Bell} dot onClick={() => navigate("future/通知中心")} />
@@ -1023,6 +1112,9 @@ export default function AndroidApp() {
       {route === "history" && historyPage}
       {route === "reading-stats" && readingStatsPage}
       {route === "reading-stats-settings" && readingStatsSettings}
+      {route === "sync" && syncSettingsPage}
+      {route === "sync/bangumi" && bangumiSyncPage}
+      {route === "sync/webdav" && webdavSyncPage}
       {route === "diagnostics" && <AndroidPrototype />}
     </main>
     <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
@@ -1062,6 +1154,18 @@ export default function AndroidApp() {
       <h2 id="gz-confirm-title" className="gz-confirm-title">清除全部观看记录？</h2>
       <p className="gz-meta">仅清除 Genzo 中的观看记录，不会删除磁盘文件或作品。</p>
       <div className="gz-confirm-actions"><button type="button" className="gz-btn" onClick={() => setHistoryClear(false)}>取消</button><button type="button" className="gz-btn primary" onClick={clearHistoryRecords}>清除</button></div>
+    </section></div>}
+    {syncServer && <div className="gz-scrim" onClick={() => setSyncServer(false)}><section className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-sync-server-title" onClick={event => event.stopPropagation()}>
+      <span className="gz-sheet-handle" aria-hidden="true" />
+      <div className="gz-section-head"><h2 id="gz-sync-server-title">连接 WebDAV</h2><button type="button" className="gz-iconbtn" aria-label="关闭" onClick={() => setSyncServer(false)}><X /></button></div>
+      <p className="gz-meta">填写云盘或服务器提供的连接信息。</p>
+      <div className="gz-sync-server-form">
+        <label className="gz-sync-field"><input type="text" placeholder="服务器地址" aria-label="服务器地址" value={serverForm.endpoint} onChange={event => setServerForm(form => ({ ...form, endpoint: event.target.value }))} /></label>
+        <label className="gz-sync-field"><input type="text" placeholder="用户名" aria-label="用户名" value={serverForm.username} onChange={event => setServerForm(form => ({ ...form, username: event.target.value }))} /></label>
+        <label className="gz-sync-field"><input type={serverForm.visible ? "text" : "password"} placeholder="密码或应用授权码" aria-label="密码或应用授权码" value={serverForm.password} onChange={event => setServerForm(form => ({ ...form, password: event.target.value }))} /><button type="button" className="gz-sync-eye" aria-label={serverForm.visible ? "隐藏密码" : "显示密码"} onClick={() => setServerForm(form => ({ ...form, visible: !form.visible }))}>{serverForm.visible ? <EyeOff size={18} /> : <Eye size={18} />}</button></label>
+      </div>
+      <button type="button" className="gz-btn primary gz-sync-save" disabled={!serverForm.endpoint.trim()} onClick={() => { setSync(state => ({ ...state, webdav: true })); setSyncServer(false); setToast("WebDAV 连接测试待后端接入"); }}><Cloud size={16} />保存并测试</button>
+      <p className="gz-meta gz-sync-note">凭据只应在后端安全存储；连接测试接口待接入，当前不会保存或上传任何信息。</p>
     </section></div>}
   </div>;
 }
