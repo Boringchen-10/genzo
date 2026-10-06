@@ -1314,6 +1314,9 @@ pub async fn get_weekly_calendar(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<WeeklyCalendar> {
+    #[cfg(target_os = "android")]
+    let mut result = explore::live_weekly_calendar(&state.pool).await?;
+    #[cfg(not(target_os = "android"))]
     let mut result = explore::weekly_calendar(&state.pool).await?;
     for day in &mut result.days {
         explore::prepare_cover_cache(&app, &state, &mut day.items).await;

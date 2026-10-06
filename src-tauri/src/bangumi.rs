@@ -118,6 +118,10 @@ impl BangumiProvider {
     }
 
     pub async fn calendar(&self) -> AppResult<Vec<WorkMetadata>> {
+        Ok(self.calendar_by_weekday().await?.into_iter().map(|(_, item)| item).collect())
+    }
+
+    pub async fn calendar_by_weekday(&self) -> AppResult<Vec<(u32, WorkMetadata)>> {
         self.wait().await;
         let response = self
             .client
@@ -140,14 +144,7 @@ impl BangumiProvider {
             .json()
             .await
             .map_err(|error| AppError::Network(format!("Bangumi 返回了无法解析的数据：{error}")))?;
-        Ok(body
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|day| day.get("items").and_then(Value::as_array))
-            .flatten()
-            .filter_map(subject_to_metadata)
-            .collect())
+        calendar_by_weekday(&body)
     }
 
     pub async fn episodes(&self, external_id: &str) -> AppResult<Vec<AnimeEpisodeMetadata>> {
@@ -309,6 +306,21 @@ impl BangumiProvider {
             .wait()
             .await;
     }
+}
+
+fn calendar_by_weekday(body: &Value) -> AppResult<Vec<(u32, WorkMetadata)>> {
+    let days = body.as_array().ok_or_else(|| AppError::Network("Bangumi 日历响应格式无效，保留已有缓存".into()))?;
+    if days.is_empty() { return Err(AppError::Network("Bangumi 日历响应为空，保留已有缓存".into())); }
+    let mut items = Vec::new();
+    for day in days {
+        let weekday = day["weekday"]["id"].as_u64().filter(|day| (1..=7).contains(day))
+            .ok_or_else(|| AppError::Network("Bangumi 日历星期无效，保留已有缓存".into()))?;
+        let subjects = day["items"].as_array().ok_or_else(|| AppError::Network("Bangumi 日历条目无效，保留已有缓存".into()))?;
+        for subject in subjects {
+            if let Some(metadata) = subject_to_metadata(subject) { items.push((weekday as u32, metadata)); }
+        }
+    }
+    Ok(items)
 }
 
 fn collection_items(value: &Value) -> impl Iterator<Item = &Value> {
@@ -537,6 +549,16 @@ fn extract_season(value: &Value) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn calendar_uses_weekday_buckets_and_rejects_bad_responses() {
+        let items = calendar_by_weekday(&json!([{"weekday":{"id":2},"items":[{"id":123,"name":"Test","air_date":"2023-09-29"}]}])).unwrap();
+        assert_eq!(items.len(),1);
+        assert_eq!(items[0].0,2);
+        assert_eq!(items[0].1.external_id,"123");
+        for bad in [json!({"error":"offline"}),json!([]),json!([{"weekday":{"id":8},"items":[]}]),json!([{"weekday":{"id":1},"items":null}])] {
+            assert!(calendar_by_weekday(&bad).is_err());
+        }
+    }
     #[test]
     fn preserves_explicit_chinese_and_ordinal_seasons() {
         for (name, name_cn) in [("Show 2nd season", "作品 第二季"), ("Show Season 2", "作品"), ("Show", "作品 第2季")] {

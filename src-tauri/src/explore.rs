@@ -505,6 +505,45 @@ pub async fn weekly_calendar(pool: &SqlitePool) -> AppResult<WeeklyCalendar> {
     })
 }
 
+// Android reuses the existing Bangumi client and SQLite metadata cache. Weekday
+// comes from /calendar buckets, not the premiere date or an embedded title index.
+#[cfg(any(target_os = "android", test))]
+pub async fn live_weekly_calendar(pool: &SqlitePool) -> AppResult<WeeklyCalendar> {
+    live_calendar_with(pool, async { BangumiProvider::new()?.calendar_by_weekday().await }).await
+}
+
+#[cfg(any(target_os = "android", test))]
+async fn live_calendar_with(pool: &SqlitePool, fetch: impl std::future::Future<Output = AppResult<Vec<(u32, WorkMetadata)>>>) -> AppResult<WeeklyCalendar> {
+    const KEY: &str = "explore:weekly-live:v1";
+    static REFRESH: Mutex<()> = Mutex::const_new(());
+    let _guard = REFRESH.lock().await;
+    let cached = load_cache::<Vec<(u32, WorkMetadata)>>(pool, BANGUMI_PROVIDER, KEY).await?;
+    let result = if cached.as_ref().is_some_and(|value| !value.stale) {
+        cached.unwrap()
+    } else {
+        match fetch.await {
+            Ok(items) => {
+                save_cache(pool, BANGUMI_PROVIDER, KEY, &items, Duration::hours(6)).await?;
+                let fetched_at: String = sqlx::query_scalar("SELECT fetched_at FROM metadata_cache WHERE provider=? AND cache_key=?")
+                    .bind(BANGUMI_PROVIDER).bind(KEY).fetch_one(pool).await?;
+                Cached { value: items, fetched_at, stale: false }
+            }
+            Err(error) => cached.ok_or(error)?,
+        }
+    };
+    let local = load_local_states(pool).await?;
+    let mut days: Vec<WeeklyCalendarDay> = (1..=7).map(|weekday| WeeklyCalendarDay {
+        weekday, label:weekday_label(weekday).into(), items:vec![],
+    }).collect();
+    for (weekday, metadata) in result.value {
+        if (1..=7).contains(&weekday) {
+            days[(weekday-1) as usize].items.push(to_explore_subject(metadata, &local, result.stale));
+        }
+    }
+    for day in &mut days { day.items.sort_by(|left,right| left.title.cmp(&right.title)); }
+    Ok(WeeklyCalendar { source_version:"Bangumi /calendar".into(), generated_at:result.fetched_at, days })
+}
+
 pub async fn check_in_local_library(pool: &SqlitePool, external_id: &str) -> AppResult<bool> {
     let external_id = validated_external_id(external_id)?;
     Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_external_ids WHERE provider = 'bangumi' AND external_id = ?)")
@@ -1508,6 +1547,24 @@ fn validated_external_id(value: &str) -> AppResult<String> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn live_calendar_persists_success_and_preserves_stale_cache_on_failure() {
+        let pool = db::test_pool().await.unwrap();
+        let first = live_calendar_with(&pool, async { Ok(vec![(2,sample_metadata())]) }).await.unwrap();
+        assert_eq!(first.days[1].items.len(),1);
+        assert_eq!(first.source_version,"Bangumi /calendar");
+        let fresh = live_calendar_with(&pool, async { panic!("fresh cache must not access network") }).await.unwrap();
+        assert_eq!(fresh.generated_at,first.generated_at);
+        assert_eq!(live_weekly_calendar(&pool).await.unwrap().generated_at,first.generated_at);
+        sqlx::query("UPDATE metadata_cache SET expires_at='2000-01-01' WHERE cache_key='explore:weekly-live:v1'").execute(&pool).await.unwrap();
+        let offline = live_calendar_with(&pool, async { Err(AppError::Network("offline".into())) }).await.unwrap();
+        assert_eq!(offline.days[1].items[0].external_id,first.days[1].items[0].external_id);
+        assert!(offline.days[1].items[0].stale);
+        assert_eq!(offline.generated_at,first.generated_at);
+        let cold = db::test_pool().await.unwrap();
+        assert!(live_calendar_with(&cold, async { Err(AppError::Network("offline".into())) }).await.is_err());
+    }
 
     #[tokio::test]
     async fn cold_overview_returns_local_content_without_waiting_for_network() {
