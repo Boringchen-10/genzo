@@ -352,6 +352,24 @@ async fn animation_tmdb_supplement_is_not_a_primary_film_anchor() {
 }
 
 #[tokio::test]
+async fn supplemental_transport_leaves_retries_to_the_aggregator() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = [0u8; 4096];
+        socket.read(&mut bytes).await.unwrap();
+        socket.write_all(b"HTTP/1.1 502 Test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        drop(socket);
+        assert!(tokio::time::timeout(StdDuration::from_millis(900), listener.accept()).await.is_err());
+    });
+    let error = fetch_once(&format!("http://{address}"), "fixture-only", "tv/42", &[]).await.unwrap_err();
+    assert!(error.to_string().contains("HTTP 502"));
+    assert!(!error.to_string().contains("fixture-only"));
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn tmdb_retries_502_and_429_then_recovers() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

@@ -571,10 +571,7 @@ pub async fn refresh(pool: &SqlitePool, work: &str, fresh: bool) -> AppResult<Ar
     if !result.anchor.starts_with("bangumi:") {
         return Ok(result);
     }
-    let token: Option<String> =
-        sqlx::query_scalar("SELECT value FROM app_settings WHERE key='metadata.tmdb_read_token'")
-            .fetch_optional(pool)
-            .await?;
+    let token = crate::credentials::tmdb_token(pool).await?;
     if !token.is_some_and(|s| !s.trim().is_empty()) {
         result
             .warnings

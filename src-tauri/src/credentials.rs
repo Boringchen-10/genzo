@@ -7,6 +7,54 @@ pub struct Credentials {
     pub password: String,
 }
 
+#[cfg(not(target_os = "android"))]
+pub async fn tmdb_token(pool: &sqlx::SqlitePool) -> AppResult<Option<String>> {
+    Ok(sqlx::query_scalar("SELECT value FROM app_settings WHERE key='metadata.tmdb_read_token'")
+        .fetch_optional(pool).await?)
+}
+
+#[cfg(target_os = "android")]
+static TMDB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+#[cfg(target_os = "android")]
+const TMDB_CREDENTIAL: &str = "metadata.tmdb_read_token";
+
+#[cfg(target_os = "android")]
+async fn store_tmdb_token(pool: &sqlx::SqlitePool, token: &str) -> AppResult<()> {
+    save(TMDB_CREDENTIAL, &Credentials { username: String::new(), password: token.into() })?;
+    if read(TMDB_CREDENTIAL)?.password != token {
+        return Err(AppError::System("TMDB 凭据保存验证失败，旧配置已保留".into()));
+    }
+    // Remove legacy plaintext only after encrypted storage has been verified.
+    let mut transaction = pool.begin().await?;
+    sqlx::query("INSERT INTO app_settings(key,value,updated_at) VALUES('metadata.tmdb_keystore','1',?) ON CONFLICT(key) DO UPDATE SET value='1',updated_at=excluded.updated_at")
+        .bind(chrono::Utc::now().to_rfc3339()).execute(&mut *transaction).await?;
+    sqlx::query("DELETE FROM app_settings WHERE key='metadata.tmdb_read_token'")
+        .execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+pub async fn tmdb_token(pool: &sqlx::SqlitePool) -> AppResult<Option<String>> {
+    let _guard = TMDB_LOCK.lock().await;
+    let legacy: Option<String> = sqlx::query_scalar("SELECT value FROM app_settings WHERE key='metadata.tmdb_read_token'")
+        .fetch_optional(pool).await?;
+    if let Some(token) = legacy {
+        store_tmdb_token(pool, token.trim()).await?;
+    }
+    let stored: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM app_settings WHERE key='metadata.tmdb_keystore' AND value='1')")
+        .fetch_one(pool).await?;
+    if !stored { return Ok(None); }
+    let token = read(TMDB_CREDENTIAL)?.password;
+    Ok((!token.trim().is_empty()).then_some(token))
+}
+
+#[cfg(target_os = "android")]
+pub async fn set_tmdb_token(pool: &sqlx::SqlitePool, token: &str) -> AppResult<()> {
+    let _guard = TMDB_LOCK.lock().await;
+    store_tmdb_token(pool, token.trim()).await
+}
+
 #[cfg(windows)]
 pub fn save(id: &str, value: &Credentials) -> AppResult<()> {
     use windows::core::{HSTRING, PWSTR};

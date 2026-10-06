@@ -1,5 +1,15 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 安卓设计 v0.2 视频接入交付（2026-10-06）
+
+- 工作树 `H:\二次元阅读器\.tmp\android-first` / 分支 `codex/android-first` 已完成最新 OpenDesign 前端的视频业务接入。本轮只覆盖视频管理、SAF / WebDAV、所选文件整理、资料匹配 / 刷新、分集纠错、应用内播放与续播；阅读器、阅读统计、历史清理、跨设备同步和原生播放器正式控件留待后续。用户明确不需要“锁定资料字段”，安卓页面没有该入口，共享 Windows 接口保持兼容。
+- WebDAV 添加 / 测试 / 逐级目录选择 / 凭据更新、SAF 重新授权、来源启停、失败重试、扫描状态和详情刷新已接入。待整理的候选确认、手动创建、归入已有作品都只处理勾选文件，未选文件保留待整理；`create_work_from_media` 的 `selectedMediaIds` 为兼容可选参数，Windows 不传时保留旧整组行为。
+- 作品列表增加只读 `sourceScopes`：按实际关联文件归属本地 / WebDAV，混合来源同时出现在两类筛选，无关联文件只在全部，停用 / 离线 / missing 不改变归属，不新增数据库列。
+- Android TMDB Token 使用现有 Keystore 凭据桥，保存并读回验证后才删除旧 SQLite 明文；设备数据库核对结果为 `plainTokenRows=0`、`keystoreMarker=1`、`integrity=ok`，未读取或回显 Token。动画 TMDB 补源改用影视模块的 reqwest 0.12 请求链路和现有类型解析，规避 Android reqwest 0.13 平台证书验证器初始化 panic；Windows 原链路保留。
+- 验证：共享 Windows Rust `275 passed / 14 ignored / 0 failed`；前端 18 文件 / 74 项、TypeScript / Vite 构建通过；Android x86_64 Rust / Gradle、安装、启动通过。`scripts/verify-android-video-v02.mjs` 成功覆盖来源、所选文件整理、个人记录、WebDAV 原流播放 / 续播、筛选、重试、Bangumi、真实 TMDB 电影 / TV；布局脚本在 360 / 412 / 915 宽度共 15 个视图通过，无横向溢出、页面重叠或前端 pageerror。最终动画刷新结果为 22 集且第 7 / 8 集人工纠错保留，耗时 3518 ms。
+- 最终调试 APK：[Genzo-android-design-v0.2-20261006-x86_64-debug.apk](D:\DevTools\Android\Build\artifacts\Genzo-android-design-v0.2-20261006-x86_64-debug.apk)，116,208,463 字节，SHA256 `330E14D3FF6C099DE901D63F3D4E51FB5013050B52A703FBBEBF07F653D91E59`；`zipalign -c -P 16 4` 通过。仅验证模拟器，未做 16 KiB 页设备实测。
+- 尚未实际撤销系统 SAF 权限后重新授权；本轮也未覆盖大库、第三方真实 WebDAV、真机画质 / 硬件解码和长任务生命周期。模拟器中用户已配置的 TMDB Token 保留，QA 自建来源结束时停用并保留记录。
+
 ## 中转站后端续作提示（2026-10-06）
 
 - 用户将把剩余安卓后端接口交给看不到本对话的中转站模型。已创建可整段转发的独立提示：[docs/android/CODEX_BACKEND_CONTINUATION_PROMPT.md](docs/android/CODEX_BACKEND_CONTINUATION_PROMPT.md)。提示要求按当前代码和 Git 状态核实，不照搬旧版后端 Prompt 中已过时的未实现清单。

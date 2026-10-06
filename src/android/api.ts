@@ -49,7 +49,7 @@ export const androidApi = {
 };
 
 /** Subscribe first, then read snapshots. Each stream/entity owns its revision. */
-export async function listenAndroidChanges(onChange: () => void): Promise<() => void> {
+export async function listenAndroidChanges(onChange: (name: string) => void): Promise<() => void> {
   const revisions = new Map<string, number>();
   const unlisten: (() => void)[] = [];
   try {
@@ -57,7 +57,7 @@ export async function listenAndroidChanges(onChange: () => void): Promise<() => 
       unlisten.push(await listen<{ revision: number; sourceId?: string; task?: ScanTask; sessionId?: string }>(name, ({ payload }) => {
         const key = `${name}:${payload.sourceId ?? payload.task?.id ?? payload.sessionId ?? "global"}`;
         if (!Number.isFinite(payload.revision) || payload.revision <= (revisions.get(key) ?? -1)) return;
-        revisions.set(key, payload.revision); onChange();
+        revisions.set(key, payload.revision); onChange(name);
       }));
     }
     return () => unlisten.forEach(stop => stop());

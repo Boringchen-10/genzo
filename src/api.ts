@@ -166,8 +166,8 @@ export const api = {
   listWorks: () => call<WorkListItem[]>("list_works"),
   getWork: (id: string) => call<WorkDetail>("get_work", { id }),
   createWork: (input: WorkInput) => call<WorkDetail>("create_work", { input }),
-  createWorkFromMedia: (mediaFileId: string, input: WorkInput) =>
-    call<WorkDetail>("create_work_from_media", { mediaFileId, input }),
+  createWorkFromMedia: (mediaFileId: string, input: WorkInput, selectedMediaIds?: string[]) =>
+    call<WorkDetail>("create_work_from_media", { mediaFileId, input, selectedMediaIds }),
   updateWork: (id: string, input: WorkInput) => call<WorkDetail>("update_work", { id, input }),
   deleteWork: (id: string) => call<void>("delete_work", { id }),
   listUnassignedMedia: (destination?: ResourceDestination) => call<MediaFile[]>("list_unassigned_media", { destination: destination ?? null }),

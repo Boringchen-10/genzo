@@ -44,7 +44,7 @@ pub async fn provider_statuses(pool: &SqlitePool) -> AppResult<Vec<MetadataProvi
     let bangumi = BangumiProvider::new()?.status();
     let anilist = AniListProvider::new()?.status();
     let douban = DoubanProvider.status();
-    let tmdb_token = setting(pool, "metadata.tmdb_read_token")
+    let tmdb_token = crate::credentials::tmdb_token(pool)
         .await?
         .or_else(|| std::env::var("TMDB_READ_TOKEN").ok())
         .filter(|value| !value.trim().is_empty());
@@ -88,7 +88,7 @@ async fn aggregate_internal(
         primary.score_provider = Some("bangumi".to_string());
     }
 
-    let tmdb_token = setting(pool, "metadata.tmdb_read_token")
+    let tmdb_token = crate::credentials::tmdb_token(pool)
         .await?
         .or_else(|| std::env::var("TMDB_READ_TOKEN").ok())
         .filter(|value| !value.trim().is_empty());
@@ -509,15 +509,6 @@ fn merge_common(base: &mut WorkMetadata, supplement: &WorkMetadata) {
     base.genres.sort();
     base.genres.dedup();
     base.source_keys.push(supplement.provider.clone());
-}
-
-async fn setting(pool: &SqlitePool, key: &str) -> AppResult<Option<String>> {
-    Ok(
-        sqlx::query_scalar("SELECT value FROM app_settings WHERE key = ?")
-            .bind(key)
-            .fetch_optional(pool)
-            .await?,
-    )
 }
 
 async fn memory_get(key: &str) -> Option<AggregationResult> {

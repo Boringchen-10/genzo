@@ -12,6 +12,9 @@ import { androidApi, isDirectoryEntry, listenAndroidChanges, type DocumentEntry,
 import AndroidPrototype from "./AndroidPrototype";
 import ExplorePanel from "./ExplorePanel";
 import NetworkPanel from "./NetworkPanel";
+import WebdavEditor from "./WebdavEditor";
+import CorrectionEditor from "./CorrectionEditor";
+import MetadataSettings from "./MetadataSettings";
 import "./mobile.css";
 
 const tabs = [{ route: "home", title: "首页", icon: Home }, { route: "library", title: "媒体库", icon: Library }, { route: "bookshelf", title: "书架", icon: BookOpen }, { route: "explore", title: "发现", icon: Compass }, { route: "profile", title: "我的", icon: User }];
@@ -216,46 +219,53 @@ function WorkEditor({ work, onSave, busy }: { work: WorkDetail; onSave: (input: 
     <button className="gz-btn primary" disabled={busy || !input.title.trim()} type="submit"><Check size={18} />保存记录</button>
   </form>;
 }
-function Organize({ group, works, busy, onRun, onDone }: { group: UnassignedMediaGroup; works: WorkListItem[]; busy: boolean; onRun: (operation: () => Promise<void>) => void; onDone: (workId: string) => Promise<void> }) {
-  const [title, setTitle] = useState(group.title);
-  const [query, setQuery] = useState(group.representative.parsedTitle || group.title);
+function Organize({ mediaId, initialTitle, linkedWorkId, works, busy, onRun, onDone }: { mediaId: string; initialTitle: string; linkedWorkId?: string; works: WorkListItem[]; busy: boolean; onRun: (operation: () => Promise<void>) => void; onDone: (workId: string) => Promise<void> }) {
+  const [title, setTitle] = useState(initialTitle);
+  const [query, setQuery] = useState(initialTitle);
   const [kind, setKind] = useState<"anime" | "movie" | "tv">("anime");
   const [candidates, setCandidates] = useState<MatchCandidate[]>([]);
   const [members, setMembers] = useState<MediaFile[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [season, setSeason] = useState<number | undefined>();
   const [target, setTarget] = useState(works[0]?.id ?? "");
   const [readError, setReadError] = useState("");
   useEffect(() => {
     let active = true;
-    Promise.all([api.listRecognitionGroupMembers(group.representative.id), api.listMatchCandidates(group.representative.id)])
-      .then(([context, choices]) => { if (active) { setMembers(context.members); setCandidates(choices); } })
+    Promise.all([api.listRecognitionGroupMembers(mediaId), api.listMatchCandidates(mediaId)])
+      .then(([context, choices]) => { if (active) { setMembers(context.members); setSelected([mediaId, ...context.members.filter(file => (!file.workId || file.workId === linkedWorkId) && file.id !== mediaId).map(file => file.id)]); setCandidates(choices); } })
       .catch(reason => { if (active) setReadError(String(reason)); });
     return () => { active = false; };
-  }, [group.representative.id]);
+  }, [mediaId, linkedWorkId]);
+  const representativeId = selected[0] ?? mediaId;
+  const selectable = members.filter(file => !file.workId || file.workId === linkedWorkId);
+  function choose(ids: string[]) { setSelected(ids); setCandidates([]); }
   return <>
     <p className="gz-meta">以下操作整理数据库中的作品关联，原始文件保持原位。</p>
     {readError && <p role="alert">{readError}</p>}
-    <details className="gz-panel"><summary>本次文件范围 · {members.length} 个</summary>{members.map(file => <p className="gz-file-name" key={file.id}>{file.fileName}</p>)}</details>
+    <details className="gz-panel" open><summary>本次文件范围 · {selected.length}/{members.length} 个</summary><button type="button" className="gz-link" disabled={busy} onClick={() => choose(selected.length ? [] : selectable.map(file => file.id))}>{selected.length ? "清空选择" : "全选可关联文件"}</button>{members.map(file => <label className="gz-file-choice" key={file.id}><input type="checkbox" disabled={busy || !!file.workId && file.workId !== linkedWorkId} checked={selected.includes(file.id)} onChange={event => choose(event.target.checked ? [...selected, file.id] : selected.filter(id => id !== file.id))} /><span className="gz-file-name">{file.fileName}{file.workId && file.workId !== linkedWorkId ? " · 已关联其他作品" : ""}</span></label>)}</details>
     <form onSubmit={event => { event.preventDefault(); onRun(async () => {
-      const result = await api.recognizeMedia(group.representative.id, query, kind);
+      setCandidates([]);
+      const result = await api.recognizeMedia(representativeId, query, kind, season);
       setCandidates(result.candidates);
       if (result.error) throw new Error(result.error);
     }); }}>
-      <label>搜索作品资料<input required value={query} onChange={event => setQuery(event.target.value)} /></label>
-      <label>资料类型<select value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="anime">动漫 · Bangumi</option><option value="movie">电影 · TMDB</option><option value="tv">电视剧 · TMDB</option></select></label>
-      <button className="gz-btn" disabled={busy || !query.trim() || !members.length}><Search size={18} />查找候选</button>
+      <label>搜索作品资料<input required disabled={busy} value={query} onChange={event => { setQuery(event.target.value); setCandidates([]); }} /></label>
+      <label>资料类型<select disabled={busy} value={kind} onChange={event => { setKind(event.target.value as typeof kind); setCandidates([]); }}><option value="anime">动漫 · Bangumi</option><option value="movie">电影 · TMDB</option><option value="tv">电视剧 · TMDB</option></select></label>
+      {kind === "tv" && <label>季度<input disabled={busy} type="number" min={0} max={999} value={season ?? ""} onChange={event => { setSeason(event.target.value === "" ? undefined : Number(event.target.value)); setCandidates([]); }} /></label>}
+      <button className="gz-btn" disabled={busy || !query.trim() || !selected.length}><Search size={18} />查找候选</button>
     </form>
     <div className="gz-candidates">{candidates.length ? candidates.map(candidate => <div className="gz-panel" key={candidate.id}>
       <strong>{candidate.title}</strong><p className="gz-meta">{candidate.provider} · {candidate.year ?? "年份未知"} · 置信度 {candidate.confidence}</p>
       <p className="gz-meta">{candidate.matchReasons.join("；")}</p>
-      <button className="gz-btn primary" disabled={busy || !members.length} onClick={() => onRun(async () => onDone(await api.confirmMatch(group.representative.id, candidate.id, members.filter(file => !file.workId).map(file => file.id), "season")))}>确认该作品</button>
+      <button className="gz-btn primary" disabled={busy || !selected.length} onClick={() => onRun(async () => onDone(await api.confirmMatch(representativeId, candidate.id, selected, "season")))}>确认该作品</button>
     </div>) : <p className="gz-meta">暂无候选。可以修改名称再搜索，或在下方手动整理。</p>}</div>
-    <form onSubmit={event => { event.preventDefault(); onRun(async () => {
-      const work = await api.createWorkFromMedia(group.representative.id, { title: title.trim(), originalTitle: null, type: "video", description: "", coverPath: null, status: "planned", favorite: false, rating: null, notes: "", tags: [] });
+    {!linkedWorkId && <form onSubmit={event => { event.preventDefault(); onRun(async () => {
+      const work = await api.createWorkFromMedia(representativeId, { title: title.trim(), originalTitle: null, type: "video", description: "", coverPath: null, status: "planned", favorite: false, rating: null, notes: "", tags: [] }, selected);
       await onDone(work.id);
-    }); }}><label>手动创建作品 *<input required maxLength={200} value={title} onChange={event => setTitle(event.target.value)} /></label><button className="gz-btn" disabled={busy || !title.trim() || !members.length}><Plus size={18} />创建并整理本组</button></form>
-    {works.length > 0 && <form onSubmit={event => { event.preventDefault(); onRun(async () => { await api.attachMediaFiles(target, members.filter(file => !file.workId).map(file => file.id)); await onDone(target); }); }}>
+    }); }}><label>手动创建作品 *<input required disabled={busy} maxLength={200} value={title} onChange={event => setTitle(event.target.value)} /></label><button className="gz-btn" disabled={busy || !title.trim() || !selected.length}><Plus size={18} />创建并整理所选文件</button></form>}
+    {!linkedWorkId && works.length > 0 && <form onSubmit={event => { event.preventDefault(); onRun(async () => { await api.attachMediaFiles(target, selected); await onDone(target); }); }}>
       <label>归入已有作品<select value={target} onChange={event => setTarget(event.target.value)}>{works.map(work => <option key={work.id} value={work.id}>{work.title}</option>)}</select></label>
-      <button className="gz-btn" disabled={busy || !target || !members.length}>关联本组文件</button>
+      <button className="gz-btn" disabled={busy || !target || !selected.length}>关联所选文件</button>
     </form>}
   </>;
 }
@@ -343,7 +353,8 @@ export default function AndroidApp() {
   const setCornerRadius = usePreferences(state => state.setCornerRadius);
   const resetAppearance = usePreferences(state => state.resetAppearance);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [modal, setModal] = useState<{ kind: "edit"; work: WorkDetail } | { kind: "organize"; group: UnassignedMediaGroup } | null>(null);
+  const [modal, setModal] = useState<{ kind: "edit"; work: WorkDetail } | { kind: "correct"; work: WorkDetail } | { kind: "match"; work: WorkDetail; mediaId: string } | { kind: "organize"; group: UnassignedMediaGroup } | { kind: "webdav"; sourceId?: string } | null>(null);
+  const [modalBusy, setModalBusy] = useState(false);
   const [browseStack, setBrowseStack] = useState<{ name: string; uri: string | null }[]>([]);
   const [browseFolders, setBrowseFolders] = useState<DocumentEntry[]>([]);
   const [browseState, setBrowseState] = useState<"loading" | "available" | "empty" | "error">("loading");
@@ -378,7 +389,8 @@ export default function AndroidApp() {
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
   const sortSheetRef = useRef<HTMLElement>(null);
-  const modalDrag = useSheetDrag(sheet, () => setModal(null));
+  const closeModal = () => { if (!busy && !modalBusy) setModal(null); };
+  const modalDrag = useSheetDrag(sheet, closeModal);
   const sortDrag = useSheetDrag(sortSheetRef, () => setSortSheet(false));
   const subviewBack = useRef<(() => boolean) | null>(null);
   const registerSubviewBack = useRef((handler: (() => boolean) | null) => { subviewBack.current = handler; }).current;
@@ -389,6 +401,8 @@ export default function AndroidApp() {
   const transitionSeq = useRef(0);
   const namedCover = useRef<HTMLElement | null>(null);
   const detailRequest = useRef(0);
+  const detailSnapshot = useRef(0);
+  const browseRequest = useRef(0);
   const routeRef = useRef(route);
   const lastHashRef = useRef(location.hash);
   routeRef.current = route;
@@ -499,7 +513,7 @@ export default function AndroidApp() {
     if (route !== "library") navigate("library");
   }
   function back() {
-    if (modal) { setModal(null); return true; }
+    if (modal) { closeModal(); return true; }
     if (sortSheet) { setSortSheet(false); return true; }
     if (statusSheet) { setStatusSheet(false); return true; }
     if (historyItem) { setHistoryItem(null); return true; }
@@ -550,7 +564,7 @@ export default function AndroidApp() {
       }
     };
     void loadTheme();
-    const foreground = () => { if (!document.hidden) void refresh().catch(reason => setError(String(reason))); };
+    const foreground = () => { if (!document.hidden) void refreshDisplayed().catch(reason => setError(String(reason))); };
     addEventListener("focus", foreground); document.addEventListener("visibilitychange", foreground);
     return () => { removeEventListener("popstate", changed); removeEventListener("hashchange", changed); removeEventListener("focus", foreground); document.removeEventListener("visibilitychange", foreground); };
   }, []);
@@ -568,7 +582,7 @@ export default function AndroidApp() {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") back(); };
     addEventListener("keydown", escape);
     return () => { delete windowWithBack.__genzoBack; removeEventListener("keydown", escape); };
-  }, [route, modal, browseStack, sortSheet, statusSheet, historyItem, historyClear, historyEdit, syncServer]);
+  }, [route, modal, busy, modalBusy, browseStack, sortSheet, statusSheet, historyItem, historyClear, historyEdit, syncServer]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -588,6 +602,7 @@ export default function AndroidApp() {
   useEffect(() => { if (route !== "library" && route !== "favorites") setMediaSearchOpen(false); }, [route]);
   useEffect(() => {
     let active = true;
+    const snapshot = ++detailSnapshot.current;
     setDetailError("");
     setBookEntries([]);
     setBookEntryState("idle");
@@ -603,14 +618,14 @@ export default function AndroidApp() {
     incomingDetail.current = null;
     setDetail(preset);
     void (preset ? Promise.resolve(preset) : api.getWork(workId)).then(work => {
-      if (!active) return;
+      if (!active || snapshot !== detailSnapshot.current) return;
       setDetail(work);
       if (work.type === "comic" || work.type === "novel") {
         setBookEntryState("loading");
         void bookApi.entries(work.id).then(entries => { if (active) { setBookEntries(entries); setBookEntryState("ready"); } }).catch(reason => { if (active) { setBookEntries([]); setBookEntryState("error"); setError(String(reason)); } });
       } else {
         setStructureState("loading");
-        void api.getAnimeWorkStructure(work.id).then(result => { if (active) { setStructure(result); setStructureState("ready"); } }).catch(() => { if (active) { setStructure(null); setStructureState("error"); } });
+        void api.getAnimeWorkStructure(work.id).then(result => { if (active && snapshot === detailSnapshot.current) { setStructure(result); setStructureState("ready"); } }).catch(() => { if (active && snapshot === detailSnapshot.current) { setStructure(null); setStructureState("error"); } });
       }
     }).catch(reason => { if (active) { setError(String(reason)); setDetailError(String(reason)); } });
     return () => { active = false; };
@@ -620,9 +635,12 @@ export default function AndroidApp() {
     let disposed = false;
     let stop: (() => void) | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    void listenAndroidChanges(() => {
-      if (disposed || document.hidden || timer) return;
-      timer = setTimeout(() => { timer = undefined; void refresh().catch(reason => setError(String(reason))); }, 100);
+    let changedRecognition = false;
+    void listenAndroidChanges(name => {
+      if (disposed || document.hidden) return;
+      changedRecognition ||= name === "recognition-updated";
+      if (timer) return;
+      timer = setTimeout(() => { timer = undefined; const details = changedRecognition; changedRecognition = false; void (details ? refreshDisplayed() : refresh()).catch(reason => setError(String(reason))); }, 100);
     }).then(unlisten => {
       if (disposed) { unlisten(); return; }
       stop = unlisten;
@@ -647,15 +665,28 @@ export default function AndroidApp() {
     if (result.status === "permission_denied") throw new Error("没有目录读取授权。请重新选择目录，并在系统提示中确认。");
     if (result.status === "authorized") { await refresh(); setToast("来源已添加，可以开始扫描"); }
   }
+  async function reloadDetail(id: string, nextStructure?: AnimeWorkStructure) {
+    const snapshot = ++detailSnapshot.current;
+    const [work, result] = await Promise.all([api.getWork(id), nextStructure ? Promise.resolve(nextStructure) : api.getAnimeWorkStructure(id).catch(() => null)]);
+    if (snapshot !== detailSnapshot.current || routeRef.current !== `detail/${encodeURIComponent(id)}`) return;
+    setDetail(work);
+    setStructure(result); setStructureState(result ? "ready" : "error");
+  }
+  async function refreshDisplayed() {
+    const currentRoute = routeRef.current;
+    await Promise.all([refresh(), currentRoute.startsWith("detail/") ? reloadDetail(decodeURIComponent(currentRoute.slice(7))) : Promise.resolve()]);
+  }
   async function loadFolders(uri: string | null) {
+    const request = ++browseRequest.current;
     setBrowseState("loading");
     try {
       const listing = await androidApi.listTree(uri ?? undefined, browseSource.current);
+      if (request !== browseRequest.current) return;
       if (listing.status !== "available") { setBrowseFolders([]); setBrowseState("error"); setError(listing.status === "permission_denied" ? "目录授权已失效，请在系统选择器中重新授权该目录。" : "来源暂时无法访问，请稍后重试。"); return; }
       const folders = (listing.files ?? []).filter(isDirectoryEntry);
       setBrowseFolders(folders);
       setBrowseState(folders.length ? "available" : "empty");
-    } catch (reason) { setBrowseFolders([]); setBrowseState("error"); setError(String(reason)); }
+    } catch (reason) { if (request === browseRequest.current) { setBrowseFolders([]); setBrowseState("error"); setError(String(reason)); } }
   }
   function openBrowse(name: string, uri: string | null, sourceId?: string) {
     browseSource.current = sourceId;
@@ -673,7 +704,7 @@ export default function AndroidApp() {
   function browseUp() { setBrowseStack(stack => { const next = stack.slice(0, -1); if (next.length) void loadFolders(next.at(-1)?.uri ?? null); return next; }); }
   const card = (work: WorkListItem) => <button className="gz-card" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><strong>{work.title}</strong><span className="gz-meta">{statuses[work.status]} · {work.mediaCount} 个文件</span></button>;
   const scopeOptions: { id: "all" | "local" | "network"; label: string }[] = [{ id: "all", label: "全部" }, { id: "local", label: "本地" }, { id: "network", label: "网络" }];
-  const inScope = useCallback((work: WorkListItem) => collectionScope === "all" || ((work as WorkListItem & { sourceScope?: "local" | "network" }).sourceScope ?? "local") === collectionScope, [collectionScope]);
+  const inScope = useCallback((work: WorkListItem) => collectionScope === "all" || work.sourceScopes?.includes(collectionScope) === true, [collectionScope]);
   const byCollection = useCallback((a: WorkListItem, b: WorkListItem) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt), [shelfSort]);
   const filtered = useMemo(() => works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && inScope(work) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase()))).sort(byCollection), [works, route, filter, inScope, query, byCollection]);
   const continueItems = useMemo(() => progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10), [progress]);
@@ -730,8 +761,9 @@ export default function AndroidApp() {
     {!sources.length && <Empty title="还没有视频来源"><p>选择目录并在系统选择器中点击“使用此文件夹”。</p></Empty>}
     {sources.map(source => { const task = tasks.find(task => task.rootId === source.id); const canBrowse = source.kind === "saf"; return <section className="gz-panel gz-source" key={source.id}>
       <button type="button" className="gz-row gz-row-link" disabled={!canBrowse} onClick={() => canBrowse && openBrowse(source.label, null, source.id)}><Folder /><span className="gz-row-main"><strong>{source.label}</strong><span className="gz-meta">{canBrowse ? "本地授权目录 · 点击浏览" : "WebDAV 服务"}</span></span>{canBrowse && <ChevronRight size={18} />}</button>
-      <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(); })}><RefreshCw size={16} />扫描</button></div>
-      {task && (activeScan(task) || ["failed", "interrupted", "cancelled"].includes(task.stage)) && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
+      {source.error && <p className="gz-error" role="alert">{source.error.message}</p>}
+      <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(); })}><RefreshCw size={16} />扫描</button><button className="gz-btn" disabled={busy || !!task && activeScan(task)} onClick={() => void run(async () => { await api.updateRoot(source.id, "video", !source.enabled); await refresh(); })}>{source.enabled ? "停用来源" : "启用来源"}</button>{canBrowse && ["not_authorized", "permission_denied", "offline"].includes(source.state) && <button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(source.id))}>重新授权</button>}{!canBrowse && <button className="gz-btn" disabled={busy} onClick={() => setModal({ kind: "webdav", sourceId: source.id })}><Pencil size={16} />连接凭据</button>}</div>
+      {task && (activeScan(task) || task.errors.length > 0 || ["failed", "interrupted", "cancelled"].includes(task.stage)) && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy || task.stage === "committing"} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>{task.failedDirectories.length ? "重试失败范围" : "重新扫描"}</button>}</div>}
     </section>; })}
   </>;
   const historyRow = (entry: typeof historyEntries[number]) => {
@@ -1003,9 +1035,9 @@ export default function AndroidApp() {
       {route === "sources" && <>
         {sourceManager}
         <button className="gz-row-card" onClick={() => navigate("inbox")}><span className="gz-row-icon"><Inbox /></span><span className="gz-row-main"><strong>待整理队列</strong><span className="gz-meta">{groups.length} 个分组待确认</span></span><ChevronRight size={18} /></button>
-        <Section title="远程来源"><div className="gz-panel"><strong>WebDAV 与网盘服务</strong><p className="gz-meta">已有协议正在接入安卓页面与远程播放验证。通过网盘的 WebDAV 服务接入，与网盘账号/API 直连是两种方式。</p><span className="gz-badge warn">接入中</span></div></Section>
+        <Section title="远程来源"><button className="gz-row-card" onClick={() => setModal({ kind: "webdav" })}><Cloud /><span className="gz-row-main"><strong>添加 WebDAV 视频来源</strong></span><Plus size={18} /></button></Section>
         <Section title="网盘直连"><div className="gz-panel"><strong>账号 / API 直连</strong><p className="gz-meta">具体网盘直连需你确认服务后再接入；未确认前保留为扩展位置。</p><span className="gz-badge">Future · 预留</span></div></Section>
-        <Section title="元数据服务"><div className="gz-panel"><strong>资料与识别来源</strong><p className="gz-meta">动漫以 Bangumi 为主锚点，影视以 TMDB 为主源；刷新失败时保留已有资料。</p></div></Section>
+        <Section title="元数据服务"><MetadataSettings /></Section>
       </>}
       {route === "inbox" && <><p className="gz-meta">{groups.length} 个作品分组待整理。确认候选、手动创建，或关联已有作品。</p>{groups.length ? groups.slice(0, limit).map(group => <button className="gz-row-card" key={group.key} onClick={() => setModal({ kind: "organize", group })}><span className="gz-row-icon"><Film /></span><span className="gz-row-main"><strong>{group.title}</strong><span className="gz-meta">{group.fileCount} 个文件 · {bytes(group.totalSize)}</span><span className="gz-meta gz-truncate">{group.representative.fileName}</span></span><span className="gz-badge warn">{metadataStates[group.recognitionStatus]}</span></button>) : <Empty title="待整理队列为空"><p>扫描来源后，需要确认的作品会出现在这里。</p><button className="gz-btn" onClick={() => navigate("sources")}>管理来源</button></Empty>}{groups.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}</>}
       {route === "browse" && <>
@@ -1075,12 +1107,12 @@ export default function AndroidApp() {
             {detail.tags.length ? <div className="gz-tag-grid">{detail.tags.map(tag => <button type="button" className="gz-tag" key={tag} onClick={() => openTag(tag)}>{tag}</button>)}</div> : <p className="gz-meta">还没有标签。</p>}
           </Section>
           <Section title="个人备注"><p className="gz-description">{detail.notes || "还没有写下备注。"}</p></Section>
-          <Section title="资料管理"><button className="gz-btn" disabled={busy || !detail.metadata} onClick={() => void run(async () => { await api.refreshWorkMetadata(detail.id); setDetail(await api.getWork(detail.id)); await refresh(); setToast("作品资料已刷新"); })}><RefreshCw size={16} />刷新已匹配资料</button><p className="gz-meta">{detail.metadata ? `资料来源 ${detail.metadata.provider}；刷新失败时保留已有资料。` : "当前为手动作品，尚未绑定资料来源。"}</p></Section>
+          <Section title="资料管理"><div className="gz-actions"><button className="gz-btn" disabled={busy || !detail.metadata} onClick={() => void run(async () => { const result = await api.refreshWorkMetadata(detail.id); await reloadDetail(detail.id, result); await refresh(); setToast("作品资料已刷新"); })}><RefreshCw size={16} />刷新已匹配资料</button><button className="gz-btn" disabled={busy || !detail.mediaFiles.some(file => file.mediaType === "video" && !file.missing)} onClick={() => { const file = detail.mediaFiles.find(item => item.mediaType === "video" && !item.missing); if (file) setModal({ kind: "match", work: detail, mediaId: file.id }); }}><Search size={16} />{detail.metadata ? "重新匹配资料" : "匹配作品资料"}</button><button className="gz-btn" disabled={busy || !detail.mediaFiles.some(file => file.mediaType === "video")} onClick={() => setModal({ kind: "correct", work: detail })}><Pencil size={16} />分集纠错</button></div><p className="gz-meta">{detail.metadata ? `资料来源 ${detail.metadata.provider}；刷新失败时保留已有资料。` : "当前为手动作品，尚未绑定资料来源。"}</p></Section>
         </>}
         {detailTab === "comments" && <Section title="吐槽" action={<span className="gz-meta">Bangumi 条目评论</span>}>
           <div className="gz-empty"><MessageCircle size={26} /><h2>吐槽数据待接入</h2><p>吐槽来自 Bangumi 条目评论，后端接口尚未接入；接入后会在这里按时间展示真实评论。</p></div>
         </Section>}
-        {detailTab === "episodes" && <Section title="本地视频" action={<span className="gz-meta">{detail.mediaFiles.filter(file => file.mediaType === "video").length} 个</span>}><div className="gz-episodes">{detail.mediaFiles.filter(file => file.mediaType === "video").map(file => { const saved = progress.find(item => item.mediaFileId === file.id); return <button className="gz-episode" key={file.id} disabled={busy || file.missing} onClick={() => void run(() => play(file.id))}><div className="gz-episode-cover"><Play /><span>{file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.extension.toUpperCase()}</span>{saved && <progress max={100} value={playbackPercent(saved)} />}</div><strong>{file.fileName}</strong><span className="gz-meta">{file.missing ? "文件缺失" : saved?.completed ? "已看完" : saved ? `续播 ${playbackTime(saved.positionMs)}` : `${bytes(file.size)} · 未播放`}</span></button>; })}</div>{!detail.mediaFiles.some(file => file.mediaType === "video") && <p className="gz-panel gz-meta">尚未关联视频。可在待整理中关联本地文件。</p>}</Section>}
+        {detailTab === "episodes" && <Section title="视频文件" action={<span className="gz-meta">{detail.mediaFiles.filter(file => file.mediaType === "video").length} 个</span>}><div className="gz-episodes">{detail.mediaFiles.filter(file => file.mediaType === "video").map(file => { const saved = progress.find(item => item.mediaFileId === file.id); const episode = structure?.episodes.find(item => item.localFiles.some(local => local.id === file.id)); return <button className="gz-episode" key={file.id} disabled={busy || file.missing} onClick={() => void run(() => play(file.id))}><div className="gz-episode-cover"><Play /><span>{episode?.episodeNumber != null ? `${episode.episodeType ? "特别篇 " : "第 "}${episode.episodeNumber}${episode.episodeType ? "" : " 集"}` : file.extension.toUpperCase()}</span>{saved && <progress max={100} value={playbackPercent(saved)} />}</div><strong>{file.fileName}</strong>{episode && <span className="gz-meta">{episode.title}</span>}<span className="gz-meta">{file.missing ? "文件缺失" : saved?.completed ? "已看完" : saved ? `续播 ${playbackTime(saved.positionMs)}` : `${bytes(file.size)} · 未播放`}</span></button>; })}</div>{!detail.mediaFiles.some(file => file.mediaType === "video") && <p className="gz-panel gz-meta">尚未关联视频。可在待整理中关联文件。</p>}</Section>}
         {detailTab === "characters" && <Section title="角色" action={structure ? <span className="gz-meta">{structure.characters.length} 位</span> : undefined}>{structureState === "loading" ? <RowsSkeleton count={4} label="正在读取角色资料…" /> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无角色资料。匹配 Bangumi 资料后可显示。</p> : structure.characters.length ? <div className="gz-credit-list">{structure.characters.map(character => <div className="gz-credit" key={character.externalId}><span className="gz-credit-avatar">{character.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{character.name}</strong><span>{[character.role, character.actors.join(" / ")].filter(Boolean).join(" · ") || "角色"}</span></span></div>)}</div> : <p className="gz-panel gz-meta">没有角色资料。</p>}</Section>}
         {detailTab === "related" && <Section title="关联" action={structure ? <span className="gz-meta">{structure.seasons.length} 部</span> : undefined}>{structureState === "loading" ? <RowsSkeleton count={4} label="正在读取关联作品…" /> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无关联资料。</p> : structure.seasons.length ? <div className="gz-related-list">{structure.seasons.map(season => { const local = season.localWorkId; const body = <><span className="gz-credit-avatar">{season.title.slice(0, 1)}</span><span className="gz-related-main"><strong>{season.title}</strong><span>{[season.relation, season.seasonNumber ? `第 ${season.seasonNumber} 季` : null, season.current ? "当前作品" : null].filter(Boolean).join(" · ")}</span></span></>; return local ? <button type="button" className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId} onClick={() => navigate(`detail/${encodeURIComponent(local)}`)}>{body}<ChevronRight size={16} /></button> : <div className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId}>{body}</div>; })}</div> : <p className="gz-panel gz-meta">没有关联作品。</p>}</Section>}
         {detailTab === "staff" && <Section title="制作人员" action={structure ? <span className="gz-meta">{structure.staff.length} 位</span> : undefined}>{structureState === "loading" ? <RowsSkeleton count={5} label="正在读取制作人员…" /> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无制作人员资料。</p> : structure.staff.length ? <div className="gz-credit-list">{structure.staff.map(credit => <div className="gz-credit" key={credit.externalId}><span className="gz-credit-avatar">{credit.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{credit.name}</strong><span>{credit.role}</span></span></div>)}</div> : <p className="gz-panel gz-meta">没有制作人员资料。</p>}</Section>}
@@ -1124,7 +1156,15 @@ export default function AndroidApp() {
     <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
     {toast && <div className="gz-toast" role="status">{toast}</div>}
     {busy && <div className="gz-busy" role="status"><LoaderCircle size={18} />正在处理…</div>}
-    {modal && <div className="gz-scrim" onClick={() => setModal(null)}><section ref={sheet} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-dialog-title" onClick={event => event.stopPropagation()}><span className="gz-sheet-handle" {...modalDrag} aria-hidden="true" /><div className="gz-section-head"><h2 id="gz-dialog-title">{modal.kind === "edit" ? "个人记录" : "整理作品"}</h2><button className="gz-iconbtn" aria-label="关闭" onClick={() => setModal(null)}><X /></button></div>{error && <p className="gz-error" role="alert">{error}</p>}{modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { const updated = await api.updateWork(modal.work.id, input); setDetail(updated); await refresh(); setModal(null); setToast("个人记录已保存"); })} /> : <Organize group={modal.group} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}</section></div>}
+    {modal && <div className="gz-scrim" onClick={closeModal}><section ref={sheet} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-dialog-title" onClick={event => event.stopPropagation()}>
+      <span className="gz-sheet-handle" {...modalDrag} aria-hidden="true" />
+      <div className="gz-section-head"><h2 id="gz-dialog-title">{modal.kind === "edit" ? "个人记录" : modal.kind === "webdav" ? modal.sourceId ? "WebDAV 连接凭据" : "添加 WebDAV 视频来源" : modal.kind === "correct" ? "分集纠错" : "整理作品"}</h2><button className="gz-iconbtn" aria-label="关闭" disabled={busy || modalBusy} onClick={closeModal}><X /></button></div>
+      {error && <p className="gz-error" role="alert">{error}</p>}
+      {modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { await api.updateWork(modal.work.id, input); await reloadDetail(modal.work.id); await refresh(); setModal(null); setToast("个人记录已保存"); })} />
+        : modal.kind === "webdav" ? <WebdavEditor sourceId={modal.sourceId} onBusyChange={setModalBusy} onSaved={async () => { await refresh(); setModal(null); setToast("WebDAV 来源已保存"); }} />
+        : modal.kind === "correct" ? <CorrectionEditor work={modal.work} works={works} onBusyChange={setModalBusy} onSaved={async id => { await refresh(); await reloadDetail(modal.work.id); setModal(null); if (id !== modal.work.id) navigate(`detail/${id}`); setToast("分集纠错已保存"); }} />
+        : <Organize mediaId={modal.kind === "match" ? modal.mediaId : modal.group.representative.id} initialTitle={modal.kind === "match" ? modal.work.title : modal.group.representative.parsedTitle || modal.group.title} linkedWorkId={modal.kind === "match" ? modal.work.id : undefined} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(); if (routeRef.current === `detail/${id}`) await reloadDetail(id); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}
+    </section></div>}
     {pickerOpen && <ColorPicker hue={accentHue} sat={accentSat} light={accentLight} onCancel={() => setPickerOpen(false)} onConfirm={value => { setAccentHue(Math.round(value.hue)); setAccentSat(Math.round(value.sat)); setAccentLight(Math.round(value.light)); setPickerOpen(false); }} />}
     {sortSheet && <div className="gz-scrim" onClick={() => setSortSheet(false)}><section ref={sortSheetRef} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-sort-title" onClick={event => event.stopPropagation()}>
       <span className="gz-sheet-handle" {...sortDrag} aria-hidden="true" />

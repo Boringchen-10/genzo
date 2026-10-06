@@ -33,6 +33,7 @@ export type MetadataStatus = "unmatched" | "candidate_pending" | "matched" | "ma
 export type RecognitionStatus = "unmatched" | "candidate_pending" | "matched" | "error";
 
 export interface WorkListItem extends Work {
+  sourceScopes?: ("local" | "network")[];
   coverThumbnailPath?: string | null;
   tags: string[];
   mediaCount: number;

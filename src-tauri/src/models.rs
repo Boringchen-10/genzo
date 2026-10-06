@@ -108,6 +108,7 @@ pub struct RecognitionGroupInfo {
 #[serde(rename_all = "camelCase")]
 pub struct WorkListItem {
     pub category: String,
+    pub source_scopes: Vec<String>,
     pub cover_thumbnail_path: Option<String>,
     #[serde(flatten)]
     pub work: Work,

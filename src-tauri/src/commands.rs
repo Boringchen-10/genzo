@@ -114,14 +114,16 @@ async fn work_list_items(pool: &SqlitePool) -> AppResult<Vec<WorkListItem>> {
     let mut items = Vec::with_capacity(works.len());
     for work in works {
         let tags = tags_for_work(pool, &work.id).await?;
-        let (media_count, missing_count): (i64, i64) = sqlx::query_as(
-            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN missing = 1 THEN 1 ELSE 0 END), 0) FROM media_files WHERE work_id = ?",
+        let (media_count, missing_count, local_count, network_count): (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN m.missing = 1 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN COALESCE(r.source_type, 'local') != 'webdav' THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN r.source_type = 'webdav' THEN 1 ELSE 0 END), 0) FROM media_files m LEFT JOIN library_roots r ON r.id = m.library_root_id WHERE m.work_id = ?",
         )
         .bind(&work.id)
         .fetch_one(pool)
         .await?;
         items.push(WorkListItem {
             category: categories.remove(&work.id).unwrap_or_else(|| work.work_type.clone()),
+            source_scopes: [("local", local_count), ("network", network_count)]
+                .into_iter().filter(|(_, count)| *count > 0).map(|(scope, _)| scope.to_owned()).collect(),
             cover_thumbnail_path: work.cover_path.as_deref().map(Path::new)
                 .filter(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("art-v2-")))
                 .map(crate::metadata_aggregator::thumbnail_path)
@@ -227,9 +229,26 @@ async fn create_work_from_media_in_pool(
     pool: &SqlitePool,
     media_file_id: String,
     mut input: WorkInput,
+    selected_media_ids: Option<Vec<String>>,
 ) -> AppResult<String> {
     validate_work(&mut input)?;
-    let media_file_ids = grouping::unassigned_group_member_ids(pool, &media_file_id).await?;
+    let group_ids = if selected_media_ids.is_some() {
+        grouping::recognition_scope_context(pool, &media_file_id, grouping::GroupScope::Season).await?
+            .ok_or_else(|| AppError::NotFound("媒体文件不存在".into()))?.selectable_ids(None)
+    } else {
+        grouping::unassigned_group_member_ids(pool, &media_file_id).await?
+    };
+    let media_file_ids = match selected_media_ids {
+        Some(ids) => {
+            let unique: HashSet<&String> = ids.iter().collect();
+            if ids.is_empty() || unique.len() != ids.len() || !ids.contains(&media_file_id)
+                || ids.iter().any(|id| !group_ids.contains(id)) {
+                return Err(AppError::Validation("所选文件已变化，请重新打开整理界面确认".into()));
+            }
+            ids
+        }
+        None => group_ids,
+    };
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let (_write_guard, mut transaction) = crate::db::begin_write(pool).await?;
@@ -263,7 +282,7 @@ async fn create_work_from_media_in_pool(
     .await?;
     replace_tags(&mut transaction, &id, &input.tags).await?;
     for member_id in &media_file_ids {
-        sqlx::query(
+        let result = sqlx::query(
             "UPDATE media_files SET work_id = ?, updated_at = ? WHERE id = ? AND work_id IS NULL",
         )
         .bind(&id)
@@ -271,6 +290,9 @@ async fn create_work_from_media_in_pool(
         .bind(member_id)
         .execute(&mut *transaction)
         .await?;
+        if result.rows_affected() != 1 {
+            return Err(AppError::Validation("所选文件已关联其他作品，请重新打开整理界面确认".into()));
+        }
     }
     media_mapping::rebuild_subtitle_links(&mut transaction, &id).await?;
     transaction.commit().await?;
@@ -282,9 +304,10 @@ async fn create_work_from_media_in_pool(
 pub async fn create_work_from_media(
     media_file_id: String,
     input: WorkInput,
+    selected_media_ids: Option<Vec<String>>,
     state: State<'_, AppState>,
 ) -> AppResult<WorkDetail> {
-    let id = create_work_from_media_in_pool(&state.pool, media_file_id, input).await?;
+    let id = create_work_from_media_in_pool(&state.pool, media_file_id, input, selected_media_ids).await?;
     get_work(id, state).await
 }
 
@@ -1079,6 +1102,11 @@ pub async fn open_data_directory(state: State<'_, AppState>) -> AppResult<()> {
 
 #[tauri::command]
 pub async fn get_setting(key: String, state: State<'_, AppState>) -> AppResult<Option<String>> {
+    #[cfg(target_os = "android")]
+    if key == "metadata.tmdb_read_token" {
+        crate::credentials::tmdb_token(&state.pool).await?;
+        return Ok(None);
+    }
     Ok(
         sqlx::query_scalar("SELECT value FROM app_settings WHERE key = ?")
             .bind(key)
@@ -1256,6 +1284,10 @@ pub async fn set_setting(key: String, value: String, state: State<'_, AppState>)
         return Err(AppError::Validation(
             "TMDB Read Access Token 长度无效".to_string(),
         ));
+    }
+    #[cfg(target_os = "android")]
+    if key == "metadata.tmdb_read_token" {
+        return crate::credentials::set_tmdb_token(&state.pool, &value).await;
     }
     sqlx::query(
         "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
@@ -1493,6 +1525,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn work_source_scopes_follow_indexed_files_and_preserve_offline_membership() {
+        let pool = db::test_pool().await.unwrap();
+        sqlx::raw_sql("INSERT INTO works(id,title,type,created_at,updated_at) VALUES ('local','Local','video','now','now'),('network','Network','video','now','now'),('mixed','Mixed','video','now','now'),('empty','Empty','video','now','now'); INSERT INTO library_roots(id,path,kind,enabled,source_type,availability,created_at,updated_at) VALUES ('saf','saf://qa','video',0,'local','permission_denied','now','now'),('dav','https://example.test/dav','video',0,'webdav','unavailable','now','now');")
+            .execute(&pool).await.unwrap();
+        for (id, work, root) in [("a", "local", "saf"), ("b", "network", "dav"), ("c", "mixed", "saf"), ("d", "mixed", "dav")] {
+            sqlx::query("INSERT INTO media_files(id,work_id,library_root_id,path,file_name,extension,media_type,missing,created_at,updated_at) VALUES (?,?,?,?,'01.mp4','mp4','video',1,'now','now')")
+                .bind(id).bind(work).bind(root).bind(format!("fixture://{id}")).execute(&pool).await.unwrap();
+        }
+        let items = work_list_items(&pool).await.unwrap();
+        let scopes = |id: &str| items.iter().find(|item| item.work.id == id).unwrap().source_scopes.clone();
+        assert_eq!(scopes("local"), vec!["local"]);
+        assert_eq!(scopes("network"), vec!["network"]);
+        assert_eq!(scopes("mixed"), vec!["local", "network"]);
+        assert!(scopes("empty").is_empty());
+        let mixed = items.iter().find(|item| item.work.id == "mixed").unwrap();
+        assert_eq!((mixed.media_count, mixed.missing_count), (2, 2));
+        assert_eq!(serde_json::to_value(mixed).unwrap()["sourceScopes"], serde_json::json!(["local", "network"]));
+    }
+
+    #[tokio::test]
     async fn work_list_serializes_cached_banner_path() {
         let pool = db::test_pool().await.expect("create test database");
         let now = Utc::now().to_rfc3339();
@@ -1594,6 +1646,7 @@ mod tests {
                 tags: vec!["待整理".to_string()],
                 notes: String::new(),
             },
+            None,
         )
         .await
         .expect("create work from media");
@@ -1610,6 +1663,30 @@ mod tests {
             .expect("read work");
         assert_eq!(associated_work_id, work_id);
         assert_eq!(work_count, 1);
+    }
+
+    #[tokio::test]
+    async fn manual_creation_only_associates_selected_group_members() {
+        let pool = db::test_pool().await.unwrap();
+        sqlx::raw_sql("INSERT INTO library_roots(id,path,kind,enabled,created_at,updated_at) VALUES ('r','C:\\Anime','video',1,'now','now');")
+            .execute(&pool).await.unwrap();
+        for (id, path) in [("a", "C:\\Anime\\Work\\Season 1\\01.mkv"), ("b", "C:\\Anime\\Work\\Season 1\\02.mkv"), ("c", "C:\\Anime\\Work\\Season 1\\03.mkv"), ("other", "C:\\Anime\\Other\\01.mkv")] {
+            sqlx::query("INSERT INTO media_files(id,library_root_id,path,file_name,extension,media_type,created_at,updated_at) VALUES (?,'r',?,'01.mkv','mkv','video','now','now')")
+                .bind(id).bind(path).execute(&pool).await.unwrap();
+        }
+        let input = || WorkInput { title: "Selected".into(), original_title: None, work_type: "video".into(), description: String::new(), cover_path: None, status: "planned".into(), favorite: false, rating: None, tags: vec![], notes: String::new() };
+        for ids in [vec![], vec!["a", "a"], vec!["a", "other"], vec!["b"], vec!["a", "missing"]] {
+            assert!(create_work_from_media_in_pool(&pool, "a".into(), input(), Some(ids.into_iter().map(String::from).collect())).await.is_err());
+        }
+        let work_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM works").fetch_one(&pool).await.unwrap();
+        assert_eq!(work_count, 0);
+        let id = create_work_from_media_in_pool(&pool, "b".into(), input(), Some(vec!["b".into(), "c".into()])).await.unwrap();
+        let associated: Vec<String> = sqlx::query_scalar("SELECT id FROM media_files WHERE work_id=? ORDER BY id").bind(&id).fetch_all(&pool).await.unwrap();
+        assert_eq!(associated, vec!["b", "c"]);
+        let unassigned: Vec<String> = sqlx::query_scalar("SELECT id FROM media_files WHERE work_id IS NULL ORDER BY id").fetch_all(&pool).await.unwrap();
+        assert_eq!(unassigned, vec!["a", "other"]);
+        assert!(create_work_from_media_in_pool(&pool, "b".into(), input(), Some(vec!["b".into()])).await.is_err());
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM works").fetch_one(&pool).await.unwrap(), 1);
     }
 
     #[tokio::test]
@@ -1640,6 +1717,7 @@ mod tests {
                 tags: Vec::new(),
                 notes: String::new(),
             },
+            None,
         )
         .await
         .expect("create grouped work");

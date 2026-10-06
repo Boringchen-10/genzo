@@ -162,10 +162,7 @@ pub(crate) async fn request(
             }
         }
     }
-    let token: Option<String> =
-        sqlx::query_scalar("SELECT value FROM app_settings WHERE key='metadata.tmdb_read_token'")
-            .fetch_optional(pool)
-            .await?;
+    let token = crate::credentials::tmdb_token(pool).await?;
     let result = match token.filter(|s| !s.trim().is_empty()) {
         Some(token) => fetch("https://api.themoviedb.org/3", &token, path, params).await,
         None => Err(AppError::Validation(
@@ -222,7 +219,16 @@ pub(crate) async fn request(
     }
 }
 
-async fn fetch(base: &str, token: &str, path: &str, params: &[(&str, String)]) -> AppResult<Value> {
+pub(crate) async fn fetch(base: &str, token: &str, path: &str, params: &[(&str, String)]) -> AppResult<Value> {
+    fetch_attempts(base, token, path, params, 3).await
+}
+
+#[cfg(any(target_os = "android", test))]
+pub(crate) async fn fetch_once(base: &str, token: &str, path: &str, params: &[(&str, String)]) -> AppResult<Value> {
+    fetch_attempts(base, token, path, params, 1).await
+}
+
+async fn fetch_attempts(base: &str, token: &str, path: &str, params: &[(&str, String)], attempts: u32) -> AppResult<Value> {
     static LIMITER: OnceLock<crate::metadata_provider::ProviderRateLimiter> = OnceLock::new();
     let client = reqwest::Client::builder()
         .connect_timeout(StdDuration::from_secs(5))
@@ -230,7 +236,7 @@ async fn fetch(base: &str, token: &str, path: &str, params: &[(&str, String)]) -
         .user_agent("Genzo (local media library)")
         .build()
         .map_err(|_| AppError::Network("无法初始化 TMDB 连接".into()))?;
-    for attempt in 0..3 {
+    for attempt in 0..attempts {
         LIMITER
             .get_or_init(|| {
                 crate::metadata_provider::ProviderRateLimiter::new(StdDuration::from_millis(250))
@@ -260,7 +266,7 @@ async fn fetch(base: &str, token: &str, path: &str, params: &[(&str, String)]) -
                     ));
                 }
                 let retry = status.is_server_error() || matches!(status.as_u16(), 408 | 425 | 429);
-                if !retry || attempt == 2 {
+                if !retry || attempt + 1 == attempts {
                     return Err(AppError::Network(format!(
                         "TMDB 请求失败（HTTP {}）",
                         status.as_u16()
@@ -286,7 +292,7 @@ async fn fetch(base: &str, token: &str, path: &str, params: &[(&str, String)]) -
                     }
                 }
             }
-            Err(_) if attempt < 2 => {}
+            Err(_) if attempt + 1 < attempts => {}
             Err(_) => {
                 return Err(AppError::Network(
                     "TMDB 连接失败或超时，请检查网络后重试".into(),

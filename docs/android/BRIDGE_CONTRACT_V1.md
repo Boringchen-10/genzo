@@ -16,7 +16,8 @@ OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端�
 | library.getWork | `get_work` | `{id}` → `WorkDetail` |
 | library.updateWork / favorites.toggle | `update_work` | `{id,input:WorkInput}` → `WorkDetail`；收藏沿用完整输入，不能发送不完整 fields 导致其他个人资料丢失 |
 | library.createWork | `create_work` | `{input:WorkInput}` → `WorkDetail` |
-| detail.setFieldLock | `set_work_field_lock` | `{workId,field,locked}`；字段范围沿用现有 API |
+| inbox.createFromMedia | `create_work_from_media` | `{mediaFileId,input,selectedMediaIds?:string[]}`；所选文件限定本次季度范围、包括查询文件，不允许空 / 重复 / 已关联文件；事务创建作品及关联。不传可选参数保留 PC 整组行为 |
+| 共享字段锁定（安卓不提供入口） | `set_work_field_lock` | 保留共享接口兼容性；2026-10-06 用户明确安卓不需要该操作 |
 | sources.list | `list_library_roots` + `list_remote_sources` | 合并稳定 ID；`LibraryRoot` 提供 enabled / availability，WebDAV 提供名称 / endpoint / directory，不返回密码 |
 | sources.setEnabled | `update_library_root` | `{id,kind,enabled}`；只是启停，不删除索引 |
 | sources.browseWebdav / addWebdav | `browse_webdav` / `add_webdav_source` | `{input:{name,endpoint,directory,username,password,kind}}`；表单凭据只进入 Rust / 安全存储 |
@@ -29,6 +30,10 @@ OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端�
 | detail.correct | `inspect_media_correction` / `preview_media_correction` / `apply_media_correction` | 预览 input + token；锁定 / 记录 / 撤销沿用共享 DTO |
 | detail.episodes / refresh | `get_anime_work_structure` / `list_anime_episodes` / `refresh_work_metadata` | `{workId}`；季度 / 多版本 / 缓存失败规则沿用现有实现 |
 | progress.list | `get_playback_progress` | `{workId:null|string}` → `{items,sessions}`；安卓写入接新增接口，不调用 PotPlayer 的 `resume_playback` |
+
+2026-10-06 用户批准兼容字段 `WorkListItem.sourceScopes: ('local'|'network')[]`：按关联文件所在来源计算，混合来源同时返回两值，无文件返回空数组，停用 / 离线 / missing 不改变分类。Android 的筛选直接使用该字段；Windows 原有筛选不变，无新增数据库列。
+
+TMDB 配置继续通过 `set_setting({key:'metadata.tmdb_read_token',value})` 写入，空值清除配置。Android 用现有 Keystore 桥加密并读回验证，成功后事务移除旧明文，SQLite 只保留非秘密标记；`get_setting` 对该 key 返回 null，使用 `get_metadata_provider_statuses` 的 configured 显示状态，configured 不代表服务端已验证凭据。Windows 保留现有存储及读取行为。
 
 `delete_library_root` 和桌面 `add_library_root({path})` 不作为安卓 SAF 入口。移除来源的设计先用停用 / 撤销授权表达并保留资料；实际删除须另定确认与数据保留行为。
 
