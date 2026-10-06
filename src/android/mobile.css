@@ -506,3 +506,78 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 400ms; 
   .android-app .gz-sched-pill { transition: none; }
   .android-app .gz-sched-list.is-right, .android-app .gz-sched-list.is-left { animation: none; }
 }
+
+/* Browsing records (浏览记录) + reading statistics (阅读统计) 2026-10-06. */
+.android-app .gz-history-head { display: flex; align-items: center; gap: 8px; margin: 2px 0 12px; }
+.android-app .gz-history-title { flex: 1; font-size: 22px; font-weight: 700; }
+.android-app .gz-history-head-actions { display: flex; align-items: center; gap: 6px; }
+.android-app .gz-history-manage { color: var(--text); }
+.android-app .gz-history-clear { color: var(--danger); }
+.android-app .gz-history-done { min-height: 36px; padding: 6px 18px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 600; }
+.android-app .gz-history-tabs { margin: 10px 0; }
+.android-app .gz-history-tabs .gz-chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; }
+.android-app .gz-history-tabs .gz-chip em { font-style: normal; font-size: 11px; color: var(--quiet); font-variant-numeric: tabular-nums; }
+.android-app .gz-history-tabs .gz-chip.active em { color: var(--accent); }
+.android-app .gz-history-summary { margin: 0 0 12px 2px; }
+.android-app .gz-history-group { margin-bottom: 18px; }
+.android-app .gz-history-group-head { display: flex; align-items: baseline; justify-content: space-between; margin: 0 2px 8px; }
+.android-app .gz-history-group-head h2 { font-size: 14px; font-weight: 600; }
+.android-app .gz-history-row { display: grid; grid-template-columns: 64px minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 10px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); -webkit-backdrop-filter: blur(var(--ui-blur)); backdrop-filter: blur(var(--ui-blur)); box-shadow: 0 6px 20px rgba(0,0,0, calc(0.26 * var(--shadow-scale, 1))); }
+.android-app .gz-history-row.is-missing { opacity: .6; }
+.android-app .gz-history-thumbbtn { width: 64px; }
+.android-app .gz-history-thumb { position: relative; display: grid; place-items: center; width: 64px; aspect-ratio: 2 / 3; overflow: hidden; border-radius: calc(var(--radius) - 2px); background: var(--bg-raised); color: var(--quiet); }
+.android-app .gz-history-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.android-app .gz-history-body { display: grid; gap: 2px; min-width: 0; }
+.android-app .gz-history-body strong { font-size: 15px; font-weight: 600; }
+.android-app .gz-history-body .gz-meta { font-size: 12px; }
+.android-app .gz-history-when { color: var(--text); }
+.android-app .gz-history-src { color: var(--quiet); }
+.android-app .gz-history-actions { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.android-app .gz-history-play { display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
+.android-app .gz-history-play:disabled { background: var(--bg-raised); color: var(--quiet); }
+.android-app .gz-history-more { color: var(--muted); }
+.android-app .gz-history-del { display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; border-radius: 50%; background: #e5484d; color: #fff; }
+.android-app .gz-history-hint { margin-top: 6px; text-align: center; }
+@media (hover: none) {
+  .android-app :is(.gz-history-play, .gz-history-del, .gz-choice-row, .gz-stats-tile, .gz-setting-danger, .gz-history-done, .gz-history-thumbbtn) { transition: transform 190ms var(--gz-ease-spring); -webkit-tap-highlight-color: transparent; }
+  .android-app :is(.gz-history-play, .gz-history-del, .gz-choice-row, .gz-stats-tile, .gz-setting-danger, .gz-history-done, .gz-history-thumbbtn):active { transform: scale(.965); }
+}
+.android-app .gz-profile-hero { padding: 15px 16px; }
+.android-app .gz-profile-hero-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.android-app .gz-profile-hero-top .gz-profile-eyebrow { margin: 0; }
+.android-app .gz-profile-badge { width: 32px; height: 32px; border-radius: 10px; }
+.android-app .gz-profile-stat strong { font-size: 24px; }
+.android-app .gz-profile-stat-text { font-size: 20px !important; }
+
+.android-app .gz-stats-tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin: 6px 0 16px; }
+.android-app .gz-stats-tile { display: grid; justify-items: center; gap: 4px; padding: 14px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--accent); -webkit-backdrop-filter: blur(var(--ui-blur)); backdrop-filter: blur(var(--ui-blur)); }
+.android-app .gz-stats-tile strong { font-size: 26px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.android-app .gz-stats-tile span { font-size: 12px; color: var(--muted); }
+.android-app .gz-stats-card { padding: 14px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); -webkit-backdrop-filter: blur(var(--ui-blur)); backdrop-filter: blur(var(--ui-blur)); box-shadow: 0 6px 20px rgba(0,0,0, calc(0.26 * var(--shadow-scale, 1))); }
+.android-app .gz-stats-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--accent); }
+.android-app .gz-stats-card-head h2 { font-size: 14px; color: var(--text); }
+.android-app .gz-stats-empty { padding: 18px 0; text-align: center; font-size: 13px; color: var(--quiet); }
+.android-app .gz-heatmap { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); grid-auto-columns: minmax(0, 1fr); gap: 3px; }
+.android-app .gz-heat { aspect-ratio: 1; border-radius: 3px; background: var(--bg-raised); border: 1px solid var(--line); }
+.android-app .gz-heatmap-legend { display: inline-flex; align-items: center; gap: 4px; }
+.android-app .gz-heatmap-legend i { width: 12px; height: 12px; border-radius: 3px; background: var(--bg-raised); border: 1px solid var(--line); }
+.android-app .gz-heatmap-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.android-app :is(.gz-heat, .gz-heatmap-legend i)[data-level="1"] { background: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / .28); border-color: transparent; }
+.android-app :is(.gz-heat, .gz-heatmap-legend i)[data-level="2"] { background: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / .5); border-color: transparent; }
+.android-app :is(.gz-heat, .gz-heatmap-legend i)[data-level="3"] { background: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / .72); border-color: transparent; }
+.android-app :is(.gz-heat, .gz-heatmap-legend i)[data-level="4"] { background: var(--accent); border-color: transparent; }
+.android-app .gz-stats-note { margin: 4px 2px 72px; }
+.android-app .gz-stats-fab { position: fixed; right: 16px; bottom: 76px; z-index: 40; display: grid; place-items: center; width: 52px; height: 52px; min-height: 52px; border-radius: 18px; background: var(--accent); color: var(--accent-ink); box-shadow: 0 10px 26px hsl(var(--accent-h) var(--accent-s) 30% / .4); }
+
+.android-app .gz-stats-hint { margin: 0 0 8px 2px; }
+.android-app .gz-toggle-draggable { gap: 10px; }
+.android-app .gz-toggle-draggable .gz-drag-handle { color: var(--quiet); flex: none; }
+.android-app .gz-choice-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px; margin-top: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: transparent; color: var(--text); }
+.android-app .gz-choice-row.active { border-color: var(--accent); }
+.android-app .gz-choice-dot { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 50%; border: 2px solid var(--line); color: var(--muted); }
+.android-app .gz-choice-row.active .gz-choice-dot { border-color: var(--accent); color: var(--accent); }
+.android-app .gz-setting-danger { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 20px; padding: 12px; border: 1px solid var(--danger); border-radius: var(--radius); color: var(--danger); font-size: 14px; font-weight: 600; background: transparent; }
+.android-app .gz-confirm { width: calc(100% - 32px); max-width: 360px; border-radius: calc(var(--radius) + 8px); padding: 20px; }
+.android-app .gz-confirm-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+.android-app .gz-confirm-actions { display: flex; gap: 10px; margin-top: 18px; }
+.android-app .gz-confirm-actions .gz-btn { flex: 1; }

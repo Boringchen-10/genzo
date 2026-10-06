@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Compass, Database, Download, Film, Filter, Folder, Footprints, Heart, HeartCrack, History, Home, Inbox, Info, Library, LoaderCircle, MessageCircle, MessageSquare, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, User, X } from "lucide-react";
+import { AlignJustify, ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Compass, Database, Download, FileText, Film, Filter, Flame, Folder, Footprints, Heart, HeartCrack, History, Home, Inbox, Info, Layers, Library, LoaderCircle, MessageCircle, MessageSquare, MoreHorizontal, Network, Palette, Pencil, PieChart, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { api, bookApi } from "../api";
 import type { BookEntry } from "../bookData";
 import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
@@ -20,6 +20,27 @@ const statuses: Record<WorkStatus, string> = { planned: "计划看", in_progress
 const taskStages: Record<string, string> = { queued: "等待扫描", scanning: "查询目录", indexing: "建立索引", committing: "保存索引", completed: "扫描完成", failed: "扫描失败", cancelled: "已取消", interrupted: "已中断" };
 const metadataStates: Record<string, string> = { unmatched: "待整理", candidate_pending: "待确认", matched: "已匹配", manually_created: "手动整理", error: "识别失败" };
 const localStatusRows: WorkStatus[] = ["in_progress", "planned", "paused", "completed", "dropped"];
+const historyTabs = [{ id: "all", label: "全部" }, { id: "anime", label: "动漫" }, { id: "movie", label: "电影" }, { id: "tv", label: "电视剧" }, { id: "comic", label: "漫画" }, { id: "novel", label: "小说" }, { id: "other", label: "未分类" }] as const;
+type HistoryTabId = (typeof historyTabs)[number]["id"];
+const historyCategory = (category: string | null | undefined): Exclude<HistoryTabId, "all"> => category === "anime" || category === "movie" || category === "tv" || category === "comic" || category === "novel" ? category : "other";
+const formatWatchDuration = (ms: number) => {
+  const minutes = Math.max(0, Math.round(ms / 60000));
+  if (minutes < 60) return `${minutes} 分`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) { const rest = minutes % 60; return rest ? `${hours} 时 ${rest} 分` : `${hours} 时`; }
+  return `${Math.floor(hours / 24)} 天 ${hours % 24} 时`;
+};
+const historyDayLabel = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  const start = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const diff = Math.round((start(new Date()) - start(date)) / 86400000);
+  if (diff <= 0) return "今天";
+  if (diff === 1) return "昨天";
+  if (diff === 2) return "前天";
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+};
+const clockLabel = (iso: string) => { const date = new Date(iso); return Number.isNaN(date.getTime()) ? "" : `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`; };
 const stars = (value: number | null) => { const filled = value == null ? 0 : Math.max(0, Math.min(5, Math.round(value / 2))); return "★".repeat(filled) + "☆".repeat(5 - filled); };
 const WorkStatusIcon = ({ id, size = 16 }: { id: WorkStatus; size?: number }) => id === "in_progress" ? <Heart size={size} fill="currentColor" /> : id === "planned" ? <Star size={size} /> : id === "paused" ? <Clock size={size} /> : id === "completed" ? <Check size={size} /> : <HeartCrack size={size} />;
 const asset = (path: string | null | undefined) => path ? (/^(https?:|asset:|data:|blob:)/.test(path) ? path : convertFileSrc(path)) : undefined;
@@ -344,6 +365,12 @@ export default function AndroidApp() {
   const [structureState, setStructureState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [descExpanded, setDescExpanded] = useState(false);
   const [statusSheet, setStatusSheet] = useState(false);
+  const [historyTab, setHistoryTab] = useState<HistoryTabId>("all");
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyEdit, setHistoryEdit] = useState(false);
+  const [historyClear, setHistoryClear] = useState(false);
+  const [historyItem, setHistoryItem] = useState<PlaybackProgress | null>(null);
+  const [statsConfig, setStatsConfig] = useState({ enabled: true, overview: true, genres: true, activity: true, chart: "heatmap" as "heatmap" | "bar" });
   const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
@@ -383,7 +410,7 @@ export default function AndroidApp() {
   }, [accentHue, accentSatValue, accentLightValue, neutralSatValue, neutralLiftValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
-  const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观" }[route]) || "作品详情";
+  const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观", history: "浏览记录", "reading-stats": "阅读统计", "reading-stats-settings": "阅读统计设置" }[route]) || "作品详情";
 
   async function refresh() {
     const sequence = ++refreshSequence.current;
@@ -467,6 +494,9 @@ export default function AndroidApp() {
     if (modal) { setModal(null); return true; }
     if (sortSheet) { setSortSheet(false); return true; }
     if (statusSheet) { setStatusSheet(false); return true; }
+    if (historyItem) { setHistoryItem(null); return true; }
+    if (historyClear) { setHistoryClear(false); return true; }
+    if (historyEdit) { setHistoryEdit(false); return true; }
     if (subviewBack.current?.()) return true;
     if (route === "browse" && browseStack.length > 1) { browseUp(); return true; }
     if (route === "home") return false;
@@ -529,7 +559,7 @@ export default function AndroidApp() {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") back(); };
     addEventListener("keydown", escape);
     return () => { delete windowWithBack.__genzoBack; removeEventListener("keydown", escape); };
-  }, [route, modal, browseStack, sortSheet, statusSheet]);
+  }, [route, modal, browseStack, sortSheet, statusSheet, historyItem, historyClear, historyEdit]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -639,6 +669,26 @@ export default function AndroidApp() {
   const collectionSort = (a: WorkListItem, b: WorkListItem) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
   const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && matchesScope(work) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase()))).sort(collectionSort);
   const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
+  const historyEntryFor = (item: PlaybackProgress) => {
+    const work = allWorks.find(candidate => candidate.id === item.workId);
+    const category = (work?.category ?? work?.type ?? "video") as string;
+    return { item, work, category: historyCategory(category) };
+  };
+  const historyEntries = progress.map(historyEntryFor)
+    .filter(entry => historyTab === "all" || entry.category === historyTab)
+    .filter(entry => !historyQuery || [entry.item.title, entry.item.fileName].some(text => text.toLowerCase().includes(historyQuery.toLowerCase())))
+    .sort((a, b) => Date.parse(b.item.updatedAt) - Date.parse(a.item.updatedAt));
+  const historyGroups = historyEntries.reduce<Array<{ label: string; entries: typeof historyEntries }>>((groups, entry) => {
+    const label = historyDayLabel(entry.item.updatedAt);
+    const group = groups.find(candidate => candidate.label === label);
+    if (group) group.entries.push(entry); else groups.push({ label, entries: [entry] });
+    return groups;
+  }, []);
+  const totalWatchMs = progress.reduce((sum, item) => sum + Math.max(0, item.positionMs), 0);
+  const completedCount = allWorks.filter(work => work.status === "completed").length;
+  const comicCount = allWorks.filter(work => work.type === "comic").length;
+  const removeHistoryRecord = () => setToast("观看记录清除接口待后端接入，已登记");
+  const clearHistoryRecords = () => { setHistoryClear(false); setHistoryEdit(false); setToast("观看记录清除接口待后端接入，已登记"); };
   const shelfSortOptions = [{ id: "updated" as const, label: "作品更新时间", hint: "按作品最近更新的时间排序" }, { id: "collected" as const, label: "收藏时间", hint: "按加入书架的时间排序" }, { id: "browsed" as const, label: "浏览时间", hint: "按最近浏览的时间排序" }];
   const shelfWorks = allWorks.filter(work => work.type === shelfType).filter(work => matchesScope(work) && (!bookQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(bookQuery.toLowerCase()))) && (!shelfQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(shelfQuery.toLowerCase())))).sort(collectionSort);
   const shelfHasItems = allWorks.some(work => work.type === shelfType);
@@ -679,6 +729,74 @@ export default function AndroidApp() {
       {task && (activeScan(task) || ["failed", "interrupted", "cancelled"].includes(task.stage)) && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
     </section>; })}
   </>;
+  const historyRow = (entry: typeof historyEntries[number]) => {
+    const { item, work } = entry;
+    const cover = work?.coverPath ?? null;
+    const coverUrl = asset(cover);
+    const thumb = <span className="gz-history-thumb">{coverUrl ? <img src={coverUrl} alt="" /> : <Film aria-hidden="true" />}</span>;
+    return <article className={`gz-history-row${item.missing ? " is-missing" : ""}`} key={item.mediaFileId}>
+      {work ? <button type="button" className="gz-history-thumbbtn" onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)} aria-label={`查看 ${item.title}`}>{thumb}</button> : thumb}
+      <div className="gz-history-body">
+        <strong className="gz-truncate">{item.title}</strong>
+        <p className="gz-meta gz-truncate">{item.fileName}</p>
+        <p className="gz-meta gz-history-when">看到 {playbackTime(item.positionMs)}{item.completed ? " · 已看完" : ""}{item.missing ? " · 文件缺失" : ""}</p>
+        <p className="gz-meta gz-history-src">本地 · {clockLabel(item.updatedAt)}</p>
+      </div>
+      {historyEdit
+        ? <button type="button" className="gz-history-del" disabled={busy} onClick={removeHistoryRecord} aria-label={`移除 ${item.title} 的记录`}><Trash2 size={18} /></button>
+        : <div className="gz-history-actions">
+            <button type="button" className="gz-history-play" disabled={busy || item.missing} onClick={() => void run(() => play(item.mediaFileId))} aria-label={`播放 ${item.title}`}><Play size={17} fill="currentColor" /></button>
+            <button type="button" className="gz-iconbtn gz-history-more" onClick={() => setHistoryItem(item)} aria-label="更多操作"><MoreHorizontal size={18} /></button>
+          </div>}
+    </article>;
+  };
+  const historyPage = <>
+    <div className="gz-history-head">
+      <h1 className="gz-history-title">浏览记录</h1>
+      <div className="gz-history-head-actions">
+        {historyEdit
+          ? <><button type="button" className="gz-history-done" onClick={() => setHistoryEdit(false)}>完成</button><button type="button" className="gz-iconbtn gz-history-clear" disabled={!progress.length} onClick={() => setHistoryClear(true)} aria-label="清除全部记录"><Trash2 size={19} /></button></>
+          : <button type="button" className="gz-iconbtn gz-history-manage" disabled={!progress.length} onClick={() => setHistoryEdit(true)} aria-label="管理历史记录" title="管理历史记录"><Pencil size={18} /></button>}
+      </div>
+    </div>
+    <label className="gz-search"><Search size={18} /><input type="search" aria-label="搜索浏览记录" placeholder="搜索标题或文件名" value={historyQuery} onChange={event => setHistoryQuery(event.target.value)} /></label>
+    <div className="gz-chips gz-history-tabs" role="tablist" aria-label="记录类型">{historyTabs.map(tab => <button key={tab.id} type="button" role="tab" aria-selected={historyTab === tab.id} className={`gz-chip${historyTab === tab.id ? " active" : ""}`} onClick={() => setHistoryTab(tab.id)}>{historyTab === tab.id && <Check size={13} />}{tab.label}</button>)}</div>
+    {progress.length > 0 && <p className="gz-meta gz-history-summary">共 {historyEntries.length} 条记录 · {historyEdit ? "点按删除按钮移除" : "最近观看优先"}</p>}
+    {!progress.length ? <Empty title="还没有观看记录"><p>开始播放后，观看记录会出现在这里。</p><button className="gz-btn" onClick={() => navigate("library")}>去媒体库</button></Empty>
+      : !historyEntries.length ? <div className="gz-shelf-empty"><span className="gz-shelf-badge"><History size={26} /></span><h2>没有匹配的记录</h2><p>试试其他关键词，或切换到「全部」。</p><button className="gz-btn" onClick={() => { setHistoryQuery(""); setHistoryTab("all"); }}>清除筛选</button></div>
+      : historyGroups.map(group => <section className="gz-history-group" key={group.label}><div className="gz-history-group-head"><h2>{group.label}</h2><span className="gz-meta">{group.entries.length} 条</span></div>{group.entries.map(historyRow)}</section>)}
+    {historyEdit && <p className="gz-meta gz-history-hint">清除记录接口尚未接入，当前为界面预览，不会改动数据。</p>}
+  </>;
+  const readingStatsTiles = [{ label: "漫画", value: comicCount, icon: BookOpen }, { label: "章节", value: 0, icon: Layers }, { label: "页数", value: 0, icon: FileText }];
+  const readingStatsPage = <>
+    {statsConfig.overview && <div className="gz-stats-tiles">{readingStatsTiles.map(stat => { const Icon = stat.icon; return <div className="gz-stats-tile" key={stat.label}><Icon size={18} /><strong>{stat.value}</strong><span>{stat.label}</span></div>; })}</div>}
+    {statsConfig.genres && <section className="gz-stats-card"><div className="gz-stats-card-head"><Flame size={16} /><h2>常看类型</h2></div><p className="gz-stats-empty">暂无标签数据</p></section>}
+    {statsConfig.activity && <section className="gz-stats-card"><div className="gz-stats-card-head"><CalendarDays size={16} /><h2>阅读活跃度</h2></div><div className="gz-heatmap">{Array.from({ length: 26 * 7 }, (_, index) => <span className="gz-heat" key={index} data-level="0" />)}</div><div className="gz-heatmap-foot"><span className="gz-meta">近 26 周</span><span className="gz-heatmap-legend"><span className="gz-meta">少</span>{[0, 1, 2, 3, 4].map(level => <i key={level} data-level={level} aria-hidden="true" />)}<span className="gz-meta">多</span></span></div></section>}
+    <p className="gz-meta gz-stats-note">漫画数量来自作品库；阅读行为记录尚未接入，章节 / 页数暂无法统计。</p>
+    <button type="button" className="gz-stats-fab" onClick={() => navigate("reading-stats-settings")} aria-label="阅读统计设置"><SlidersHorizontal size={20} /></button>
+  </>;
+  const statsComponentRows = [
+    { id: "overview" as const, label: "概览", icon: Layers },
+    { id: "genres" as const, label: "常看类型", icon: Flame },
+    { id: "activity" as const, label: "阅读活跃度", icon: CalendarDays },
+  ];
+  const chartStyles = [
+    { id: "heatmap" as const, label: "热力图", hint: "按周展示近一年阅读活跃度", icon: PieChart },
+    { id: "bar" as const, label: "条形图", hint: "按天展示两周阅读页数", icon: BarChart3 },
+  ];
+  const readingStatsSettings = <>
+    <SettingBlock title="统计功能">
+      <button type="button" role="switch" aria-checked={statsConfig.enabled} className="gz-toggle-row" onClick={() => setStatsConfig(config => ({ ...config, enabled: !config.enabled }))}><span className="gz-row-main"><strong>统计功能</strong><span className="gz-meta">开启后记录阅读行为并生成本页统计。</span></span><span className={`gz-switch ${statsConfig.enabled ? "active" : ""}`} aria-hidden="true"><span /></span></button>
+    </SettingBlock>
+    <SettingBlock title="显示组件">
+      <p className="gz-meta gz-stats-hint">长按拖动排序（拖动排序接口待接入）</p>
+      {statsComponentRows.map(row => <button type="button" key={row.id} role="switch" aria-checked={statsConfig[row.id]} disabled={!statsConfig.enabled} className="gz-toggle-row gz-toggle-draggable" onClick={() => setStatsConfig(config => ({ ...config, [row.id]: !config[row.id] }))}><AlignJustify className="gz-drag-handle" size={18} aria-hidden="true" /><span className="gz-row-main"><strong>{row.label}</strong></span><span className={`gz-switch ${statsConfig[row.id] ? "active" : ""}`} aria-hidden="true"><span /></span></button>)}
+    </SettingBlock>
+    <SettingBlock title="图表样式">
+      {chartStyles.map(style => { const Icon = style.icon; return <button type="button" key={style.id} role="radio" aria-checked={statsConfig.chart === style.id} className={`gz-choice-row${statsConfig.chart === style.id ? " active" : ""}`} onClick={() => setStatsConfig(config => ({ ...config, chart: style.id }))}><span className="gz-choice-dot" aria-hidden="true"><Icon size={16} /></span><span className="gz-row-main"><strong>{style.label}</strong><span className="gz-meta">{style.hint}</span></span></button>; })}
+    </SettingBlock>
+    <button type="button" className="gz-setting-danger" onClick={() => setToast("清除阅读统计数据待后端接入")}><Trash2 size={18} />清除</button>
+  </>;
   return <div ref={rootRef} className="android-app" data-theme={dark ? "dark" : "light"} data-amoled={amoled ? "true" : "false"} data-style={themeStyle}>
     <div className="gz-rainbow-layer" aria-hidden="true" />
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
@@ -714,22 +832,19 @@ export default function AndroidApp() {
         </div>}
       </>}
       {route === "profile" && <div className="gz-profile-page">
-        <button type="button" className="gz-account-row" onClick={() => setToast("账号功能待接入")}>
-          <span className="gz-account-avatar" aria-hidden="true"><User size={22} /></span>
-          <span className="gz-account-body"><strong>未登录</strong><span className="gz-meta">登录后可同步观看记录与收藏</span></span>
-          <ChevronRight className="gz-menu-arrow" size={18} aria-hidden="true" />
-        </button>
         <section className="gz-profile-hero">
-          <span className="gz-profile-badge" aria-hidden="true"><Footprints size={20} /></span>
-          <p className="gz-profile-eyebrow">观看足迹</p>
+          <div className="gz-profile-hero-top">
+            <span className="gz-profile-badge" aria-hidden="true"><Footprints size={18} /></span>
+            <p className="gz-profile-eyebrow">观看足迹</p>
+          </div>
           <div className="gz-profile-stats">
-            <div className="gz-profile-stat"><strong>{allWorks.filter(work => work.status === "completed").length}</strong><span>看过作品</span></div>
+            <div className="gz-profile-stat"><strong>{completedCount}</strong><span>看过作品</span></div>
             <span className="gz-profile-divider" aria-hidden="true" />
-            <div className="gz-profile-stat"><strong>{progress.length}</strong><span>观看集数</span></div>
+            <div className="gz-profile-stat"><strong className="gz-profile-stat-text">{formatWatchDuration(totalWatchMs)}</strong><span>观看时间</span></div>
           </div>
         </section>
         <div className="gz-quick-cards">
-          <QuickCard label="浏览记录" subtitle="查看观看记录" icon={History} onClick={() => navigate("future/浏览记录")} />
+          <QuickCard label="浏览记录" subtitle="查看观看记录" icon={History} onClick={() => navigate("history")} />
           <QuickCard label="下载中心" subtitle="管理离线内容" icon={Download} onClick={() => navigate("future/下载中心")} />
         </div>
         <MenuSection label="内容与偏好">
@@ -739,10 +854,8 @@ export default function AndroidApp() {
           <MenuRow label="资料库" icon={Database} subtitle="本地目录与来源管理" onClick={() => navigate("sources")} />
         </MenuSection>
         <MenuSection label="数据与应用">
-          <MenuRow label="继续阅读漫画" icon={BookOpen} subtitle={continueItems[0] ? `${continueItems[0].title} · ${continueItems[0].fileName}` : "暂无阅读记录"} onClick={() => navigate("future/继续阅读漫画")} />
           <MenuRow label="书签" icon={Bookmark} onClick={() => navigate("future/书签")} />
-          <MenuRow label="阅读统计" icon={BarChart3} onClick={() => navigate("future/阅读统计")} />
-          <MenuRow label="AI 配置" icon={Bot} onClick={() => navigate("future/AI配置")} />
+          <MenuRow label="阅读统计" icon={BarChart3} onClick={() => navigate("reading-stats")} />
           <MenuRow label="通知中心" icon={Bell} dot onClick={() => navigate("future/通知中心")} />
           <MenuRow label="关于" icon={Info} onClick={() => navigate("diagnostics")} />
         </MenuSection>
@@ -907,6 +1020,9 @@ export default function AndroidApp() {
       {route === "explore" && <ExplorePanel onToast={setToast} registerBack={registerSubviewBack} />}
       {route === "network" && <NetworkPanel onToast={setToast} />}
       {route.startsWith("future/") && <Empty title={`${decodeURIComponent(route.slice(7))} · Future`}><p>该能力尚未接入，保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
+      {route === "history" && historyPage}
+      {route === "reading-stats" && readingStatsPage}
+      {route === "reading-stats-settings" && readingStatsSettings}
       {route === "diagnostics" && <AndroidPrototype />}
     </main>
     <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
@@ -932,6 +1048,20 @@ export default function AndroidApp() {
           <WorkStatusIcon id={id} size={18} /><span>{statuses[id]}</span>
         </button>)}
       </div>
+    </section></div>}
+    {historyItem && <div className="gz-scrim" onClick={() => setHistoryItem(null)}><section className="gz-sheet" role="dialog" aria-modal="true" aria-label="记录操作" onClick={event => event.stopPropagation()}>
+      <span className="gz-sheet-handle" aria-hidden="true" />
+      <h2 className="gz-sheet-title gz-truncate">{historyItem.title}</h2>
+      <p className="gz-meta gz-truncate">{historyItem.fileName}</p>
+      <div className="gz-sort-list">
+        {historyItem.workId && <button type="button" className="gz-sort-row" onClick={() => { const id = historyItem.workId; setHistoryItem(null); if (id) navigate(`detail/${encodeURIComponent(id)}`); }}><span className="gz-sort-main"><strong>查看作品</strong><span className="gz-meta">打开作品详情</span></span><ChevronRight size={18} /></button>}
+        <button type="button" className="gz-sort-row" onClick={() => { setHistoryItem(null); removeHistoryRecord(); }}><span className="gz-sort-main"><strong>移除观看记录</strong><span className="gz-meta">从浏览记录中移除这一条</span></span><Trash2 size={18} /></button>
+      </div>
+    </section></div>}
+    {historyClear && <div className="gz-scrim gz-scrim-center" onClick={() => setHistoryClear(false)}><section className="gz-sheet gz-confirm" role="dialog" aria-modal="true" aria-labelledby="gz-confirm-title" onClick={event => event.stopPropagation()}>
+      <h2 id="gz-confirm-title" className="gz-confirm-title">清除全部观看记录？</h2>
+      <p className="gz-meta">仅清除 Genzo 中的观看记录，不会删除磁盘文件或作品。</p>
+      <div className="gz-confirm-actions"><button type="button" className="gz-btn" onClick={() => setHistoryClear(false)}>取消</button><button type="button" className="gz-btn primary" onClick={clearHistoryRecords}>清除</button></div>
     </section></div>}
   </div>;
 }
