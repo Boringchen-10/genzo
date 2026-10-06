@@ -641,6 +641,7 @@ export default function AndroidApp() {
           {categories.map(item => <button key={item.id} role="tab" aria-selected={filter === item.id} className={filter === item.id ? "active" : ""} onClick={() => { setFilter(item.id); setLimit(48); }}>{item.title}</button>)}
         </div>
         <div className="gz-shelf-bar">
+          {works.length > 0 && <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => { setCollectionScope(option.id); setLimit(48); }}>{option.label}</button>)}</div>}
           {!mediaSearchOpen && query && <button className="gz-chip active" onClick={() => { setQuery(""); setLimit(48); }}>搜索：{query}<X size={13} /></button>}
           <button className="gz-iconbtn" aria-label={mediaSearchOpen ? "关闭搜索" : "搜索媒体库"} aria-expanded={mediaSearchOpen} onClick={() => setMediaSearchOpen(open => !open)}><Search size={18} /></button>
           <button className="gz-chip" aria-haspopup="dialog" onClick={() => setSortSheet(true)}><Filter size={15} />有更新</button>
@@ -648,7 +649,6 @@ export default function AndroidApp() {
         {mediaSearchOpen && <label className="gz-search"><Search size={18} /><input autoFocus type="search" aria-label="搜索媒体库" placeholder="搜索标题 / 原名 / 标签" value={query} onChange={event => { setQuery(event.target.value); setLimit(48); }} /></label>}
         {works.length > 0 && <div className="gz-collection-meta">
           <p className="gz-meta">共 {filtered.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>
-          <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => { setCollectionScope(option.id); setLimit(48); }}>{option.label}</button>)}</div>
         </div>}
         {filtered.length ? <>
           <div className="gz-grid">{filtered.slice(0, limit).map(card)}</div>
@@ -799,6 +799,7 @@ export default function AndroidApp() {
           {([["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={shelfType === id} className={shelfType === id ? "active" : ""} onClick={() => { setShelfType(id); setLimit(48); }}>{label}</button>)}
         </div>
         <div className="gz-shelf-bar">
+          {shelfHasItems && <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => setCollectionScope(option.id)}>{option.label}</button>)}</div>}
           {bookQuery && <button className="gz-chip active" onClick={() => setBookQuery("")}>标签：{bookQuery}<X size={13} /></button>}
           {!shelfSearchOpen && shelfQuery && <button className="gz-chip active" onClick={() => setShelfQuery("")}>搜索：{shelfQuery}<X size={13} /></button>}
           <button className="gz-iconbtn" aria-label={shelfSearchOpen ? "关闭搜索" : "搜索书架"} aria-expanded={shelfSearchOpen} onClick={() => setShelfSearchOpen(open => !open)}><Search size={18} /></button>
@@ -807,7 +808,6 @@ export default function AndroidApp() {
         {shelfSearchOpen && <label className="gz-search"><Search size={18} /><input autoFocus type="search" aria-label="搜索书架" placeholder="搜索标题 / 原名 / 标签" value={shelfQuery} onChange={event => setShelfQuery(event.target.value)} /></label>}
         {shelfHasItems && <div className="gz-collection-meta">
           <p className="gz-meta">共 {shelfWorks.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>
-          <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => setCollectionScope(option.id)}>{option.label}</button>)}</div>
         </div>}
         {shelfWorks.length ? <>
           <div className="gz-grid">{shelfWorks.slice(0, limit).map(card)}</div>

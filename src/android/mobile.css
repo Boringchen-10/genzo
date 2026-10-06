@@ -79,7 +79,7 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-shelf-empty .gz-btn { margin-top: 10px; border-radius: 999px; padding: 10px 30px; }
 .android-app .gz-collection-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .android-app .gz-collection-meta .gz-meta { margin: 0; }
-.android-app .gz-scope { flex: none; padding: 3px; border-radius: 999px; }
+.android-app .gz-scope { flex: none; margin-right: auto; padding: 3px; border-radius: 999px; }
 .android-app .gz-scope button { flex: none; padding: 6px 14px; font-size: 12px; border-radius: 999px; }
 .android-app .gz-shelf-bar:has(+ .gz-search) { margin-bottom: 10px; }
 .android-app .gz-search { display: flex; align-items: center; gap: 8px; padding-left: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; color: var(--muted); }
@@ -295,6 +295,16 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-sched-body strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .android-app .gz-sched-body .gz-meta { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
 .android-app .gz-sched-score { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--warn); white-space: nowrap; }
+.android-app .gz-season-btn { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 13px; white-space: nowrap; }
+.android-app .gz-season-btn:active { transform: scale(.96); }
+.android-app .gz-season-sheet { position: relative; }
+.android-app .gz-season-sheet .gz-sheet-close { position: absolute; top: 10px; right: 10px; }
+.android-app .gz-season-title { font-size: 17px; font-weight: 600; }
+.android-app .gz-season-groups { display: grid; gap: 14px; margin-top: 14px; }
+.android-app .gz-season-group { display: grid; gap: 8px; }
+.android-app .gz-season-year { padding-left: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.android-app .gz-season-seg { border-radius: 999px; }
+.android-app .gz-season-seg button { padding: 8px; border-radius: 999px; }
 @media (min-width: 700px) { .android-app .gz-explore-grid { grid-template-columns: repeat(6, minmax(0,1fr)); } }
 
 /* Network (网络) */

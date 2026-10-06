@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, ChevronRight, Heart, LoaderCircle, RefreshCw, Search, Star, X } from "lucide-react";
 import { api } from "../api";
-import type { ExploreSubject, WeeklyCalendar } from "../types";
+import type { ExploreSubject, WeeklyCalendar, WeeklyCalendarDay } from "../types";
 import { comicExploreApi, type ComicItem, type ComicTheme } from "../comicExplore";
 
 type ExploreTab = "anime" | "comic" | "novel";
@@ -18,11 +18,27 @@ const score = (value: number | null) => value == null ? "暂无评分" : value.t
 
 const subjectTypeLabels: Record<ExploreSubject["subjectType"], string> = { tv: "TV", web: "WEB", movie: "剧场版", ova: "OVA" };
 const weekdayNumber = (date = new Date()) => (date.getDay() === 0 ? 7 : date.getDay());
-const seasonLabelOf = (date = new Date()) => {
+const SEASONS = [
+  { label: "冬季", month: 1 },
+  { label: "春季", month: 4 },
+  { label: "夏季", month: 7 },
+  { label: "秋季", month: 10 },
+] as const;
+const WEEKDAY_LABELS = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const courStartMonth = (date = new Date()) => {
   const month = date.getMonth() + 1;
-  const season = month <= 3 ? "冬季" : month <= 6 ? "春季" : month <= 9 ? "夏季" : "秋季";
-  return `${date.getFullYear()} ${season}`;
+  return month <= 3 ? 1 : month <= 6 ? 4 : month <= 9 ? 7 : 10;
 };
+const seasonLabelOf = (year: number, month: number) => `${year} ${SEASONS.find(season => season.month === month)?.label ?? ""}`;
+const subjectWeekday = (subject: ExploreSubject): number | null => {
+  const raw = (subject.broadcast?.replace(/^R\//, "").split("/")[0] || subject.airDate || "").trim();
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  const day = date.getDay();
+  return day === 0 ? 7 : day;
+};
+const groupByWeekday = (items: ExploreSubject[]): WeeklyCalendarDay[] =>
+  [1, 2, 3, 4, 5, 6, 7].map(weekday => ({ weekday, label: WEEKDAY_LABELS[weekday] ?? "", items: items.filter(item => subjectWeekday(item) === weekday) }));
 const weekDayNumbers = () => {
   const monday = new Date();
   monday.setDate(monday.getDate() - (weekdayNumber() - 1));
@@ -62,6 +78,13 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const [seasonalTag, setSeasonalTag] = useState("");
   const [seasonalLimit, setSeasonalLimit] = useState(24);
   const [scheduleDay, setScheduleDay] = useState(weekdayNumber);
+  const [currentCour] = useState(() => ({ year: new Date().getFullYear(), month: courStartMonth() }));
+  const [scheduleYear, setScheduleYear] = useState(currentCour.year);
+  const [scheduleMonth, setScheduleMonth] = useState(currentCour.month);
+  const [seasonOpen, setSeasonOpen] = useState(false);
+  const [seasonDays, setSeasonDays] = useState<WeeklyCalendarDay[] | null>(null);
+  const [seasonState, setSeasonState] = useState<LoadState>("ready");
+  const isCurrentCour = scheduleYear === currentCour.year && scheduleMonth === currentCour.month;
 
   const [themes, setThemes] = useState<ComicTheme[]>([]);
   const [theme, setTheme] = useState("");
@@ -77,6 +100,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const backHandler = useRef<() => boolean>(() => false);
   backHandler.current = () => {
     if (detail) { setDetail(null); return true; }
+    if (seasonOpen) { setSeasonOpen(false); return true; }
     if (view === "schedule") { setView("feed"); return true; }
     return false;
   };
@@ -108,6 +132,15 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   }, []);
 
   useEffect(() => { void loadAnime(); }, [loadAnime]);
+  useEffect(() => {
+    if (isCurrentCour) { setSeasonDays(null); setSeasonState("ready"); return; }
+    let cancelled = false;
+    setSeasonState("loading");
+    api.exploreOverview(scheduleYear, scheduleMonth)
+      .then(overview => { if (!cancelled) { setSeasonDays(groupByWeekday(overview.seasonal)); setSeasonState("ready"); } })
+      .catch(() => { if (!cancelled) { setSeasonDays(null); setSeasonState("error"); } });
+    return () => { cancelled = true; };
+  }, [isCurrentCour, scheduleYear, scheduleMonth]);
   useEffect(() => {
     if (tab !== "comic") return;
     if (!themes.length) void comicExploreApi.themes().then(setThemes).catch(() => {});
@@ -185,23 +218,29 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const seasonalItems = seasonalTag ? seasonal.filter(item => item.genres.includes(seasonalTag)) : seasonal;
   const tagChips = useMemo(() => curatedTags(seasonal), [seasonal]);
   const dayNumbers = weekDayNumbers();
-  const scheduleItems = calendar?.days.find(day => day.weekday === scheduleDay)?.items ?? [];
+  const seasonLabel = seasonLabelOf(scheduleYear, scheduleMonth);
+  const seasonYears = Array.from({ length: 10 }, (_, index) => currentCour.year - index);
+  const scheduleDays = isCurrentCour ? calendar?.days ?? null : seasonDays;
+  const scheduleItems = scheduleDays?.find(day => day.weekday === scheduleDay)?.items ?? [];
 
   const scheduleView = <div className="gz-schedule">
     <div className="gz-sched-head">
       <button className="gz-iconbtn" aria-label="返回发现" onClick={() => setView("feed")}><ArrowLeft size={20} /></button>
       <h2>放送时间表</h2>
-      <span className="gz-meta">{seasonLabelOf()}</span>
+      <button className="gz-season-btn" aria-haspopup="dialog" aria-expanded={seasonOpen} onClick={() => setSeasonOpen(true)}>{seasonLabel}<ChevronDown size={14} /></button>
     </div>
-    {calendar ? <>
-      <div className="gz-sched-days" role="tablist" aria-label="星期">
-        {calendar.days.map((day, index) => <button key={day.weekday} role="tab" aria-selected={scheduleDay === day.weekday} className={scheduleDay === day.weekday ? "active" : ""} onClick={() => setScheduleDay(day.weekday)}>
-          <span className="gz-sched-day-label">{day.weekday === today ? "今天" : day.label}</span>
-          <span className="gz-sched-day-num">{dayNumbers[index]}</span>
-        </button>)}
-      </div>
-      {scheduleItems.length ? <div className="gz-sched-list">{scheduleItems.map(scheduleRow)}</div> : <div className="gz-empty"><BookOpen size={26} /><h2>这天没有番组</h2><p>换一周中的其他日子看看。</p></div>}
-    </> : <p className="gz-loading"><LoaderCircle />正在读取放送时间表…</p>}
+    {isCurrentCour && !calendar ? <p className="gz-loading"><LoaderCircle />正在读取放送时间表…</p>
+      : !isCurrentCour && seasonState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取该季度番组…</p>
+      : !isCurrentCour && seasonState === "error" ? <div className="gz-error" role="alert"><span>该季度数据读取失败。</span></div>
+      : <>
+        {scheduleDays && <div className="gz-sched-days" role="tablist" aria-label="星期">
+          {scheduleDays.map((day, index) => <button key={day.weekday} role="tab" aria-selected={scheduleDay === day.weekday} className={scheduleDay === day.weekday ? "active" : ""} onClick={() => setScheduleDay(day.weekday)}>
+            <span className="gz-sched-day-label">{isCurrentCour && day.weekday === today ? "今天" : day.label}</span>
+            {isCurrentCour && <span className="gz-sched-day-num">{dayNumbers[index]}</span>}
+          </button>)}
+        </div>}
+        {scheduleItems.length ? <div className="gz-sched-list">{scheduleItems.map(scheduleRow)}</div> : <div className="gz-empty"><BookOpen size={26} /><h2>这天没有番组</h2><p>{isCurrentCour ? "换一周中的其他日子看看。" : "换个季度或换一天看看。"}</p></div>}
+      </>}
   </div>;
 
   return <div className="gz-explore">
@@ -271,6 +310,19 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
       {tab === "novel" && <div className="gz-empty"><BookOpen size={28} /><h2>轻小说发现 · 待接入数据源</h2><p>轻小说的在线目录源尚未接入，接入后会在这里显示分区与搜索。你已入库的轻小说仍可在书架查看。</p></div>}
     </>}
+
+    {seasonOpen && <div className="gz-scrim" onClick={() => setSeasonOpen(false)}><section className="gz-sheet gz-season-sheet" role="dialog" aria-modal="true" aria-label="放送季度" onClick={event => event.stopPropagation()}>
+      <span className="gz-sheet-handle" aria-hidden="true" />
+      <button className="gz-iconbtn gz-sheet-close" aria-label="关闭" onClick={() => setSeasonOpen(false)}><X size={18} /></button>
+      <h2 className="gz-season-title">放送季度</h2>
+      <p className="gz-meta">正在查看 {scheduleYear} 年{SEASONS.find(season => season.month === scheduleMonth)?.label}</p>
+      <div className="gz-season-groups">{seasonYears.map(year => <div className="gz-season-group" key={year}>
+        <span className="gz-season-year">{year}</span>
+        <div className="gz-seg gz-season-seg" role="radiogroup" aria-label={`${year} 年季度`}>
+          {SEASONS.map(season => <button key={season.label} role="radio" aria-checked={scheduleYear === year && scheduleMonth === season.month} className={scheduleYear === year && scheduleMonth === season.month ? "active" : ""} onClick={() => { setScheduleYear(year); setScheduleMonth(season.month); setSeasonOpen(false); }}>{season.label}</button>)}
+        </div>
+      </div>)}</div>
+    </section></div>}
 
     {detail && <div className="gz-scrim" onClick={() => setDetail(null)}><section className="gz-sheet gz-explore-sheet" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
       <span className="gz-sheet-handle" aria-hidden="true" />
