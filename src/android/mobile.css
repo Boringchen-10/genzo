@@ -355,6 +355,8 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 @keyframes gz-vt-out-left { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-18%); opacity: 0; } }
 @keyframes gz-vt-in-left { from { transform: translateX(-24%); opacity: .4; } to { transform: translateX(0); opacity: 1; } }
 @keyframes gz-vt-out-right { from { transform: translateX(0); opacity: 1; } to { transform: translateX(18%); opacity: 0; } }
+@keyframes gz-page-fallback-forward { from { opacity: .35; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+@keyframes gz-page-fallback-back { from { opacity: .35; transform: translateX(-20px); } to { opacity: 1; transform: none; } }
 html::view-transition-old(root), html::view-transition-new(root) { animation-duration: 240ms; animation-timing-function: cubic-bezier(.22,1,.36,1); }
 html[data-trans="page"]::view-transition-old(root), html[data-trans="page"]::view-transition-new(root) { animation: none; }
 html[data-trans="page"][data-nav="forward"]::view-transition-old(gz-page) { animation: gz-vt-out-left 320ms cubic-bezier(.22,1,.36,1) both; }
@@ -362,8 +364,11 @@ html[data-trans="page"][data-nav="forward"]::view-transition-new(gz-page) { anim
 html[data-trans="page"][data-nav="back"]::view-transition-old(gz-page) { animation: gz-vt-out-right 320ms cubic-bezier(.22,1,.36,1) both; }
 html[data-trans="page"][data-nav="back"]::view-transition-new(gz-page) { animation: gz-vt-in-left 360ms cubic-bezier(.22,1,.36,1) both; }
 html[data-trans="morph"]::view-transition-group(*) { animation-duration: 400ms; animation-timing-function: cubic-bezier(.22,1,.36,1); }
+.android-app .gz-scroll.gz-page-fallback-forward { animation: gz-page-fallback-forward 360ms cubic-bezier(.22,1,.36,1) both; }
+.android-app .gz-scroll.gz-page-fallback-back { animation: gz-page-fallback-back 360ms cubic-bezier(.22,1,.36,1) both; }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  .android-app .gz-scroll.gz-page-fallback-forward, .android-app .gz-scroll.gz-page-fallback-back { animation: none; }
 }
 
 /* Motion & polish layer: entrance staggers, skeletons, sheet drag, toast, tab indicator. */

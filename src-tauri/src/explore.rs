@@ -226,6 +226,11 @@ pub async fn overview(
         .map(|item| to_explore_subject(item, &local_states, dataset.stale))
         .collect::<Vec<_>>();
 
+    let seasonal_genres = seasonal
+        .iter()
+        .map(|item| (item.external_id.as_str(), item.genres.as_slice()))
+        .collect::<HashMap<_, _>>();
+
     let mut trending = calendar
         .as_ref()
         .map(|calendar| {
@@ -237,6 +242,15 @@ pub async fn overview(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    for item in &mut trending {
+        if let Some(genres) = seasonal_genres.get(item.external_id.as_str()) {
+            let mut merged = item.genres.clone();
+            merged.extend(genres.iter().cloned());
+            merged.sort();
+            merged.dedup();
+            item.genres = merged;
+        }
+    }
     trending.sort_by(|left, right| {
         right
             .rating_count

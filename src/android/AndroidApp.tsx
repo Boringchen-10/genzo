@@ -57,6 +57,14 @@ const startViewTransition = (callback: () => void | Promise<void>): ViewTransiti
 };
 const coverTransitionName = (id: string) => `gz-cover-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 const coverSelector = (id: string) => `[data-cover-id="${id.replace(/["\\]/g, "\\$&")}"]`;
+const playFallbackTransition = (node: HTMLElement | null, kind: "forward" | "back") => {
+  if (!node || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const className = kind === "forward" ? "gz-page-fallback-forward" : "gz-page-fallback-back";
+  node.classList.remove("gz-page-fallback-forward", "gz-page-fallback-back");
+  void node.offsetWidth;
+  node.classList.add(className);
+  window.setTimeout(() => node.classList.remove(className), 380);
+};
 const bytes = (size: number) => size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(1)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
 const inputFor = (work: WorkDetail): WorkInput => ({ title: work.title, originalTitle: work.originalTitle, type: work.type, description: work.description, coverPath: work.coverPath, status: work.status, favorite: work.favorite, rating: work.rating, notes: work.notes, tags: work.tags });
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -483,7 +491,7 @@ export default function AndroidApp() {
     page?.style.setProperty("view-transition-name", "gz-page");
     root.dataset.trans = "page"; root.dataset.nav = kind;
     const transition = startViewTransition(() => flushSync(commit));
-    if (!transition) { commit(); if (transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } return; }
+    if (!transition) { commit(); playFallbackTransition(page, kind); if (transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } return; }
     void transition.finished.finally(() => { if (transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } });
   }
   function navigate(next: string) {

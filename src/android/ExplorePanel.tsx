@@ -53,11 +53,9 @@ const curatedTags = (items: ExploreSubject[], limit = 24) => {
     .slice(0, limit)
     .map(([tag]) => tag);
 };
-const flattenCalendar = (calendar: WeeklyCalendar | null): ExploreSubject[] => {
-  const seen = new Map<string, ExploreSubject>();
-  for (const day of calendar?.days ?? []) for (const item of day.items) if (!seen.has(item.externalId)) seen.set(item.externalId, item);
-  return [...seen.values()].sort((left, right) => (right.score ?? 0) - (left.score ?? 0) || (right.ratingCount ?? 0) - (left.ratingCount ?? 0));
-};
+let animeExploreCache: { trending: ExploreSubject[]; seasonal: ExploreSubject[]; calendar: WeeklyCalendar | null } | null = null;
+const comicExploreCache = new Map<string, ComicItem[]>();
+let comicThemeCache: ComicTheme[] = [];
 
 const FOLLOW_STATUS: { id: WorkStatus | "none"; label: string }[] = [
   { id: "none", label: "未追" },
@@ -95,12 +93,13 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const [animeResults, setAnimeResults] = useState<ExploreSubject[]>([]);
   const [comicResults, setComicResults] = useState<ComicItem[]>([]);
 
-  const [trending, setTrending] = useState<ExploreSubject[]>([]);
-  const [calendar, setCalendar] = useState<WeeklyCalendar | null>(null);
-  const [animeState, setAnimeState] = useState<LoadState>("loading");
+  const [trending, setTrending] = useState<ExploreSubject[]>(() => animeExploreCache?.trending ?? []);
+  const [seasonal, setSeasonal] = useState<ExploreSubject[]>(() => animeExploreCache?.seasonal ?? []);
+  const [calendar, setCalendar] = useState<WeeklyCalendar | null>(() => animeExploreCache?.calendar ?? null);
+  const [animeState, setAnimeState] = useState<LoadState>(() => animeExploreCache ? "ready" : "loading");
   const [animeError, setAnimeError] = useState("");
   const [tagsOpen, setTagsOpen] = useState(false);
-  const [seasonalTag, setSeasonalTag] = useState("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [seasonalVisible, setSeasonalVisible] = useState(30);
   const [scheduleDay, setScheduleDay] = useState(weekdayNumber);
   const [slideDir, setSlideDir] = useState<"left" | "right">("right");
@@ -112,10 +111,10 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const [seasonState, setSeasonState] = useState<LoadState>("ready");
   const isCurrentCour = scheduleYear === currentCour.year && scheduleMonth === currentCour.month;
 
-  const [themes, setThemes] = useState<ComicTheme[]>([]);
+  const [themes, setThemes] = useState<ComicTheme[]>(() => comicThemeCache);
   const [theme, setTheme] = useState("");
-  const [comics, setComics] = useState<ComicItem[]>([]);
-  const [comicState, setComicState] = useState<LoadState>("loading");
+  const [comics, setComics] = useState<ComicItem[]>(() => comicExploreCache.get("") ?? []);
+  const [comicState, setComicState] = useState<LoadState>(() => comicExploreCache.has("") ? "ready" : "loading");
   const [comicError, setComicError] = useState("");
 
   const [subject, setSubject] = useState<ExploreSubject | null>(null);
@@ -147,20 +146,38 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     return () => registerBack(null);
   }, [registerBack]);
 
-  const loadAnime = useCallback(async () => {
+  const loadAnime = useCallback(async (force = false) => {
+    if (!force && animeExploreCache) {
+      setTrending(animeExploreCache.trending);
+      setSeasonal(animeExploreCache.seasonal);
+      setCalendar(animeExploreCache.calendar);
+      setAnimeState("ready");
+      return;
+    }
     setAnimeState("loading"); setAnimeError("");
     const [overviewResult, calendarResult] = await Promise.allSettled([api.exploreOverview(), api.weeklyCalendar()]);
-    if (overviewResult.status === "fulfilled") setTrending(overviewResult.value.trending.slice(0, 12));
-    if (calendarResult.status === "fulfilled") setCalendar(calendarResult.value); else setCalendar(null);
+    const nextTrending = overviewResult.status === "fulfilled" ? overviewResult.value.trending.slice(0, 24) : [];
+    const nextSeasonal = overviewResult.status === "fulfilled" ? overviewResult.value.seasonal : [];
+    const nextCalendar = calendarResult.status === "fulfilled" ? calendarResult.value : null;
+    if (overviewResult.status === "fulfilled") setTrending(nextTrending);
+    if (overviewResult.status === "fulfilled") setSeasonal(nextSeasonal);
+    if (calendarResult.status === "fulfilled") setCalendar(nextCalendar); else setCalendar(null);
+    if (overviewResult.status === "fulfilled" || calendarResult.status === "fulfilled") animeExploreCache = { trending: nextTrending, seasonal: nextSeasonal, calendar: nextCalendar };
     if (overviewResult.status === "rejected" && calendarResult.status === "rejected") {
       setAnimeError(String(overviewResult.reason)); setAnimeState("error");
     } else setAnimeState("ready");
   }, []);
 
   const loadComics = useCallback(async (nextTheme: string) => {
+    if (comicExploreCache.has(nextTheme)) {
+      setComics(comicExploreCache.get(nextTheme) ?? []);
+      setComicState("ready");
+      return;
+    }
     setComicState("loading"); setComicError("");
     try {
       const page = await comicExploreApi.list({ query: "", theme: nextTheme, top: "", sort: "popular", page: 1 });
+      comicExploreCache.set(nextTheme, page.items);
       setComics(page.items);
       setComicState("ready");
     } catch (reason) { setComicError(String(reason)); setComicState("error"); }
@@ -178,7 +195,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   }, [isCurrentCour, scheduleYear, scheduleMonth]);
   useEffect(() => {
     if (tab !== "comic") return;
-    if (!themes.length) void comicExploreApi.themes().then(setThemes).catch(() => {});
+    if (!themes.length) void comicExploreApi.themes().then(value => { comicThemeCache = value; setThemes(value); }).catch(() => {});
     void loadComics(theme);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
@@ -191,7 +208,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     }, { rootMargin: "240px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [tab, seasonalTag, tagsOpen, animeState]);
+  }, [tab, selectedTags, tagsOpen, animeState]);
 
   useEffect(() => {
     const workId = subject?.localWorkId;
@@ -260,7 +277,10 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     catch (reason) { onToast(String(reason)); }
   };
 
-  const selectTag = (tag: string) => { setSeasonalTag(tag); setSeasonalVisible(30); };
+  const toggleTag = (tag: string) => {
+    setSelectedTags(tags => tags.includes(tag) ? tags.filter(value => value !== tag) : [...tags, tag]);
+    setSeasonalVisible(30);
+  };
   const selectDay = (next: number) => { setSlideDir(next >= scheduleDay ? "right" : "left"); setScheduleDay(next); };
 
   const animeCard = (item: ExploreSubject) => <button className="gz-cover" key={item.externalId} onClick={() => void openSubject(item)}>
@@ -283,11 +303,12 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   </button>;
 
   const today = weekdayNumber();
-  const seasonal = useMemo(() => flattenCalendar(calendar), [calendar]);
-  const todayItems = calendar?.days.find(day => day.weekday === today)?.items ?? [];
-  const todayFeed = todayItems.length ? todayItems : trending;
-  const seasonalItems = seasonalTag ? seasonal.filter(item => item.genres.includes(seasonalTag)) : seasonal;
-  const tagChips = useMemo(() => curatedTags(seasonal), [seasonal]);
+  const popularItems = trending.length ? trending : seasonal;
+  const hotItems = selectedTags.length
+    ? popularItems.filter(item => selectedTags.some(tag => item.genres.includes(tag)))
+    : popularItems;
+  const tagChips = useMemo(() => curatedTags(popularItems), [popularItems]);
+  const seasonalItems = seasonal;
   const seasonLabel = seasonLabelOf(scheduleYear, scheduleMonth);
   const seasonYears = Array.from({ length: 10 }, (_, index) => currentCour.year - index);
   const scheduleDays = isCurrentCour ? calendar?.days ?? null : seasonDays;
@@ -457,22 +478,23 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
         <div className="gz-error" role="alert"><span>{animeError || "Bangumi 数据读取失败。"}</span></div>
         <button className="gz-btn" onClick={() => void loadAnime()}><RefreshCw size={16} />重试</button>
       </> : animeState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取 Bangumi 数据…</p> : <>
-        <section className="gz-section"><div className="gz-section-head"><h2>今日更新</h2>
-          <button className="gz-link" onClick={() => setView("schedule")}><CalendarDays size={16} />时间表<ChevronRight size={16} /></button></div>
-          {todayFeed.length ? <div className="gz-rail gz-cover-rail">{todayFeed.slice(0, 12).map(animeCard)}</div> : <p className="gz-panel gz-meta">今天暂无索引到的更新番剧。</p>}</section>
         <section className="gz-section"><div className="gz-section-head">
           <button className="gz-section-toggle" aria-expanded={tagsOpen} onClick={() => setTagsOpen(value => !value)}>
-            <h2>当季番组</h2><ChevronDown size={16} className={tagsOpen ? "is-open" : ""} />
+            <h2>热门番组</h2><ChevronDown size={16} className={tagsOpen ? "is-open" : ""} />
           </button>
-          <span className="gz-meta">{seasonalItems.length} 部</span></div>
-          {tagsOpen && <div className="gz-chips" role="radiogroup" aria-label="番组标签">
-            <button className={`gz-chip ${seasonalTag === "" ? "active" : ""}`} role="radio" aria-checked={seasonalTag === ""} onClick={() => selectTag("")}>全部</button>
-            {tagChips.map(tag => <button key={tag} className={`gz-chip ${seasonalTag === tag ? "active" : ""}`} role="radio" aria-checked={seasonalTag === tag} onClick={() => selectTag(tag)}>{tag}</button>)}
+          <span className="gz-meta">{hotItems.length} 部</span></div>
+          {tagsOpen && <div className="gz-chips" role="group" aria-label="热门番组标签">
+            {tagChips.map(tag => <button key={tag} className={`gz-chip ${selectedTags.includes(tag) ? "active" : ""}`} role="checkbox" aria-checked={selectedTags.includes(tag)} onClick={() => toggleTag(tag)}>{tag}</button>)}
+            {selectedTags.length > 0 && <button className="gz-link" onClick={() => { setSelectedTags([]); setSeasonalVisible(30); }}>清除</button>}
           </div>}
+          {hotItems.length ? <div className="gz-explore-grid">{hotItems.slice(0, seasonalVisible).map(animeCard)}</div> : <p className="gz-panel gz-meta">没有符合所选标签的热门番组。</p>}
+        </section>
+        <section className="gz-section"><div className="gz-section-head"><h2>当季番组</h2>
+          <button className="gz-link" onClick={() => setView("schedule")}><CalendarDays size={16} />时间表<ChevronRight size={16} /></button></div>
           {seasonalItems.length ? <>
             <div className="gz-explore-grid">{seasonalItems.slice(0, seasonalVisible).map(animeCard)}</div>
             {seasonalItems.length > seasonalVisible && <div className="gz-sentinel" ref={sentinelRef} aria-hidden="true" />}
-          </> : <p className="gz-panel gz-meta">{calendar ? (seasonalTag ? "这个标签下暂无番组。" : "本周放送日历里没有索引到番组。") : "正在读取当季番组…"}</p>}</section>
+          </> : <p className="gz-panel gz-meta">{calendar ? "本周放送日历里没有索引到番组。" : "正在读取当季番组…"}</p>}</section>
       </>)}
       <p className="gz-explore-source gz-meta">当季番组来自 Bangumi 每日放送接口（实时），与本地媒体库无关。</p>
 
