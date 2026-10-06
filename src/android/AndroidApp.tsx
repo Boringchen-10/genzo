@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { AlignJustify, ArrowLeft, ArrowUp, BarChart3, Bookmark, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Cloud, Compass, Database, Download, ExternalLink, Eye, EyeOff, FileText, Film, Filter, Flame, Folder, Footprints, HardDrive, Heart, HeartCrack, History, Home, Inbox, Info, Layers, Library, LoaderCircle, MessageCircle, MessageSquare, MoreHorizontal, Network, Palette, Pencil, PieChart, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, Trash2, User, X } from "lucide-react";
@@ -169,14 +169,14 @@ const homeSections: { id: string; title: string; match: (work: WorkListItem) => 
 ];
 const recentCovers = (items: WorkListItem[]) => [...items].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 10);
 
-function Poster({ work }: { work: WorkListItem | WorkDetail }) {
+const Poster = memo(function Poster({ work }: { work: WorkListItem | WorkDetail }) {
   const [failed, setFailed] = useState(false);
   const url = asset(work.coverPath);
   useEffect(() => setFailed(false), [url]);
   return <div className={`gz-poster ${!url || failed ? "missing" : ""}`} data-cover-id={work.id}>
-    {url && !failed ? <img src={url} alt={work.title} onError={() => setFailed(true)} /> : <><Film aria-hidden="true" /><span>暂无封面</span></>}
+    {url && !failed ? <img src={url} alt={work.title} loading="lazy" decoding="async" draggable={false} onError={() => setFailed(true)} /> : <><Film aria-hidden="true" /><span>暂无封面</span></>}
   </div>;
-}
+});
 function Empty({ title, children }: { title: string; children: React.ReactNode }) {
   return <div className="gz-empty"><Library size={30} /><h2>{title}</h2>{children}</div>;
 }
@@ -387,6 +387,8 @@ export default function AndroidApp() {
   const incomingDetail = useRef<WorkDetail | null>(null);
   const pendingNav = useRef<{ cover: string; kind: "forward" | "back" } | null>(null);
   const transitionSeq = useRef(0);
+  const namedCover = useRef<HTMLElement | null>(null);
+  const detailRequest = useRef(0);
   const routeRef = useRef(route);
   const lastHashRef = useRef(location.hash);
   routeRef.current = route;
@@ -440,13 +442,14 @@ export default function AndroidApp() {
   }
   function resetTransitionNames() {
     main.current?.style.removeProperty("view-transition-name");
-    document.querySelectorAll<HTMLElement>("[data-cover-id]").forEach(node => node.style.removeProperty("view-transition-name"));
+    namedCover.current?.style.removeProperty("view-transition-name");
+    namedCover.current = null;
   }
   function setCoverName(id: string, active: boolean) {
-    const node = document.querySelector<HTMLElement>(coverSelector(id));
+    const node = active ? document.querySelector<HTMLElement>(coverSelector(id)) : namedCover.current;
     if (!node) return;
-    if (active) node.style.setProperty("view-transition-name", coverTransitionName(id));
-    else node.style.removeProperty("view-transition-name");
+    if (active) { node.style.setProperty("view-transition-name", coverTransitionName(id)); namedCover.current = node; }
+    else { node.style.removeProperty("view-transition-name"); namedCover.current = null; }
   }
   function runMorph(id: string, kind: "forward" | "back", commit: () => void | Promise<void>) {
     const root = document.documentElement;
@@ -476,12 +479,14 @@ export default function AndroidApp() {
     lastHashRef.current = location.hash;
     if (next.startsWith("detail/")) {
       const id = decodeURIComponent(next.slice(7));
-      runMorph(id, "forward", async () => {
+      const token = ++detailRequest.current;
+      void (async () => {
         let work: WorkDetail | null = null;
         try { work = await api.getWork(id); } catch { work = null; }
+        if (detailRequest.current !== token) return;
         incomingDetail.current = work;
-        flushSync(() => { if (work) setDetail(work); setRoute(next); });
-      });
+        runMorph(id, "forward", () => { flushSync(() => { if (work) setDetail(work); setRoute(next); }); });
+      })();
       return;
     }
     const nextTab = tabs.findIndex(tab => tab.route === next);
@@ -668,34 +673,30 @@ export default function AndroidApp() {
   function browseUp() { setBrowseStack(stack => { const next = stack.slice(0, -1); if (next.length) void loadFolders(next.at(-1)?.uri ?? null); return next; }); }
   const card = (work: WorkListItem) => <button className="gz-card" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><strong>{work.title}</strong><span className="gz-meta">{statuses[work.status]} · {work.mediaCount} 个文件</span></button>;
   const scopeOptions: { id: "all" | "local" | "network"; label: string }[] = [{ id: "all", label: "全部" }, { id: "local", label: "本地" }, { id: "network", label: "网络" }];
-  const workScope = (work: WorkListItem): "local" | "network" => (work as WorkListItem & { sourceScope?: "local" | "network" }).sourceScope ?? "local";
-  const matchesScope = (work: WorkListItem) => collectionScope === "all" || workScope(work) === collectionScope;
-  const collectionSort = (a: WorkListItem, b: WorkListItem) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
-  const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && matchesScope(work) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase()))).sort(collectionSort);
-  const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
-  const historyEntryFor = (item: PlaybackProgress) => {
+  const inScope = useCallback((work: WorkListItem) => collectionScope === "all" || ((work as WorkListItem & { sourceScope?: "local" | "network" }).sourceScope ?? "local") === collectionScope, [collectionScope]);
+  const byCollection = useCallback((a: WorkListItem, b: WorkListItem) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt), [shelfSort]);
+  const filtered = useMemo(() => works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && inScope(work) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase()))).sort(byCollection), [works, route, filter, inScope, query, byCollection]);
+  const continueItems = useMemo(() => progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10), [progress]);
+  const historyEntries = useMemo(() => progress.map(item => {
     const work = allWorks.find(candidate => candidate.id === item.workId);
     const category = (work?.category ?? work?.type ?? "video") as string;
     return { item, work, category: historyCategory(category) };
-  };
-  const historyEntries = progress.map(historyEntryFor)
-    .filter(entry => historyTab === "all" || entry.category === historyTab)
-    .filter(entry => !historyQuery || [entry.item.title, entry.item.fileName].some(text => text.toLowerCase().includes(historyQuery.toLowerCase())))
-    .sort((a, b) => Date.parse(b.item.updatedAt) - Date.parse(a.item.updatedAt));
-  const historyGroups = historyEntries.reduce<Array<{ label: string; entries: typeof historyEntries }>>((groups, entry) => {
+  }).filter(entry => historyTab === "all" || entry.category === historyTab).filter(entry => !historyQuery || [entry.item.title, entry.item.fileName].some(text => text.toLowerCase().includes(historyQuery.toLowerCase()))).sort((a, b) => Date.parse(b.item.updatedAt) - Date.parse(a.item.updatedAt)), [progress, allWorks, historyTab, historyQuery]);
+  const historyGroups = useMemo(() => historyEntries.reduce<Array<{ label: string; entries: typeof historyEntries }>>((groups, entry) => {
     const label = historyDayLabel(entry.item.updatedAt);
     const group = groups.find(candidate => candidate.label === label);
     if (group) group.entries.push(entry); else groups.push({ label, entries: [entry] });
     return groups;
-  }, []);
+  }, []), [historyEntries]);
   const totalWatchMs = progress.reduce((sum, item) => sum + Math.max(0, item.positionMs), 0);
-  const completedCount = allWorks.filter(work => work.status === "completed").length;
-  const comicCount = allWorks.filter(work => work.type === "comic").length;
+  const completedCount = useMemo(() => allWorks.filter(work => work.status === "completed").length, [allWorks]);
+  const comicCount = useMemo(() => allWorks.filter(work => work.type === "comic").length, [allWorks]);
   const removeHistoryRecord = () => setToast("观看记录清除接口待后端接入，已登记");
   const clearHistoryRecords = () => { setHistoryClear(false); setHistoryEdit(false); setToast("观看记录清除接口待后端接入，已登记"); };
   const shelfSortOptions = [{ id: "updated" as const, label: "作品更新时间", hint: "按作品最近更新的时间排序" }, { id: "collected" as const, label: "收藏时间", hint: "按加入书架的时间排序" }, { id: "browsed" as const, label: "浏览时间", hint: "按最近浏览的时间排序" }];
-  const shelfWorks = allWorks.filter(work => work.type === shelfType).filter(work => matchesScope(work) && (!bookQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(bookQuery.toLowerCase()))) && (!shelfQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(shelfQuery.toLowerCase())))).sort(collectionSort);
-  const shelfHasItems = allWorks.some(work => work.type === shelfType);
+  const shelfWorks = useMemo(() => allWorks.filter(work => work.type === shelfType).filter(work => inScope(work) && (!bookQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(bookQuery.toLowerCase()))) && (!shelfQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(shelfQuery.toLowerCase())))).sort(byCollection), [allWorks, shelfType, inScope, bookQuery, shelfQuery, byCollection]);
+  const shelfHasItems = useMemo(() => allWorks.some(work => work.type === shelfType), [allWorks, shelfType]);
+  const homeSectionsData = useMemo(() => route === "home" ? homeSections.map(section => ({ section, items: recentCovers(allWorks.filter(section.match)) })) : [], [route, allWorks]);
   const openTag = (tag: string, type?: MediaFile["mediaType"]) => {
     if (type === "comic" || type === "novel") { setBookQuery(tag); setShelfType(type); navigate("bookshelf"); return; }
     setQuery(tag); setFilter("all"); setLimit(48); setMediaSearchOpen(true); navigate("library");
@@ -710,18 +711,18 @@ export default function AndroidApp() {
   ];
   const animeAirDate = structure?.episodes.map(episode => episode.airDate).filter((value): value is string => !!value).sort()[0] ?? null;
   const chapterLabel = (entry: BookEntry) => entry.chapterNumber !== null ? `第${String(Math.round(entry.chapterNumber)).padStart(2, "0")}话` : entry.volumeNumber !== null ? `第${String(Math.round(entry.volumeNumber)).padStart(2, "0")}卷` : entry.title;
-  const bookTabs = [
+  const bookTabs = useMemo(() => [
     { id: "default" as const, label: "默认", entries: bookEntries },
     { id: "volume" as const, label: "单行本", entries: bookEntries.filter(entry => entry.volumeNumber !== null) },
     { id: "chapter" as const, label: "分话", entries: bookEntries.filter(entry => entry.chapterNumber !== null) },
-  ].filter(tab => tab.id === "default" || tab.entries.length > 0);
-  const activeBookTab = bookTabs.find(tab => tab.id === bookTab) ?? bookTabs[0];
+  ].filter(tab => tab.id === "default" || tab.entries.length > 0), [bookEntries]);
+  const activeBookTab = useMemo(() => bookTabs.find(tab => tab.id === bookTab) ?? bookTabs[0], [bookTabs, bookTab]);
   const effectiveBookTab = activeBookTab?.id ?? "default";
-  const sortedBookEntries = [...(activeBookTab?.entries ?? [])].sort((a, b) => (a.volumeNumber ?? 0) - (b.volumeNumber ?? 0) || (a.chapterNumber ?? 0) - (b.chapterNumber ?? 0) || a.title.localeCompare(b.title, "zh"));
+  const sortedBookEntries = useMemo(() => [...(activeBookTab?.entries ?? [])].sort((a, b) => (a.volumeNumber ?? 0) - (b.volumeNumber ?? 0) || (a.chapterNumber ?? 0) - (b.chapterNumber ?? 0) || a.title.localeCompare(b.title, "zh")), [activeBookTab]);
   const bookPageSize = 72;
   const bookPageCount = Math.max(1, Math.ceil(sortedBookEntries.length / bookPageSize));
   const bookPageCurrent = clamp(bookPage, 1, bookPageCount);
-  const bookPageItems = sortedBookEntries.slice((bookPageCurrent - 1) * bookPageSize, bookPageCurrent * bookPageSize);
+  const bookPageItems = useMemo(() => sortedBookEntries.slice((bookPageCurrent - 1) * bookPageSize, bookPageCurrent * bookPageSize), [sortedBookEntries, bookPageCurrent]);
   const primary = route.startsWith("detail/") ? "library" : top ? route : "profile";
   const sourceManager = <>
     <p className="gz-meta">授权你已下载视频的目录。扫描只建立索引，不复制视频；停用来源保留作品和个人记录。</p>
@@ -737,7 +738,7 @@ export default function AndroidApp() {
     const { item, work } = entry;
     const cover = work?.coverPath ?? null;
     const coverUrl = asset(cover);
-    const thumb = <span className="gz-history-thumb">{coverUrl ? <img src={coverUrl} alt="" /> : <Film aria-hidden="true" />}</span>;
+    const thumb = <span className="gz-history-thumb">{coverUrl ? <img src={coverUrl} alt="" loading="lazy" decoding="async" /> : <Film aria-hidden="true" />}</span>;
     return <article className={`gz-history-row${item.missing ? " is-missing" : ""}`} key={item.mediaFileId}>
       {work ? <button type="button" className="gz-history-thumbbtn" onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)} aria-label={`查看 ${item.title}`}>{thumb}</button> : thumb}
       <div className="gz-history-body">
@@ -893,7 +894,7 @@ export default function AndroidApp() {
       {loading && <GridSkeleton count={9} label="正在读取媒体库…" />}
       {route === "home" && <>
         <Section title="继续观看">{continueItems.length ? <div className="gz-rail gz-cover-rail">{continueItems.map(item => <button className="gz-continue" disabled={busy || item.missing} key={item.mediaFileId} onClick={() => void run(() => play(item.mediaFileId))}><div className="gz-continue-cover"><Play /><span>{item.missing ? "文件缺失" : `${playbackTime(item.positionMs)} / ${playbackTime(item.durationMs)}`}</span><progress max={100} value={playbackPercent(item)} /></div><strong>{item.title}</strong><span className="gz-meta">{item.fileName}</span></button>)}</div> : <p className="gz-panel gz-meta">暂无观看记录。开始播放后，续播入口会出现在这里。</p>}</Section>
-        {allWorks.length ? homeSections.map(section => { const items = recentCovers(allWorks.filter(section.match)); return <Section key={section.id} title={section.title} action={<button className="gz-link" onClick={() => section.id === "books" ? navigate("bookshelf") : openCategory(section.id)}>更多<ChevronRight size={16} /></button>}>{items.length ? <div className="gz-rail gz-cover-rail">{items.map(work => <button className="gz-cover" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><span className="gz-cover-label">{work.title}</span></button>)}</div> : <p className="gz-panel gz-meta">{section.id === "books" ? "漫画与轻小说书架将在后续版本接入。" : "暂无最近添加的作品。"}</p>}</Section>; }) : <section className="gz-hero"><div className="gz-hero-inner"><span className="gz-eyebrow">你的媒体，安静归档</span><h2>从你的第一部作品开始</h2><p className="gz-meta">添加已下载视频的目录，整理作品与观看记录。</p><div className="gz-actions"><button className="gz-btn primary" onClick={() => navigate("sources")}><Plus size={18} />添加来源</button></div></div></section>}
+        {allWorks.length ? homeSectionsData.map(({ section, items }) => <Section key={section.id} title={section.title} action={<button className="gz-link" onClick={() => section.id === "books" ? navigate("bookshelf") : openCategory(section.id)}>更多<ChevronRight size={16} /></button>}>{items.length ? <div className="gz-rail gz-cover-rail">{items.map(work => <button className="gz-cover" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><span className="gz-cover-label">{work.title}</span></button>)}</div> : <p className="gz-panel gz-meta">{section.id === "books" ? "漫画与轻小说书架将在后续版本接入。" : "暂无最近添加的作品。"}</p>}</Section>) : <section className="gz-hero"><div className="gz-hero-inner"><span className="gz-eyebrow">你的媒体，安静归档</span><h2>从你的第一部作品开始</h2><p className="gz-meta">添加已下载视频的目录，整理作品与观看记录。</p><div className="gz-actions"><button className="gz-btn primary" onClick={() => navigate("sources")}><Plus size={18} />添加来源</button></div></div></section>}
       </>}
       {(route === "library" || route === "favorites") && <>
         <div className="gz-shelf-tabs" role="tablist" aria-label="作品类型">

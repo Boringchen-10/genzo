@@ -386,6 +386,13 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 400ms; 
 .android-app .gz-profile-page > *:nth-child(4) { animation-delay: 120ms; }
 .android-app .gz-profile-page > *:nth-child(5) { animation-delay: 160ms; }
 .android-app .gz-profile-page > *:nth-child(6) { animation-delay: 200ms; }
+/* Perf layer: skip layout/paint for off-screen grid cards, isolate poster paint, promote animated chrome. */
+.android-app .gz-grid > .gz-card { content-visibility: auto; contain-intrinsic-size: auto 210px; }
+.android-app .gz-poster { contain: paint; }
+@media (prefers-reduced-motion: no-preference) {
+  .android-app .gz-sheet { will-change: transform; }
+  .android-app .gz-tabbar button::before { will-change: transform, opacity; }
+}
 @media (prefers-reduced-motion: reduce) {
   .android-app :is(.gz-chapter-grid, .gz-credit-list, .gz-related-list, .gz-episodes, .gz-explore-grid, .gz-candidates) > *,
   .android-app :is(.gz-detail-head, .gz-book-head, .gz-detail-tabs, .gz-book-tabs, .gz-description, .gz-book-actions),
