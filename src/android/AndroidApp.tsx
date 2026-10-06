@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { AlignJustify, ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Cloud, Compass, Database, Download, ExternalLink, Eye, EyeOff, FileText, Film, Filter, Flame, Folder, Footprints, Heart, HeartCrack, History, Home, Inbox, Info, Layers, Library, LoaderCircle, MessageCircle, MessageSquare, MoreHorizontal, Network, Palette, Pencil, PieChart, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, Trash2, User, X } from "lucide-react";
+import { AlignJustify, ArrowLeft, ArrowUp, BarChart3, Bookmark, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Cloud, Compass, Database, Download, ExternalLink, Eye, EyeOff, FileText, Film, Filter, Flame, Folder, Footprints, HardDrive, Heart, HeartCrack, History, Home, Inbox, Info, Layers, Library, LoaderCircle, MessageCircle, MessageSquare, MoreHorizontal, Network, Palette, Pencil, PieChart, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { api, bookApi } from "../api";
 import type { BookEntry } from "../bookData";
 import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
@@ -938,14 +938,17 @@ export default function AndroidApp() {
         <MenuSection label="内容与偏好">
           <MenuRow label="通用" icon={SlidersHorizontal} onClick={() => navigate("future/通用")} />
           <MenuRow label="外观" icon={Palette} onClick={() => navigate("appearance")} />
-          <MenuRow label="网络" icon={Network} onClick={() => navigate("network")} />
-          <MenuRow label="资料库" icon={Database} subtitle="本地目录与来源管理" onClick={() => navigate("sources")} />
+          <MenuRow label="播放设置" icon={Play} subtitle="后续更新" onClick={() => navigate("future/播放设置")} />
+          <MenuRow label="弹幕设置" icon={MessageSquare} subtitle="后续更新" onClick={() => navigate("future/弹幕设置")} />
+          <MenuRow label="书签" icon={Bookmark} onClick={() => navigate("future/书签")} />
+          <MenuRow label="阅读统计" icon={BarChart3} onClick={() => navigate("reading-stats")} />
         </MenuSection>
         <MenuSection label="数据与应用">
           <MenuRow label="同步备份" icon={RefreshCw} subtitle="追番与多设备同步" onClick={() => navigate("sync")} />
-          <MenuRow label="书签" icon={Bookmark} onClick={() => navigate("future/书签")} />
-          <MenuRow label="阅读统计" icon={BarChart3} onClick={() => navigate("reading-stats")} />
-          <MenuRow label="通知中心" icon={Bell} dot onClick={() => navigate("future/通知中心")} />
+          <MenuRow label="下载设置" icon={Download} subtitle="后续更新" onClick={() => navigate("future/下载设置")} />
+          <MenuRow label="网络" icon={Network} onClick={() => navigate("network")} />
+          <MenuRow label="资料库" icon={Database} subtitle="本地目录与来源管理" onClick={() => navigate("sources")} />
+          <MenuRow label="存储管理" icon={HardDrive} subtitle="后续更新" onClick={() => navigate("future/存储管理")} />
           <MenuRow label="关于" icon={Info} onClick={() => navigate("diagnostics")} />
         </MenuSection>
         <p className="gz-footer">Genzo · 基于 Windows v0.5.0 · GPLv3</p>
