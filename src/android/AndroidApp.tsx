@@ -322,6 +322,10 @@ export default function AndroidApp() {
   const [bookTab, setBookTab] = useState<"default" | "volume" | "chapter">("default");
   const [bookPage, setBookPage] = useState(1);
   const [bookQuery, setBookQuery] = useState("");
+  const [shelfQuery, setShelfQuery] = useState("");
+  const [shelfSearchOpen, setShelfSearchOpen] = useState(false);
+  const [mediaSearchOpen, setMediaSearchOpen] = useState(false);
+  const [collectionScope, setCollectionScope] = useState<"all" | "local" | "network">("all");
   const [detailTab, setDetailTab] = useState<"overview" | "episodes" | "characters" | "related" | "staff">("episodes");
   const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
   const [structureState, setStructureState] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -331,6 +335,8 @@ export default function AndroidApp() {
   const sortSheetRef = useRef<HTMLElement>(null);
   const modalDrag = useSheetDrag(sheet, () => setModal(null));
   const sortDrag = useSheetDrag(sortSheetRef, () => setSortSheet(false));
+  const subviewBack = useRef<(() => boolean) | null>(null);
+  const registerSubviewBack = useRef((handler: (() => boolean) | null) => { subviewBack.current = handler; }).current;
   const scrollPositions = useRef<Record<string, number>>({});
   const refreshSequence = useRef(0);
   const incomingDetail = useRef<WorkDetail | null>(null);
@@ -436,6 +442,7 @@ export default function AndroidApp() {
   function back() {
     if (modal) { setModal(null); return true; }
     if (sortSheet) { setSortSheet(false); return true; }
+    if (subviewBack.current?.()) return true;
     if (route === "browse" && browseStack.length > 1) { browseUp(); return true; }
     if (route === "home") return false;
     scrollPositions.current[route] = main.current?.scrollTop ?? 0;
@@ -504,7 +511,8 @@ export default function AndroidApp() {
     return () => { removeEventListener("keydown", trap); previous?.focus(); };
   }, [modal]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2800); return () => clearTimeout(timer); }, [toast]);
-  useEffect(() => { if (route !== "bookshelf") setBookQuery(""); }, [route]);
+  useEffect(() => { if (route !== "bookshelf") { setBookQuery(""); setShelfQuery(""); setShelfSearchOpen(false); } }, [route]);
+  useEffect(() => { if (route !== "library" && route !== "favorites") setMediaSearchOpen(false); }, [route]);
   useEffect(() => {
     let active = true;
     setDetailError("");
@@ -574,13 +582,18 @@ export default function AndroidApp() {
   }
   function browseUp() { setBrowseStack(stack => { const next = stack.slice(0, -1); if (next.length) void loadFolders(next.at(-1)?.uri ?? null); return next; }); }
   const card = (work: WorkListItem) => <button className="gz-card" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><strong>{work.title}</strong><span className="gz-meta">{statuses[work.status]} · {work.mediaCount} 个文件</span></button>;
-  const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase())));
+  const scopeOptions: { id: "all" | "local" | "network"; label: string }[] = [{ id: "all", label: "全部" }, { id: "local", label: "本地" }, { id: "network", label: "网络" }];
+  const workScope = (work: WorkListItem): "local" | "network" => (work as WorkListItem & { sourceScope?: "local" | "network" }).sourceScope ?? "local";
+  const matchesScope = (work: WorkListItem) => collectionScope === "all" || workScope(work) === collectionScope;
+  const collectionSort = (a: WorkListItem, b: WorkListItem) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+  const filtered = works.filter(work => (route !== "favorites" || work.favorite) && (filter === "all" || (work.category ?? work.type) === filter) && matchesScope(work) && [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(query.toLowerCase()))).sort(collectionSort);
   const continueItems = progress.filter(item => !item.completed && item.positionMs > 0).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 10);
   const shelfSortOptions = [{ id: "updated" as const, label: "作品更新时间", hint: "按作品最近更新的时间排序" }, { id: "collected" as const, label: "收藏时间", hint: "按加入书架的时间排序" }, { id: "browsed" as const, label: "浏览时间", hint: "按最近浏览的时间排序" }];
-  const shelfWorks = allWorks.filter(work => work.type === shelfType).filter(work => !bookQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(bookQuery.toLowerCase()))).sort((a, b) => shelfSort === "collected" ? Date.parse(b.createdAt) - Date.parse(a.createdAt) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const shelfWorks = allWorks.filter(work => work.type === shelfType).filter(work => matchesScope(work) && (!bookQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(bookQuery.toLowerCase()))) && (!shelfQuery || [work.title, work.originalTitle ?? "", ...work.tags].some(text => text.toLowerCase().includes(shelfQuery.toLowerCase())))).sort(collectionSort);
+  const shelfHasItems = allWorks.some(work => work.type === shelfType);
   const openTag = (tag: string, type?: MediaFile["mediaType"]) => {
     if (type === "comic" || type === "novel") { setBookQuery(tag); setShelfType(type); navigate("bookshelf"); return; }
-    setQuery(tag); setFilter("all"); setLimit(48); navigate("library");
+    setQuery(tag); setFilter("all"); setLimit(48); setMediaSearchOpen(true); navigate("library");
   };
   const detailTabs: { id: "overview" | "episodes" | "characters" | "related" | "staff"; label: string }[] = [
     { id: "episodes", label: "剧集" },
@@ -624,9 +637,28 @@ export default function AndroidApp() {
         {allWorks.length ? homeSections.map(section => { const items = recentCovers(allWorks.filter(section.match)); return <Section key={section.id} title={section.title} action={<button className="gz-link" onClick={() => section.id === "books" ? navigate("bookshelf") : openCategory(section.id)}>更多<ChevronRight size={16} /></button>}>{items.length ? <div className="gz-rail gz-cover-rail">{items.map(work => <button className="gz-cover" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><span className="gz-cover-label">{work.title}</span></button>)}</div> : <p className="gz-panel gz-meta">{section.id === "books" ? "漫画与轻小说书架将在后续版本接入。" : "暂无最近添加的作品。"}</p>}</Section>; }) : <section className="gz-hero"><div className="gz-hero-inner"><span className="gz-eyebrow">你的媒体，安静归档</span><h2>从你的第一部作品开始</h2><p className="gz-meta">添加已下载视频的目录，整理作品与观看记录。</p><div className="gz-actions"><button className="gz-btn primary" onClick={() => navigate("sources")}><Plus size={18} />添加来源</button></div></div></section>}
       </>}
       {(route === "library" || route === "favorites") && <>
-        <label className="gz-search"><Search size={20} /><input type="search" aria-label="搜索媒体库" placeholder="搜索标题 / 原名 / 标签" value={query} onChange={event => { setQuery(event.target.value); setLimit(48); }} /></label>
-        <div className="gz-chips" role="radiogroup" aria-label="作品类型">{categories.map(item => <button className={`gz-chip ${filter === item.id ? "active" : ""}`} role="radio" aria-checked={filter === item.id} key={item.id} onClick={() => { setFilter(item.id); setLimit(48); }}>{item.title}</button>)}</div>
-        <p className="gz-meta">共 {filtered.length} 部作品</p>{filtered.length ? <><div className="gz-grid">{filtered.slice(0, limit).map(card)}</div>{filtered.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}</> : <Empty title={route === "favorites" ? "还没有符合条件的收藏" : "没有匹配的作品"}><p>{query || filter !== "all" ? "试试其他关键词，或清除筛选。" : "添加来源并扫描，再到待整理中确认作品。"}</p><button className="gz-btn" onClick={() => { setQuery(""); setFilter("all"); if (!works.length) navigate("sources"); }}>{works.length ? "清除筛选" : "管理来源"}</button></Empty>}
+        <div className="gz-shelf-tabs" role="tablist" aria-label="作品类型">
+          {categories.map(item => <button key={item.id} role="tab" aria-selected={filter === item.id} className={filter === item.id ? "active" : ""} onClick={() => { setFilter(item.id); setLimit(48); }}>{item.title}</button>)}
+        </div>
+        <div className="gz-shelf-bar">
+          {!mediaSearchOpen && query && <button className="gz-chip active" onClick={() => { setQuery(""); setLimit(48); }}>搜索：{query}<X size={13} /></button>}
+          <button className="gz-iconbtn" aria-label={mediaSearchOpen ? "关闭搜索" : "搜索媒体库"} aria-expanded={mediaSearchOpen} onClick={() => setMediaSearchOpen(open => !open)}><Search size={18} /></button>
+          <button className="gz-chip" aria-haspopup="dialog" onClick={() => setSortSheet(true)}><Filter size={15} />有更新</button>
+        </div>
+        {mediaSearchOpen && <label className="gz-search"><Search size={18} /><input autoFocus type="search" aria-label="搜索媒体库" placeholder="搜索标题 / 原名 / 标签" value={query} onChange={event => { setQuery(event.target.value); setLimit(48); }} /></label>}
+        {works.length > 0 && <div className="gz-collection-meta">
+          <p className="gz-meta">共 {filtered.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>
+          <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => { setCollectionScope(option.id); setLimit(48); }}>{option.label}</button>)}</div>
+        </div>}
+        {filtered.length ? <>
+          <div className="gz-grid">{filtered.slice(0, limit).map(card)}</div>
+          {filtered.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}
+        </> : <div className="gz-shelf-empty">
+          <span className="gz-shelf-badge">{route === "favorites" ? <Bookmark size={26} /> : <Library size={26} />}</span>
+          <h2>{route === "favorites" ? "还没有符合条件的收藏" : works.length ? "没有匹配的作品" : "媒体库还是空的"}</h2>
+          <p>{route === "favorites" && !query && collectionScope === "all" ? "去媒体库把喜欢的作品加入收藏吧。" : works.length ? (query ? "试试其他关键词，或清除筛选。" : "调整筛选条件，或回到全部。") : "添加来源并扫描，再到待整理中确认作品。"}</p>
+          <button className="gz-btn" onClick={() => { setQuery(""); setFilter("all"); setCollectionScope("all"); if (!works.length) navigate("sources"); }}>{works.length ? "清除筛选" : "管理来源"}</button>
+        </div>}
       </>}
       {route === "profile" && <>
         <div className="gz-menu">
@@ -768,20 +800,26 @@ export default function AndroidApp() {
         </div>
         <div className="gz-shelf-bar">
           {bookQuery && <button className="gz-chip active" onClick={() => setBookQuery("")}>标签：{bookQuery}<X size={13} /></button>}
+          {!shelfSearchOpen && shelfQuery && <button className="gz-chip active" onClick={() => setShelfQuery("")}>搜索：{shelfQuery}<X size={13} /></button>}
+          <button className="gz-iconbtn" aria-label={shelfSearchOpen ? "关闭搜索" : "搜索书架"} aria-expanded={shelfSearchOpen} onClick={() => setShelfSearchOpen(open => !open)}><Search size={18} /></button>
           <button className="gz-chip" aria-haspopup="dialog" onClick={() => setSortSheet(true)}><Filter size={15} />有更新</button>
         </div>
-        {shelfWorks.length ? <>
+        {shelfSearchOpen && <label className="gz-search"><Search size={18} /><input autoFocus type="search" aria-label="搜索书架" placeholder="搜索标题 / 原名 / 标签" value={shelfQuery} onChange={event => setShelfQuery(event.target.value)} /></label>}
+        {shelfHasItems && <div className="gz-collection-meta">
           <p className="gz-meta">共 {shelfWorks.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>
+          <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => setCollectionScope(option.id)}>{option.label}</button>)}</div>
+        </div>}
+        {shelfWorks.length ? <>
           <div className="gz-grid">{shelfWorks.slice(0, limit).map(card)}</div>
           {shelfWorks.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}
         </> : <div className="gz-shelf-empty">
           <span className="gz-shelf-badge"><Bookmark size={26} /></span>
-          <h2>{bookQuery ? "没有匹配的作品" : "书架空空如也"}</h2>
-          <p>{bookQuery ? `没有带「${bookQuery}」标签的${shelfType === "comic" ? "漫画" : "轻小说"}。` : `去找点好看的${shelfType === "comic" ? "漫画" : "轻小说"}吧`}</p>
-          {bookQuery ? <button className="gz-btn" onClick={() => setBookQuery("")}>清除标签筛选</button> : <button className="gz-btn" disabled={busy} onClick={() => void run(refresh)}>刷新</button>}
+          <h2>{bookQuery || shelfQuery || collectionScope !== "all" ? "没有匹配的作品" : "书架空空如也"}</h2>
+          <p>{bookQuery ? `没有带「${bookQuery}」标签的${shelfType === "comic" ? "漫画" : "轻小说"}。` : shelfQuery ? `没有找到与「${shelfQuery}」相关的${shelfType === "comic" ? "漫画" : "轻小说"}。` : shelfHasItems ? "调整筛选条件，或回到全部。" : `去找点好看的${shelfType === "comic" ? "漫画" : "轻小说"}吧`}</p>
+          {bookQuery ? <button className="gz-btn" onClick={() => setBookQuery("")}>清除标签筛选</button> : shelfQuery ? <button className="gz-btn" onClick={() => { setShelfQuery(""); setCollectionScope("all"); }}>清除搜索</button> : shelfHasItems ? <button className="gz-btn" onClick={() => setCollectionScope("all")}>查看全部</button> : <button className="gz-btn" disabled={busy} onClick={() => void run(refresh)}>刷新</button>}
         </div>}
       </>}
-      {route === "explore" && <ExplorePanel onToast={setToast} />}
+      {route === "explore" && <ExplorePanel onToast={setToast} registerBack={registerSubviewBack} />}
       {route === "network" && <NetworkPanel onToast={setToast} />}
       {route.startsWith("future/") && <Empty title={`${decodeURIComponent(route.slice(7))} · Future`}><p>该能力尚未接入，保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
       {route === "diagnostics" && <AndroidPrototype />}

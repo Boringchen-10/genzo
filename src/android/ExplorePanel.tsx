@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { BookOpen, Heart, LoaderCircle, RefreshCw, Search, Star, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, ChevronRight, Heart, LoaderCircle, RefreshCw, Search, Star, X } from "lucide-react";
 import { api } from "../api";
-import type { ExploreSubject } from "../types";
+import type { ExploreSubject, WeeklyCalendar } from "../types";
 import { comicExploreApi, type ComicItem, type ComicTheme } from "../comicExplore";
 
 type ExploreTab = "anime" | "comic" | "novel";
+type ExploreView = "feed" | "schedule";
 type LoadState = "loading" | "ready" | "error";
 
 const pic = (path: string | null | undefined) => path
@@ -15,8 +16,34 @@ const cover = (subject: ExploreSubject) => pic(subject.coverUrl);
 const comicCover = (item: ComicItem) => pic(item.cachedCoverPath) ?? pic(item.coverUrl);
 const score = (value: number | null) => value == null ? "暂无评分" : value.toFixed(1);
 
-export default function ExplorePanel({ onToast }: { onToast: (message: string) => void }) {
+const subjectTypeLabels: Record<ExploreSubject["subjectType"], string> = { tv: "TV", web: "WEB", movie: "剧场版", ova: "OVA" };
+const weekdayNumber = (date = new Date()) => (date.getDay() === 0 ? 7 : date.getDay());
+const seasonLabelOf = (date = new Date()) => {
+  const month = date.getMonth() + 1;
+  const season = month <= 3 ? "冬季" : month <= 6 ? "春季" : month <= 9 ? "夏季" : "秋季";
+  return `${date.getFullYear()} ${season}`;
+};
+const weekDayNumbers = () => {
+  const monday = new Date();
+  monday.setDate(monday.getDate() - (weekdayNumber() - 1));
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return date.getDate();
+  });
+};
+const curatedTags = (items: ExploreSubject[], limit = 24) => {
+  const counts = new Map<string, number>();
+  for (const item of items) for (const genre of item.genres) counts.set(genre, (counts.get(genre) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([tag]) => tag);
+};
+
+export default function ExplorePanel({ onToast, registerBack }: { onToast: (message: string) => void; registerBack?: (handler: (() => boolean) | null) => void }) {
   const [tab, setTab] = useState<ExploreTab>("anime");
+  const [view, setView] = useState<ExploreView>("feed");
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [searchTerm, setSearchTerm] = useState<string | null>(null);
@@ -28,8 +55,13 @@ export default function ExplorePanel({ onToast }: { onToast: (message: string) =
   const [trending, setTrending] = useState<ExploreSubject[]>([]);
   const [seasonal, setSeasonal] = useState<ExploreSubject[]>([]);
   const [ranking, setRanking] = useState<ExploreSubject[]>([]);
+  const [calendar, setCalendar] = useState<WeeklyCalendar | null>(null);
   const [animeState, setAnimeState] = useState<LoadState>("loading");
   const [animeError, setAnimeError] = useState("");
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [seasonalTag, setSeasonalTag] = useState("");
+  const [seasonalLimit, setSeasonalLimit] = useState(24);
+  const [scheduleDay, setScheduleDay] = useState(weekdayNumber);
 
   const [themes, setThemes] = useState<ComicTheme[]>([]);
   const [theme, setTheme] = useState("");
@@ -42,15 +74,28 @@ export default function ExplorePanel({ onToast }: { onToast: (message: string) =
   >(null);
   const [saving, setSaving] = useState(false);
 
+  const backHandler = useRef<() => boolean>(() => false);
+  backHandler.current = () => {
+    if (detail) { setDetail(null); return true; }
+    if (view === "schedule") { setView("feed"); return true; }
+    return false;
+  };
+  useEffect(() => {
+    if (!registerBack) return;
+    registerBack(() => backHandler.current());
+    return () => registerBack(null);
+  }, [registerBack]);
+
   const loadAnime = useCallback(async () => {
     setAnimeState("loading"); setAnimeError("");
     try {
       const [overview, ranks] = await Promise.all([api.exploreOverview(), api.animeRanking(1, 12)]);
       setTrending(overview.trending.slice(0, 12));
-      setSeasonal(overview.seasonal.slice(0, 12));
+      setSeasonal(overview.seasonal);
       setRanking(ranks);
       setAnimeState("ready");
     } catch (reason) { setAnimeError(String(reason)); setAnimeState("error"); }
+    try { setCalendar(await api.weeklyCalendar()); } catch { setCalendar(null); }
   }, []);
 
   const loadComics = useCallback(async (nextTheme: string) => {
@@ -113,6 +158,8 @@ export default function ExplorePanel({ onToast }: { onToast: (message: string) =
     finally { setSaving(false); }
   };
 
+  const selectTag = (tag: string) => { setSeasonalTag(tag); setSeasonalLimit(24); };
+
   const animeCard = (subject: ExploreSubject) => <button className="gz-cover" key={subject.externalId} onClick={() => setDetail({ kind: "anime", item: subject })}>
     <span className="gz-explore-poster">{cover(subject) ? <img src={cover(subject)} alt="" loading="lazy" /> : <BookOpen size={24} />}</span>
     <span className="gz-cover-label">{subject.title}</span>
@@ -123,62 +170,107 @@ export default function ExplorePanel({ onToast }: { onToast: (message: string) =
     <span className="gz-cover-label">{item.title}</span>
   </button>;
 
-  return <div className="gz-explore">
-    <div className="gz-explore-head">
-      <div className="gz-seg gz-explore-tabs" role="tablist" aria-label="发现分类">
-        {([["anime", "动漫"], ["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) =>
-          <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => switchTab(id)}>{label}</button>)}
-      </div>
-      <button className="gz-iconbtn" aria-label={searchOpen ? "关闭搜索" : "搜索"} aria-expanded={searchOpen} onClick={() => setSearchOpen(value => !value)}><Search /></button>
+  const scheduleRow = (subject: ExploreSubject) => <button className="gz-sched-row" key={subject.externalId} onClick={() => setDetail({ kind: "anime", item: subject })}>
+    <span className="gz-sched-cover">{cover(subject) ? <img src={cover(subject)} alt="" loading="lazy" /> : <BookOpen size={20} />}</span>
+    <span className="gz-sched-body">
+      <strong>{subject.title}</strong>
+      <span className="gz-meta">{[subjectTypeLabels[subject.subjectType], ...subject.genres.slice(0, 3)].filter(Boolean).join(" · ")}</span>
+    </span>
+    {subject.score != null && <span className="gz-sched-score"><Star size={12} />{score(subject.score)}</span>}
+  </button>;
+
+  const today = weekdayNumber();
+  const todayItems = calendar?.days.find(day => day.weekday === today)?.items ?? [];
+  const todayFeed = todayItems.length ? todayItems : trending;
+  const seasonalItems = seasonalTag ? seasonal.filter(item => item.genres.includes(seasonalTag)) : seasonal;
+  const tagChips = useMemo(() => curatedTags(seasonal), [seasonal]);
+  const dayNumbers = weekDayNumbers();
+  const scheduleItems = calendar?.days.find(day => day.weekday === scheduleDay)?.items ?? [];
+
+  const scheduleView = <div className="gz-schedule">
+    <div className="gz-sched-head">
+      <button className="gz-iconbtn" aria-label="返回发现" onClick={() => setView("feed")}><ArrowLeft size={20} /></button>
+      <h2>放送时间表</h2>
+      <span className="gz-meta">{seasonLabelOf()}</span>
     </div>
-    {searchOpen && <form className="gz-search" role="search" onSubmit={submit}>
-      <Search size={18} />
-      <input type="search" aria-label={`搜索${tab === "anime" ? "动漫" : tab === "comic" ? "漫画" : "轻小说"}`} placeholder={tab === "anime" ? "搜索 Bangumi 条目" : tab === "comic" ? "搜索漫画" : "搜索轻小说"} value={query} onChange={event => setQuery(event.target.value)} />
-      {searchTerm !== null && <button type="button" className="gz-iconbtn" aria-label="清除搜索" onClick={clearSearch}><X size={18} /></button>}
-    </form>}
-
-    {tab === "anime" && (searchTerm !== null ? <>
-      <p className="gz-meta">「{searchTerm}」共 {animeResults.length} 条</p>
-      {searching ? <p className="gz-loading"><LoaderCircle />正在搜索…</p> : animeResults.length
-        ? <div className="gz-explore-grid">{animeResults.map(animeCard)}</div>
-        : <div className="gz-empty"><Search size={26} /><h2>没有匹配的条目</h2><p>换一个关键词再试。</p></div>}
-    </> : animeState === "error" ? <>
-      <div className="gz-error" role="alert"><span>{animeError || "Bangumi 数据读取失败。"}</span></div>
-      <button className="gz-btn" onClick={() => void loadAnime()}><RefreshCw size={16} />重试</button>
-    </> : animeState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取 Bangumi 数据…</p> : <>
-      <section className="gz-section"><div className="gz-section-head"><h2>当季热度</h2><span className="gz-meta">按 Bangumi 评分人数</span></div>
-        {trending.length ? <div className="gz-rail gz-cover-rail">{trending.map(animeCard)}</div> : <p className="gz-panel gz-meta">当季热度暂无条目。</p>}</section>
-      <section className="gz-section"><div className="gz-section-head"><h2>当季番组</h2><span className="gz-meta">bangumi-data 番组索引</span></div>
-        {seasonal.length ? <div className="gz-explore-grid">{seasonal.map(animeCard)}</div> : <p className="gz-panel gz-meta">这个季度没有索引到番组。</p>}</section>
-      <section className="gz-section"><div className="gz-section-head"><h2>动画排行</h2><span className="gz-meta">按 Bangumi 评分排名</span></div>
-        {ranking.length ? <ol className="gz-rank-list">{ranking.map((subject, index) => <li key={subject.externalId}>
-          <button className="gz-rank-row" onClick={() => setDetail({ kind: "anime", item: subject })}>
-            <span className="gz-rank-index">{subject.rank ?? index + 1}</span>
-            <span className="gz-rank-cover">{cover(subject) ? <img src={cover(subject)} alt="" loading="lazy" /> : <BookOpen size={18} />}</span>
-            <span className="gz-rank-body"><strong>{subject.title}</strong><span className="gz-meta"><Star size={11} />{score(subject.score)}{subject.inLibrary ? " · 已入库" : ""}</span></span>
-          </button>
-        </li>)}</ol> : <p className="gz-panel gz-meta">排行榜暂时没有数据。</p>}</section>
-    </>)}
-
-    {tab === "comic" && (searchTerm !== null ? <>
-      <p className="gz-meta">「{searchTerm}」共 {comicResults.length} 条</p>
-      {searching ? <p className="gz-loading"><LoaderCircle />正在搜索…</p> : comicResults.length
-        ? <div className="gz-explore-grid">{comicResults.map(comicCard)}</div>
-        : <div className="gz-empty"><Search size={26} /><h2>没有匹配的漫画</h2><p>换一个关键词再试。</p></div>}
-    </> : <>
-      <div className="gz-chips" role="radiogroup" aria-label="漫画主题">
-        <button className={`gz-chip ${theme === "" ? "active" : ""}`} role="radio" aria-checked={theme === ""} onClick={() => { setTheme(""); void loadComics(""); }}>全部</button>
-        {themes.map(item => <button key={item.pathWord} className={`gz-chip ${theme === item.pathWord ? "active" : ""}`} role="radio" aria-checked={theme === item.pathWord} onClick={() => { setTheme(item.pathWord); void loadComics(item.pathWord); }}>{item.name}</button>)}
+    {calendar ? <>
+      <div className="gz-sched-days" role="tablist" aria-label="星期">
+        {calendar.days.map((day, index) => <button key={day.weekday} role="tab" aria-selected={scheduleDay === day.weekday} className={scheduleDay === day.weekday ? "active" : ""} onClick={() => setScheduleDay(day.weekday)}>
+          <span className="gz-sched-day-label">{day.weekday === today ? "今天" : day.label}</span>
+          <span className="gz-sched-day-num">{dayNumbers[index]}</span>
+        </button>)}
       </div>
-      {comicState === "error" ? <>
-        <div className="gz-error" role="alert"><span>{comicError || "漫画来源读取失败。"}</span></div>
-        <button className="gz-btn" onClick={() => void loadComics(theme)}><RefreshCw size={16} />重试</button>
-      </> : comicState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取漫画来源…</p> : comics.length
-        ? <div className="gz-explore-grid">{comics.map(comicCard)}</div>
-        : <div className="gz-empty"><BookOpen size={26} /><h2>没有漫画</h2><p>这个主题下暂无作品。</p></div>}
-    </>)}
+      {scheduleItems.length ? <div className="gz-sched-list">{scheduleItems.map(scheduleRow)}</div> : <div className="gz-empty"><BookOpen size={26} /><h2>这天没有番组</h2><p>换一周中的其他日子看看。</p></div>}
+    </> : <p className="gz-loading"><LoaderCircle />正在读取放送时间表…</p>}
+  </div>;
 
-    {tab === "novel" && <div className="gz-empty"><BookOpen size={28} /><h2>轻小说发现 · 待接入数据源</h2><p>轻小说的在线目录源尚未接入，接入后会在这里显示分区与搜索。你已入库的轻小说仍可在书架查看。</p></div>}
+  return <div className="gz-explore">
+    {view === "schedule" ? scheduleView : <>
+      <div className="gz-explore-head">
+        <div className="gz-seg gz-explore-tabs" role="tablist" aria-label="发现分类">
+          {([["anime", "动漫"], ["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) =>
+            <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => switchTab(id)}>{label}</button>)}
+        </div>
+        <button className="gz-iconbtn" aria-label={searchOpen ? "关闭搜索" : "搜索"} aria-expanded={searchOpen} onClick={() => setSearchOpen(value => !value)}><Search /></button>
+      </div>
+      {searchOpen && <form className="gz-search" role="search" onSubmit={submit}>
+        <Search size={18} />
+        <input type="search" aria-label={`搜索${tab === "anime" ? "动漫" : tab === "comic" ? "漫画" : "轻小说"}`} placeholder={tab === "anime" ? "搜索 Bangumi 条目" : tab === "comic" ? "搜索漫画" : "搜索轻小说"} value={query} onChange={event => setQuery(event.target.value)} />
+        {searchTerm !== null && <button type="button" className="gz-iconbtn" aria-label="清除搜索" onClick={clearSearch}><X size={18} /></button>}
+      </form>}
+
+      {tab === "anime" && (searchTerm !== null ? <>
+        <p className="gz-meta">「{searchTerm}」共 {animeResults.length} 条</p>
+        {searching ? <p className="gz-loading"><LoaderCircle />正在搜索…</p> : animeResults.length
+          ? <div className="gz-explore-grid">{animeResults.map(animeCard)}</div>
+          : <div className="gz-empty"><Search size={26} /><h2>没有匹配的条目</h2><p>换一个关键词再试。</p></div>}
+      </> : animeState === "error" ? <>
+        <div className="gz-error" role="alert"><span>{animeError || "Bangumi 数据读取失败。"}</span></div>
+        <button className="gz-btn" onClick={() => void loadAnime()}><RefreshCw size={16} />重试</button>
+      </> : animeState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取 Bangumi 数据…</p> : <>
+        <section className="gz-section"><div className="gz-section-head"><h2>今日更新</h2>
+          <button className="gz-link" onClick={() => setView("schedule")}><CalendarDays size={16} />时间表<ChevronRight size={16} /></button></div>
+          {todayFeed.length ? <div className="gz-rail gz-cover-rail">{todayFeed.slice(0, 12).map(animeCard)}</div> : <p className="gz-panel gz-meta">今天暂无索引到的更新番剧。</p>}</section>
+        <section className="gz-section"><div className="gz-section-head">
+          <button className="gz-section-toggle" aria-expanded={tagsOpen} onClick={() => setTagsOpen(value => !value)}>
+            <h2>当季番组</h2><ChevronDown size={16} className={tagsOpen ? "is-open" : ""} />
+          </button>
+          <span className="gz-meta">{seasonalItems.length} 部</span></div>
+          {tagsOpen && <div className="gz-chips" role="radiogroup" aria-label="番组标签">
+            <button className={`gz-chip ${seasonalTag === "" ? "active" : ""}`} role="radio" aria-checked={seasonalTag === ""} onClick={() => selectTag("")}>全部</button>
+            {tagChips.map(tag => <button key={tag} className={`gz-chip ${seasonalTag === tag ? "active" : ""}`} role="radio" aria-checked={seasonalTag === tag} onClick={() => selectTag(tag)}>{tag}</button>)}
+          </div>}
+          {seasonalItems.length ? <><div className="gz-explore-grid">{seasonalItems.slice(0, seasonalLimit).map(animeCard)}</div>{seasonalItems.length > seasonalLimit && <button className="gz-btn" onClick={() => setSeasonalLimit(seasonalLimit + 30)}>加载更多</button>}</> : <p className="gz-panel gz-meta">{seasonalTag ? "这个标签下暂无番组。" : "这个季度没有索引到番组。"}</p>}</section>
+        <section className="gz-section"><div className="gz-section-head"><h2>动画排行</h2><span className="gz-meta">按 Bangumi 评分排名</span></div>
+          {ranking.length ? <ol className="gz-rank-list">{ranking.map((subject, index) => <li key={subject.externalId}>
+            <button className="gz-rank-row" onClick={() => setDetail({ kind: "anime", item: subject })}>
+              <span className="gz-rank-index">{subject.rank ?? index + 1}</span>
+              <span className="gz-rank-cover">{cover(subject) ? <img src={cover(subject)} alt="" loading="lazy" /> : <BookOpen size={18} />}</span>
+              <span className="gz-rank-body"><strong>{subject.title}</strong><span className="gz-meta"><Star size={11} />{score(subject.score)}{subject.inLibrary ? " · 已入库" : ""}</span></span>
+            </button>
+          </li>)}</ol> : <p className="gz-panel gz-meta">排行榜暂时没有数据。</p>}</section>
+      </>)}
+
+      {tab === "comic" && (searchTerm !== null ? <>
+        <p className="gz-meta">「{searchTerm}」共 {comicResults.length} 条</p>
+        {searching ? <p className="gz-loading"><LoaderCircle />正在搜索…</p> : comicResults.length
+          ? <div className="gz-explore-grid">{comicResults.map(comicCard)}</div>
+          : <div className="gz-empty"><Search size={26} /><h2>没有匹配的漫画</h2><p>换一个关键词再试。</p></div>}
+      </> : <>
+        <div className="gz-chips" role="radiogroup" aria-label="漫画主题">
+          <button className={`gz-chip ${theme === "" ? "active" : ""}`} role="radio" aria-checked={theme === ""} onClick={() => { setTheme(""); void loadComics(""); }}>全部</button>
+          {themes.map(item => <button key={item.pathWord} className={`gz-chip ${theme === item.pathWord ? "active" : ""}`} role="radio" aria-checked={theme === item.pathWord} onClick={() => { setTheme(item.pathWord); void loadComics(item.pathWord); }}>{item.name}</button>)}
+        </div>
+        {comicState === "error" ? <>
+          <div className="gz-error" role="alert"><span>{comicError || "漫画来源读取失败。"}</span></div>
+          <button className="gz-btn" onClick={() => void loadComics(theme)}><RefreshCw size={16} />重试</button>
+        </> : comicState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取漫画来源…</p> : comics.length
+          ? <div className="gz-explore-grid">{comics.map(comicCard)}</div>
+          : <div className="gz-empty"><BookOpen size={26} /><h2>没有漫画</h2><p>这个主题下暂无作品。</p></div>}
+      </>)}
+
+      {tab === "novel" && <div className="gz-empty"><BookOpen size={28} /><h2>轻小说发现 · 待接入数据源</h2><p>轻小说的在线目录源尚未接入，接入后会在这里显示分区与搜索。你已入库的轻小说仍可在书架查看。</p></div>}
+    </>}
 
     {detail && <div className="gz-scrim" onClick={() => setDetail(null)}><section className="gz-sheet gz-explore-sheet" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
       <span className="gz-sheet-handle" aria-hidden="true" />
