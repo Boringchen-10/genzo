@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, Clock, Heart, HeartCrack, LoaderCircle, MessageCircle, RefreshCw, Search, Star, Users, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, Clock, Heart, HeartCrack, LoaderCircle, MessageCircle, Play, RefreshCw, Search, Star, Users, X } from "lucide-react";
 import { api } from "../api";
-import type { ExploreSubject, WeeklyCalendar, WeeklyCalendarDay, WorkStatus } from "../types";
+import { androidApi } from "./api";
+import type { AnimeWorkStructure, ExploreSubject, WeeklyCalendar, WeeklyCalendarDay, WorkStatus } from "../types";
 import { comicExploreApi, type ComicItem, type ComicTheme } from "../comicExplore";
 
 type ExploreTab = "anime" | "comic" | "novel";
 type ExploreView = "feed" | "schedule";
 type LoadState = "loading" | "ready" | "error";
-type SubjectDetailTab = "overview" | "comments" | "characters";
+type SubjectDetailTab = "episodes" | "overview" | "comments" | "characters" | "related" | "staff";
 
 const pic = (path: string | null | undefined) => path
   ? (/^(https?:|asset:|data:|blob:)/.test(path) ? path : convertFileSrc(path))
@@ -66,6 +67,14 @@ const FOLLOW_STATUS: { id: WorkStatus | "none"; label: string }[] = [
   { id: "completed", label: "看过" },
   { id: "dropped", label: "抛弃" },
 ];
+const SUBJECT_TABS: { id: SubjectDetailTab; label: string }[] = [
+  { id: "episodes", label: "剧集" },
+  { id: "overview", label: "概览" },
+  { id: "comments", label: "吐槽" },
+  { id: "characters", label: "角色" },
+  { id: "related", label: "关联" },
+  { id: "staff", label: "制作人员" },
+];
 const statusIdOf = (subject: ExploreSubject): WorkStatus | "none" => subject.inLibrary ? (subject.localStatus ?? "planned") : "none";
 const StatusIcon = ({ id, size = 16 }: { id: WorkStatus | "none"; size?: number }) =>
   id === "none" ? <Heart size={size} />
@@ -115,6 +124,8 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const [statusSheet, setStatusSheet] = useState(false);
   const [saving, setSaving] = useState(false);
   const [comicDetail, setComicDetail] = useState<ComicItem | null>(null);
+  const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
+  const [structureState, setStructureState] = useState<LoadState>("ready");
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const daysRef = useRef<HTMLDivElement>(null);
@@ -182,8 +193,20 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     return () => observer.disconnect();
   }, [tab, seasonalTag, tagsOpen, animeState]);
 
+  useEffect(() => {
+    const workId = subject?.localWorkId;
+    setStructure(null);
+    if (!workId) { setStructureState("ready"); return; }
+    let cancelled = false;
+    setStructureState("loading");
+    api.getAnimeWorkStructure(workId)
+      .then(value => { if (!cancelled) { setStructure(value); setStructureState("ready"); } })
+      .catch(() => { if (!cancelled) { setStructure(null); setStructureState("error"); } });
+    return () => { cancelled = true; };
+  }, [subject]);
+
   const openSubject = async (item: ExploreSubject) => {
-    setSubject(item); setSubjectTab("overview"); setDescExpanded(false); setSearchOpen(false); setTagsOpen(false);
+    setSubject(item); setSubjectTab(item.localWorkId ? "episodes" : "overview"); setDescExpanded(false); setSearchOpen(false); setTagsOpen(false);
     try { setSubject(await api.getExploreSubject(item.externalId)); } catch { /* keep list data */ }
   };
 
@@ -230,6 +253,11 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       onToast("已加入媒体库");
     } catch (reason) { onToast(String(reason)); }
     finally { setSaving(false); }
+  };
+
+  const playEpisode = async (mediaFileId: string) => {
+    try { await androidApi.play(mediaFileId); }
+    catch (reason) { onToast(String(reason)); }
   };
 
   const selectTag = (tag: string) => { setSeasonalTag(tag); setSeasonalVisible(30); };
@@ -299,8 +327,6 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const subjectView = subject && <div className="gz-subject">
     <div className="gz-subject-topbar">
       <button className="gz-iconbtn" aria-label="返回发现" onClick={() => setSubject(null)}><ArrowLeft size={20} /></button>
-      <strong>条目详情</strong>
-      <span className="gz-subject-topbar-fill" />
     </div>
     <section className="gz-subject-hero">
       <h1 className="gz-subject-title">{subject.title}</h1>
@@ -318,9 +344,17 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       </div>
     </section>
     <div className="gz-detail-tabs" role="tablist" aria-label="条目详情分类">
-      {([["overview", "概览"], ["comments", "吐槽"], ["characters", "角色"]] as const).map(([id, label]) =>
-        <button type="button" role="tab" key={id} aria-selected={subjectTab === id} className={subjectTab === id ? "active" : ""} onClick={() => setSubjectTab(id)}>{label}</button>)}
+      {SUBJECT_TABS.map(tab => <button type="button" role="tab" key={tab.id} aria-selected={subjectTab === tab.id} className={subjectTab === tab.id ? "active" : ""} onClick={() => setSubjectTab(tab.id)}>{tab.label}</button>)}
     </div>
+    {subjectTab === "episodes" && <section className="gz-section">
+      {!subject.localWorkId
+        ? <div className="gz-empty"><BookOpen size={26} /><h2>该条目尚未加入媒体库</h2><p>加入媒体库并关联本地文件后，这里会显示可播放的剧集。</p></div>
+        : structureState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取剧集…</p>
+          : structure && structure.episodes.length ? <>
+            <div className="gz-section-head"><h2>剧集</h2><span className="gz-meta">{structure.episodes.length} 集</span></div>
+            <div className="gz-episodes">{structure.episodes.map(episode => { const file = episode.localFiles[0]; const label = episode.episodeNumber != null ? `第 ${episode.episodeNumber} 集` : `#${episode.sortNumber}`; return <button className="gz-episode" key={episode.externalId} disabled={!file || file.missing} onClick={() => file && !file.missing && void playEpisode(file.id)}><div className="gz-episode-cover"><Play /><span>{label}</span></div><strong>{episode.title || label}</strong><span className="gz-meta">{file ? (file.missing ? "文件缺失" : file.fileName) : "无本地文件"}</span></button>; })}</div>
+          </> : <div className="gz-empty"><BookOpen size={26} /><h2>暂无剧集资料</h2><p>Bangumi 未提供该条目的分集资料。</p></div>}
+    </section>}
     {subjectTab === "overview" && <>
       <section className="gz-section">
         <div className="gz-section-head"><h2>简介</h2></div>
@@ -328,8 +362,17 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
         {subject.description.trim().length > 90 && <button className="gz-link" onClick={() => setDescExpanded(value => !value)}>{descExpanded ? "收起" : "加载更多"}</button>}
       </section>
       <section className="gz-section">
-        <div className="gz-section-head"><h2>标签</h2></div>
+        <div className="gz-section-head"><h2>标签</h2>{subject.genres.length > 0 && <span className="gz-meta">{subject.genres.length} 个</span>}</div>
         {subject.genres.length ? <div className="gz-tag-grid">{subject.genres.map(genre => <span className="gz-tag" key={genre}>{genre}</span>)}</div> : <p className="gz-meta">暂无标签。</p>}
+      </section>
+      <section className="gz-section">
+        <div className="gz-section-head"><h2>资料</h2></div>
+        <div className="gz-subject-stats">
+          <div className="gz-subject-stat"><span>类型:</span><strong>{subjectTypeLabels[subject.subjectType]}</strong></div>
+          <div className="gz-subject-stat"><span>放送开始:</span><strong>{subject.airDate ?? "未提供"}</strong></div>
+          <div className="gz-subject-stat"><span>收藏人数:</span><strong>{subject.collectionCount}</strong></div>
+          <div className="gz-subject-stat"><span>数据来源:</span><strong>Bangumi</strong></div>
+        </div>
       </section>
     </>}
     {subjectTab === "comments" && <section className="gz-section">
@@ -337,8 +380,19 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       <div className="gz-empty"><MessageCircle size={26} /><h2>吐槽数据待接入</h2><p>吐槽来自 Bangumi 条目评论，后端接口尚未接入；接入后会在这里按时间展示真实评论。</p></div>
     </section>}
     {subjectTab === "characters" && <section className="gz-section">
-      <div className="gz-section-head"><h2>角色</h2><span className="gz-meta">Bangumi 条目资料</span></div>
-      <div className="gz-empty"><Users size={26} /><h2>角色资料待接入</h2><p>角色来自 Bangumi 条目资料，后端接口尚未接入；接入后会在这里展示角色与声优。</p></div>
+      {structure && structure.characters.length
+        ? <><div className="gz-section-head"><h2>角色</h2><span className="gz-meta">{structure.characters.length} 位</span></div><div className="gz-credit-list">{structure.characters.map(character => <div className="gz-credit" key={character.externalId}><span className="gz-credit-avatar">{character.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{character.name}</strong><span>{[character.role, character.actors.join(" / ")].filter(Boolean).join(" · ") || "角色"}</span></span></div>)}</div></>
+        : <><div className="gz-section-head"><h2>角色</h2><span className="gz-meta">Bangumi 条目资料</span></div><div className="gz-empty"><Users size={26} /><h2>角色资料待接入</h2><p>角色来自 Bangumi 条目资料，后端接口尚未接入；接入后会在这里展示角色与声优。</p></div></>}
+    </section>}
+    {subjectTab === "related" && <section className="gz-section">
+      {structure && structure.seasons.length
+        ? <><div className="gz-section-head"><h2>关联</h2><span className="gz-meta">{structure.seasons.length} 部</span></div><div className="gz-related-list">{structure.seasons.map(season => <div className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId}><span className="gz-credit-avatar">{season.title.slice(0, 1)}</span><span className="gz-related-main"><strong>{season.title}</strong><span>{[season.relation, season.seasonNumber ? `第 ${season.seasonNumber} 季` : null, season.current ? "当前作品" : null].filter(Boolean).join(" · ")}</span></span></div>)}</div></>
+        : <><div className="gz-section-head"><h2>关联</h2><span className="gz-meta">Bangumi 条目资料</span></div><div className="gz-empty"><Users size={26} /><h2>关联资料待接入</h2><p>关联作品来自 Bangumi 条目资料，后端接口尚未接入；接入后会在这里展示系列与关联作品。</p></div></>}
+    </section>}
+    {subjectTab === "staff" && <section className="gz-section">
+      {structure && structure.staff.length
+        ? <><div className="gz-section-head"><h2>制作人员</h2><span className="gz-meta">{structure.staff.length} 位</span></div><div className="gz-credit-list">{structure.staff.map(credit => <div className="gz-credit" key={credit.externalId}><span className="gz-credit-avatar">{credit.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{credit.name}</strong><span>{credit.role}</span></span></div>)}</div></>
+        : <><div className="gz-section-head"><h2>制作人员</h2><span className="gz-meta">Bangumi 条目资料</span></div><div className="gz-empty"><Users size={26} /><h2>制作人员待接入</h2><p>制作人员来自 Bangumi 条目资料，后端接口尚未接入；接入后会在这里展示。</p></div></>}
     </section>}
     {statusSheet && <div className="gz-scrim" onClick={() => setStatusSheet(false)}><section className="gz-sheet gz-status-sheet" role="dialog" aria-modal="true" aria-label="追番状态" onClick={event => event.stopPropagation()}>
       <span className="gz-sheet-handle" aria-hidden="true" />
@@ -354,8 +408,6 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const comicDetailView = comicDetail && <div className="gz-subject">
     <div className="gz-subject-topbar">
       <button className="gz-iconbtn" aria-label="返回发现" onClick={() => setComicDetail(null)}><ArrowLeft size={20} /></button>
-      <strong>条目详情</strong>
-      <span className="gz-subject-topbar-fill" />
     </div>
     <section className="gz-subject-hero">
       <h1 className="gz-subject-title">{comicDetail.title}</h1>

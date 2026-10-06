@@ -420,10 +420,8 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 360ms; 
 }
 
 /* Discover subject detail, chase-status pill, tag grid, and the animated schedule capsule (2026-10-06). */
-.android-app .gz-subject-topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.android-app .gz-subject-topbar strong { font-size: 15px; }
-.android-app .gz-subject-topbar-fill { flex: 1; }
-.android-app .gz-subject-hero { margin: 4px 0 16px; }
+.android-app .gz-subject-topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
+.android-app .gz-subject-hero { margin: 0 0 12px; }
 .android-app .gz-subject-title { font-size: 26px; line-height: 1.15; font-weight: 700; margin: 0 0 4px; overflow-wrap: anywhere; }
 .android-app .gz-subject-original { font-size: 13px; color: var(--muted); margin: 0 0 10px; overflow-wrap: anywhere; }
 .android-app .gz-subject-body { display: grid; grid-template-columns: minmax(118px, 36%) minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 10px; }
