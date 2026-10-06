@@ -418,3 +418,52 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 360ms; 
   .android-app .gz-scrim, .android-app .gz-sheet, .android-app .gz-toast, .android-app .gz-busy { animation: none; }
   .android-app .gz-tabbar button::before { transition: none; }
 }
+
+/* Discover subject detail, chase-status pill, tag grid, and the animated schedule capsule (2026-10-06). */
+.android-app .gz-subject-topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.android-app .gz-subject-topbar strong { font-size: 15px; }
+.android-app .gz-subject-topbar-fill { flex: 1; }
+.android-app .gz-subject-hero { margin: 4px 0 16px; }
+.android-app .gz-subject-title { font-size: 26px; line-height: 1.15; font-weight: 700; margin: 0 0 4px; overflow-wrap: anywhere; }
+.android-app .gz-subject-original { font-size: 13px; color: var(--muted); margin: 0 0 10px; overflow-wrap: anywhere; }
+.android-app .gz-subject-body { display: grid; grid-template-columns: minmax(118px, 36%) minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 10px; }
+.android-app .gz-subject-cover { display: grid; place-items: center; aspect-ratio: 2 / 3; overflow: hidden; border-radius: var(--radius); background: var(--bg-raised); color: var(--quiet); }
+.android-app .gz-subject-cover img { width: 100%; height: 100%; object-fit: cover; }
+.android-app .gz-subject-stats { display: grid; gap: 10px; align-content: start; }
+.android-app .gz-subject-stat { display: grid; gap: 2px; min-width: 0; }
+.android-app .gz-subject-stat > span { font-size: 12px; color: var(--muted); }
+.android-app .gz-subject-stat strong { font-size: 18px; color: var(--text); overflow-wrap: anywhere; }
+.android-app .gz-subject-score { color: var(--accent); display: inline-flex; align-items: baseline; gap: 6px; }
+.android-app .gz-subject-score em { font-style: normal; font-size: 13px; color: var(--warn); letter-spacing: 1px; }
+.android-app .gz-detail-head.gz-anime-hero { display: block; }
+.android-app .gz-detail-head.gz-anime-hero .gz-subject-title { font-size: 24px; margin: 0 0 4px; }
+
+.android-app .gz-status-pill { display: inline-flex; align-items: center; justify-content: center; gap: 8px; justify-self: start; align-self: start; min-height: 44px; padding: 10px 20px; border: 1px solid transparent; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 600; }
+.android-app .gz-status-pill:active { transform: scale(.97); }
+.android-app .gz-status-sheet { border-radius: var(--radius); }
+.android-app .gz-status-list { display: grid; gap: 6px; margin-top: 12px; }
+.android-app .gz-status-row { display: inline-flex; align-items: center; gap: 12px; width: 100%; min-height: 46px; padding: 8px 16px; border: 0; border-radius: 999px; background: transparent; color: var(--text); font-size: 15px; }
+.android-app .gz-status-row.active { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.android-app .gz-status-row:not(.active):active { background: var(--bg-raised); }
+
+.android-app .gz-tag-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.android-app .gz-tag-grid .gz-tag { padding: 7px 14px; font-size: 13px; background: var(--surface); color: var(--text); }
+.android-app .gz-clamp.is-clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
+.android-app .gz-explore-source { margin-top: 12px; }
+.android-app .gz-sentinel { height: 1px; }
+
+.android-app .gz-sched-days { position: relative; }
+.android-app .gz-sched-pill { position: absolute; top: 0; left: 0; z-index: 0; border-radius: var(--radius); background: var(--accent); opacity: 0; pointer-events: none; transition: transform 280ms var(--gz-ease), width 280ms var(--gz-ease), height 280ms var(--gz-ease), opacity 140ms linear; }
+.android-app .gz-sched-days.has-pill .gz-sched-pill { opacity: 1; }
+.android-app .gz-sched-days button { position: relative; z-index: 1; border-color: transparent; background: transparent; }
+.android-app .gz-sched-days.has-pill button.active { color: var(--accent-ink); background: transparent; }
+.android-app .gz-sched-days.has-pill button.active .gz-sched-day-num { color: var(--accent-ink); }
+@keyframes gz-sched-in-right { from { opacity: .35; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+@keyframes gz-sched-in-left { from { opacity: .35; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
+.android-app .gz-sched-list.is-right { animation: gz-sched-in-right 260ms var(--gz-ease) both; }
+.android-app .gz-sched-list.is-left { animation: gz-sched-in-left 260ms var(--gz-ease) both; }
+@media (prefers-reduced-motion: reduce) {
+  .android-app .gz-sched-pill { transition: none; }
+  .android-app .gz-sched-list.is-right, .android-app .gz-sched-list.is-left { animation: none; }
+}

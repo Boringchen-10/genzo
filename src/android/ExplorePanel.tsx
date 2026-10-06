@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, ChevronRight, Heart, LoaderCircle, RefreshCw, Search, Star, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, Clock, Heart, HeartCrack, LoaderCircle, MessageCircle, RefreshCw, Search, Star, Users, X } from "lucide-react";
 import { api } from "../api";
-import type { ExploreSubject, WeeklyCalendar, WeeklyCalendarDay } from "../types";
+import type { ExploreSubject, WeeklyCalendar, WeeklyCalendarDay, WorkStatus } from "../types";
 import { comicExploreApi, type ComicItem, type ComicTheme } from "../comicExplore";
 
 type ExploreTab = "anime" | "comic" | "novel";
 type ExploreView = "feed" | "schedule";
 type LoadState = "loading" | "ready" | "error";
+type SubjectDetailTab = "overview" | "comments" | "characters";
 
 const pic = (path: string | null | undefined) => path
   ? (/^(https?:|asset:|data:|blob:)/.test(path) ? path : convertFileSrc(path))
@@ -15,6 +16,10 @@ const pic = (path: string | null | undefined) => path
 const cover = (subject: ExploreSubject) => pic(subject.coverUrl);
 const comicCover = (item: ComicItem) => pic(item.cachedCoverPath) ?? pic(item.coverUrl);
 const score = (value: number | null) => value == null ? "暂无评分" : value.toFixed(1);
+const stars = (value: number | null) => {
+  const filled = value == null ? 0 : Math.max(0, Math.min(5, Math.round(value / 2)));
+  return "★".repeat(filled) + "☆".repeat(5 - filled);
+};
 
 const subjectTypeLabels: Record<ExploreSubject["subjectType"], string> = { tv: "TV", web: "WEB", movie: "剧场版", ova: "OVA" };
 const weekdayNumber = (date = new Date()) => (date.getDay() === 0 ? 7 : date.getDay());
@@ -39,15 +44,6 @@ const subjectWeekday = (subject: ExploreSubject): number | null => {
 };
 const groupByWeekday = (items: ExploreSubject[]): WeeklyCalendarDay[] =>
   [1, 2, 3, 4, 5, 6, 7].map(weekday => ({ weekday, label: WEEKDAY_LABELS[weekday] ?? "", items: items.filter(item => subjectWeekday(item) === weekday) }));
-const weekDayNumbers = () => {
-  const monday = new Date();
-  monday.setDate(monday.getDate() - (weekdayNumber() - 1));
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + index);
-    return date.getDate();
-  });
-};
 const curatedTags = (items: ExploreSubject[], limit = 24) => {
   const counts = new Map<string, number>();
   for (const item of items) for (const genre of item.genres) counts.set(genre, (counts.get(genre) ?? 0) + 1);
@@ -56,6 +52,28 @@ const curatedTags = (items: ExploreSubject[], limit = 24) => {
     .slice(0, limit)
     .map(([tag]) => tag);
 };
+const flattenCalendar = (calendar: WeeklyCalendar | null): ExploreSubject[] => {
+  const seen = new Map<string, ExploreSubject>();
+  for (const day of calendar?.days ?? []) for (const item of day.items) if (!seen.has(item.externalId)) seen.set(item.externalId, item);
+  return [...seen.values()].sort((left, right) => (right.score ?? 0) - (left.score ?? 0) || (right.ratingCount ?? 0) - (left.ratingCount ?? 0));
+};
+
+const FOLLOW_STATUS: { id: WorkStatus | "none"; label: string }[] = [
+  { id: "none", label: "未追" },
+  { id: "in_progress", label: "在看" },
+  { id: "planned", label: "想看" },
+  { id: "paused", label: "搁置" },
+  { id: "completed", label: "看过" },
+  { id: "dropped", label: "抛弃" },
+];
+const statusIdOf = (subject: ExploreSubject): WorkStatus | "none" => subject.inLibrary ? (subject.localStatus ?? "planned") : "none";
+const StatusIcon = ({ id, size = 16 }: { id: WorkStatus | "none"; size?: number }) =>
+  id === "none" ? <Heart size={size} />
+    : id === "in_progress" ? <Heart size={size} fill="currentColor" />
+      : id === "planned" ? <Star size={size} />
+        : id === "paused" ? <Clock size={size} />
+          : id === "completed" ? <Check size={size} />
+            : <HeartCrack size={size} />;
 
 export default function ExplorePanel({ onToast, registerBack }: { onToast: (message: string) => void; registerBack?: (handler: (() => boolean) | null) => void }) {
   const [tab, setTab] = useState<ExploreTab>("anime");
@@ -69,15 +87,14 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const [comicResults, setComicResults] = useState<ComicItem[]>([]);
 
   const [trending, setTrending] = useState<ExploreSubject[]>([]);
-  const [seasonal, setSeasonal] = useState<ExploreSubject[]>([]);
-  const [ranking, setRanking] = useState<ExploreSubject[]>([]);
   const [calendar, setCalendar] = useState<WeeklyCalendar | null>(null);
   const [animeState, setAnimeState] = useState<LoadState>("loading");
   const [animeError, setAnimeError] = useState("");
   const [tagsOpen, setTagsOpen] = useState(false);
   const [seasonalTag, setSeasonalTag] = useState("");
-  const [seasonalLimit, setSeasonalLimit] = useState(24);
+  const [seasonalVisible, setSeasonalVisible] = useState(30);
   const [scheduleDay, setScheduleDay] = useState(weekdayNumber);
+  const [slideDir, setSlideDir] = useState<"left" | "right">("right");
   const [currentCour] = useState(() => ({ year: new Date().getFullYear(), month: courStartMonth() }));
   const [scheduleYear, setScheduleYear] = useState(currentCour.year);
   const [scheduleMonth, setScheduleMonth] = useState(currentCour.month);
@@ -92,14 +109,23 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const [comicState, setComicState] = useState<LoadState>("loading");
   const [comicError, setComicError] = useState("");
 
-  const [detail, setDetail] = useState<
-    { kind: "anime"; item: ExploreSubject } | { kind: "comic"; item: ComicItem } | null
-  >(null);
+  const [subject, setSubject] = useState<ExploreSubject | null>(null);
+  const [subjectTab, setSubjectTab] = useState<SubjectDetailTab>("overview");
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [statusSheet, setStatusSheet] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [comicDetail, setComicDetail] = useState<ComicItem | null>(null);
+
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const daysRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
+  const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const backHandler = useRef<() => boolean>(() => false);
   backHandler.current = () => {
-    if (detail) { setDetail(null); return true; }
+    if (statusSheet) { setStatusSheet(false); return true; }
+    if (subject) { setSubject(null); return true; }
+    if (comicDetail) { setComicDetail(null); return true; }
     if (seasonOpen) { setSeasonOpen(false); return true; }
     if (view === "schedule") { setView("feed"); return true; }
     return false;
@@ -112,14 +138,12 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
   const loadAnime = useCallback(async () => {
     setAnimeState("loading"); setAnimeError("");
-    try {
-      const [overview, ranks] = await Promise.all([api.exploreOverview(), api.animeRanking(1, 12)]);
-      setTrending(overview.trending.slice(0, 12));
-      setSeasonal(overview.seasonal);
-      setRanking(ranks);
-      setAnimeState("ready");
-    } catch (reason) { setAnimeError(String(reason)); setAnimeState("error"); }
-    try { setCalendar(await api.weeklyCalendar()); } catch { setCalendar(null); }
+    const [overviewResult, calendarResult] = await Promise.allSettled([api.exploreOverview(), api.weeklyCalendar()]);
+    if (overviewResult.status === "fulfilled") setTrending(overviewResult.value.trending.slice(0, 12));
+    if (calendarResult.status === "fulfilled") setCalendar(calendarResult.value); else setCalendar(null);
+    if (overviewResult.status === "rejected" && calendarResult.status === "rejected") {
+      setAnimeError(String(overviewResult.reason)); setAnimeState("error");
+    } else setAnimeState("ready");
   }, []);
 
   const loadComics = useCallback(async (nextTheme: string) => {
@@ -148,6 +172,21 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) setSeasonalVisible(value => value + 30);
+    }, { rootMargin: "240px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [tab, seasonalTag, tagsOpen, animeState]);
+
+  const openSubject = async (item: ExploreSubject) => {
+    setSubject(item); setSubjectTab("overview"); setDescExpanded(false); setSearchOpen(false); setTagsOpen(false);
+    try { setSubject(await api.getExploreSubject(item.externalId)); } catch { /* keep list data */ }
+  };
+
   const switchTab = (next: ExploreTab) => {
     setTab(next);
     setSearchTerm(null); setQuery(""); setSearchOpen(false);
@@ -171,57 +210,70 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
   const clearSearch = () => { setSearchTerm(null); setQuery(""); setAnimeResults([]); setComicResults([]); };
 
-  const saveAnime = async (subject: ExploreSubject, favorite: boolean) => {
+  const saveStatus = async (status: WorkStatus | "none") => {
+    setStatusSheet(false);
+    if (!subject) return;
+    if (status === "none") { onToast("移出媒体库暂不支持，请选择追番状态"); return; }
     setSaving(true);
     try {
-      await api.saveExploreSubject({ externalId: subject.externalId, status: "planned", favorite });
-      const fresh = await api.getExploreSubject(subject.externalId);
-      setDetail({ kind: "anime", item: fresh });
+      await api.saveExploreSubject({ externalId: subject.externalId, status, favorite: subject.favorite });
+      setSubject(await api.getExploreSubject(subject.externalId));
+      onToast("追番状态已更新");
+    } catch (reason) { onToast(String(reason)); }
+    finally { setSaving(false); }
+  };
+
+  const saveComic = async (item: ComicItem) => {
+    setSaving(true);
+    try {
+      await comicExploreApi.save(item.pathWord, true);
       onToast("已加入媒体库");
     } catch (reason) { onToast(String(reason)); }
     finally { setSaving(false); }
   };
 
-  const saveComic = async (item: ComicItem, favorite: boolean) => {
-    setSaving(true);
-    try {
-      await comicExploreApi.save(item.pathWord, favorite);
-      onToast("已加入媒体库");
-    } catch (reason) { onToast(String(reason)); }
-    finally { setSaving(false); }
-  };
+  const selectTag = (tag: string) => { setSeasonalTag(tag); setSeasonalVisible(30); };
+  const selectDay = (next: number) => { setSlideDir(next >= scheduleDay ? "right" : "left"); setScheduleDay(next); };
 
-  const selectTag = (tag: string) => { setSeasonalTag(tag); setSeasonalLimit(24); };
-
-  const animeCard = (subject: ExploreSubject) => <button className="gz-cover" key={subject.externalId} onClick={() => setDetail({ kind: "anime", item: subject })}>
-    <span className="gz-explore-poster">{cover(subject) ? <img src={cover(subject)} alt="" loading="lazy" /> : <BookOpen size={24} />}</span>
-    <span className="gz-cover-label">{subject.title}</span>
+  const animeCard = (item: ExploreSubject) => <button className="gz-cover" key={item.externalId} onClick={() => void openSubject(item)}>
+    <span className="gz-explore-poster">{cover(item) ? <img src={cover(item)} alt="" loading="lazy" /> : <BookOpen size={24} />}</span>
+    <span className="gz-cover-label">{item.title}</span>
   </button>;
 
-  const comicCard = (item: ComicItem) => <button className="gz-cover" key={item.pathWord} onClick={() => setDetail({ kind: "comic", item })}>
+  const comicCard = (item: ComicItem) => <button className="gz-cover" key={item.pathWord} onClick={() => setComicDetail(item)}>
     <span className="gz-explore-poster">{comicCover(item) ? <img src={comicCover(item)} alt="" loading="lazy" /> : <BookOpen size={24} />}</span>
     <span className="gz-cover-label">{item.title}</span>
   </button>;
 
-  const scheduleRow = (subject: ExploreSubject) => <button className="gz-sched-row" key={subject.externalId} onClick={() => setDetail({ kind: "anime", item: subject })}>
-    <span className="gz-sched-cover">{cover(subject) ? <img src={cover(subject)} alt="" loading="lazy" /> : <BookOpen size={20} />}</span>
+  const scheduleRow = (item: ExploreSubject) => <button className="gz-sched-row" key={item.externalId} onClick={() => void openSubject(item)}>
+    <span className="gz-sched-cover">{cover(item) ? <img src={cover(item)} alt="" loading="lazy" /> : <BookOpen size={20} />}</span>
     <span className="gz-sched-body">
-      <strong>{subject.title}</strong>
-      <span className="gz-meta">{[subjectTypeLabels[subject.subjectType], ...subject.genres.slice(0, 3)].filter(Boolean).join(" · ")}</span>
+      <strong>{item.title}</strong>
+      <span className="gz-meta">{[subjectTypeLabels[item.subjectType], ...item.genres.slice(0, 3)].filter(Boolean).join(" · ")}</span>
     </span>
-    {subject.score != null && <span className="gz-sched-score"><Star size={12} />{score(subject.score)}</span>}
+    {item.score != null && <span className="gz-sched-score"><Star size={12} />{score(item.score)}</span>}
   </button>;
 
   const today = weekdayNumber();
+  const seasonal = useMemo(() => flattenCalendar(calendar), [calendar]);
   const todayItems = calendar?.days.find(day => day.weekday === today)?.items ?? [];
   const todayFeed = todayItems.length ? todayItems : trending;
   const seasonalItems = seasonalTag ? seasonal.filter(item => item.genres.includes(seasonalTag)) : seasonal;
   const tagChips = useMemo(() => curatedTags(seasonal), [seasonal]);
-  const dayNumbers = weekDayNumbers();
   const seasonLabel = seasonLabelOf(scheduleYear, scheduleMonth);
   const seasonYears = Array.from({ length: 10 }, (_, index) => currentCour.year - index);
   const scheduleDays = isCurrentCour ? calendar?.days ?? null : seasonDays;
   const scheduleItems = scheduleDays?.find(day => day.weekday === scheduleDay)?.items ?? [];
+  const subjectStatusId = subject ? statusIdOf(subject) : "none";
+
+  useLayoutEffect(() => {
+    const container = daysRef.current;
+    if (!container || !scheduleDays) { setPill(null); return; }
+    const index = scheduleDays.findIndex(day => day.weekday === scheduleDay);
+    const button = container.querySelectorAll<HTMLElement>("button")[index];
+    if (!button) { setPill(null); return; }
+    setPill({ left: button.offsetLeft, top: button.offsetTop, width: button.offsetWidth, height: button.offsetHeight });
+  }, [scheduleDay, scheduleDays, view, isCurrentCour]);
 
   const scheduleView = <div className="gz-schedule">
     <div className="gz-sched-head">
@@ -231,17 +283,103 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     </div>
     {isCurrentCour && !calendar ? <p className="gz-loading"><LoaderCircle />正在读取放送时间表…</p>
       : !isCurrentCour && seasonState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取该季度番组…</p>
-      : !isCurrentCour && seasonState === "error" ? <div className="gz-error" role="alert"><span>该季度数据读取失败。</span></div>
-      : <>
-        {scheduleDays && <div className="gz-sched-days" role="tablist" aria-label="星期">
-          {scheduleDays.map((day, index) => <button key={day.weekday} role="tab" aria-selected={scheduleDay === day.weekday} className={scheduleDay === day.weekday ? "active" : ""} onClick={() => setScheduleDay(day.weekday)}>
-            <span className="gz-sched-day-label">{isCurrentCour && day.weekday === today ? "今天" : day.label}</span>
-            {isCurrentCour && <span className="gz-sched-day-num">{dayNumbers[index]}</span>}
-          </button>)}
-        </div>}
-        {scheduleItems.length ? <div className="gz-sched-list">{scheduleItems.map(scheduleRow)}</div> : <div className="gz-empty"><BookOpen size={26} /><h2>这天没有番组</h2><p>{isCurrentCour ? "换一周中的其他日子看看。" : "换个季度或换一天看看。"}</p></div>}
-      </>}
+        : !isCurrentCour && seasonState === "error" ? <div className="gz-error" role="alert"><span>该季度数据读取失败。</span></div>
+          : <>
+            {scheduleDays && <div className={`gz-sched-days${pill ? " has-pill" : ""}`} role="tablist" aria-label="星期" ref={daysRef}>
+              <span className="gz-sched-pill" ref={pillRef} aria-hidden="true" style={pill ? { transform: `translate(${pill.left}px, ${pill.top}px)`, width: `${pill.width}px`, height: `${pill.height}px` } : undefined} />
+              {scheduleDays.map(day => <button key={day.weekday} role="tab" aria-selected={scheduleDay === day.weekday} className={scheduleDay === day.weekday ? "active" : ""} onClick={() => selectDay(day.weekday)}>
+                <span className="gz-sched-day-label">{isCurrentCour && day.weekday === today ? "今天" : day.label}</span>
+                <span className="gz-sched-day-num">{day.items.length}</span>
+              </button>)}
+            </div>}
+            {scheduleItems.length ? <div className={`gz-sched-list is-${slideDir}`} key={scheduleDay}>{scheduleItems.map(scheduleRow)}</div> : <div className="gz-empty"><BookOpen size={26} /><h2>这天没有番组</h2><p>{isCurrentCour ? "换一周中的其他日子看看。" : "换个季度或换一天看看。"}</p></div>}
+          </>}
   </div>;
+
+  const subjectView = subject && <div className="gz-subject">
+    <div className="gz-subject-topbar">
+      <button className="gz-iconbtn" aria-label="返回发现" onClick={() => setSubject(null)}><ArrowLeft size={20} /></button>
+      <strong>条目详情</strong>
+      <span className="gz-subject-topbar-fill" />
+    </div>
+    <section className="gz-subject-hero">
+      <h1 className="gz-subject-title">{subject.title}</h1>
+      {subject.originalTitle && <p className="gz-subject-original">{subject.originalTitle}</p>}
+      <div className="gz-subject-body">
+        <span className="gz-subject-cover">{cover(subject) ? <img src={cover(subject)} alt="" /> : <BookOpen size={28} />}</span>
+        <div className="gz-subject-stats">
+          <div className="gz-subject-stat"><span>放送开始:</span><strong>{subject.airDate ?? "未提供"}</strong></div>
+          <div className="gz-subject-stat"><span>{subject.ratingCount > 0 ? `${subject.ratingCount} 人评分:` : "评分:"}</span><strong className="gz-subject-score">{score(subject.score)}<em>{stars(subject.score)}</em></strong></div>
+          <div className="gz-subject-stat"><span>Bangumi Ranked:</span><strong>{subject.rank != null ? `#${subject.rank}` : "未上榜"}</strong></div>
+          <button type="button" className="gz-status-pill" aria-haspopup="dialog" aria-expanded={statusSheet} disabled={saving} onClick={() => setStatusSheet(true)}>
+            <StatusIcon id={subjectStatusId} /><span>{FOLLOW_STATUS.find(row => row.id === subjectStatusId)?.label}</span>
+          </button>
+        </div>
+      </div>
+    </section>
+    <div className="gz-detail-tabs" role="tablist" aria-label="条目详情分类">
+      {([["overview", "概览"], ["comments", "吐槽"], ["characters", "角色"]] as const).map(([id, label]) =>
+        <button type="button" role="tab" key={id} aria-selected={subjectTab === id} className={subjectTab === id ? "active" : ""} onClick={() => setSubjectTab(id)}>{label}</button>)}
+    </div>
+    {subjectTab === "overview" && <>
+      <section className="gz-section">
+        <div className="gz-section-head"><h2>简介</h2></div>
+        <p className={`gz-description gz-clamp${descExpanded ? "" : " is-clamped"}`}>{subject.description || "Bangumi 未提供简介。"}</p>
+        {subject.description.trim().length > 90 && <button className="gz-link" onClick={() => setDescExpanded(value => !value)}>{descExpanded ? "收起" : "加载更多"}</button>}
+      </section>
+      <section className="gz-section">
+        <div className="gz-section-head"><h2>标签</h2></div>
+        {subject.genres.length ? <div className="gz-tag-grid">{subject.genres.map(genre => <span className="gz-tag" key={genre}>{genre}</span>)}</div> : <p className="gz-meta">暂无标签。</p>}
+      </section>
+    </>}
+    {subjectTab === "comments" && <section className="gz-section">
+      <div className="gz-section-head"><h2>吐槽</h2><span className="gz-meta">Bangumi 条目评论</span></div>
+      <div className="gz-empty"><MessageCircle size={26} /><h2>吐槽数据待接入</h2><p>吐槽来自 Bangumi 条目评论，后端接口尚未接入；接入后会在这里按时间展示真实评论。</p></div>
+    </section>}
+    {subjectTab === "characters" && <section className="gz-section">
+      <div className="gz-section-head"><h2>角色</h2><span className="gz-meta">Bangumi 条目资料</span></div>
+      <div className="gz-empty"><Users size={26} /><h2>角色资料待接入</h2><p>角色来自 Bangumi 条目资料，后端接口尚未接入；接入后会在这里展示角色与声优。</p></div>
+    </section>}
+    {statusSheet && <div className="gz-scrim" onClick={() => setStatusSheet(false)}><section className="gz-sheet gz-status-sheet" role="dialog" aria-modal="true" aria-label="追番状态" onClick={event => event.stopPropagation()}>
+      <span className="gz-sheet-handle" aria-hidden="true" />
+      <h2 className="gz-sheet-title">追番状态</h2>
+      <div className="gz-status-list">
+        {FOLLOW_STATUS.map(row => <button type="button" key={row.id} className={`gz-status-row ${subjectStatusId === row.id ? "active" : ""}`} aria-pressed={subjectStatusId === row.id} disabled={saving} onClick={() => void saveStatus(row.id)}>
+          <StatusIcon id={row.id} size={18} /><span>{row.label}</span>
+        </button>)}
+      </div>
+    </section></div>}
+  </div>;
+
+  const comicDetailView = comicDetail && <div className="gz-subject">
+    <div className="gz-subject-topbar">
+      <button className="gz-iconbtn" aria-label="返回发现" onClick={() => setComicDetail(null)}><ArrowLeft size={20} /></button>
+      <strong>条目详情</strong>
+      <span className="gz-subject-topbar-fill" />
+    </div>
+    <section className="gz-subject-hero">
+      <h1 className="gz-subject-title">{comicDetail.title}</h1>
+      <div className="gz-subject-body">
+        <span className="gz-subject-cover">{comicCover(comicDetail) ? <img src={comicCover(comicDetail)} alt="" /> : <BookOpen size={28} />}</span>
+        <div className="gz-subject-stats">
+          {comicDetail.authors.length > 0 && <div className="gz-subject-stat"><span>作者:</span><strong>{comicDetail.authors.join(" / ")}</strong></div>}
+          <div className="gz-subject-stat"><span>来源:</span><strong>COPY 漫画</strong></div>
+          <button type="button" className="gz-status-pill" disabled={saving} onClick={() => void saveComic(comicDetail)}><BookOpen size={16} /><span>加入媒体库</span></button>
+        </div>
+      </div>
+    </section>
+    <section className="gz-section">
+      <div className="gz-section-head"><h2>简介</h2></div>
+      <p className="gz-description">{comicDetail.summary || "来源未提供简介。"}</p>
+    </section>
+    {comicDetail.tags.length > 0 && <section className="gz-section">
+      <div className="gz-section-head"><h2>标签</h2></div>
+      <div className="gz-tag-grid">{comicDetail.tags.map(tag => <span className="gz-tag" key={tag}>{tag}</span>)}</div>
+    </section>}
+  </div>;
+
+  if (subject) return <div className="gz-explore">{subjectView}</div>;
+  if (comicDetail) return <div className="gz-explore">{comicDetailView}</div>;
 
   return <div className="gz-explore">
     {view === "schedule" ? scheduleView : <>
@@ -279,16 +417,12 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
             <button className={`gz-chip ${seasonalTag === "" ? "active" : ""}`} role="radio" aria-checked={seasonalTag === ""} onClick={() => selectTag("")}>全部</button>
             {tagChips.map(tag => <button key={tag} className={`gz-chip ${seasonalTag === tag ? "active" : ""}`} role="radio" aria-checked={seasonalTag === tag} onClick={() => selectTag(tag)}>{tag}</button>)}
           </div>}
-          {seasonalItems.length ? <><div className="gz-explore-grid">{seasonalItems.slice(0, seasonalLimit).map(animeCard)}</div>{seasonalItems.length > seasonalLimit && <button className="gz-btn" onClick={() => setSeasonalLimit(seasonalLimit + 30)}>加载更多</button>}</> : <p className="gz-panel gz-meta">{seasonalTag ? "这个标签下暂无番组。" : "这个季度没有索引到番组。"}</p>}</section>
-        <section className="gz-section"><div className="gz-section-head"><h2>动画排行</h2><span className="gz-meta">按 Bangumi 评分排名</span></div>
-          {ranking.length ? <ol className="gz-rank-list">{ranking.map((subject, index) => <li key={subject.externalId}>
-            <button className="gz-rank-row" onClick={() => setDetail({ kind: "anime", item: subject })}>
-              <span className="gz-rank-index">{subject.rank ?? index + 1}</span>
-              <span className="gz-rank-cover">{cover(subject) ? <img src={cover(subject)} alt="" loading="lazy" /> : <BookOpen size={18} />}</span>
-              <span className="gz-rank-body"><strong>{subject.title}</strong><span className="gz-meta"><Star size={11} />{score(subject.score)}{subject.inLibrary ? " · 已入库" : ""}</span></span>
-            </button>
-          </li>)}</ol> : <p className="gz-panel gz-meta">排行榜暂时没有数据。</p>}</section>
+          {seasonalItems.length ? <>
+            <div className="gz-explore-grid">{seasonalItems.slice(0, seasonalVisible).map(animeCard)}</div>
+            {seasonalItems.length > seasonalVisible && <div className="gz-sentinel" ref={sentinelRef} aria-hidden="true" />}
+          </> : <p className="gz-panel gz-meta">{calendar ? (seasonalTag ? "这个标签下暂无番组。" : "本周放送日历里没有索引到番组。") : "正在读取当季番组…"}</p>}</section>
       </>)}
+      <p className="gz-explore-source gz-meta">当季番组来自 Bangumi 每日放送接口（实时），与本地媒体库无关。</p>
 
       {tab === "comic" && (searchTerm !== null ? <>
         <p className="gz-meta">「{searchTerm}」共 {comicResults.length} 条</p>
@@ -306,7 +440,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
         </> : comicState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取漫画来源…</p> : comics.length
           ? <div className="gz-explore-grid">{comics.map(comicCard)}</div>
           : <div className="gz-empty"><BookOpen size={26} /><h2>没有漫画</h2><p>这个主题下暂无作品。</p></div>}
-      </>)}
+      </> )}
 
       {tab === "novel" && <div className="gz-empty"><BookOpen size={28} /><h2>轻小说发现 · 待接入数据源</h2><p>轻小说的在线目录源尚未接入，接入后会在这里显示分区与搜索。你已入库的轻小说仍可在书架查看。</p></div>}
     </>}
@@ -324,38 +458,5 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       </div>)}</div>
     </section></div>}
 
-    {detail && <div className="gz-scrim" onClick={() => setDetail(null)}><section className="gz-sheet gz-explore-sheet" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
-      <span className="gz-sheet-handle" aria-hidden="true" />
-      <button className="gz-iconbtn gz-sheet-close" aria-label="关闭" onClick={() => setDetail(null)}><X size={18} /></button>
-      {detail.kind === "anime" ? <>
-        <div className="gz-explore-detail">
-          <span className="gz-explore-detail-cover">{cover(detail.item) ? <img src={cover(detail.item)} alt="" /> : <BookOpen size={28} />}</span>
-          <div className="gz-explore-detail-info">
-            <h2>{detail.item.title}</h2>
-            {detail.item.originalTitle && <p className="gz-meta">{detail.item.originalTitle}</p>}
-            <p className="gz-meta">{[detail.item.year ? `${detail.item.year} 年` : null, score(detail.item.score), detail.item.rank ? `排名 ${detail.item.rank}` : null].filter(Boolean).join(" · ")}</p>
-            {detail.item.genres.length > 0 && <div className="gz-book-chips">{detail.item.genres.slice(0, 6).map(genre => <span className="gz-book-chip" key={genre}>{genre}</span>)}</div>}
-          </div>
-        </div>
-        <p className="gz-description">{detail.item.description || "Bangumi 未提供简介。"}</p>
-        <div className="gz-explore-detail-actions">
-          <button className="gz-btn primary" disabled={saving} onClick={() => void saveAnime(detail.item, detail.item.favorite)}>{detail.item.inLibrary ? "更新媒体库条目" : "加入媒体库"}</button>
-          <button className="gz-btn" disabled={saving} onClick={() => void saveAnime(detail.item, !detail.item.favorite)}><Heart size={16} fill={detail.item.favorite ? "currentColor" : "none"} />{detail.item.favorite ? "取消收藏" : "收藏"}</button>
-        </div>
-      </> : <>
-        <div className="gz-explore-detail">
-          <span className="gz-explore-detail-cover">{comicCover(detail.item) ? <img src={comicCover(detail.item)} alt="" /> : <BookOpen size={28} />}</span>
-          <div className="gz-explore-detail-info">
-            <h2>{detail.item.title}</h2>
-            {detail.item.authors.length > 0 && <p className="gz-meta">作者：{detail.item.authors.join(" / ")}</p>}
-            {detail.item.tags.length > 0 && <div className="gz-book-chips">{detail.item.tags.slice(0, 6).map(tag => <span className="gz-book-chip" key={tag}>{tag}</span>)}</div>}
-          </div>
-        </div>
-        <p className="gz-description">{detail.item.summary || "来源未提供简介。"}</p>
-        <div className="gz-explore-detail-actions">
-          <button className="gz-btn primary" disabled={saving} onClick={() => void saveComic(detail.item, true)}>加入媒体库</button>
-        </div>
-      </>}
-    </section></div>}
   </div>;
 }
