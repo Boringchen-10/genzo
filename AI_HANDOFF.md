@@ -1,5 +1,12 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 中转站后端续作提示（2026-10-06）
+
+- 用户将把剩余安卓后端接口交给看不到本对话的中转站模型。已创建可整段转发的独立提示：[docs/android/CODEX_BACKEND_CONTINUATION_PROMPT.md](docs/android/CODEX_BACKEND_CONTINUATION_PROMPT.md)。提示要求按当前代码和 Git 状态核实，不照搬旧版后端 Prompt 中已过时的未实现清单。
+- 当前安卓工作树 `H:\二次元阅读器\.tmp\android-first` / `codex/android-first` 在生成交接时干净，HEAD `bbe6afa`；后端核心已在 `3b754ca` 接入。主工作目录 `H:\二次元阅读器` / `main` 有用户和 OpenDesign 未提交内容，续作必须只在安卓工作树继续并保留主目录内容。
+- 用户当前要求先在 `Genzo_Pixel9_API36` / `emulator-5554` 虚拟机观察，不要安装到一加 15。尚待完整验收的核心是实际识别 / 候选 / 纠错 / 刷新闭环、SAF 撤权恢复、扫描长任务及前后台生命周期等；共享作者、`sourceScope`、真实浏览时间字段仍未获批准，不得擅自改 DTO / 迁移。OpenDesign 新增的历史清理、阅读统计和跨设备同步预览不自动扩大后端范围。
+- 产品数据方向：优先复用 PC，不更新 `bangumi-data`；本周日历保留已确认的实时 Bangumi `/calendar` + SQLite 离线缓存，历史季度不能伪造为实时结果。
+
 ## 安卓后端接入 / 模拟器验证（2026-10-06）
 
 - 在 `H:\二次元阅读器\.tmp\android-first` / `codex/android-first` 承接 OpenDesign `4c96046`，起始只有其未跟踪的 `docs/android/CODEX_BACKEND_PROMPT.md`；原件保留且不纳入本轮提交。主 Windows 工作区的 UI / 文档草稿未触碰，版本仍沿用 v0.5.0 基线，没有发布 / 标签 / 推送或手机安装。
