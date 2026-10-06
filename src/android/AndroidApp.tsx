@@ -227,6 +227,48 @@ function Organize({ group, works, busy, onRun, onDone }: { group: UnassignedMedi
   </>;
 }
 
+function Sk({ className }: { className?: string }) {
+  return <span className={`gz-skeleton ${className ?? ""}`} aria-hidden="true" />;
+}
+function GridSkeleton({ count = 9, label = "正在读取作品…" }: { count?: number; label?: string }) {
+  return <div className="gz-skeleton-grid" role="status"><span className="gz-sr">{label}</span>{Array.from({ length: count }, (_, index) => <div className="gz-skeleton-card" key={index} aria-hidden="true"><Sk className="gz-skeleton-poster" /><Sk className="gz-skeleton-line" /><Sk className="gz-skeleton-line short" /></div>)}</div>;
+}
+function RowsSkeleton({ count = 4, label = "正在读取…" }: { count?: number; label?: string }) {
+  return <div className="gz-skeleton-rows" role="status"><span className="gz-sr">{label}</span>{Array.from({ length: count }, (_, index) => <Sk className="gz-skeleton-row" key={index} />)}</div>;
+}
+function DetailSkeleton() {
+  return <div className="gz-skeleton-detail" role="status"><span className="gz-sr">正在读取作品详情…</span><Sk className="gz-skeleton-poster" /><div className="gz-skeleton-detail-info" aria-hidden="true"><Sk className="gz-skeleton-hero" /><Sk className="gz-skeleton-hero short" /><Sk className="gz-skeleton-line" /><Sk className="gz-skeleton-line short" /></div></div>;
+}
+function useSheetDrag(sheetRef: React.RefObject<HTMLElement | null>, onDismiss: () => void) {
+  const drag = useRef<{ id: number; y: number; t: number; dy: number } | null>(null);
+  const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    drag.current = { id: event.pointerId, y: event.clientY, t: performance.now(), dy: 0 };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sheetRef.current?.classList.add("is-dragging");
+  };
+  const onPointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    const state = drag.current;
+    if (!state || state.id !== event.pointerId) return;
+    state.dy = Math.max(0, event.clientY - state.y);
+    if (sheetRef.current) sheetRef.current.style.transform = `translateY(${state.dy}px)`;
+  };
+  const release = (event: React.PointerEvent<HTMLElement>, settle: boolean) => {
+    const state = drag.current;
+    if (!state || state.id !== event.pointerId) return;
+    drag.current = null;
+    const node = sheetRef.current;
+    node?.classList.remove("is-dragging");
+    node?.style.removeProperty("transform");
+    if (settle && (state.dy > 120 || (state.dy > 48 && performance.now() - state.t < 240))) onDismiss();
+  };
+  return {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: (event: React.PointerEvent<HTMLElement>) => release(event, true),
+    onPointerCancel: (event: React.PointerEvent<HTMLElement>) => release(event, false),
+  };
+}
+
 export default function AndroidApp() {
   const [route, setRoute] = useState(routeFromHash);
   const [allWorks, setAllWorks] = useState<WorkListItem[]>([]);
@@ -286,6 +328,9 @@ export default function AndroidApp() {
   const rootRef = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLElement>(null);
+  const sortSheetRef = useRef<HTMLElement>(null);
+  const modalDrag = useSheetDrag(sheet, () => setModal(null));
+  const sortDrag = useSheetDrag(sortSheetRef, () => setSortSheet(false));
   const scrollPositions = useRef<Record<string, number>>({});
   const refreshSequence = useRef(0);
   const incomingDetail = useRef<WorkDetail | null>(null);
@@ -573,7 +618,7 @@ export default function AndroidApp() {
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
       {!top && <button className="gz-iconbtn gz-back" aria-label="返回" onClick={() => back()}><ArrowLeft /></button>}
       {error && <div className="gz-error" role="alert"><span>{error}</span><button className="gz-iconbtn" aria-label="关闭错误提示" onClick={() => setError("")}><X size={18} /></button></div>}
-      {loading && <p className="gz-loading"><LoaderCircle />正在读取媒体库…</p>}
+      {loading && <GridSkeleton count={9} label="正在读取媒体库…" />}
       {route === "home" && <>
         <Section title="继续观看">{continueItems.length ? <div className="gz-rail gz-cover-rail">{continueItems.map(item => <button className="gz-continue" disabled={busy || item.missing} key={item.mediaFileId} onClick={() => void run(() => play(item.mediaFileId))}><div className="gz-continue-cover"><Play /><span>{item.missing ? "文件缺失" : `${playbackTime(item.positionMs)} / ${playbackTime(item.durationMs)}`}</span><progress max={100} value={playbackPercent(item)} /></div><strong>{item.title}</strong><span className="gz-meta">{item.fileName}</span></button>)}</div> : <p className="gz-panel gz-meta">暂无观看记录。开始播放后，续播入口会出现在这里。</p>}</Section>
         {allWorks.length ? homeSections.map(section => { const items = recentCovers(allWorks.filter(section.match)); return <Section key={section.id} title={section.title} action={<button className="gz-link" onClick={() => section.id === "books" ? navigate("bookshelf") : openCategory(section.id)}>更多<ChevronRight size={16} /></button>}>{items.length ? <div className="gz-rail gz-cover-rail">{items.map(work => <button className="gz-cover" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><span className="gz-cover-label">{work.title}</span></button>)}</div> : <p className="gz-panel gz-meta">{section.id === "books" ? "漫画与轻小说书架将在后续版本接入。" : "暂无最近添加的作品。"}</p>}</Section>; }) : <section className="gz-hero"><div className="gz-hero-inner"><span className="gz-eyebrow">你的媒体，安静归档</span><h2>从你的第一部作品开始</h2><p className="gz-meta">添加已下载视频的目录，整理作品与观看记录。</p><div className="gz-actions"><button className="gz-btn primary" onClick={() => navigate("sources")}><Plus size={18} />添加来源</button></div></div></section>}
@@ -695,7 +740,7 @@ export default function AndroidApp() {
         <div className="gz-book-tabs" role="tablist" aria-label="章节分类">
           {bookTabs.map(tab => <button key={tab.id} role="tab" aria-selected={effectiveBookTab === tab.id} className={effectiveBookTab === tab.id ? "active" : ""} onClick={() => { setBookTab(tab.id); setBookPage(1); }}>{tab.label}<span>{tab.entries.length}</span></button>)}
         </div>
-        {bookEntryState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取章节目录…</p> : bookPageItems.length ? <>
+        {bookEntryState === "loading" ? <RowsSkeleton count={6} label="正在读取章节目录…" /> : bookPageItems.length ? <>
           {bookPageCount > 1 && <div className="gz-book-groups">{Array.from({ length: bookPageCount }, (_, index) => index + 1).map(page => <button key={page} className={`gz-book-group ${page === bookPageCurrent ? "active" : ""}`} aria-current={page === bookPageCurrent ? "true" : undefined} onClick={() => setBookPage(page)}>{page}</button>)}<button className="gz-book-top" aria-label="回到顶部" onClick={() => main.current?.scrollTo({ top: 0, behavior: "smooth" })}><ArrowUp size={18} /></button></div>}
           <div className="gz-chapter-grid">{bookPageItems.map(entry => <button className={`gz-chapter ${entry.readState === "read" ? "read" : ""}`} key={entry.id} disabled={busy || entry.missing} onClick={() => setToast(`${chapterLabel(entry)} · 阅读器待接入`)}>
             <strong>{chapterLabel(entry)}</strong>
@@ -713,10 +758,10 @@ export default function AndroidApp() {
           <Section title="资料管理"><button className="gz-btn" disabled={busy || !detail.metadata} onClick={() => void run(async () => { await api.refreshWorkMetadata(detail.id); setDetail(await api.getWork(detail.id)); await refresh(); setToast("作品资料已刷新"); })}><RefreshCw size={16} />刷新已匹配资料</button><p className="gz-meta">{detail.metadata ? `资料来源 ${detail.metadata.provider}；刷新失败时保留已有资料。` : "当前为手动作品，尚未绑定资料来源。"}</p></Section>
         </>}
         {detailTab === "episodes" && <Section title="本地视频" action={<span className="gz-meta">{detail.mediaFiles.filter(file => file.mediaType === "video").length} 个</span>}><div className="gz-episodes">{detail.mediaFiles.filter(file => file.mediaType === "video").map(file => { const saved = progress.find(item => item.mediaFileId === file.id); return <button className="gz-episode" key={file.id} disabled={busy || file.missing} onClick={() => void run(() => play(file.id))}><div className="gz-episode-cover"><Play /><span>{file.parsedEpisode ? `第 ${file.parsedEpisode} 集` : file.extension.toUpperCase()}</span>{saved && <progress max={100} value={playbackPercent(saved)} />}</div><strong>{file.fileName}</strong><span className="gz-meta">{file.missing ? "文件缺失" : saved?.completed ? "已看完" : saved ? `续播 ${playbackTime(saved.positionMs)}` : `${bytes(file.size)} · 未播放`}</span></button>; })}</div>{!detail.mediaFiles.some(file => file.mediaType === "video") && <p className="gz-panel gz-meta">尚未关联视频。可在待整理中关联本地文件。</p>}</Section>}
-        {detailTab === "characters" && <Section title="角色" action={structure ? <span className="gz-meta">{structure.characters.length} 位</span> : undefined}>{structureState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取角色资料…</p> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无角色资料。匹配 Bangumi 资料后可显示。</p> : structure.characters.length ? <div className="gz-credit-list">{structure.characters.map(character => <div className="gz-credit" key={character.externalId}><span className="gz-credit-avatar">{character.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{character.name}</strong><span>{[character.role, character.actors.join(" / ")].filter(Boolean).join(" · ") || "角色"}</span></span></div>)}</div> : <p className="gz-panel gz-meta">没有角色资料。</p>}</Section>}
-        {detailTab === "related" && <Section title="关联" action={structure ? <span className="gz-meta">{structure.seasons.length} 部</span> : undefined}>{structureState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取关联作品…</p> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无关联资料。</p> : structure.seasons.length ? <div className="gz-related-list">{structure.seasons.map(season => { const local = season.localWorkId; const body = <><span className="gz-credit-avatar">{season.title.slice(0, 1)}</span><span className="gz-related-main"><strong>{season.title}</strong><span>{[season.relation, season.seasonNumber ? `第 ${season.seasonNumber} 季` : null, season.current ? "当前作品" : null].filter(Boolean).join(" · ")}</span></span></>; return local ? <button type="button" className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId} onClick={() => navigate(`detail/${encodeURIComponent(local)}`)}>{body}<ChevronRight size={16} /></button> : <div className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId}>{body}</div>; })}</div> : <p className="gz-panel gz-meta">没有关联作品。</p>}</Section>}
-        {detailTab === "staff" && <Section title="制作人员" action={structure ? <span className="gz-meta">{structure.staff.length} 位</span> : undefined}>{structureState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取制作人员…</p> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无制作人员资料。</p> : structure.staff.length ? <div className="gz-credit-list">{structure.staff.map(credit => <div className="gz-credit" key={credit.externalId}><span className="gz-credit-avatar">{credit.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{credit.name}</strong><span>{credit.role}</span></span></div>)}</div> : <p className="gz-panel gz-meta">没有制作人员资料。</p>}</Section>}
-      </>) : detailError ? <Empty title="无法读取作品详情"><p>{detailError}</p><button className="gz-btn" onClick={back}>返回</button></Empty> : <p className="gz-loading">正在读取作品详情…</p>)}
+        {detailTab === "characters" && <Section title="角色" action={structure ? <span className="gz-meta">{structure.characters.length} 位</span> : undefined}>{structureState === "loading" ? <RowsSkeleton count={4} label="正在读取角色资料…" /> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无角色资料。匹配 Bangumi 资料后可显示。</p> : structure.characters.length ? <div className="gz-credit-list">{structure.characters.map(character => <div className="gz-credit" key={character.externalId}><span className="gz-credit-avatar">{character.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{character.name}</strong><span>{[character.role, character.actors.join(" / ")].filter(Boolean).join(" · ") || "角色"}</span></span></div>)}</div> : <p className="gz-panel gz-meta">没有角色资料。</p>}</Section>}
+        {detailTab === "related" && <Section title="关联" action={structure ? <span className="gz-meta">{structure.seasons.length} 部</span> : undefined}>{structureState === "loading" ? <RowsSkeleton count={4} label="正在读取关联作品…" /> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无关联资料。</p> : structure.seasons.length ? <div className="gz-related-list">{structure.seasons.map(season => { const local = season.localWorkId; const body = <><span className="gz-credit-avatar">{season.title.slice(0, 1)}</span><span className="gz-related-main"><strong>{season.title}</strong><span>{[season.relation, season.seasonNumber ? `第 ${season.seasonNumber} 季` : null, season.current ? "当前作品" : null].filter(Boolean).join(" · ")}</span></span></>; return local ? <button type="button" className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId} onClick={() => navigate(`detail/${encodeURIComponent(local)}`)}>{body}<ChevronRight size={16} /></button> : <div className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId}>{body}</div>; })}</div> : <p className="gz-panel gz-meta">没有关联作品。</p>}</Section>}
+        {detailTab === "staff" && <Section title="制作人员" action={structure ? <span className="gz-meta">{structure.staff.length} 位</span> : undefined}>{structureState === "loading" ? <RowsSkeleton count={5} label="正在读取制作人员…" /> : !structure || structureState === "error" ? <p className="gz-panel gz-meta">暂无制作人员资料。</p> : structure.staff.length ? <div className="gz-credit-list">{structure.staff.map(credit => <div className="gz-credit" key={credit.externalId}><span className="gz-credit-avatar">{credit.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{credit.name}</strong><span>{credit.role}</span></span></div>)}</div> : <p className="gz-panel gz-meta">没有制作人员资料。</p>}</Section>}
+      </>) : detailError ? <Empty title="无法读取作品详情"><p>{detailError}</p><button className="gz-btn" onClick={back}>返回</button></Empty> : <DetailSkeleton />)}
       {route === "bookshelf" && <>
         <div className="gz-shelf-tabs" role="tablist" aria-label="书架分类">
           {([["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={shelfType === id} className={shelfType === id ? "active" : ""} onClick={() => { setShelfType(id); setLimit(48); }}>{label}</button>)}
@@ -744,10 +789,10 @@ export default function AndroidApp() {
     <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
     {toast && <div className="gz-toast" role="status">{toast}</div>}
     {busy && <div className="gz-busy" role="status"><LoaderCircle size={18} />正在处理…</div>}
-    {modal && <div className="gz-scrim" onClick={() => setModal(null)}><section ref={sheet} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-dialog-title" onClick={event => event.stopPropagation()}><div className="gz-section-head"><h2 id="gz-dialog-title">{modal.kind === "edit" ? "个人记录" : "整理作品"}</h2><button className="gz-iconbtn" aria-label="关闭" onClick={() => setModal(null)}><X /></button></div>{error && <p className="gz-error" role="alert">{error}</p>}{modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { const updated = await api.updateWork(modal.work.id, input); setDetail(updated); await refresh(); setModal(null); setToast("个人记录已保存"); })} /> : <Organize group={modal.group} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}</section></div>}
+    {modal && <div className="gz-scrim" onClick={() => setModal(null)}><section ref={sheet} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-dialog-title" onClick={event => event.stopPropagation()}><span className="gz-sheet-handle" {...modalDrag} aria-hidden="true" /><div className="gz-section-head"><h2 id="gz-dialog-title">{modal.kind === "edit" ? "个人记录" : "整理作品"}</h2><button className="gz-iconbtn" aria-label="关闭" onClick={() => setModal(null)}><X /></button></div>{error && <p className="gz-error" role="alert">{error}</p>}{modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { const updated = await api.updateWork(modal.work.id, input); setDetail(updated); await refresh(); setModal(null); setToast("个人记录已保存"); })} /> : <Organize group={modal.group} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}</section></div>}
     {pickerOpen && <ColorPicker hue={accentHue} sat={accentSat} light={accentLight} onCancel={() => setPickerOpen(false)} onConfirm={value => { setAccentHue(Math.round(value.hue)); setAccentSat(Math.round(value.sat)); setAccentLight(Math.round(value.light)); setPickerOpen(false); }} />}
-    {sortSheet && <div className="gz-scrim" onClick={() => setSortSheet(false)}><section className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-sort-title" onClick={event => event.stopPropagation()}>
-      <span className="gz-sheet-handle" aria-hidden="true" />
+    {sortSheet && <div className="gz-scrim" onClick={() => setSortSheet(false)}><section ref={sortSheetRef} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-sort-title" onClick={event => event.stopPropagation()}>
+      <span className="gz-sheet-handle" {...sortDrag} aria-hidden="true" />
       <h2 id="gz-sort-title" className="gz-sheet-title">排序方式</h2>
       <div className="gz-sort-list">
         {shelfSortOptions.map(option => <button type="button" key={option.id} className={`gz-sort-row${shelfSort === option.id ? " active" : ""}`} aria-pressed={shelfSort === option.id} onClick={() => { setShelfSort(option.id); setSortSheet(false); }}>
