@@ -11,3 +11,5 @@
 .book-content-menu button:hover { background: var(--surface-hover); }
 .book-content-menu button:disabled { opacity: .4; cursor: default; }
 .book-source-content .detail-section-head { flex-wrap: wrap; gap: 10px; }
+.book-content-error { color: var(--danger, #d15d65); font-size: 12px; overflow-wrap: anywhere; margin: 2px 0; }
+.book-content-error button { display: block; margin-top: 6px; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; cursor: pointer; }

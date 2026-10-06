@@ -12,6 +12,7 @@ mod bookshelf;
 mod comic_explore;
 mod novel_explore;
 mod book_content;
+mod reading_network;
 mod comic_cover_cache;
 mod commands;
 mod credentials;
@@ -62,6 +63,8 @@ pub fn run() {
             db::allow_cached_images(app.handle(), &state.cover_cache_path)?;
             db::allow_cached_images(app.handle(), &state.thumbnail_cache_path)?;
             let metadata_pool = state.pool.clone();
+            let reading_pool = state.pool.clone();
+            tauri::async_runtime::spawn(reading_network::auto_update(reading_pool));
             app.manage(state);
             tauri::async_runtime::spawn_blocking(|| {
                 if let Err(error) = explore::warm_embedded_index() {
@@ -96,6 +99,12 @@ pub fn run() {
             book_content::cache_book_source_content,
             book_content::open_cached_book_content,
             book_content::clear_cached_book_content,
+            book_content::get_book_online_content,
+            book_content::get_book_online_image,
+            reading_network::get_reading_network,
+            reading_network::save_reading_network,
+            reading_network::fill_reading_network,
+            reading_network::test_reading_network,
             comic_explore::get_comic_explore_themes,
             comic_explore::get_comic_explore_detail,
             comic_explore::save_comic_explore_work,

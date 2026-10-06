@@ -160,30 +160,51 @@ fn query_params(input: &ComicQuery) -> AppResult<(&'static str, Vec<(String, Str
     }
 }
 
+#[cfg(test)]
 pub(super) async fn request(host: &str, path: &str, params: &[(String, String)]) -> AppResult<Value> {
-    let detail = host == DETAIL_HOST;
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none())
-        .build().map_err(|_| AppError::Network("无法创建来源连接".into()))?;
+    request_configured(&crate::reading_network::ReadingNetwork::default(), host, path, params, host == DETAIL_HOST).await
+}
+
+pub(super) async fn request_configured(config: &crate::reading_network::ReadingNetwork, host: &str, path: &str, params: &[(String, String)], detail: bool) -> AppResult<Value> {
+    request_once(config, host, path, params, detail).await.map_err(|(error, _)| error)
+}
+
+async fn request_once(config: &crate::reading_network::ReadingNetwork, host: &str, path: &str, params: &[(String, String)], detail: bool) -> Result<Value, (AppError, bool)> {
+    let client = config.client(Duration::from_secs(15)).map_err(|e| (e, false))?;
     let mut response = client.get(format!("{host}{path}")).query(params)
         .header("Accept", "application/json").header("platform", "3")
         .header("source", "copyApp")
-        .header("version", if detail { "2024.04.28" } else { "3.0.9" })
-        .header("User-Agent", if detail { "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131.0.6778.200 Mobile Safari/537.36" } else { "COPY/3.0.9" })
+        .header("version", if detail { "2024.04.28" } else { &config.app_version })
+        .header("User-Agent", if detail { "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131.0.6778.200 Mobile Safari/537.36".into() } else { format!("COPY/{}", config.app_version) })
         .header("webp", "1").header("X-Requested-With", "com.manga2020.app")
-        .send().await.map_err(|error| AppError::Network(format!("漫画来源连接失败：{error}")))?;
+        .send().await.map_err(|_| (AppError::Network(format!("阅读来源连接失败（{host}），请在设置 → 阅读网络中测速或检查代理")), true))?;
     if !response.status().is_success() {
-        return Err(AppError::Network(format!("漫画来源暂时不可用（HTTP {}）", response.status().as_u16())));
+        let status = response.status();
+        return Err((AppError::Network(format!("阅读来源暂时不可用（HTTP {}，{host}）", status.as_u16())), status.is_server_error() || matches!(status.as_u16(), 408 | 429)));
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| invalid_data())? {
-        if chunk.len() > (8 * 1024 * 1024usize).saturating_sub(bytes.len()) { return Err(invalid_data()); }
+    while let Some(chunk) = response.chunk().await.map_err(|_| (AppError::Network("来源资料传输中断，请重试".into()), true))? {
+        if chunk.len() > (8 * 1024 * 1024usize).saturating_sub(bytes.len()) { return Err((invalid_data(), false)); }
         bytes.extend_from_slice(&chunk);
     }
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| invalid_data())?;
-    if value["code"].as_i64() == Some(401) { return Err(AppError::Network("来源要求登录；当前仅支持匿名可访问内容，请在来源平台检查权限".into())); }
-    if value["code"].as_i64() != Some(200) || !value["results"].is_object() { return Err(invalid_data()); }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| (invalid_data(), false))?;
+    if value["code"].as_i64() == Some(401) { return Err((AppError::Network("来源要求登录；当前仅支持匿名可访问内容，请在来源平台检查权限".into()), false)); }
+    if value["code"].as_i64() != Some(200) || !value["results"].is_object() { return Err((invalid_data(), false)); }
     Ok(value["results"].clone())
+}
+
+pub(super) async fn request_in_pool(pool: &SqlitePool, host: &str, path: &str, params: &[(String, String)]) -> AppResult<Value> {
+    let config = crate::reading_network::load(pool).await?;
+    let detail = host == DETAIL_HOST;
+    let hosts = if detail { config.detail_hosts() } else if host == CATALOG_HOST { vec![format!("https://{}", config.api_host)] } else { vec![host.into()] };
+    let mut failure = invalid_data();
+    for host in hosts {
+        match request_once(&config, &host, path, params, detail).await {
+            Ok(value) => return Ok(value),
+            Err((error, retryable)) => { failure = error; if !retryable { break; } }
+        }
+    }
+    Err(failure)
 }
 
 async fn cached_request<T: Serialize + DeserializeOwned>(
@@ -198,7 +219,9 @@ pub(super) async fn cached_request_for<T: Serialize + DeserializeOwned>(
     pool: &SqlitePool, host: &str, path: &str, params: &[(String, String)],
     hours: i64, refresh: bool, parse: impl FnOnce(Value) -> AppResult<T>,
 ) -> AppResult<(T, bool)> {
-    let key = format!("v1:{host}{path}:{}", serde_json::to_string(params)?);
+    let config = crate::reading_network::load(pool).await?;
+    let cache_host = if host == CATALOG_HOST { format!("https://{}", config.api_host) } else if host == DETAIL_HOST { config.detail_hosts()[0].clone() } else { host.into() };
+    let key = format!("v1:{cache_host}{path}:{}", serde_json::to_string(params)?);
     let cached: Option<(String, String)> = sqlx::query_as(
         "SELECT response_json, expires_at FROM metadata_cache WHERE provider = ? AND cache_key = ?")
         .bind(provider).bind(&key).fetch_optional(pool).await?;
@@ -207,7 +230,7 @@ pub(super) async fn cached_request_for<T: Serialize + DeserializeOwned>(
     if !refresh && cached.as_ref().is_some_and(|(_, expiry)| chrono::DateTime::parse_from_rfc3339(expiry).is_ok_and(|expiry| expiry > now)) {
         return Ok((cached.unwrap().0, false));
     }
-    match request(host, path, params).await.and_then(parse) {
+    match request_in_pool(pool, host, path, params).await.and_then(parse) {
         Ok(data) => {
             sqlx::query("INSERT INTO metadata_cache(provider,cache_key,response_json,fetched_at,expires_at) VALUES(?,?,?,?,?) ON CONFLICT(provider,cache_key) DO UPDATE SET response_json=excluded.response_json,fetched_at=excluded.fetched_at,expires_at=excluded.expires_at")
                 .bind(provider).bind(&key).bind(serde_json::to_string(&data)?).bind(now.to_rfc3339())

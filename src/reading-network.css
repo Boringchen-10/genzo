@@ -1,0 +1,13 @@
+.reading-network-panel fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.reading-network-panel .setting { display: grid; gap: 8px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.reading-network-panel input:not([type=checkbox]), .reading-network-panel select { width: 100%; min-width: 0; }
+.reading-network-panel small { color: var(--muted); line-height: 1.6; }
+.reading-network-panel .primary { margin-top: 18px; }
+.reading-network-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.reading-node-results { display: grid; gap: 4px; }
+.reading-node-results button { display: flex; justify-content: space-between; gap: 10px; padding: 9px; text-align: left; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 5px; font-size: 11px; }
+.reading-node-results button.selected { border-color: var(--accent); }
+.reading-node-results span { min-width: 0; overflow-wrap: anywhere; }
+.reading-node-results strong { white-space: nowrap; }
+.reading-node-results button:disabled { opacity: .65; }
+.reading-network-error { color: var(--danger, #d15d65); overflow-wrap: anywhere; }

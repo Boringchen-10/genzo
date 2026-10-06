@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{collections::{HashMap, HashSet}, fs, io::{Read, Write}, path::{Path, PathBuf}, sync::{Arc, OnceLock}, time::Duration};
 use tauri::State;
 use tokio::sync::{Mutex, Semaphore};
+use futures_util::{stream, StreamExt};
 use zip::{write::SimpleFileOptions, ZipWriter};
 
 const MAX_TEXT: usize = 32 * 1024 * 1024;
@@ -138,6 +139,15 @@ fn summary(manifest: &Manifest) -> CachedContent {
     CachedContent { entry_id: manifest.entry_id.clone(), title: manifest.title.clone(), format: if manifest.kind == "novel" { "EPUB" } else { "CBZ" }.into(),
         bytes: manifest.files.iter().map(|v| v.bytes).sum(), cached_at: manifest.cached_at.clone() }
 }
+fn publish(target: &Path, pending: &Path, manifest: &Manifest) -> AppResult<()> {
+    let data = serde_json::to_vec(manifest)?;
+    let mut file = fs::File::create(pending.join("manifest.json"))?;
+    file.write_all(&data)?; file.sync_all()?;
+    // Windows cannot rename the staging directory while its manifest is open.
+    drop(file);
+    fs::rename(pending, target.join(format!("complete-{}-{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4())))?;
+    Ok(())
+}
 #[tauri::command]
 pub async fn list_cached_book_content(kind: String, path_word: String, entry_ids: Vec<String>, state: State<'_, AppState>) -> AppResult<Vec<CachedContent>> {
     check(&kind, &path_word, None)?;
@@ -154,17 +164,35 @@ fn content_url(value: &str) -> AppResult<reqwest::Url> {
     Ok(url)
 }
 async fn bytes(client: &reqwest::Client, url: reqwest::Url, limit: usize) -> AppResult<Vec<u8>> {
-    // Independent anonymous client; no API credentials, cookies or automatic redirects.
-    let mut response = client.get(url).send().await.map_err(|_| AppError::Network("正文连接失败，请重试；原有缓存保留".into()))?;
-    if !response.status().is_success() { return Err(AppError::Network(format!("正文暂不可访问（HTTP {}）；请检查来源权限或稍后重试", response.status().as_u16()))); }
-    if response.content_length().is_some_and(|n| n > limit as u64) { return Err(invalid("正文超过单文件大小限制")); }
-    let mut data = vec![];
-    while let Some(chunk) = response.chunk().await.map_err(|_| AppError::Network("正文传输中断，请重试；原有缓存保留".into()))? {
-        if chunk.len() > limit.saturating_sub(data.len()) { return Err(invalid("正文超过单文件大小限制")); }
-        data.extend_from_slice(&chunk);
+    let host = url.host_str().unwrap_or_default().to_string();
+    for attempt in 0..3 {
+        let response = client.get(url.clone()).header("Accept", "*/*").send().await;
+        match response {
+            Ok(mut response) => {
+                let status = response.status();
+                if status.is_success() {
+                    if response.content_length().is_some_and(|n| n > limit as u64) { return Err(invalid("正文超过单文件大小限制")); }
+                    let mut data = vec![]; let mut interrupted = false;
+                    loop {
+                        match response.chunk().await {
+                            Ok(Some(chunk)) => {
+                                if chunk.len() > limit.saturating_sub(data.len()) { return Err(invalid("正文超过单文件大小限制")); }
+                                data.extend_from_slice(&chunk);
+                            }
+                            Ok(None) => break,
+                            Err(_) => { interrupted = true; break; }
+                        }
+                    }
+                    if !interrupted { return if data.is_empty() { Err(invalid("来源返回空正文")) } else { Ok(data) }; }
+                } else if !status.is_server_error() && !matches!(status.as_u16(), 408 | 429) {
+                    return Err(AppError::Network(format!("正文暂不可访问（HTTP {}，{host}）；原有缓存保留", status.as_u16())));
+                }
+            }
+            Err(_) => {}
+        }
+        if attempt < 2 { tokio::time::sleep(Duration::from_millis(if attempt == 0 { 500 } else { 2000 })).await; }
     }
-    if data.is_empty() { return Err(invalid("来源返回空正文")); }
-    Ok(data)
+    Err(AppError::Network(format!("正文连接或传输失败（{host}），已重试 3 次；请检查阅读网络设置，原有缓存保留")))
 }
 fn image_extension(data: &[u8]) -> AppResult<&'static str> {
     let format = image::guess_format(data).map_err(|_| invalid("来源返回的页面不是有效图片"))?;
@@ -216,7 +244,7 @@ fn zip_file(writer: &mut ZipWriter<fs::File>, name: &str, data: &[u8]) -> AppRes
     writer.write_all(data)?; Ok(())
 }
 
-async fn generate<F, Fut>(kind: &str, book: &str, entry: &str, value: &Value, directory: &Path, mut fetch: F) -> AppResult<(String, String, Vec<String>)>
+async fn generate<F, Fut>(kind: &str, book: &str, entry: &str, value: &Value, directory: &Path, concurrency: usize, mut fetch: F) -> AppResult<(String, String, Vec<String>)>
 where F: FnMut(reqwest::Url, usize) -> Fut, Fut: std::future::Future<Output = AppResult<Vec<u8>>> {
     access(value)?;
     if kind == "comic" {
@@ -226,11 +254,15 @@ where F: FnMut(reqwest::Url, usize) -> Fut, Fut: std::future::Future<Output = Ap
         if chapter["size"].as_u64().is_some_and(|n| n != images.len() as u64) { return Err(invalid("漫画页面数量不完整")); }
         let mut zip = ZipWriter::new(fs::File::create(directory.join("chapter.cbz"))?);
         let mut size = 0;
-        for (index, page) in images.iter().enumerate() {
-            let data = fetch(content_url(page["url"].as_str().ok_or_else(|| invalid("漫画页面地址缺失"))?)?, MAX_IMAGE).await?;
+        let urls = images.iter().map(|page| content_url(page["url"].as_str().ok_or_else(|| invalid("漫画页面地址缺失"))?)).collect::<AppResult<Vec<_>>>()?;
+        let mut pages = stream::iter(urls).map(|url| fetch(url, MAX_IMAGE)).buffered(concurrency.clamp(1, 8));
+        let mut index = 0;
+        while let Some(result) = pages.next().await {
+            let data = result.map_err(|e| AppError::Network(format!("第 {} / {} 页获取失败：{e}", index + 1, images.len())))?;
             size += data.len(); if size > MAX_CONTENT { return Err(invalid("单章超过 512 MiB 限制")); }
             let ext = image_extension(&data)?;
             zip_file(&mut zip, &format!("{:04}.{ext}", index + 1), &data)?;
+            index += 1;
         }
         zip.finish().map_err(|_| invalid("无法完成漫画缓存"))?.sync_all()?;
         return Ok((chapter["name"].as_str().unwrap_or(entry).into(), "chapter.cbz".into(), vec!["chapter.cbz".into()]));
@@ -251,12 +283,20 @@ where F: FnMut(reqwest::Url, usize) -> Fut, Fut: std::future::Future<Output = Ap
     zip_file(&mut zip, "mimetype", b"application/epub+zip")?;
     zip_file(&mut zip, "META-INF/container.xml", br#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#)?;
     let mut nav = String::new(); let mut manifest = String::new(); let mut spine = String::new(); let mut size = raw.len();
-    for (i, item) in contents.iter().enumerate() {
+    let pending = contents.iter().enumerate().map(|(i, item)| {
+        let url = if item["content_type"].as_u64() == Some(2) { Some(content_url(item["content"].as_str().ok_or_else(|| invalid("小说插图地址缺失"))?)?) } else { None };
+        Ok((i, item.clone(), url))
+    }).collect::<AppResult<Vec<_>>>()?;
+    let mut sections = stream::iter(pending).map(|(i, item, url)| {
+        let download = url.map(|url| fetch(url, MAX_IMAGE));
+        async move { (i, item, match download { Some(download) => download.await.map(Some), None => Ok(None) }) }
+    }).buffered(concurrency.clamp(1, 4));
+    while let Some((i, item, downloaded)) = sections.next().await {
         let name = item["name"].as_str().unwrap_or("未命名目录项");
         let body = match item["content_type"].as_u64() {
             Some(1) => format!("<pre style=\"white-space:pre-wrap;overflow-wrap:anywhere;font:inherit\">{}</pre>", xml(&rows[item["start_lines"].as_u64().unwrap() as usize..item["end_lines"].as_u64().unwrap() as usize].join("\n"))),
             Some(2) => {
-                let data = fetch(content_url(item["content"].as_str().ok_or_else(|| invalid("小说插图地址缺失"))?)?, MAX_IMAGE).await?;
+                let data = downloaded.map_err(|e| AppError::Network(format!("插图「{name}」获取失败：{e}")))?.ok_or_else(|| invalid("小说插图缺失"))?;
                 size += data.len(); if size > MAX_CONTENT { return Err(invalid("单卷超过 512 MiB 限制")); }
                 let ext = image_extension(&data)?; let mime = if ext == "jpg" { "jpeg" } else { ext };
                 zip_file(&mut zip, &format!("OEBPS/image-{i}.{ext}"), &data)?;
@@ -283,6 +323,62 @@ where F: FnMut(reqwest::Url, usize) -> Fut, Fut: std::future::Future<Output = Ap
 async fn lock(path: &Path) -> Arc<Mutex<()>> {
     LOCKS.get_or_init(|| Mutex::new(HashMap::new())).lock().await.entry(path.to_path_buf()).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
 }
+async fn source_value(pool: &sqlx::SqlitePool, kind: &str, book: &str, entry: &str, group: &str) -> AppResult<Value> {
+    check(kind, book, Some(entry))?;
+    let mut offset = 0;
+    loop {
+        let page = directory(pool, kind, book, group, offset, false).await?;
+        if page.entries.iter().any(|v| v.id == entry) { break; }
+        offset += page.entries.len() as u32;
+        if offset as u64 >= page.total || kind == "novel" { return Err(invalid("章卷不属于当前作品目录，请刷新后重试")); }
+    }
+    let (host, path) = if kind == "novel" { (catalog::CATALOG_HOST, format!("/api/v3/book/{book}/volume/{entry}")) }
+        else { (catalog::DETAIL_HOST, format!("/api/v3/comic/{book}/chapter/{entry}")) };
+    catalog::request_in_pool(pool, host, &path, &[("platform".into(), "3".into()), ("in_mainland".into(), "true".into())]).await
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineSection { title: String, text: Option<String>, image_url: Option<String> }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineContent { title: String, pages: Vec<String>, sections: Vec<OnlineSection> }
+// Reader-independent online data. No CBZ/EPUB generation or reading-cache writes.
+#[tauri::command]
+pub async fn get_book_online_content(kind: String, path_word: String, entry_id: String, group: String, state: State<'_, AppState>) -> AppResult<OnlineContent> {
+    let value = source_value(&state.pool, &kind, &path_word, &entry_id, &group).await?;
+    access(&value)?;
+    if kind == "comic" {
+        let chapter = &value["chapter"];
+        if chapter["uuid"].as_str() != Some(&entry_id) || chapter["comic_path_word"].as_str() != Some(&path_word) { return Err(invalid("漫画章节作品归属不符")); }
+        let images = chapter["contents"].as_array().filter(|v| !v.is_empty() && v.len() <= 1000).ok_or_else(|| invalid("来源未提供可访问的漫画页面"))?;
+        if chapter["size"].as_u64().is_some_and(|n| n != images.len() as u64) { return Err(invalid("漫画页面数量不完整")); }
+        let pages = images.iter().map(|v| content_url(v["url"].as_str().ok_or_else(|| invalid("漫画页面地址缺失"))?).map(String::from)).collect::<AppResult<Vec<_>>>()?;
+        return Ok(OnlineContent { title: chapter["name"].as_str().unwrap_or(&entry_id).into(), pages, sections: vec![] });
+    }
+    let volume = &value["volume"];
+    if value["book"]["path_word"].as_str() != Some(&path_word) || volume["id"].as_str() != Some(&entry_id) || volume["book_path_word"].as_str() != Some(&path_word) { return Err(invalid("小说卷册作品归属不符")); }
+    let contents = volume["contents"].as_array().filter(|v| !v.is_empty() && v.len() <= 10_000).ok_or_else(|| invalid("来源未提供小说章节目录"))?;
+    let config = crate::reading_network::load(&state.pool).await?;
+    let data = bytes(&config.client(Duration::from_secs(60))?, content_url(volume["txt_addr"].as_str().ok_or_else(|| invalid("来源未提供可访问的正文"))?)?, MAX_TEXT).await?;
+    let decoded = text(&data, volume["txt_encoding"].as_str().unwrap_or_default())?;
+    let rows = lines(&decoded); ranges(contents, rows.len())?;
+    let sections = contents.iter().map(|v| {
+        let mut section = OnlineSection { title: v["name"].as_str().unwrap_or("未命名章节").into(), text: None, image_url: None };
+        match v["content_type"].as_u64() {
+            Some(1) => section.text = Some(rows[v["start_lines"].as_u64().unwrap() as usize..v["end_lines"].as_u64().unwrap() as usize].join("\n")),
+            Some(2) => section.image_url = Some(content_url(v["content"].as_str().ok_or_else(|| invalid("插图地址缺失"))?)?.into()),
+            _ => section.text = Some("来源提供了暂不支持的目录项。".into()),
+        }
+        Ok(section)
+    }).collect::<AppResult<Vec<_>>>()?;
+    Ok(OnlineContent { title: volume["name"].as_str().unwrap_or(&entry_id).into(), pages: vec![], sections })
+}
+#[tauri::command]
+pub async fn get_book_online_image(url: String, state: State<'_, AppState>) -> AppResult<tauri::ipc::Response> {
+    let config = crate::reading_network::load(&state.pool).await?;
+    let data = bytes(&config.client(Duration::from_secs(60))?, content_url(&url)?, MAX_IMAGE).await?;
+    image_extension(&data)?; Ok(tauri::ipc::Response::new(data))
+}
 #[tauri::command]
 pub async fn cache_book_source_content(kind: String, path_word: String, entry_id: String, group: String, refresh: bool, state: State<'_, AppState>) -> AppResult<CachedContent> {
     check(&kind, &path_word, Some(&entry_id))?;
@@ -293,31 +389,21 @@ pub async fn cache_book_source_content(kind: String, path_word: String, entry_id
         if !refresh || chrono::DateTime::parse_from_rfc3339(&manifest.cached_at).is_ok_and(|time| time >= started) { return Ok(summary(&manifest)); }
     }
     let _slot = DOWNLOADS.acquire().await.map_err(|_| invalid("阅读获取队列不可用"))?;
-    // Revalidate membership against the full relevant source directory, not the title or client input.
-    let mut offset = 0; let mut found = false;
-    loop {
-        let page = directory(&state.pool, &kind, &path_word, &group, offset, false).await?;
-        if page.entries.iter().any(|v| v.id == entry_id) { found = true; break; }
-        offset += page.entries.len() as u32;
-        if offset as u64 >= page.total || kind == "novel" { break; }
-    }
-    if !found { return Err(invalid("章卷不属于当前作品目录，请刷新后重试")); }
-    let (host, path) = if kind == "novel" { (catalog::CATALOG_HOST, format!("/api/v3/book/{path_word}/volume/{entry_id}")) }
-        else { (catalog::DETAIL_HOST, format!("/api/v3/comic/{path_word}/chapter/{entry_id}")) };
     // Fresh access information for every explicit fetch. Expired signed URLs are never replayed.
-    let value = catalog::request(host, &path, &[("platform".into(), "3".into()), ("in_mainland".into(), "true".into())]).await?;
-    let client = reqwest::Client::builder().user_agent("COPY/3.0.9").timeout(Duration::from_secs(60)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_| invalid("无法创建正文连接"))?;
+    let value = source_value(&state.pool, &kind, &path_word, &entry_id, &group).await?;
+    let config = crate::reading_network::load(&state.pool).await?;
+    let client = config.client(Duration::from_secs(60))?;
+    let concurrency = if kind == "comic" { config.comic_concurrency } else { config.novel_concurrency };
     fs::create_dir_all(&target)?;
     let pending = target.join(format!("pending-{}", uuid::Uuid::new_v4())); fs::create_dir(&pending)?;
     let result = async {
-        let (title, open_file, names) = generate(&kind, &path_word, &entry_id, &value, &pending, |url, limit| bytes(&client, url, limit)).await?;
+        let (title, open_file, names) = generate(&kind, &path_word, &entry_id, &value, &pending, concurrency, |url, limit| bytes(&client, url, limit)).await?;
         let files = names.into_iter().map(|name| {
             let path = pending.join(&name);
             Ok(CachedFile { bytes: fs::metadata(&path)?.len(), sha256: file_hash(&path)?, name })
         }).collect::<AppResult<Vec<_>>>()?;
         let manifest = Manifest { version: 1, kind, book_id: path_word, entry_id, title, open_file, files, cached_at: chrono::Utc::now().to_rfc3339() };
-        let data = serde_json::to_vec(&manifest)?; let mut file = fs::File::create(pending.join("manifest.json"))?; file.write_all(&data)?; file.sync_all()?;
-        fs::rename(&pending, target.join(format!("complete-{}-{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4())))?;
+        publish(&target, &pending, &manifest)?;
         Ok(summary(&manifest))
     }.await;
     // Only this request's generated staging directory is removed. Interrupted staging is never opened.
@@ -363,6 +449,33 @@ pub async fn clear_cached_book_content(kind: String, path_word: String, entry_id
 mod tests {
     use super::*;
     use serde_json::json;
+    #[tokio::test]
+    #[ignore = "explicit live anonymous content check; temporary memory only, no user library"]
+    async fn live_anonymous_content_bytes() {
+        let client = reqwest::Client::builder().user_agent("COPY/3.0.9").timeout(Duration::from_secs(60)).redirect(reqwest::redirect::Policy::none()).build().unwrap();
+        let book = "wuzhizhuanshengdaoleyishijiejiunachuzhenbenshi";
+        let value = catalog::request(catalog::CATALOG_HOST, &format!("/api/v3/book/{book}/volume/3792"), &[("in_mainland".into(), "true".into())]).await.unwrap();
+        access(&value).unwrap();
+        let volume = &value["volume"];
+        let data = bytes(&client, content_url(volume["txt_addr"].as_str().unwrap()).unwrap(), MAX_TEXT).await.unwrap();
+        eprintln!("novel bytes={}, first={:?}", data.len(), &data[..data.len().min(4)]);
+        text(&data, volume["txt_encoding"].as_str().unwrap()).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let pool = crate::db::test_pool().await.unwrap();
+        let entries = directory(&pool, "novel", book, "", 0, true).await.unwrap();
+        assert!(entries.entries.iter().any(|e| e.id == "3792"));
+        let (_, file, _) = generate("novel", book, "3792", &value, root.path(), 2, |url, limit| bytes(&client, url, limit)).await.unwrap();
+        eprintln!("novel generated bytes={}", fs::metadata(root.path().join(file)).unwrap().len());
+        let book = "modujingbingdenuli";
+        let value = catalog::request(catalog::DETAIL_HOST, &format!("/api/v3/comic/{book}/chapter/52615840-10a4-11e9-b68d-00163e0ca5bd"), &[("platform".into(), "3".into())]).await.unwrap();
+        access(&value).unwrap();
+        let data = bytes(&client, content_url(value["chapter"]["contents"][0]["url"].as_str().unwrap()).unwrap(), MAX_IMAGE).await.unwrap();
+        image_extension(&data).unwrap();
+        eprintln!("comic first page bytes={}", data.len());
+        let root = tempfile::tempdir().unwrap();
+        let (_, file, _) = generate("comic", book, "52615840-10a4-11e9-b68d-00163e0ca5bd", &value, root.path(), 2, |url, limit| bytes(&client, url, limit)).await.unwrap();
+        eprintln!("comic generated bytes={}", fs::metadata(root.path().join(file)).unwrap().len());
+    }
     #[test]
     fn strict_encoding_preserves_empty_lines_and_original_toc_indices() {
         let value = text("\u{feff}一\r\n\r\n二\r三\n".as_bytes(), "UTF-8").unwrap();
@@ -402,6 +515,15 @@ mod tests {
         fs::create_dir_all(path.join("pending-new")).unwrap(); assert!(load(&path,"novel","book","v1",true).is_some());
         fs::write(complete.join("volume.epub"), b"invalid bytes").unwrap(); assert!(load(&path,"novel","book","v1",true).is_none());
     }
+    #[test]
+    fn generated_cache_is_published_and_readable_on_windows() {
+        let root = tempfile::tempdir().unwrap(); let target = key(root.path(), "comic", "book", "c1");
+        let pending = target.join("pending-test"); fs::create_dir_all(&pending).unwrap();
+        fs::write(pending.join("chapter.cbz"), b"fixture").unwrap();
+        let manifest = Manifest {version:1,kind:"comic".into(),book_id:"book".into(),entry_id:"c1".into(),title:"测试章".into(),open_file:"chapter.cbz".into(),files:vec![CachedFile{name:"chapter.cbz".into(),bytes:7,sha256:hash(b"fixture")}],cached_at:chrono::Utc::now().to_rfc3339()};
+        publish(&target, &pending, &manifest).unwrap();
+        assert!(!pending.exists()); assert!(load(&target,"comic","book","c1",true).is_some());
+    }
     fn png() -> Vec<u8> {
         let mut data = std::io::Cursor::new(vec![]);
         image::DynamicImage::new_rgb8(2, 2).write_to(&mut data, image::ImageFormat::Png).unwrap(); data.into_inner()
@@ -416,7 +538,7 @@ mod tests {
     #[tokio::test]
     async fn epub_pairs_text_toc_and_illustrations_in_original_order() {
         let root = tempfile::tempdir().unwrap(); let fixture = novel_fixture();
-        let (_, file, names) = generate("novel","book","v1",&fixture,root.path(), |url,_| async move {
+        let (_, file, names) = generate("novel","book","v1",&fixture,root.path(), 2, |url,_| async move {
             Ok(if url.path().ends_with(".png") { png() } else { "一\r\n\r\n二\r三\n".as_bytes().to_vec() })
         }).await.unwrap();
         assert_eq!(file,"volume.epub"); assert_eq!(names.len(),3);
@@ -441,14 +563,14 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let value = json!({"chapter":{"uuid":"c1","name":"测试章","size":2,"contents":[{"url":"https://s3.mangafunb.fun/second.png"},{"url":"https://s3.mangafunb.fun/first.png"}]}});
         let calls = Arc::new(Mutex::new(vec![])); let seen = calls.clone();
-        generate("comic","book","c1",&value,root.path(), move |url,_| { let seen=seen.clone(); async move { seen.lock().await.push(url.path().to_string()); Ok(png()) } }).await.unwrap();
+        generate("comic","book","c1",&value,root.path(), 2, move |url,_| { let seen=seen.clone(); async move { seen.lock().await.push(url.path().to_string()); Ok(png()) } }).await.unwrap();
         assert_eq!(*calls.lock().await, ["/second.png", "/first.png"]);
         let mut zip = zip::ZipArchive::new(fs::File::open(root.path().join("chapter.cbz")).unwrap()).unwrap();
         assert_eq!(zip.by_index(0).unwrap().name(),"0001.png"); assert_eq!(zip.by_index(1).unwrap().name(),"0002.png");
-        assert!(generate("comic","book","wrong",&value,root.path(), |_,_| async { panic!("wrong chapter must not fetch") }).await.is_err());
+        assert!(generate("comic","book","wrong",&value,root.path(), 2, |_,_| async { panic!("wrong chapter must not fetch") }).await.is_err());
         let partial = json!({"chapter":{"uuid":"c1","size":3,"contents":[{"url":"https://s3.mangafunb.fun/p.png"}]}});
-        assert!(generate("comic","book","c1",&partial,root.path(), |_,_| async { panic!("partial metadata must not fetch") }).await.is_err());
-        assert!(generate("novel","wrong","v1",&novel_fixture(),root.path(), |_,_| async { panic!("wrong book must not fetch") }).await.is_err());
+        assert!(generate("comic","book","c1",&partial,root.path(), 2, |_,_| async { panic!("partial metadata must not fetch") }).await.is_err());
+        assert!(generate("novel","wrong","v1",&novel_fixture(),root.path(), 2, |_,_| async { panic!("wrong book must not fetch") }).await.is_err());
     }
     async fn http_response(response: Vec<u8>) -> reqwest::Url {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -476,10 +598,43 @@ mod tests {
         assert!(bytes(&client,url,8).await.is_err());
     }
     #[tokio::test]
+    async fn transient_content_failure_is_retried_without_credentials() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = reqwest::Url::parse(&format!("http://{}/content", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            for response in ["HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"] {
+                let (mut socket, _) = listener.accept().await.unwrap(); let mut request = [0; 4096];
+                let count = socket.read(&mut request).await.unwrap(); let headers = String::from_utf8_lossy(&request[..count]).to_ascii_lowercase();
+                assert!(!headers.contains("authorization:")); assert!(!headers.contains("cookie:"));
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap();
+        assert_eq!(bytes(&client, url, 10).await.unwrap(), b"hello"); server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn concurrent_images_finish_out_of_order_but_keep_archive_order() {
+        let root = tempfile::tempdir().unwrap();
+        let value = json!({"chapter":{"uuid":"c1","size":2,"contents":[{"url":"https://s3.mangafunb.fun/slow.png"},{"url":"https://s3.mangafunb.fun/fast.png"}]}});
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let expected = Arc::new([png(), {
+            let mut data = std::io::Cursor::new(vec![]);
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(2,2,image::Rgb([255,0,0]))).write_to(&mut data,image::ImageFormat::Png).unwrap(); data.into_inner()
+        }]);
+        let images = expected.clone();
+        tokio::time::timeout(Duration::from_secs(2), generate("comic","book","c1",&value,root.path(),2,move |url,_| {
+            let barrier = barrier.clone(); let images = images.clone();
+            async move { barrier.wait().await; let slow = url.path().contains("slow"); if slow { tokio::time::sleep(Duration::from_millis(20)).await; } Ok(images[if slow {0} else {1}].clone()) }
+        })).await.unwrap().unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(root.path().join("chapter.cbz")).unwrap()).unwrap();
+        for (index, expected) in expected.iter().enumerate() { let mut data = vec![]; zip.by_index(index).unwrap().read_to_end(&mut data).unwrap(); assert_eq!(&data, expected); }
+    }
+    #[tokio::test]
     async fn interrupted_illustration_never_publishes_a_complete_novel() {
         let root = tempfile::tempdir().unwrap();
         let value = novel_fixture();
-        assert!(generate("novel","book","v1",&value,root.path(), |url,_| async move {
+        assert!(generate("novel","book","v1",&value,root.path(), 2, |url,_| async move {
             if url.path().ends_with(".png") { Err(AppError::Network("中断".into())) } else { Ok("一\n\n二\n三\n".as_bytes().to_vec()) }
         }).await.is_err());
         assert!(!root.path().join("manifest.json").exists());

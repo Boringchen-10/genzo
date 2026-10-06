@@ -3,6 +3,7 @@ export type ReadingKind = "comic" | "novel";
 export interface SourceEntry { id: string; title: string; order: number; count: number }
 export interface SourcePage { entries: SourceEntry[]; total: number; offset: number; group: string; groups: { id: string; title: string }[]; stale: boolean }
 export interface CachedContent { entryId: string; title: string; format: string; bytes: number; cachedAt: string }
+export interface OnlineContent { title: string; pages: string[]; sections: { title: string; text: string | null; imageUrl: string | null }[] }
 async function call<T>(command: string, args: Record<string, unknown>): Promise<T> {
   if (!isTauri()) throw new Error("正文获取和外部阅读器需要在 Genzo 桌面应用中使用。");
   return invoke<T>(command, args);
@@ -20,4 +21,6 @@ export const bookContentApi = {
   cache: (kind: ReadingKind, pathWord: string, entryId: string, group: string, refresh = false) => call<CachedContent>("cache_book_source_content", { kind, pathWord, entryId, group, refresh }),
   open: (kind: ReadingKind, pathWord: string, entryId: string, folder = false) => call<void>("open_cached_book_content", { kind, pathWord, entryId, folder }),
   clear: (kind: ReadingKind, pathWord: string, entryId: string) => call<void>("clear_cached_book_content", { kind, pathWord, entryId }),
+  online: (kind: ReadingKind, pathWord: string, entryId: string, group = "") => call<OnlineContent>("get_book_online_content", { kind, pathWord, entryId, group }),
+  image: (url: string) => call<ArrayBuffer>("get_book_online_image", { url }),
 };

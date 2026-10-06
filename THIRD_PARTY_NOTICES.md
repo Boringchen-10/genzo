@@ -35,6 +35,7 @@ Genzo v0.5.0 使用以下直接依赖。具体传递依赖及锁定版本以 `pn
 | regex | 动漫文件名规则解析 | Apache-2.0 OR MIT |
 | strsim | 标题相似度评分 | MIT |
 | reqwest | Bangumi 官方 API HTTPS 请求 | Apache-2.0 OR MIT |
+| futures-util | 阅读图片有界并发与来源顺序保持 | Apache-2.0 OR MIT |
 | anitomy-ng | 动画文件名结构解析（Anitomy 的纯 Rust 移植） | MPL-2.0 |
 | tmdb-rs | TMDB 官方 API 的类型化 Rust 客户端 | MIT |
 | async-trait | 异步元数据 Provider trait | Apache-2.0 OR MIT |
@@ -66,6 +67,10 @@ PotPlayer 进度适配使用其 Windows 消息协议及安装目录的 `CmdLine6
 漫画目录、章节及小说接口契约参考 [caolib/kira](https://github.com/caolib/kira)，固定核对提交 `8a7b3f060ef521f0cbeda719bf0931e9af5ed89e`（2026-10-05）：`lib/api/manga/manga_api.dart`、`lib/api/novel/novel_api.dart`、`lib/api/novel/novel_text.dart`、`lib/models/chapter.dart` 与 `lib/models/novel.dart`。Genzo 独立实现 Rust 请求 / 缓存、严格编码与目录解析和 React 界面，参考分页、请求头、来源标识与整卷 TXT 行号约定；不捆绑 / 启动 Kira，不移植 Flutter 界面或来源账号代码，不复制商标、Logo 与第三方素材。
 
 上游为 MIT License，Copyright (c) 2026 孤独的Lonely；完整声明见 [licenses/kira-MIT.txt](licenses/kira-MIT.txt)。代码许可不等于作品版权或官方接口授权。当前仅按用户操作获取有权访问的匿名内容，不绕过锁定或分发正文；服务兼容性可能改变。
+
+2026-10-05 的阅读网络增量另核对 `ac0a4db1d01f95d816d61a2960c48d5296a70c1b` 中 `lib/api/api_transport.dart`、`lib/api/network/network_api.dart` 和 `lib/api/copy_settings_auto_updater.dart`：仅参考六节点、API / 版本发现和启动时每日检查约定，Rust / React 独立实现，不复制登录或 Flutter 界面。
+
+futures-util 0.3.34 的 MIT / Apache-2.0 声明见 `licenses/futures-util-LICENSE-MIT.txt` 与 `licenses/futures-util-LICENSE-APACHE.txt`。reqwest system-proxy 增量使用 hyper-util（MIT）与 Windows 上的 windows-registry（MIT OR Apache-2.0）；锁文件的平台传递依赖 system-configuration / system-configuration-sys / core-foundation 为 MIT OR Apache-2.0，与 GPLv3 兼容。Windows 已构建验证，未据此声称 macOS 运行通过。
 
 ## encoding_rs
 

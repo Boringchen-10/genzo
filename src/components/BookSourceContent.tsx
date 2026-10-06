@@ -4,6 +4,7 @@ import { appendSourcePage, bookContentApi, type CachedContent, type ReadingKind,
 import { ErrorState, IconButton, LoadingState } from "./common";
 import { getErrorMessage } from "../utils";
 import "../book-content.css";
+type ContentOperation = "cache" | "refresh" | "open" | "folder" | "clear";
 
 export function BookSourceContent({ kind, pathWord }: { kind: ReadingKind; pathWord: string }) {
   const identity = `${kind}:${pathWord}`;
@@ -14,7 +15,9 @@ export function BookSourceContent({ kind, pathWord }: { kind: ReadingKind; pathW
   const [cached, setCached] = useState<Record<string, CachedContent>>({});
   const [loading, setLoading] = useState(true);
   const [expanding, setExpanding] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+  const active = useRef(new Set<string>());
+  const [failures, setFailures] = useState<Record<string, { message: string; operation: ContentOperation }>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [reverse, setReverse] = useState(false);
@@ -45,9 +48,11 @@ export function BookSourceContent({ kind, pathWord }: { kind: ReadingKind; pathW
     } catch (reason) { if (query.current === request) setError(getErrorMessage(reason)); }
     finally { if (query.current === request) setExpanding(false); }
   };
-  const action = async (id: string, operation: "cache" | "refresh" | "open" | "folder" | "clear") => {
-    if (busy) return;
-    const owner = identity; setBusy(id); setMenu(null); setError(""); setNotice("");
+  const action = async (id: string, operation: ContentOperation) => {
+    if (active.current.has(id)) return;
+    active.current.add(id);
+    const owner = identity; setBusy(new Set(active.current)); setMenu(null); setNotice("");
+    setFailures(values => { const next = { ...values }; delete next[id]; return next; });
     try {
       if (operation === "cache" || operation === "refresh") {
         const value = await bookContentApi.cache(kind, pathWord, id, page?.group ?? "", operation === "refresh");
@@ -59,16 +64,16 @@ export function BookSourceContent({ kind, pathWord }: { kind: ReadingKind; pathW
         await bookContentApi.open(kind, pathWord, id, operation === "folder");
         if (current.current === owner) setNotice(operation === "folder" ? "已打开缓存目录。" : "已交给外部阅读器；阅读状态请在书架手动记录。");
       }
-    } catch (reason) { if (current.current === owner) setError(getErrorMessage(reason)); }
-    finally { if (current.current === owner) setBusy(null); }
+    } catch (reason) { if (current.current === owner) setFailures(values => ({ ...values, [id]: { message: getErrorMessage(reason), operation } })); }
+    finally { active.current.delete(id); if (current.current === owner) setBusy(new Set(active.current)); }
   };
   const entries = page ? reverse ? [...page.entries].reverse() : page.entries : [];
   return <section className="detail-section book-source-content" aria-label={kind === "novel" ? "来源分卷" : "来源章节"}>
     <div className="detail-section-head"><h2>{kind === "novel" ? "来源分卷" : "来源章节"}</h2>
       <div className="book-content-controls">
-        {!!page?.groups.length && <select aria-label="章节分组" value={page.group} disabled={!!busy} onChange={e => setGroup(e.target.value)}>{page.groups.map(g => <option key={g.id} value={g.id}>{g.title}</option>)}</select>}
+        {!!page?.groups.length && <select aria-label="章节分组" value={page.group} disabled={busy.size > 0} onChange={e => setGroup(e.target.value)}>{page.groups.map(g => <option key={g.id} value={g.id}>{g.title}</option>)}</select>}
         <IconButton tooltip={reverse ? "当前倒序，切换顺序" : "当前顺序，切换倒序"} onClick={() => setReverse(v => !v)}><ArrowDownUp size={17} /></IconButton>
-        <IconButton tooltip="刷新来源目录" disabled={loading || !!busy} onClick={() => setAttempt(v => v + 1)}><RefreshCw size={17} /></IconButton>
+        <IconButton tooltip="刷新来源目录" disabled={loading || busy.size > 0} onClick={() => setAttempt(v => v + 1)}><RefreshCw size={17} /></IconButton>
       </div>
     </div>
     <p className="quiet-inline">按需获取有权访问的内容，完整缓存后以 {kind === "novel" ? "EPUB（含章节目录与插图，同时保留 TXT）" : "CBZ"} 交给工具中心的默认阅读器。打开不会自动标记已读。</p>
@@ -79,10 +84,12 @@ export function BookSourceContent({ kind, pathWord }: { kind: ReadingKind; pathW
     {!loading && page && <>
       <p className="quiet-inline">已显示 {page.entries.length} / {page.total} {kind === "novel" ? "卷" : "章"}{page.total === 0 ? " · 来源暂未提供目录" : ""}</p>
       <div className="book-content-entries">{entries.map(entry => <div className="book-content-row" key={entry.id}>
-        <div className="book-content-title"><strong>{entry.title}</strong><span>{busy === entry.id ? "正在处理…请稍候" : cached[entry.id] ? `已缓存 · ${cached[entry.id]!.format} · ${(cached[entry.id]!.bytes / 1024 / 1024).toFixed(1)} MB` : "尚未缓存"}</span></div>
-        <button type="button" className="button secondary compact icon-text" disabled={!!busy} onClick={() => void action(entry.id, cached[entry.id] ? "open" : "cache")}>{cached[entry.id] ? <BookOpen size={16} /> : <Download size={16} />}{cached[entry.id] ? "打开" : "获取"}</button>
+        <div className="book-content-title"><strong>{entry.title}</strong><span>{busy.has(entry.id) ? "正在处理或排队…可继续选择其他章卷" : cached[entry.id] ? `已缓存 · ${cached[entry.id]!.format} · ${(cached[entry.id]!.bytes / 1024 / 1024).toFixed(1)} MB` : "尚未缓存"}</span>
+          {failures[entry.id] && <p className="book-content-error" role="alert">{failures[entry.id]!.message}<button type="button" disabled={busy.has(entry.id)} onClick={() => void action(entry.id, failures[entry.id]!.operation)}>重试此操作</button></p>}
+        </div>
+        <button type="button" className="button secondary compact icon-text" disabled={busy.has(entry.id)} onClick={() => void action(entry.id, cached[entry.id] ? "open" : "cache")}>{cached[entry.id] ? <BookOpen size={16} /> : <Download size={16} />}{cached[entry.id] ? "打开" : "获取"}</button>
         <div className="book-content-menu-holder">
-          <IconButton tooltip={`${entry.title} 更多操作`} disabled={!!busy} onClick={() => setMenu(v => v === entry.id ? null : entry.id)}><MoreHorizontal size={17} /></IconButton>
+          <IconButton tooltip={`${entry.title} 更多操作`} disabled={busy.has(entry.id)} onClick={() => setMenu(v => v === entry.id ? null : entry.id)}><MoreHorizontal size={17} /></IconButton>
           {menu === entry.id && <><button className="book-content-dismiss" aria-label="关闭章节菜单" onClick={() => setMenu(null)} /><div className="book-content-menu" role="menu">
             <button role="menuitem" disabled={!cached[entry.id]} onClick={() => void action(entry.id, "folder")}><FolderOpen size={15} />打开缓存目录</button>
             <button role="menuitem" onClick={() => void action(entry.id, "refresh")}><RefreshCw size={15} />重新获取</button>
@@ -90,7 +97,7 @@ export function BookSourceContent({ kind, pathWord }: { kind: ReadingKind; pathW
           </div></>}
         </div>
       </div>)}</div>
-      {page.entries.length < page.total && <div className="gnz-explore-more"><button className="button secondary" disabled={expanding || !!busy} onClick={() => void expand()}>{expanding ? "正在展开…" : "展开更多章节"}</button></div>}
+      {page.entries.length < page.total && <div className="gnz-explore-more"><button className="button secondary" disabled={expanding} onClick={() => void expand()}>{expanding ? "正在展开…" : "展开更多章节"}</button></div>}
     </>}
   </section>;
 }

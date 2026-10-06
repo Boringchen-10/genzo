@@ -107,5 +107,5 @@ export function coverThumbnailVariant(path: string | null): string | null {
 }
 
 export function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "发生未知错误";
+  return typeof error === "string" ? error : error instanceof Error ? error.message : "发生未知错误";
 }
