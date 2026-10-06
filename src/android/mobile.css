@@ -193,6 +193,32 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-menu-body strong { font-size: 15px; font-weight: 500; }
 .android-app .gz-menu-arrow { color: var(--quiet); flex: none; }
 .android-app .gz-menu-dot { position: absolute; top: -2px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: #f0524d; box-shadow: 0 0 0 2px var(--surface-strong); }
+
+/* Profile / settings (我的): stats hero, quick entries, labelled groups (2026-10-06). */
+.android-app .gz-account-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px; padding: 12px 14px; text-align: left; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); -webkit-backdrop-filter: blur(var(--ui-blur)); backdrop-filter: blur(var(--ui-blur)); box-shadow: 0 6px 20px rgba(0,0,0, calc(0.26 * var(--shadow-scale, 1))); }
+.android-app .gz-account-avatar { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 46%), hsl(calc(var(--accent-h) + 22) var(--accent-s) 32%)); }
+.android-app .gz-account-body { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.android-app .gz-account-body strong { font-size: 15px; font-weight: 600; }
+.android-app .gz-profile-hero { position: relative; overflow: hidden; padding: 18px; border-radius: calc(var(--radius) + 6px); color: #fff; background: radial-gradient(130% 150% at 88% -10%, hsl(var(--accent-h) var(--accent-s) 52% / .75), transparent 62%), linear-gradient(135deg, hsl(var(--accent-h) calc(var(--accent-s) * .85) 30%), hsl(calc(var(--accent-h) + 26) calc(var(--accent-s) * .7) 15%)); box-shadow: 0 12px 30px hsl(var(--accent-h) var(--accent-s) 30% / .3); }
+.android-app .gz-profile-badge { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: rgba(255,255,255,.16); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.android-app .gz-profile-eyebrow { margin: 10px 0 14px; font-size: 12px; font-weight: 600; letter-spacing: .14em; color: rgba(255,255,255,.82); }
+.android-app .gz-profile-stats { display: flex; align-items: center; }
+.android-app .gz-profile-stat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.android-app .gz-profile-stat strong { font-size: 30px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.android-app .gz-profile-stat span { font-size: 12px; color: rgba(255,255,255,.78); }
+.android-app .gz-profile-divider { width: 1px; height: 34px; background: rgba(255,255,255,.24); }
+.android-app .gz-quick-cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+.android-app .gz-quick-card { display: flex; flex-direction: column; gap: 4px; padding: 14px; text-align: left; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); -webkit-backdrop-filter: blur(var(--ui-blur)); backdrop-filter: blur(var(--ui-blur)); box-shadow: 0 6px 20px rgba(0,0,0, calc(0.26 * var(--shadow-scale, 1))); }
+.android-app .gz-quick-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+.android-app .gz-quick-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--bg-raised); color: var(--accent); }
+.android-app .gz-quick-arrow { color: var(--quiet); }
+.android-app .gz-quick-card strong { font-size: 15px; font-weight: 600; }
+.android-app .gz-quick-card .gz-meta { font-size: 11px; }
+.android-app .gz-menu-section { margin-top: 22px; }
+.android-app .gz-menu-section-title { margin: 0 0 8px 4px; font-size: 12px; font-weight: 600; letter-spacing: .06em; color: var(--muted); }
+.android-app .gz-account-row + .gz-profile-hero { margin-top: 14px; }
+.android-app .gz-profile-hero + .gz-quick-cards { margin-top: 12px; }
+.android-app .gz-quick-cards + .gz-menu-section { margin-top: 22px; }
 .android-app .gz-book-head { position: relative; display: grid; grid-template-columns: 116px minmax(0,1fr); align-items: start; gap: 14px; margin: 8px 0 14px; }
 .android-app .gz-book-head .gz-poster { box-shadow: 0 8px 24px rgba(0,0,0, calc(.3 * var(--shadow-scale, 1))); }
 .android-app .gz-book-edit { position: absolute; top: -6px; right: -6px; z-index: 1; color: var(--muted); }
@@ -325,17 +351,17 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 @media (prefers-reduced-motion: no-preference) { .android-app .gz-spin { animation: gz-spin 1s linear infinite; } }
 
 /* View Transitions: page slides between primary tabs, shared-element morphs from a cover into the detail header. */
-@keyframes gz-vt-in-right { from { transform: translateX(26%); opacity: .35; } to { transform: translateX(0); opacity: 1; } }
-@keyframes gz-vt-out-left { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-20%); opacity: 0; } }
-@keyframes gz-vt-in-left { from { transform: translateX(-26%); opacity: .35; } to { transform: translateX(0); opacity: 1; } }
-@keyframes gz-vt-out-right { from { transform: translateX(0); opacity: 1; } to { transform: translateX(20%); opacity: 0; } }
-html::view-transition-old(root), html::view-transition-new(root) { animation-duration: 220ms; }
+@keyframes gz-vt-in-right { from { transform: translateX(24%); opacity: .4; } to { transform: translateX(0); opacity: 1; } }
+@keyframes gz-vt-out-left { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-18%); opacity: 0; } }
+@keyframes gz-vt-in-left { from { transform: translateX(-24%); opacity: .4; } to { transform: translateX(0); opacity: 1; } }
+@keyframes gz-vt-out-right { from { transform: translateX(0); opacity: 1; } to { transform: translateX(18%); opacity: 0; } }
+html::view-transition-old(root), html::view-transition-new(root) { animation-duration: 240ms; animation-timing-function: cubic-bezier(.22,1,.36,1); }
 html[data-trans="page"]::view-transition-old(root), html[data-trans="page"]::view-transition-new(root) { animation: none; }
-html[data-trans="page"][data-nav="forward"]::view-transition-old(gz-page) { animation: gz-vt-out-left 300ms cubic-bezier(.2,.8,.2,1) both; }
-html[data-trans="page"][data-nav="forward"]::view-transition-new(gz-page) { animation: gz-vt-in-right 320ms cubic-bezier(.2,.8,.2,1) both; }
-html[data-trans="page"][data-nav="back"]::view-transition-old(gz-page) { animation: gz-vt-out-right 300ms cubic-bezier(.2,.8,.2,1) both; }
-html[data-trans="page"][data-nav="back"]::view-transition-new(gz-page) { animation: gz-vt-in-left 320ms cubic-bezier(.2,.8,.2,1) both; }
-html[data-trans="morph"]::view-transition-group(*) { animation-duration: 360ms; animation-timing-function: cubic-bezier(.2,.8,.2,1); }
+html[data-trans="page"][data-nav="forward"]::view-transition-old(gz-page) { animation: gz-vt-out-left 320ms cubic-bezier(.22,1,.36,1) both; }
+html[data-trans="page"][data-nav="forward"]::view-transition-new(gz-page) { animation: gz-vt-in-right 360ms cubic-bezier(.22,1,.36,1) both; }
+html[data-trans="page"][data-nav="back"]::view-transition-old(gz-page) { animation: gz-vt-out-right 320ms cubic-bezier(.22,1,.36,1) both; }
+html[data-trans="page"][data-nav="back"]::view-transition-new(gz-page) { animation: gz-vt-in-left 360ms cubic-bezier(.22,1,.36,1) both; }
+html[data-trans="morph"]::view-transition-group(*) { animation-duration: 400ms; animation-timing-function: cubic-bezier(.22,1,.36,1); }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
@@ -354,9 +380,16 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 360ms; 
 .android-app :is(.gz-chapter-grid, .gz-credit-list, .gz-related-list, .gz-episodes, .gz-explore-grid, .gz-candidates) > *:nth-child(8) { animation-delay: 168ms; }
 .android-app :is(.gz-chapter-grid, .gz-credit-list, .gz-related-list, .gz-episodes, .gz-explore-grid, .gz-candidates) > *:nth-child(n+9) { animation-delay: 192ms; }
 .android-app :is(.gz-detail-head, .gz-book-head, .gz-detail-tabs, .gz-book-tabs, .gz-description, .gz-book-actions) { animation: gz-rise var(--gz-dur) var(--gz-ease) both; }
+.android-app .gz-profile-page > * { animation: gz-rise var(--gz-dur) var(--gz-ease) both; }
+.android-app .gz-profile-page > *:nth-child(2) { animation-delay: 40ms; }
+.android-app .gz-profile-page > *:nth-child(3) { animation-delay: 80ms; }
+.android-app .gz-profile-page > *:nth-child(4) { animation-delay: 120ms; }
+.android-app .gz-profile-page > *:nth-child(5) { animation-delay: 160ms; }
+.android-app .gz-profile-page > *:nth-child(6) { animation-delay: 200ms; }
 @media (prefers-reduced-motion: reduce) {
   .android-app :is(.gz-chapter-grid, .gz-credit-list, .gz-related-list, .gz-episodes, .gz-explore-grid, .gz-candidates) > *,
-  .android-app :is(.gz-detail-head, .gz-book-head, .gz-detail-tabs, .gz-book-tabs, .gz-description, .gz-book-actions) { animation: none; }
+  .android-app :is(.gz-detail-head, .gz-book-head, .gz-detail-tabs, .gz-book-tabs, .gz-description, .gz-book-actions),
+  .android-app .gz-profile-page > * { animation: none; }
 }
 
 /* Skeletons */
@@ -409,10 +442,18 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 360ms; 
 
 /* Press feedback */
 @media (prefers-reduced-motion: no-preference) {
-  .android-app :is(.gz-card, .gz-cover, .gz-row-card, .gz-menu-row, .gz-chapter, .gz-episode, .gz-continue, .gz-related, .gz-rank-row, .gz-btn) { transition: transform 140ms var(--gz-ease), filter 140ms linear; }
+  .android-app :is(.gz-card, .gz-cover, .gz-row-card, .gz-menu-row, .gz-chapter, .gz-episode, .gz-continue, .gz-related, .gz-rank-row, .gz-btn, .gz-chip, .gz-toggle-row, .gz-menu-iconwrap, .gz-book-pill, .gz-tag, .gz-style-chip, .gz-swatch-sm, .gz-book-action, .gz-status-pill, .gz-status-row, .gz-quick-card, .gz-account-row, .gz-iconbtn) {
+    transition: transform 190ms var(--gz-ease-spring), background-color 190ms var(--gz-ease), color 190ms var(--gz-ease), border-color 190ms var(--gz-ease), opacity 190ms var(--gz-ease);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .android-app .gz-menu-row .gz-menu-arrow, .android-app .gz-quick-arrow { transition: transform 200ms var(--gz-ease), color 200ms var(--gz-ease); }
 }
 @media (hover: none) {
-  .android-app :is(.gz-card, .gz-cover, .gz-row-card, .gz-menu-row, .gz-chapter, .gz-episode, .gz-continue, .gz-related, .gz-rank-row, .gz-btn):active { transform: scale(.975); }
+  .android-app :is(.gz-card, .gz-cover, .gz-row-card, .gz-menu-row, .gz-chapter, .gz-episode, .gz-continue, .gz-related, .gz-rank-row, .gz-btn, .gz-chip, .gz-toggle-row, .gz-book-pill, .gz-tag, .gz-style-chip, .gz-swatch-sm, .gz-book-action, .gz-status-pill, .gz-status-row, .gz-quick-card, .gz-account-row, .gz-iconbtn):active { transform: scale(.965); }
+  .android-app .gz-menu-row:active, .android-app .gz-status-row:not(.active):active { background: var(--bg-raised); }
+  .android-app .gz-menu-row:active .gz-menu-iconwrap { transform: scale(.88); color: var(--accent); }
+  .android-app .gz-menu-row:active .gz-menu-arrow, .android-app .gz-quick-card:active .gz-quick-arrow { transform: translateX(3px); color: var(--accent); }
+  .android-app .gz-quick-card:active .gz-quick-icon { transform: scale(.92); color: var(--accent); }
 }
 @media (prefers-reduced-motion: reduce) {
   .android-app .gz-scrim, .android-app .gz-sheet, .android-app .gz-toast, .android-app .gz-busy { animation: none; }

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Compass, Database, Download, Film, Filter, Folder, Heart, HeartCrack, History, Home, Inbox, Info, Library, LoaderCircle, MessageCircle, MessageSquare, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, User, UserPlus, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, BarChart3, Bell, Bookmark, BookOpen, Bot, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Compass, Database, Download, Film, Filter, Folder, Footprints, Heart, HeartCrack, History, Home, Inbox, Info, Library, LoaderCircle, MessageCircle, MessageSquare, Network, Palette, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, User, X } from "lucide-react";
 import { api, bookApi } from "../api";
 import type { BookEntry } from "../bookData";
 import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
@@ -173,6 +173,16 @@ function MenuRow({ label, icon: Icon, subtitle, onClick, chevron = true, dot = f
     <span className="gz-menu-iconwrap"><Icon size={22} />{dot && <span className="gz-menu-dot" aria-hidden="true" />}</span>
     <span className="gz-menu-body"><strong>{label}</strong>{subtitle && <span className="gz-meta gz-truncate">{subtitle}</span>}</span>
     {chevron && <ChevronRight className="gz-menu-arrow" size={18} aria-hidden="true" />}
+  </button>;
+}
+function MenuSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return <section className="gz-menu-section"><h2 className="gz-menu-section-title">{label}</h2><div className="gz-menu-group">{children}</div></section>;
+}
+function QuickCard({ label, subtitle, icon: Icon, onClick }: { label: string; subtitle: string; icon: React.ComponentType<{ size?: number | string }>; onClick: () => void }) {
+  return <button type="button" className="gz-quick-card" onClick={onClick}>
+    <span className="gz-quick-head"><span className="gz-quick-icon" aria-hidden="true"><Icon size={20} /></span><ChevronRight className="gz-quick-arrow" size={16} aria-hidden="true" /></span>
+    <strong>{label}</strong>
+    <span className="gz-meta">{subtitle}</span>
   </button>;
 }
 function WorkEditor({ work, onSave, busy }: { work: WorkDetail; onSave: (input: WorkInput) => void; busy: boolean }) {
@@ -703,30 +713,41 @@ export default function AndroidApp() {
           <button className="gz-btn" onClick={() => { setQuery(""); setFilter("all"); setCollectionScope("all"); if (!works.length) navigate("sources"); }}>{works.length ? "清除筛选" : "管理来源"}</button>
         </div>}
       </>}
-      {route === "profile" && <>
-        <div className="gz-menu">
-          <div className="gz-menu-group">
-            <MenuRow label="未登录" icon={UserPlus} chevron={false} onClick={() => setToast("账号功能待接入")} />
-            <MenuRow label="通用" icon={SlidersHorizontal} onClick={() => navigate("future/通用")} />
-            <MenuRow label="外观" icon={Palette} onClick={() => navigate("appearance")} />
-            <MenuRow label="网络" icon={Network} onClick={() => navigate("network")} />
-            <MenuRow label="资料库" icon={Database} subtitle="本地目录与来源管理" onClick={() => navigate("sources")} />
+      {route === "profile" && <div className="gz-profile-page">
+        <button type="button" className="gz-account-row" onClick={() => setToast("账号功能待接入")}>
+          <span className="gz-account-avatar" aria-hidden="true"><User size={22} /></span>
+          <span className="gz-account-body"><strong>未登录</strong><span className="gz-meta">登录后可同步观看记录与收藏</span></span>
+          <ChevronRight className="gz-menu-arrow" size={18} aria-hidden="true" />
+        </button>
+        <section className="gz-profile-hero">
+          <span className="gz-profile-badge" aria-hidden="true"><Footprints size={20} /></span>
+          <p className="gz-profile-eyebrow">观看足迹</p>
+          <div className="gz-profile-stats">
+            <div className="gz-profile-stat"><strong>{allWorks.filter(work => work.status === "completed").length}</strong><span>看过作品</span></div>
+            <span className="gz-profile-divider" aria-hidden="true" />
+            <div className="gz-profile-stat"><strong>{progress.length}</strong><span>观看集数</span></div>
           </div>
-          <div className="gz-menu-group">
-            <MenuRow label="下载中心" icon={Download} onClick={() => navigate("future/下载中心")} />
-            <MenuRow label="浏览记录" icon={History} onClick={() => navigate("future/浏览记录")} />
-            <MenuRow label="书签" icon={Bookmark} onClick={() => navigate("future/书签")} />
-            <MenuRow label="继续阅读漫画" icon={BookOpen} subtitle={continueItems[0] ? `${continueItems[0].title} · ${continueItems[0].fileName}` : "暂无阅读记录"} onClick={() => navigate("future/继续阅读漫画")} />
-            <MenuRow label="阅读统计" icon={BarChart3} onClick={() => navigate("future/阅读统计")} />
-          </div>
-          <div className="gz-menu-group">
-            <MenuRow label="AI配置" icon={Bot} onClick={() => navigate("future/AI配置")} />
-            <MenuRow label="通知中心" icon={Bell} dot onClick={() => navigate("future/通知中心")} />
-            <MenuRow label="关于" icon={Info} onClick={() => navigate("diagnostics")} />
-          </div>
+        </section>
+        <div className="gz-quick-cards">
+          <QuickCard label="浏览记录" subtitle="查看观看记录" icon={History} onClick={() => navigate("future/浏览记录")} />
+          <QuickCard label="下载中心" subtitle="管理离线内容" icon={Download} onClick={() => navigate("future/下载中心")} />
         </div>
+        <MenuSection label="内容与偏好">
+          <MenuRow label="通用" icon={SlidersHorizontal} onClick={() => navigate("future/通用")} />
+          <MenuRow label="外观" icon={Palette} onClick={() => navigate("appearance")} />
+          <MenuRow label="网络" icon={Network} onClick={() => navigate("network")} />
+          <MenuRow label="资料库" icon={Database} subtitle="本地目录与来源管理" onClick={() => navigate("sources")} />
+        </MenuSection>
+        <MenuSection label="数据与应用">
+          <MenuRow label="继续阅读漫画" icon={BookOpen} subtitle={continueItems[0] ? `${continueItems[0].title} · ${continueItems[0].fileName}` : "暂无阅读记录"} onClick={() => navigate("future/继续阅读漫画")} />
+          <MenuRow label="书签" icon={Bookmark} onClick={() => navigate("future/书签")} />
+          <MenuRow label="阅读统计" icon={BarChart3} onClick={() => navigate("future/阅读统计")} />
+          <MenuRow label="AI 配置" icon={Bot} onClick={() => navigate("future/AI配置")} />
+          <MenuRow label="通知中心" icon={Bell} dot onClick={() => navigate("future/通知中心")} />
+          <MenuRow label="关于" icon={Info} onClick={() => navigate("diagnostics")} />
+        </MenuSection>
         <p className="gz-footer">Genzo · 基于 Windows v0.5.0 · GPLv3</p>
-      </>}
+      </div>}
       {route === "appearance" && <>
         <SettingBlock title="主题模式">
           <div className="gz-set-row gz-set-inline">
