@@ -102,6 +102,7 @@ pub async fn add_webdav_source(
         credentials::delete(&id);
     }
     result?;
+    let _ = crate::android_sources::notify(&state.pool, &id).await;
     Ok(id)
 }
 
@@ -115,10 +116,17 @@ pub async fn update_webdav_credentials(
     let source = source(&state.pool, &id).await?;
     let credential = Credentials { username, password };
     let client = DavClient::new(&source.endpoint, credential.clone())?;
-    client
+    let checked = client
         .list(client.directory_url(&source.directory)?.path())
-        .await?;
-    credentials::save(&source.credential_id, &credential)
+        .await;
+    if let Err(error) = checked {
+        crate::android_sources::set_failure(&state.pool, &id, &crate::android_sources::failure(&error.to_string())).await?;
+        return Err(error);
+    }
+    credentials::save(&source.credential_id, &credential)?;
+    sqlx::query("UPDATE library_roots SET availability='online' WHERE id=?").bind(&id).execute(&state.pool).await?;
+    let _ = crate::android_sources::notify(&state.pool, &id).await;
+    Ok(())
 }
 
 // Encoding every byte makes the virtual path safe with the legacy NOCASE path index.

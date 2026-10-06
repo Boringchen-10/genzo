@@ -641,6 +641,9 @@ async fn apply(pool: &SqlitePool, input: &CorrectionInput, token: &str) -> AppRe
     crate::recognition_history::finish(&mut tx, undo, &input.target_work_id, &preview.title)
         .await?;
     tx.commit().await?;
+    let mut affected = vec![input.target_work_id.clone()];
+    affected.extend(input.source_work_id.clone());
+    crate::android_events::recognition(input.media_file_ids.clone(), affected);
     Ok(input.target_work_id.clone())
 }
 #[tauri::command]

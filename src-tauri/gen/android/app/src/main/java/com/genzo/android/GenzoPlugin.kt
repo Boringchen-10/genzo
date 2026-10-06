@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 import androidx.core.view.WindowInsetsControllerCompat
 
 @InvokeArg
-class TreeArgs { var uri: String? = null }
+class TreeArgs { var uri: String? = null; var rootUri: String? = null }
 @InvokeArg
 class PlayerArgs {
     lateinit var uri: String
@@ -27,11 +27,17 @@ class PlayerArgs {
     var mediaFileId: String? = null
     var sessionId: String? = null
     var resumeMs: Long? = null
+    var subtitleUri: String? = null
+    var subtitleFile: String? = null
+    var subtitleLabel: String? = null
+    var subtitleId: String? = null
 }
 @InvokeArg
 class CredentialArgs { lateinit var id: String; var username: String = ""; var password: String = "" }
 @InvokeArg
-class ControlArgs { lateinit var action: String; var value: Double = 0.0; var uri: String? = null }
+class ControlArgs { lateinit var action: String; var value: Double = 0.0; var uri: String? = null; var sessionId: String? = null; var trackId: String? = null }
+@InvokeArg
+class SessionArgs { lateinit var sessionId: String }
 @InvokeArg
 class AppearanceArgs { var dark: Boolean = true }
 
@@ -105,6 +111,12 @@ class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
             try {
                 val tree = Uri.parse(storedUri)
                 val treeId = DocumentsContract.getTreeDocumentId(tree)
+                args.rootUri?.let { root ->
+                    val allowed = Uri.parse(root)
+                    if (tree.authority != allowed.authority || treeId != DocumentsContract.getTreeDocumentId(allowed)) {
+                        throw SecurityException("Directory outside selected source")
+                    }
+                }
                 if (activity.contentResolver.persistedUriPermissions.none { permission ->
                     permission.isReadPermission && permission.uri.authority == tree.authority &&
                         DocumentsContract.isTreeUri(permission.uri) && DocumentsContract.getTreeDocumentId(permission.uri) == treeId
@@ -168,7 +180,9 @@ class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
         if (uri.scheme !in listOf("content", "https", "http")) { invoke.reject("Unsupported locator"); return }
         activity.startActivity(Intent(activity, PlayerActivity::class.java).putExtra("uri", args.uri)
             .putExtra("restart", args.restart).putExtra("mediaFileId", args.mediaFileId)
-            .putExtra("sessionId", args.sessionId).putExtra("resumeMs", args.resumeMs ?: -1L))
+            .putExtra("sessionId", args.sessionId).putExtra("resumeMs", args.resumeMs ?: -1L)
+            .putExtra("subtitleUri", args.subtitleUri).putExtra("subtitleFile", args.subtitleFile)
+            .putExtra("subtitleLabel", args.subtitleLabel).putExtra("subtitleId", args.subtitleId))
         invoke.resolve(JSObject().put("status", "opening"))
     }
 
@@ -181,7 +195,22 @@ class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun playerControl(invoke: Invoke) {
         val args = invoke.parseArgs(ControlArgs::class.java)
-        try { invoke.resolve(PlayerActivity.current?.get()?.control(args) ?: JSObject().put("status", "closed")) }
-        catch (_: Exception) { invoke.reject("invalid_player_control") }
+        activity.runOnUiThread {
+            try {
+                val current = PlayerActivity.current?.get()
+                if (args.sessionId != null && current == null) { invoke.reject("expired_player_session"); return@runOnUiThread }
+                invoke.resolve(current?.control(args) ?: JSObject().put("status", "closed"))
+            } catch (_: Exception) { invoke.reject("invalid_player_control") }
+        }
+    }
+
+    @Command
+    fun pickSubtitle(invoke: Invoke) {
+        val args = invoke.parseArgs(SessionArgs::class.java)
+        activity.runOnUiThread {
+            val current = PlayerActivity.current?.get()
+            if (current == null) invoke.reject("expired_player_session")
+            else current.pickSubtitle(invoke, args.sessionId)
+        }
     }
 }

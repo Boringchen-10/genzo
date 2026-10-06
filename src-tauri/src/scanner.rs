@@ -832,6 +832,8 @@ pub async fn run_prepared(pool: &SqlitePool, prepared: PreparedScan) -> AppResul
     sqlx::query("UPDATE library_roots SET availability = ? WHERE id = ?")
         .bind(if errors.iter().any(|error| error.contains("permission_denied")) {
             "permission_denied"
+        } else if errors.iter().any(|error| error.contains("credential_invalid")) {
+            "credential_invalid"
         } else if errors.is_empty() {
             "online"
         } else {
@@ -916,6 +918,7 @@ pub async fn run_prepared(pool: &SqlitePool, prepared: PreparedScan) -> AppResul
     if let Err(error) = crate::scan_tasks::persist(pool, &task).await {
         eprintln!("无法保存扫描任务摘要：{error}");
     }
+    let _ = crate::android_sources::notify(pool, &task.snapshot().root_id).await;
     result
 }
 

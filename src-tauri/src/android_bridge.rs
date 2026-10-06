@@ -54,13 +54,24 @@ pub async fn call(command: &str, payload: Value) -> AppResult<Value> {
 pub async fn android_native(
     app: tauri::AppHandle,
     command: String,
-    payload: Value,
+    mut payload: Value,
+    state: tauri::State<'_, crate::db::AppState>,
 ) -> AppResult<Value> {
     if !matches!(
         command.as_str(),
         "pickTree" | "listTree" | "pickVideo" | "openPlayer" | "playerState" | "playerControl"
     ) {
         return Err(AppError::Validation("未知安卓原型命令".into()));
+    }
+    if command == "listTree" {
+        if let Some(source_id) = payload["sourceId"].as_str() {
+            let root: String = sqlx::query_scalar("SELECT tree_uri FROM android_saf_sources WHERE source_id=?")
+                .bind(source_id).fetch_optional(&state.pool).await?
+                .ok_or_else(|| AppError::NotFound("已授权本地来源不存在".into()))?;
+            if payload["uri"].as_str().is_none() { payload["uri"] = serde_json::json!(root); }
+            payload["rootUri"] = serde_json::json!(root);
+            payload.as_object_mut().unwrap().remove("sourceId");
+        }
     }
     #[cfg(target_os = "android")]
     {

@@ -408,7 +408,7 @@ pub async fn open_path(state: &AppState, id: &str, streaming: bool) -> AppResult
                     .and_then(range_start)
                     == Some(0)
             {
-                return proxy(client, r.href, &r.extension).await;
+                return proxy(client, r.href, &r.extension, false, None).await.map(|stream| stream.uri.clone());
             }
         }
     }
@@ -417,12 +417,66 @@ pub async fn open_path(state: &AppState, id: &str, streaming: bool) -> AppResult
     Ok(path.to_string_lossy().into())
 }
 
-async fn proxy(client: DavClient, href: String, extension: &str) -> AppResult<String> {
+// Android plays the original stream. A missing Range implementation must never
+// silently start the desktop complete-file cache fallback.
+pub type StreamFailure = std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>;
+#[derive(Debug)]
+pub struct AndroidStream {
+    pub uri: String,
+    pub failure: Option<StreamFailure>,
+    pub abort: tokio::task::AbortHandle,
+}
+impl Drop for AndroidStream {
+    fn drop(&mut self) { if self.failure.is_some() { self.abort.abort(); } }
+}
+
+pub async fn stream_only(state: &AppState, id: &str) -> AppResult<AndroidStream> {
+    let r = resource(&state.pool, id).await?;
+    let source = remote_storage::source(&state.pool, &r.source_id).await?;
+    let client = remote_storage::client(&source)?;
+    let response = client.get(&r.href, Some("bytes=0-0"), false, None).await?;
+    if !response.status().is_success() { return Err(webdav::status_error(response.status().as_u16())); }
+    let valid = response.status().as_u16() == 206
+        && response.headers().get("content-range").and_then(|v| v.to_str().ok()).and_then(complete_range)
+            .is_some_and(|(start,end,total)| start == 0 && end == 0 && total > 0)
+        && response.content_length().is_none_or(|length| length == 1);
+    if !valid { return Err(AppError::Validation("range_unsupported：服务器没有提供有效的字节范围读取，请检查 WebDAV 服务".into())); }
+    drop(response);
+    proxy(client, r.href, &r.extension, true, Some(Default::default())).await
+}
+
+// Only indexed, small subtitle sidecars can use this complete-body transfer.
+pub async fn subtitle_file(state: &AppState, id: &str) -> AppResult<PathBuf> {
+    const LIMIT: u64 = 16 * 1024 * 1024;
+    let r = resource(&state.pool, id).await?;
+    if !["srt", "ass", "ssa"].contains(&r.extension.as_str()) || r.size < 0 || r.size as u64 > LIMIT {
+        return Err(AppError::Validation("字幕格式不支持或超过 16 MiB".into()));
+    }
+    let source = remote_storage::source(&state.pool, &r.source_id).await?;
+    let mut response = remote_storage::client(&source)?.get(&r.href, None, false, None).await?;
+    if response.status().as_u16() != 200 { return Err(webdav::status_error(response.status().as_u16())); }
+    if response.content_length().is_some_and(|size| size > LIMIT) {
+        return Err(AppError::Validation("字幕超过 16 MiB".into()));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| AppError::Network("字幕连接中断".into()))? {
+        if bytes.len() as u64 + chunk.len() as u64 > LIMIT { return Err(AppError::Validation("字幕超过 16 MiB".into())); }
+        bytes.extend_from_slice(&chunk);
+    }
+    let directory = state.data_directory.join("player-subtitles");
+    tokio::fs::create_dir_all(&directory).await?;
+    let path = directory.join(format!("{}.{}", Uuid::new_v4(), r.extension));
+    tokio::fs::write(&path, bytes).await?;
+    Ok(path)
+}
+
+async fn proxy(client: DavClient, href: String, extension: &str, strict_range: bool, failure: Option<StreamFailure>) -> AppResult<AndroidStream> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
     let token = format!("/{}.{}", Uuid::new_v4(), extension);
     let url = format!("http://{address}{token}");
-    tokio::spawn(async move {
+    let session_failure = failure.clone();
+    let task = tokio::spawn(async move {
         let end = tokio::time::Instant::now() + Duration::from_secs(12 * 3600);
         let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
         while let Ok(Ok((stream, _))) = tokio::time::timeout_at(end, listener.accept()).await {
@@ -430,13 +484,21 @@ async fn proxy(client: DavClient, href: String, extension: &str) -> AppResult<St
                 continue;
             };
             let (client, href, token) = (client.clone(), href.clone(), token.clone());
+            let failure = failure.clone();
             tokio::spawn(async move {
                 let _permit = permit;
-                let _ = serve(stream, &client, &href, &token).await;
+                let _ = serve(stream, &client, &href, &token, strict_range, &failure).await;
             });
         }
     });
-    Ok(url)
+    Ok(AndroidStream { uri:url, failure:session_failure, abort:task.abort_handle() })
+}
+
+fn record_stream_failure(failure: &Option<StreamFailure>, message: &str) {
+    if let Some(failure) = failure {
+        let mut current = failure.lock().unwrap();
+        if current.is_none() { *current = Some(crate::android_sources::failure(message)); }
+    }
 }
 
 async fn serve(
@@ -444,6 +506,8 @@ async fn serve(
     client: &DavClient,
     href: &str,
     token: &str,
+    strict_range: bool,
+    failure: &Option<StreamFailure>,
 ) -> AppResult<()> {
     let mut bytes = Vec::new();
     loop {
@@ -482,7 +546,8 @@ async fn serve(
     }
     let mut response = match client.get(href, range, request[0] == "HEAD", None).await {
         Ok(r) => r,
-        Err(_) => {
+        Err(error) => {
+            record_stream_failure(failure, &error.to_string());
             stream
                 .write_all(
                     b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -492,6 +557,14 @@ async fn serve(
         }
     };
     let status = response.status();
+    if !status.is_success() { record_stream_failure(failure, &webdav::status_error(status.as_u16()).to_string()); }
+    if strict_range && range.is_some() && status.is_success()
+        && (status.as_u16() != 206 || response.headers().get("content-range")
+            .and_then(|value| value.to_str().ok()).and_then(complete_range).is_none()) {
+        record_stream_failure(failure, "range_unsupported");
+        stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
+        return Ok(());
+    }
     let mut headers = format!(
         "HTTP/1.1 {} {}\r\nConnection: close\r\n",
         status.as_u16(),
@@ -514,7 +587,10 @@ async fn serve(
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|_| AppError::Network("远程播放连接中断".into()))?
+            .map_err(|error| {
+                record_stream_failure(failure, if error.is_timeout() { "network_timeout" } else { "source_offline" });
+                AppError::Network("远程播放连接中断".into())
+            })?
         {
             tokio::time::timeout(Duration::from_secs(60), stream.write_all(&chunk))
                 .await

@@ -2,6 +2,8 @@
 
 2026-10-04，开发基线 `v0.5.0` / `81b41d1`。下表是首版目标，不是全部完成的承诺。已按OpenDesign交付接入React可操作前端与本地数据 / 播放 / 续播，用户当前在电脑模拟器继续设计，暂不部署手机；原生控件仍为验证版。具体已验收与后续范围见 `FRONTEND_PREVIEW.md`。
 
+2026-10-06 接入状态以 [BACKEND_INTEGRATION.md](BACKEND_INTEGRATION.md) 为准：播放控制、字幕、WebDAV 原流、事件与多来源目录已通过模拟器合成样本验证；作者 / sourceScope / 浏览时间仍有明确缺口。继续复用 PC 共享 API，正式播放器控件由原生实现，React 不叠视频占位。
+
 ## 首版能力与交付边界
 
 | 能力 | 复用 / 新增 | 当前状态 |
@@ -10,9 +12,9 @@
 | 动漫、电影、电视剧、分集与多版本文件 | Bangumi 主锚点；影视 TMDB 主源 | SAF 索引及季集解析已接；共享识别 / 纠错手机闭环待验收 |
 | 手机下载目录授权、重启后访问 | Android SAF、持久 URI 权限 | 已接递归索引、共享扫描任务、重复扫描元数据复用；真机与模拟器合成目录验证通过，正式页面待接 |
 | 扫描、候选核对、手动搜索 / 建作品、纠错、刷新 | 现有任务及识别接口 | 需适配手机来源后验收 |
-| WebDAV 目录 / 扫描 / 播放 | 复用现有 Rust 协议；Android 安全凭据 | Keystore 密文与强制停止后读回已验；远程播放业务待验收 |
+| WebDAV 目录 / 扫描 / 播放 | 复用现有 Rust 协议；Android 安全凭据 | 模拟器合成服务通过鉴权 / Range / 断线恢复 / 离线保留；第三方真实服务与手机业务待验收 |
 | 网盘 | 用户提供的 WebDAV 服务 | 不包含任何网盘账号 / API 直连；需要直连时先确认具体服务 |
-| 应用内播放 | 原生内核 + Kotlin 视图 | LibVLC 真机验证原型；最终结论见播放器报告 |
+| 应用内播放 | 原生内核 + Kotlin 视图 | LibVLC 稳定媒体 ID 会话、控制、字幕候选 / 选择、SQLite 续播已接；原生控件仍为验证版 |
 | 漫画、轻小说、书架、探索 | 保留后续导航 / 扩展位置 | 安卓首版不交付阅读；不借用桌面已完成功能冒称手机可用 |
 | Windows 现有功能 | 保留独立桌面入口 / 配置 | 不改变已发布标签及原主目录草稿 |
 
@@ -52,7 +54,7 @@ React → Rust：`android_probe({write})` 检查平台、数据库完整性 / �
 | Kotlin 命令 | 输入 | 返回 |
 | --- | --- | --- |
 | `pickTree` | `{}` | `authorized + uri` / `cancelled` / `permission_denied` |
-| `listTree` | `{uri?: string}` | `available + files[]` / `not_authorized` / `permission_denied` / `source_offline`；只枚举第一层，不写媒体库 |
+| `listTree` | `{uri?: string,sourceId?:string}`（Rust 包装参数） | 按所选来源 ID 校验根与子 URI；`available + files[]` / `not_authorized` / `permission_denied` / `source_offline`；只枚举第一层，不写媒体库 |
 | `pickVideo` | `{}` | 单文件持久只读授权结果 |
 | `openPlayer` | `{uri, restart}` | `opening`；原生独立 Activity，随后读取真实状态 |
 | `playerState` | `{}` | 内核、真实位置 / 时长、可拖动性、倍速、音轨 / 字幕轨、偏移、错误状态 |

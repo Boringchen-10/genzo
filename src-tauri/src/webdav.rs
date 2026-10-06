@@ -60,6 +60,13 @@ fn invalid(message: &str) -> AppError {
 fn network() -> AppError {
     AppError::Network("WebDAV 请求失败，请检查网络、地址和凭据".into())
 }
+fn request_error(error: reqwest::Error) -> AppError {
+    AppError::Network(if error.is_timeout() {
+        "network_timeout：WebDAV 连接超时，请检查网络后重试"
+    } else {
+        "source_offline：WebDAV 请求失败，请检查网络和服务状态"
+    }.into())
+}
 
 pub fn endpoint(value: &str) -> AppResult<Url> {
     let mut url = Url::parse(value.trim()).map_err(|_| invalid("WebDAV 地址无效"))?;
@@ -163,7 +170,7 @@ impl DavClient {
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .header("Depth", "1").header("Content-Type", "application/xml; charset=utf-8")
             .body("<?xml version=\"1.0\" encoding=\"utf-8\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype/><d:getcontentlength/><d:getlastmodified/><d:getetag/></d:prop></d:propfind>")
-            .timeout(Duration::from_secs(60)).send().await.map_err(|_| network())?;
+            .timeout(Duration::from_secs(60)).send().await.map_err(request_error)?;
         if response.status().as_u16() != 207 {
             return Err(status_error(response.status().as_u16()));
         }
@@ -202,7 +209,7 @@ impl DavClient {
             if let Some(value) = if_range {
                 request = request.header("If-Range", value);
             }
-            let response = request.send().await.map_err(|_| network())?;
+            let response = request.send().await.map_err(request_error)?;
             if response.status().is_redirection() {
                 let location = response
                     .headers()
@@ -228,7 +235,8 @@ impl DavClient {
 
 pub fn status_error(code: u16) -> AppError {
     AppError::Network(match code {
-        401 | 403 => "WebDAV 认证失败或无权访问目录".into(),
+        401 => "credential_invalid：WebDAV 认证失败，请更新凭据".into(),
+        403 => "permission_denied：WebDAV 无权访问此目录或文件".into(),
         404 => "WebDAV 目录或文件不存在".into(),
         301 | 302 | 307 | 308 => "WebDAV 目录地址发生重定向，请填写最终服务地址".into(),
         _ => format!("WebDAV 服务返回 HTTP {code}"),

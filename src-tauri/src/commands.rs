@@ -262,7 +262,7 @@ async fn create_work_from_media_in_pool(
     .execute(&mut *transaction)
     .await?;
     replace_tags(&mut transaction, &id, &input.tags).await?;
-    for member_id in media_file_ids {
+    for member_id in &media_file_ids {
         sqlx::query(
             "UPDATE media_files SET work_id = ?, updated_at = ? WHERE id = ? AND work_id IS NULL",
         )
@@ -274,6 +274,7 @@ async fn create_work_from_media_in_pool(
     }
     media_mapping::rebuild_subtitle_links(&mut transaction, &id).await?;
     transaction.commit().await?;
+    crate::android_events::recognition(media_file_ids, vec![id.clone()]);
     Ok(id)
 }
 
@@ -422,6 +423,7 @@ async fn attach_unassigned_media_in_pool(
     crate::recognition_preferences::learn(&mut transaction, work_id, ids).await?;
     crate::recognition_history::finish(&mut transaction, undo, work_id, &title).await?;
     transaction.commit().await?;
+    crate::android_events::recognition(ids.to_vec(), vec![work_id.to_owned()]);
     Ok(())
 }
 
@@ -455,6 +457,7 @@ pub async fn attach_media_file(
     media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
     crate::anime_details::rebuild_episode_links(&mut transaction, &work_id).await?;
     transaction.commit().await?;
+    crate::android_events::recognition(vec![media_file_id], vec![work_id]);
     Ok(())
 }
 
@@ -479,11 +482,12 @@ pub async fn detach_media_file(media_file_id: String, state: State<'_, AppState>
         .bind(&media_file_id)
         .execute(&mut *transaction)
         .await?;
-    if let Some(work_id) = work_id {
-        media_mapping::rebuild_subtitle_links(&mut transaction, &work_id).await?;
-        crate::anime_details::rebuild_episode_links(&mut transaction, &work_id).await?;
+    if let Some(work_id) = &work_id {
+        media_mapping::rebuild_subtitle_links(&mut transaction, work_id).await?;
+        crate::anime_details::rebuild_episode_links(&mut transaction, work_id).await?;
     }
     transaction.commit().await?;
+    crate::android_events::recognition(vec![media_file_id], work_id.into_iter().collect());
     Ok(())
 }
 
@@ -594,12 +598,13 @@ pub async fn update_library_root(
             .bind(kind)
             .bind(enabled)
             .bind(Utc::now().to_rfc3339())
-            .bind(id)
+            .bind(&id)
             .execute(&state.pool)
             .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("扫描目录不存在".to_string()));
     }
+    let _ = crate::android_sources::notify(&state.pool, &id).await;
     Ok(())
 }
 
@@ -1098,6 +1103,9 @@ pub async fn recognize_media_file(
     if result.status == "matched" {
         allow_media_work_artwork(&app, &state.pool, &media_file_id).await?;
     }
+    let work_id: Option<String> = sqlx::query_scalar("SELECT work_id FROM media_files WHERE id=?")
+        .bind(&media_file_id).fetch_optional(&state.pool).await?.flatten();
+    crate::android_events::recognition(vec![media_file_id], work_id.into_iter().collect());
     Ok(result)
 }
 
@@ -1108,11 +1116,20 @@ pub async fn recognize_unmatched_media(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> AppResult<RecognitionSummary> {
+    #[cfg(target_os = "android")]
+    let started = Utc::now().to_rfc3339();
     let result = match kind.as_deref().unwrap_or("anime") {
         "anime" => metadata::recognize_batch(&state).await?,
         kind => crate::film_tv::batch(&state, crate::film_tv::Kind::parse(kind)?, &media_file_ids.unwrap_or_default()).await?,
     };
     db::allow_cached_images(&app, &state.cover_cache_path)?;
+    #[cfg(target_os = "android")]
+    {
+        let changed: Vec<(String,Option<String>)> = sqlx::query_as("SELECT id,work_id FROM media_files WHERE updated_at>=?").bind(started).fetch_all(&state.pool).await?;
+        let media_ids = changed.iter().map(|(id,_)| id.clone()).collect();
+        let work_ids = changed.into_iter().filter_map(|(_,work)| work).collect::<std::collections::HashSet<_>>().into_iter().collect();
+        crate::android_events::recognition(media_ids,work_ids);
+    }
     Ok(result)
 }
 
@@ -1156,6 +1173,7 @@ pub async fn confirm_match_candidate(
         .bind(&candidate_id).bind(&media_file_id).fetch_optional(&state.pool).await?
         .ok_or_else(|| AppError::NotFound("候选作品不存在或已失效".into()))?;
     let candidate: WorkMetadata = serde_json::from_str(&json)?;
+    let affected_ids = selected_media_ids.clone().unwrap_or_else(|| vec![media_file_id.clone()]);
     let work_id = match selected_media_ids {
         Some(ids) => metadata::confirm_candidate_local_selected(&state, &media_file_id, &candidate_id, &ids, grouping::GroupScope::parse(group_scope.as_deref())).await?,
         None => metadata::confirm_candidate_local(&state, &media_file_id, &candidate_id).await?,
@@ -1168,6 +1186,7 @@ pub async fn confirm_match_candidate(
     for path in [artwork_paths.0, artwork_paths.1].into_iter().flatten() {
         db::allow_cover_file(&app, Path::new(&path))?;
     }
+    crate::android_events::recognition(affected_ids, vec![work_id.clone()]);
     let state = state.inner().clone();
     let target = work_id.clone();
     tauri::async_runtime::spawn(async move {
@@ -1177,6 +1196,7 @@ pub async fn confirm_match_candidate(
             Ok(paths) => {
                 for path in paths { let _ = db::allow_cover_file(&app, Path::new(&path)); }
                 let _ = app.emit("work-metadata-updated", &target);
+                crate::android_events::recognition(vec![], vec![target.clone()]);
             }
             Err(error) => { eprintln!("作品补充资料更新失败：{error}"); let _ = app.emit("work-metadata-updated", &target); }
         }
@@ -1189,7 +1209,9 @@ pub async fn cancel_match_candidates(
     media_file_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    metadata::cancel_candidates(&state.pool, &media_file_id).await
+    metadata::cancel_candidates(&state.pool, &media_file_id).await?;
+    crate::android_events::recognition(vec![media_file_id], vec![]);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1202,7 +1224,16 @@ pub async fn list_recognition_history(work_id: Option<String>, state: State<'_, 
 
 #[tauri::command]
 pub async fn undo_recognition(id: String, state: State<'_, AppState>) -> AppResult<()> {
-    crate::recognition_history::undo(&state.pool, &id).await
+    #[cfg(target_os = "android")]
+    let scope: Option<String> = sqlx::query_scalar("SELECT scope_json FROM recognition_history WHERE id=?").bind(&id).fetch_optional(&state.pool).await?;
+    crate::recognition_history::undo(&state.pool, &id).await?;
+    #[cfg(target_os = "android")]
+    if let Some(scope) = scope {
+        let scope: serde_json::Value = serde_json::from_str(&scope)?;
+        let ids = |key: &str| scope[key].as_array().into_iter().flatten().filter_map(|value| value.as_str().map(str::to_owned)).collect();
+        crate::android_events::recognition(ids("files"), ids("works"));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1361,7 +1392,9 @@ pub async fn refresh_work_metadata(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<AnimeWorkStructure> {
-    crate::anime_details::refresh_work_metadata(&state, &app, &work_id).await
+    let result = crate::anime_details::refresh_work_metadata(&state, &app, &work_id).await?;
+    crate::android_events::recognition(vec![], vec![work_id]);
+    Ok(result)
 }
 
 #[tauri::command]

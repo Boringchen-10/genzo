@@ -1,5 +1,20 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 安卓后端接入 / 模拟器验证（2026-10-06）
+
+- 在 `H:\二次元阅读器\.tmp\android-first` / `codex/android-first` 承接 OpenDesign `4c96046`，起始只有其未跟踪的 `docs/android/CODEX_BACKEND_PROMPT.md`；原件保留且不纳入本轮提交。主 Windows 工作区的 UI / 文档草稿未触碰，版本仍沿用 v0.5.0 基线，没有发布 / 标签 / 推送或手机安装。
+- 用户确认实时 Bangumi 日历 + 离线缓存，随后要求优先复用 PC、不要更新 bangumi-data。本轮只将 Android `get_weekly_calendar` 接 PC Bangumi 客户端 `/calendar` 星期分组与现有 SQLite metadata_cache（成功缓存 6 小时，失败保留旧成功时间 / stale，冷启动离线报错）；历史季度概览仍为 PC 旧索引，2026-10 可为空，不能称实时历史季度已实现。Windows 原有探索保留。
+- 冻结的 `control_internal_player`、`pick_external_subtitle`、`list_subtitle_candidates` 已接；稳定媒体 ID 的 SAF / WebDAV 播放、显式字幕 ID、唯一自动关联 / 多候选人工选择、毫秒偏移、会话与参数验证、未知时长 null、SQLite 进度 / 续播均可用。远程字幕限制已索引 SRT/ASS/SSA、16 MiB 私有临时文件；视频没有完整缓存兜底或转码。
+- 复用 PC WebDAV 添加 / 浏览 / 凭据更新 / 索引，Android 凭据仍在 Keystore 加密私有存储。严格原流代理检查 Range、记录连接故障；故障覆盖内核误报 ended，并避免接近片尾错误样本被标记看完。模拟器合成 Basic Auth 服务通过扫描只读 PROPFIND、原流播放 / seek / 1.5×、音轨 / 内嵌 ASS、外挂 SRT、401 / 无 Range、断线 / 重连续播、离线保留索引 / 收藏 / 笔记 / 进度及恢复复用。
+- 四类事件已接：android-source-state / scan-task-updated / recognition-updated / player-state；共享识别 / 确认 / 纠错 / 撤销 / 手工整理 / 刷新通知重新读快照。前端按实体 revision 丢弃旧事件，监听后 / 返回前台读取快照，解除与部分注册失败清理有单测；正常扫描通知至少隔 500 ms，终态即时。大库长任务 / 取消竞态 / 前后台反复切换尚未完整验证，保留扫描 1 秒轮询。
+- 原目录浏览继续沿用原型 `android_native(listTree,{sourceId,uri?})`，Rust 注入登记根，原生核对授权树；页面已传来源 ID。两个合成目录授权独立定位、切换后原根保留、跨树拒绝通过；新增 Nested QA 来源结束后停用，不撤销原授权。正式独立目录业务命令名称尚未冻结，不宣称原型方法已变成正式命令。
+- 实际截图发现并修复两类原生问题：系统选择器销毁 surface 后只在 onCreate 绑定导致黑屏，改 onStart/onStop 重绑 / 释放；debug goldfish/ranchu 的硬解暂停 seek 保留旧帧，仅模拟器改软件解码。另定位暂停修改倍速会丢弃当前长字幕 cue，保存选定值并在 Playing 应用，不自动恢复播放。新包手选 SRT、ASS / SSA 基础样式、远程 seek + 倍速 + 偏移后字幕均实际查看截图。
+- 后端 Prompt 的 category 缺失判断过时，现有 work_category.rs 已提供派生分类。作者 / sourceScope / 真实浏览时间与其“不改 DTO / DB”约束冲突，未扩大结构；网络范围仍回退 local，浏览排序仍 updatedAt。WebDAV 正式连接表单尚需 OpenDesign 接入；`我的 → 网络` 是阅读网络占位，不能冒称 WebDAV 表单。真实 Bangumi / TMDB 自动识别 / 候选 / 纠错 / 刷新闭环、撤权恢复、大库、复杂字幕 / 字体 / HDR / 音频输出仍待验收。
+- 最终回归：Windows 共享 Rust 272 通过 / 14 忽略 / 0 失败，含存量迁移与原有远程缓存 / 下载；前端 18 文件 / 74 项、TypeScript / Vite 构建、Android x86_64 Rust / Gradle 打包通过。没有新增迁移 / 依赖，也未重新打 Windows 安装器或做全部原生窗口人工回归。现有 Vite chunk / Kotlin / Gradle 弃用提示保留。
+- 最终固定包 `D:\DevTools\Android\Build\artifacts\Genzo-android-backend-20261006-x86_64-debug-preview.apk`，121,746,255 字节，SHA256 `28f83845af173b663d5aa4dd9da764addd265fb6b3c0db62a208815ec120e8ab`。源 .so 与 merged、APK 与 stripped 哈希相符（符号裁剪使源与 APK 不应直接比较）；zipalign 16 KiB 静态检查通过，无 16 KiB 页设备验收。较早同日非 preview 包含上述显示问题，保留但不用于修复验收。
+- 新包五项实际 React 导航在 412px 无水平溢出，force-stop 后 SAF 授权 / 启停、观看进度、外观及日历缓存保留；模拟器停留首页。QA `scripts/verify-android-backend.mjs` / `verify-android-subtitles.mjs` 限定模拟器与自制样本；结果 / 截图 / UI smoke 脚本在 D:\DevTools\Android\Build\qa\backend。早期失败日志保留用于定位，最新 backend.json / subtitles.json / ui-smoke.json 为成功记录。
+- 供 OpenDesign 的实际接入说明、缺口与验收边界见 `docs/android/BACKEND_INTEGRATION.md`，已同步桥接契约、设计回应、预览、播放器评估、上下文与路线。下一阶段先接正式 WebDAV 表单 / 错误入口及原生设计，继续验证真实识别与权限 / 生命周期；漫画 / 小说阅读、网盘账号直连、后台服务 / PiP / DRM 不在本轮交付。
+
 ## 安卓模拟器继续前端迭代（2026-10-05）
 
 - 用户要求打开电脑虚拟安卓继续优化已有前端，仍只部署模拟器。本轮核对 `codex/android-first` / HEAD `8f3c146`，起始工作区干净；保留 OpenDesign 最新五项导航、首页分类滑轨及「我的」三段分页 / 外观控件，没有修改前端。主目录 Windows 与其他未提交修改未触碰。

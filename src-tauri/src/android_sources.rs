@@ -15,6 +15,9 @@ pub struct VideoSource {
     enabled: bool,
     state: String,
     last_scanned_at: Option<String>,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -60,8 +63,48 @@ pub async fn directory(uri: &str) -> AppResult<Directory> {
 }
 
 pub async fn list(pool: &SqlitePool) -> AppResult<Vec<VideoSource>> {
-    Ok(sqlx::query_as("SELECT r.id,CASE WHEN s.source_id IS NOT NULL THEN 'saf' ELSE 'webdav' END kind,COALESCE(s.label,w.name) label,r.enabled,CASE r.availability WHEN 'online' THEN 'available' WHEN 'unknown' THEN 'checking' WHEN 'permission_denied' THEN 'permission_denied' WHEN 'credential_invalid' THEN 'credential_invalid' ELSE 'offline' END state,r.last_scanned_at FROM library_roots r LEFT JOIN android_saf_sources s ON s.source_id=r.id LEFT JOIN remote_sources w ON w.id=r.id WHERE r.kind='video' AND (s.source_id IS NOT NULL OR w.id IS NOT NULL) ORDER BY label")
-        .fetch_all(pool).await?)
+    let mut sources: Vec<VideoSource> = sqlx::query_as("SELECT r.id,CASE WHEN s.source_id IS NOT NULL THEN 'saf' ELSE 'webdav' END kind,COALESCE(s.label,w.name) label,r.enabled,CASE r.availability WHEN 'online' THEN 'available' WHEN 'unknown' THEN 'checking' WHEN 'permission_denied' THEN 'permission_denied' WHEN 'credential_invalid' THEN 'credential_invalid' WHEN 'connection_failed' THEN 'connection_failed' WHEN 'not_authorized' THEN 'not_authorized' ELSE 'offline' END state,r.last_scanned_at FROM library_roots r LEFT JOIN android_saf_sources s ON s.source_id=r.id LEFT JOIN remote_sources w ON w.id=r.id WHERE r.kind='video' AND (s.source_id IS NOT NULL OR w.id IS NOT NULL) ORDER BY label")
+        .fetch_all(pool).await?;
+    for source in &mut sources {
+        source.error = match source.state.as_str() {
+            "permission_denied" | "not_authorized" => Some(failure("permission_denied")),
+            "credential_invalid" => Some(failure("credential_invalid")),
+            "offline" => Some(failure("source_offline")),
+            "connection_failed" => Some(failure("connection_failed")),
+            _ => None,
+        };
+    }
+    Ok(sources)
+}
+
+pub fn failure(message: &str) -> Value {
+    let (code,text) = if message.contains("credential_invalid") { ("credential_invalid","来源认证失败，请更新账号和密码") }
+        else if message.contains("permission_denied") { ("permission_denied","读取权限已失效，请重新授权或检查服务权限") }
+        else if message.contains("range_unsupported") { ("range_unsupported","服务器未提供有效的 Range 支持，请检查 WebDAV 服务") }
+        else if message.contains("network_timeout") { ("network_timeout","连接超时，请检查网络后重试") }
+        else if message.contains("source_offline") { ("source_offline","来源暂时离线，索引和个人记录已保留") }
+        else { ("unknown","无法连接来源，请检查地址、网络和服务状态后重试") };
+    json!({"code":code,"message":text,"retryable":true})
+}
+
+pub async fn set_failure(pool: &SqlitePool, source_id: &str, error: &Value) -> AppResult<()> {
+    let state = match error["code"].as_str() {
+        Some("credential_invalid") => "credential_invalid",
+        Some("permission_denied") => "permission_denied",
+        Some("source_offline") => "offline",
+        Some("range_unsupported") => "online",
+        _ => "connection_failed",
+    };
+    sqlx::query("UPDATE library_roots SET availability=? WHERE id=?").bind(state).bind(source_id).execute(pool).await?;
+    notify(pool, source_id).await?;
+    Ok(())
+}
+
+pub async fn notify(pool: &SqlitePool, source_id: &str) -> AppResult<()> {
+    if let Some(source) = list(pool).await?.into_iter().find(|source| source.id == source_id) {
+        crate::android_events::source(&source);
+    }
+    Ok(())
 }
 
 async fn save_source(pool: &SqlitePool, uri: &str, label: &str, source_id: Option<&str>) -> AppResult<String> {
@@ -101,6 +144,7 @@ pub async fn authorize_video_source(label: Option<String>, source_id: Option<Str
     let label = label.or(checked.label).unwrap_or_else(|| "本地视频".into());
     let id = save_source(&state.pool, uri, &label, source_id.as_deref()).await?;
     let source = list(&state.pool).await?.into_iter().find(|source| source.id == id);
+    if let Some(source) = &source { crate::android_events::source(source); }
     Ok(json!({"status":"authorized", "source":source}))
 }
 
@@ -113,6 +157,8 @@ pub async fn scan_video_source(source_id: String, state: State<'_, AppState>) ->
         return Err(AppError::Validation("请选择启用的 SAF 或 WebDAV 视频来源".into()));
     }
     let prepared = scanner::prepare_scan(&state.pool, &source_id, None).await?;
+    sqlx::query("UPDATE library_roots SET availability='unknown' WHERE id=?").bind(&source_id).execute(&state.pool).await?;
+    notify(&state.pool, &source_id).await?;
     let task_id = prepared.id().to_owned();
     let pool = state.pool.clone();
     tauri::async_runtime::spawn(async move { let _ = scanner::run_prepared(&pool, prepared).await; });

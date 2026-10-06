@@ -6,7 +6,7 @@
 
 React 通过 `@tauri-apps/api/core.invoke(command, args)` 异步读写，用 `src/api.ts` 完成缓存图片地址转换。命令参数 camelCase，返回共享 DTO；错误 reject，不用全局 toast 事件替代请求结果。Tauri `listen(event, handler)` 用于持续状态变化，离开页面解除监听。没有 `GenzoNative.call` 或独立 HTTP 业务服务。
 
-OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端函数名，底层命令常量只使用下面的实际名称。列表请求返回快照；不发送名为 `works/work/progress` 的 RPC 回包事件。当前扫描仍使用 1 秒轮询，事件接入前不能订阅空事件等待数据。
+OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端函数名，底层命令常量只使用下面的实际名称。列表请求返回快照；不发送名为 `works/work/progress` 的 RPC 回包事件。2026-10-06 已接四类状态事件及订阅后 / 返回前台快照读取，暂保留扫描 1 秒轮询作兜底。
 
 ## 共享命令常量（v0.5.0 已有）
 
@@ -34,7 +34,7 @@ OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端�
 
 ## 安卓业务命令常量（新增，逐项接入）
 
-已实现来源前三项（授权、状态、扫描）及本地SAF稳定媒体ID的 `open_internal_player` / `get_internal_player_state`；播放控制和字幕候选接口仍待接。来源返回状态是上次授权 / 扫描结果，不在列表读取时联网或遍历整个目录。扫描读取共享 `list_scan_tasks`，事件接口待接入。当前React页面已接共享作品 / 收藏 / 个人记录；原生控件仍为验证版。
+已实现下表全部业务命令；播放支持已索引的 SAF / WebDAV 视频、稳定媒体 ID、字幕候选与 SQLite 续播。来源返回状态是上次授权 / 扫描 / 播放检查结果，不在列表读取时联网或遍历整个目录。当前 React 页面复用共享作品 / 收藏 / 个人记录；原生控件仍为验证版。实测范围与缺口见 `BACKEND_INTEGRATION.md`。
 
 | invoke 常量 | 参数 | 返回 |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ OpenDesign 的 `library.* / sources.* / inbox.* / player.*` 可以作为前端�
 | `pick_external_subtitle` | `{sessionId:string}` | `{status:'selected'|'cancelled'|'permission_denied'|'subtitle_error',track?:SubtitleTrack}` |
 | `list_subtitle_candidates` | `{mediaFileId:string}` | `SubtitleTrack[]`；唯一可靠关联可自动选，多项提供人工选择 |
 
-当前 `open_internal_player` 只接已启用的SAF视频；restart / SQLite续播已实现，subtitleId选择尚未实现，不应从页面传入。WebDAV播放需继续接鉴权与Range。React后台由Rust采样原生会话，每5秒及状态改变写共享进度，原生备份最后有效样本供重启恢复；没有用Windows resume_playback。主题使用共享theme设置及 `set_android_appearance({dark:boolean})` 同步系统图标，系统实际inset由MainActivity处理。
+`open_internal_player` 只接已索引且启用的 SAF / WebDAV 视频。`subtitleId` 只能选择该视频的可用候选；唯一候选自动关联，多个候选不自动选首项。手动选择使用系统单文件选择器；小字幕复制到应用私有临时文件，远程字幕限制为已索引的 SRT / ASS / SSA 且不超过 16 MiB。视频不走完整文件下载兜底。Rust 使用内部鉴权 Range 转发，转发故障覆盖内核可能误报的播放结束；关闭 / 替换会话停止该转发入口。React 后台由 Rust 每 5 秒及状态改变写共享进度，原生备份最后有效样本供重启恢复；没有用 Windows `resume_playback`。主题与实际 inset 沿用既有实现。
 
 ```ts
 type SourceState = 'not_authorized'|'checking'|'available'|'connection_failed'|
@@ -84,7 +84,9 @@ type PlayerSnapshot = {
 
 时间统一毫秒；内核微秒只在 Kotlin 边界转换。track ID 是内核 / 会话内 ID，不是数组下标。未知时长为 null，不渲染 NaN 百分比。原始文档 URI + sourceId 用于后端定位，业务身份用稳定媒体 ID。个人进度后台按 5 秒及暂停 / 退出 / 片尾保存，不要求 React 播放期间持续运行写库。
 
-## 事件常量（新增，尚未实现）
+暂停时修改倍速会保留选定值，快照 `rate` 表达该选择，在恢复 Playing 时交给内核；避免 LibVLC 3.7.7 暂停变速丢弃字幕 cue，不为修改倍速自动恢复播放。
+
+## 事件常量（2026-10-06 已接入）
 
 | listen 常量 | payload |
 | --- | --- |
@@ -101,4 +103,4 @@ type PlayerSnapshot = {
 
 播放器错误显示重试 / 重连 / 重新授权 / 选字幕中适用的一项。通用 EncounteredError 无法可靠推断 codec 时返回 unknown，不猜“解码不支持”。权限与凭据失败可明确分类。没有合适字幕只显示选择入口，不冒充播放失败；多个外挂候选必须人工选。
 
-当前验证入口 `android_probe` / `android_native` 的 Kotlin 方法名只供 QA，不作为正式业务契约。正式页面不传任意播放 URI、不读取凭据，也不调用 Windows 工具命令。
+当前验证入口 `android_probe` / `android_native` 的 Kotlin 方法名不是正式播放业务契约。现有目录浏览暂沿用 `android_native(listTree,{uri?,sourceId?})`：Rust 按来源 ID 注入已登记根 URI，原生核对目录属于该授权树；没有按“最近目录”替代所选来源。独立目录业务命令须另行冻结名称，当前不另造一套通道。正式页面不传任意播放 URI、不读取凭据，也不调用 Windows 工具命令。

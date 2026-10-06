@@ -2,6 +2,8 @@
 
 核对日期 2026-10-04，基线 Windows v0.5.0。选择 **LibVLC 3.7.7** 作为安卓首版主内核；已通过一加用户设备原型，尚未完成正式媒体库播放会话 / WebDAV 业务闭环。
 
+2026-10-06 后续验证：稳定媒体 ID 的 SAF / WebDAV 原流播放、控制、候选字幕、单文件选择与 SQLite 续播已接，电脑 API36 x86_64 模拟器通过合成服务鉴权 / Range / 断线恢复。系统选择器后 surface 重绑、模拟器 debug 软件解码及暂停倍速延后应用均已有失败 / 修复截图。当前原生控件仍为验证版，真机没有部署本轮包；详细范围见 [BACKEND_INTEGRATION.md](BACKEND_INTEGRATION.md)。以下表格保留第一阶段真机记录，不把其待办当当前未实现判断。
+
 ## 官方维护、许可与嵌入成本
 
 | 内核 | 当前维护证据 | 许可核对 | 安卓 / Tauri 接入 | 包体依据 |
@@ -16,9 +18,9 @@ LibVLC 在当前样本中同时打通 H.264/H.265、MKV、双音轨、内嵌与�
 
 ## 原型实现与“无损播放”
 
-本地 SAF URI 用 `ContentResolver.openFileDescriptor(uri,"r")` 取得可读描述符，直接交给 `Media`；网络媒体用原始流或后续 Rust 鉴权 Range 代理。没有把视频复制到私有缓存再播放，没有编码 / 压缩 / 转码步骤，没有自有解码器。LibVLC 配置优先硬件解码并允许其内置回退；当前没有验证具体每个样本最终使用哪一个设备 decoder，不能宣称所有样本都硬解。
+本地 SAF URI 用 `ContentResolver.openFileDescriptor(uri,"r")` 取得可读描述符，直接交给 `Media`；网络媒体用原始流及 Rust 鉴权 Range 代理。没有把视频复制到私有缓存再播放，没有编码 / 压缩 / 转码步骤，没有自有解码器。设备保留硬件优先并允许内核回退；debug ranchu / goldfish 模拟器使用 LibVLC 软件解码，避免暂停拖动后旧帧。不能宣称所有设备样本都硬解。
 
-外挂字幕仅复制用户选中的小型 SRT/ASS/SSA 至私有临时目录，单项上限 16 MiB，Activity 结束清理；视频不复制。原型仍用 URI 哈希的 SharedPreferences 证明续播，正式接入应写既有 `playback_progress` 稳定媒体 ID，不能称首页继续观看业务已完成。
+外挂字幕仅复制用户选中的小型 SRT/ASS/SSA 至私有临时目录，单项上限 16 MiB，Activity 结束清理；视频不复制。第一阶段仅用 URI 哈希 SharedPreferences 验证续播；后续已写既有 `playback_progress` 稳定媒体 ID 并接首页继续观看，实测范围见本阶段接入报告。
 
 ## 真机样本结果
 

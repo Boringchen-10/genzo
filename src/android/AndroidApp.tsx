@@ -8,7 +8,7 @@ import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, Unassign
 import { activeScan, type ScanTask } from "../scanTasks";
 import { playbackPercent, playbackTime, type PlaybackProgress } from "../playback";
 import { usePreferences, type ThemeStyle } from "../store";
-import { androidApi, isDirectoryEntry, type DocumentEntry, type VideoSource } from "./api";
+import { androidApi, isDirectoryEntry, listenAndroidChanges, type DocumentEntry, type VideoSource } from "./api";
 import AndroidPrototype from "./AndroidPrototype";
 import ExplorePanel from "./ExplorePanel";
 import NetworkPanel from "./NetworkPanel";
@@ -314,6 +314,7 @@ export default function AndroidApp() {
   const [browseStack, setBrowseStack] = useState<{ name: string; uri: string | null }[]>([]);
   const [browseFolders, setBrowseFolders] = useState<DocumentEntry[]>([]);
   const [browseState, setBrowseState] = useState<"loading" | "available" | "empty" | "error">("loading");
+  const browseSource = useRef<string | undefined>(undefined);
   const [shelfType, setShelfType] = useState<"comic" | "novel">("comic");
   const [shelfSort, setShelfSort] = useState<"updated" | "collected" | "browsed">("updated");
   const [sortSheet, setSortSheet] = useState(false);
@@ -542,6 +543,20 @@ export default function AndroidApp() {
   }, [workId]);
   const scanning = tasks.some(activeScan);
   useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    void listenAndroidChanges(() => {
+      if (disposed || document.hidden || timer) return;
+      timer = setTimeout(() => { timer = undefined; void refresh().catch(reason => setError(String(reason))); }, 100);
+    }).then(unlisten => {
+      if (disposed) { unlisten(); return; }
+      stop = unlisten;
+      void refresh().catch(reason => setError(String(reason)));
+    }).catch(() => { /* Keep the existing snapshot polling if event setup fails. */ });
+    return () => { disposed = true; stop?.(); if (timer) clearTimeout(timer); };
+  }, []);
+  useEffect(() => {
     if (!scanning && route !== "sources") return;
     const timer = setInterval(() => { if (!document.hidden) void refresh().catch(reason => setError(String(reason))); }, 1000);
     return () => clearInterval(timer);
@@ -561,14 +576,15 @@ export default function AndroidApp() {
   async function loadFolders(uri: string | null) {
     setBrowseState("loading");
     try {
-      const listing = await androidApi.listTree(uri ?? undefined);
+      const listing = await androidApi.listTree(uri ?? undefined, browseSource.current);
       if (listing.status !== "available") { setBrowseFolders([]); setBrowseState("error"); setError(listing.status === "permission_denied" ? "目录授权已失效，请在系统选择器中重新授权该目录。" : "来源暂时无法访问，请稍后重试。"); return; }
       const folders = (listing.files ?? []).filter(isDirectoryEntry);
       setBrowseFolders(folders);
       setBrowseState(folders.length ? "available" : "empty");
     } catch (reason) { setBrowseFolders([]); setBrowseState("error"); setError(String(reason)); }
   }
-  function openBrowse(name: string, uri: string | null) {
+  function openBrowse(name: string, uri: string | null, sourceId?: string) {
+    browseSource.current = sourceId;
     setBrowseStack([{ name, uri }]);
     navigate("browse");
     void loadFolders(uri);
@@ -621,7 +637,7 @@ export default function AndroidApp() {
     <div className="gz-actions"><button className="gz-btn primary" disabled={busy} onClick={() => void run(() => authorize())}><Plus size={18} />添加本地目录</button><button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(undefined, true))}>登记已授权目录</button></div>
     {!sources.length && <Empty title="还没有视频来源"><p>选择目录并在系统选择器中点击“使用此文件夹”。</p></Empty>}
     {sources.map(source => { const task = tasks.find(task => task.rootId === source.id); const canBrowse = source.kind === "saf"; return <section className="gz-panel gz-source" key={source.id}>
-      <button type="button" className="gz-row gz-row-link" disabled={!canBrowse} onClick={() => canBrowse && openBrowse(source.label, null)}><Folder /><span className="gz-row-main"><strong>{source.label}</strong><span className="gz-meta">{canBrowse ? "本地授权目录 · 点击浏览" : "WebDAV 服务"}</span></span>{canBrowse && <ChevronRight size={18} />}</button>
+      <button type="button" className="gz-row gz-row-link" disabled={!canBrowse} onClick={() => canBrowse && openBrowse(source.label, null, source.id)}><Folder /><span className="gz-row-main"><strong>{source.label}</strong><span className="gz-meta">{canBrowse ? "本地授权目录 · 点击浏览" : "WebDAV 服务"}</span></span>{canBrowse && <ChevronRight size={18} />}</button>
       <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(); })}><RefreshCw size={16} />扫描</button></div>
       {task && (activeScan(task) || ["failed", "interrupted", "cancelled"].includes(task.stage)) && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>重试失败范围</button>}</div>}
     </section>; })}

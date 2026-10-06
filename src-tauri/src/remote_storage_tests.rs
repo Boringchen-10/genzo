@@ -140,7 +140,7 @@ async fn fixture() -> Fixture {
                     } else {
                         (0, 9)
                     };
-                    if start > 0 {
+                    if start > 0 && request.to_lowercase().contains("if-range:") {
                         assert!(request.to_lowercase().contains("if-range: \"stable\""));
                         r.fetch_add(1, Ordering::SeqCst);
                     }
@@ -382,4 +382,28 @@ async fn downloads_resume_and_cached_playback_survives_offline_source() {
     );
     assert_eq!(f.gets.load(Ordering::SeqCst), before);
     assert!(remote_storage::display_path(&format!("webdav://{}/", f.root)).contains(&f.root));
+}
+
+#[tokio::test]
+async fn android_streaming_never_downloads_when_range_or_credentials_fail() {
+    let f = fixture().await;
+    scanner::scan_library_root(&f.state.pool, &f.root).await.unwrap();
+    let id: String = sqlx::query_scalar("SELECT id FROM media_files LIMIT 1").fetch_one(&f.state.pool).await.unwrap();
+    let stream = remote_transfer::stream_only(&f.state, &id).await.unwrap();
+    let url = stream.uri.clone();
+    let response = reqwest::Client::new().get(&url).header("Range","bytes=4-6").send().await.unwrap();
+    assert_eq!(response.status().as_u16(),206);
+    assert_eq!(response.bytes().await.unwrap().as_ref(),b"456");
+    f.mode.store(2,Ordering::SeqCst);
+    let ignored = reqwest::Client::new().get(&url).header("Range","bytes=4-6").send().await.unwrap();
+    assert_eq!(ignored.status().as_u16(),502);
+    assert!(ignored.bytes().await.unwrap().is_empty());
+    assert_eq!(stream.failure.as_ref().unwrap().lock().unwrap().as_ref().unwrap()["code"],"range_unsupported");
+    stream.abort.abort();
+    assert!(remote_transfer::stream_only(&f.state,&id).await.unwrap_err().to_string().contains("range_unsupported"));
+    credentials::save(&f.root,&Credentials { username:"wrong".into(),password:"wrong".into() }).unwrap();
+    assert!(remote_transfer::stream_only(&f.state,&id).await.unwrap_err().to_string().contains("credential_invalid"));
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM remote_cache").fetch_one(&f.state.pool).await.unwrap(),0);
+    assert!(!f.state.data_directory.join("remote-cache").exists());
+    assert!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM media_files").fetch_one(&f.state.pool).await.unwrap() > 0);
 }

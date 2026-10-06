@@ -45,7 +45,9 @@ fn registry() -> &'static Registry {
 }
 impl TaskHandle {
     pub fn update(&self, action: impl FnOnce(&mut ScanTask)) {
-        action(&mut self.state.lock().unwrap());
+        let mut state = self.state.lock().unwrap();
+        action(&mut state);
+        crate::android_events::scan(&state);
     }
     pub fn snapshot(&self) -> ScanTask {
         self.state.lock().unwrap().clone()
@@ -67,6 +69,7 @@ impl TaskHandle {
         let mut state = self.state.lock().unwrap();
         self.check()?;
         state.stage = "committing".into();
+        crate::android_events::scan(&state);
         Ok(())
     }
 }

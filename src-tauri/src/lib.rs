@@ -3,6 +3,7 @@ mod android_probe;
 mod android_bridge;
 mod android_sources;
 mod android_player;
+mod android_events;
 mod anime_parser;
 mod bangumi;
 mod book_metadata;
@@ -53,6 +54,7 @@ pub fn run() {
         .plugin(android_bridge::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            android_events::init(app.handle());
             let state = tauri::async_runtime::block_on(db::initialize(app.handle()))
                 .map_err(|error| format!("Genzo 无法初始化本地数据库。{error}"))?;
             db::allow_cached_images(app.handle(), &state.cover_cache_path)?;
@@ -162,6 +164,9 @@ pub fn run() {
             playback::get_playback_progress,
             android_player::open_internal_player,
             android_player::get_internal_player_state,
+            android_player::control_internal_player,
+            android_player::pick_external_subtitle,
+            android_player::list_subtitle_candidates,
             android_player::set_android_appearance,
             playback::resume_playback,
             commands::open_media_directory,
