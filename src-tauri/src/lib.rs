@@ -10,6 +10,8 @@ mod book_metadata;
 mod book_scrape;
 mod bookshelf;
 mod comic_explore;
+mod novel_explore;
+mod book_content;
 mod comic_cover_cache;
 mod commands;
 mod credentials;
@@ -84,6 +86,16 @@ pub fn run() {
             android_sources::scan_video_source,
             comic_cover_cache::cache_comic_explore_cover,
             comic_explore::list_comic_explore,
+            novel_explore::list_novel_explore,
+            novel_explore::get_novel_explore_themes,
+            novel_explore::get_novel_explore_detail,
+            novel_explore::save_novel_explore_work,
+            book_content::get_book_source_entries,
+            book_content::get_book_reading_source,
+            book_content::list_cached_book_content,
+            book_content::cache_book_source_content,
+            book_content::open_cached_book_content,
+            book_content::clear_cached_book_content,
             comic_explore::get_comic_explore_themes,
             comic_explore::get_comic_explore_detail,
             comic_explore::save_comic_explore_work,

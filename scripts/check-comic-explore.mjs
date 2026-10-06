@@ -38,6 +38,9 @@ try {
       const work = () => ({ id: "comic-book", title: "测试短篇漫画", type: "comic", category: "comic", originalTitle: null, description: "短篇作品简介。", coverPath: "/qa/cover", status: "planned", favorite: true, rating: null, notes: "个人阅读记录", tags: ["日常"], mediaCount: 0, missingCount: 0, createdAt: now, updatedAt: now, metadataStatus: "matched", metadataYear: null, mediaFiles: [], fieldLocks: [], candidates: [], subtitleLinks: [], metadata: { provider: "copymanga", externalId: "short", title: "测试短篇漫画", originalTitle: null, year: null, coverUrl: "/qa/cover", fetchedAt: now } });
       window.__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" } }, convertFileSrc: path => path, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command, args = {}) => {
         window.__comicCalls.push({ command, args });
+        if (command === "get_book_reading_source") return { kind: "comic", pathWord: "short" };
+        if (command === "get_book_source_entries") return { entries: [], total: 0, offset: 0, group: "default", groups: [], stale: false };
+        if (command === "list_cached_book_content") return [];
         if (command === "list_comic_explore") {
           if (window.__comicFailure) throw Error("来源暂时不可用");
           const input = args.input;

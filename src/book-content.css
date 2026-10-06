@@ -1,0 +1,13 @@
+.book-content-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.book-content-controls select { max-width: 200px; height: 32px; }
+.book-content-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.book-content-title { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.book-content-title strong { font-size: 13px; overflow-wrap: anywhere; }
+.book-content-title span { font-size: 11px; color: var(--muted); }
+.book-content-menu-holder { position: relative; }
+.book-content-dismiss { position: fixed; inset: 0; z-index: 20; background: transparent; border: 0; }
+.book-content-menu { position: absolute; right: 0; top: 100%; z-index: 21; display: grid; min-width: 170px; padding: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.book-content-menu button { display: flex; align-items: center; gap: 8px; padding: 9px; background: transparent; color: var(--text); border: 0; text-align: left; cursor: pointer; }
+.book-content-menu button:hover { background: var(--surface-hover); }
+.book-content-menu button:disabled { opacity: .4; cursor: default; }
+.book-source-content .detail-section-head { flex-wrap: wrap; gap: 10px; }

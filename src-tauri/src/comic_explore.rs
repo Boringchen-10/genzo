@@ -1,5 +1,5 @@
 // Catalog request conventions researched from caolib/kira (MIT), see THIRD_PARTY_NOTICES.md.
-// Only public work metadata is consumed here; chapter contents are not requested.
+// Work metadata is separate from the explicit content cache in book_content.rs.
 use crate::db::AppState;
 use crate::error::{AppError, AppResult};
 use crate::models::WorkMetadata;
@@ -13,63 +13,63 @@ use tauri::State;
 use uuid::Uuid;
 
 const PROVIDER: &str = "copymanga";
-const CATALOG_HOST: &str = "https://api.copy202601.com";
-const DETAIL_HOST: &str = "https://mapi.hotmangasg.com";
+pub(super) const CATALOG_HOST: &str = "https://api.copy202601.com";
+pub(super) const DETAIL_HOST: &str = "https://mapi.hotmangasg.com";
 const PAGE_SIZE: u32 = 24;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComicItem {
-    path_word: String,
-    title: String,
-    cover_url: Option<String>,
+    pub(super) path_word: String,
+    pub(super) title: String,
+    pub(super) cover_url: Option<String>,
     #[serde(default)]
-    cached_cover_path: Option<String>,
+    pub(super) cached_cover_path: Option<String>,
     #[serde(default)]
-    cached_cover_thumbnail_path: Option<String>,
-    authors: Vec<String>,
-    tags: Vec<String>,
-    summary: String,
-    status: String,
-    updated_at: String,
-    latest_chapter: String,
-    local_work_id: Option<String>,
-    favorite: bool,
+    pub(super) cached_cover_thumbnail_path: Option<String>,
+    pub(super) authors: Vec<String>,
+    pub(super) tags: Vec<String>,
+    pub(super) summary: String,
+    pub(super) status: String,
+    pub(super) updated_at: String,
+    pub(super) latest_chapter: String,
+    pub(super) local_work_id: Option<String>,
+    pub(super) favorite: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComicPage {
-    items: Vec<ComicItem>,
-    total: u64,
-    page: u32,
-    stale: bool,
+    pub(super) items: Vec<ComicItem>,
+    pub(super) total: u64,
+    pub(super) page: u32,
+    pub(super) stale: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComicDetail {
-    item: ComicItem,
-    aliases: Vec<String>,
-    chapter_count: Option<u64>,
-    stale: bool,
+    pub(super) item: ComicItem,
+    pub(super) aliases: Vec<String>,
+    pub(super) chapter_count: Option<u64>,
+    pub(super) stale: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComicTheme {
-    name: String,
-    path_word: String,
+    pub(super) name: String,
+    pub(super) path_word: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComicQuery {
-    query: String,
-    theme: String,
-    top: String,
-    sort: String,
-    page: u32,
+    pub(super) query: String,
+    pub(super) theme: String,
+    pub(super) top: String,
+    pub(super) sort: String,
+    pub(super) page: u32,
 }
 
 pub(super) fn valid_id(id: &str) -> bool {
@@ -87,7 +87,7 @@ fn names(value: &Value, key: &str) -> Vec<String> {
         .collect()
 }
 
-fn parse_item(value: &Value) -> AppResult<ComicItem> {
+pub(super) fn parse_item(value: &Value) -> AppResult<ComicItem> {
     let path_word = value["path_word"].as_str().filter(|id| valid_id(id)).ok_or_else(invalid_data)?;
     let title = value["name"].as_str().filter(|title| !title.trim().is_empty()).ok_or_else(invalid_data)?;
     let cover_url = value["cover"].as_str().filter(|url| {
@@ -107,7 +107,7 @@ fn parse_item(value: &Value) -> AppResult<ComicItem> {
     })
 }
 
-fn parse_list(value: Value) -> AppResult<ComicPage> {
+pub(super) fn parse_list(value: Value) -> AppResult<ComicPage> {
     let list = value["list"].as_array().ok_or_else(invalid_data)?;
     let items = list.iter().map(parse_item).collect::<AppResult<Vec<_>>>()?;
     let total = value["total"].as_u64().ok_or_else(invalid_data)?;
@@ -118,7 +118,7 @@ fn parse_detail(value: Value) -> AppResult<ComicDetail> {
     let item = parse_item(&value["comic"])?;
     let aliases = value["comic"]["alias"].as_str().unwrap_or_default()
         .split(',').map(str::trim).filter(|alias| !alias.is_empty()).map(str::to_string).collect();
-    // Groups contain counts only. Do not fetch chapters or image URLs.
+    // Full chapter lists are loaded on demand by book_content.rs.
     let chapter_count = value["groups"].as_object().and_then(|groups| {
         groups.values().map(|group| group["count"].as_u64()).collect::<Option<Vec<_>>>()
             .and_then(|counts| counts.into_iter().try_fold(0u64, |sum, count| sum.checked_add(count)))
@@ -160,11 +160,12 @@ fn query_params(input: &ComicQuery) -> AppResult<(&'static str, Vec<(String, Str
     }
 }
 
-async fn request(host: &str, path: &str, params: &[(String, String)]) -> AppResult<Value> {
+pub(super) async fn request(host: &str, path: &str, params: &[(String, String)]) -> AppResult<Value> {
     let detail = host == DETAIL_HOST;
     let client = reqwest::Client::builder().timeout(Duration::from_secs(15))
-        .build().map_err(|error| AppError::Network(error.to_string()))?;
-    let response = client.get(format!("{host}{path}")).query(params)
+        .redirect(reqwest::redirect::Policy::none())
+        .build().map_err(|_| AppError::Network("无法创建来源连接".into()))?;
+    let mut response = client.get(format!("{host}{path}")).query(params)
         .header("Accept", "application/json").header("platform", "3")
         .header("source", "copyApp")
         .header("version", if detail { "2024.04.28" } else { "3.0.9" })
@@ -174,7 +175,13 @@ async fn request(host: &str, path: &str, params: &[(String, String)]) -> AppResu
     if !response.status().is_success() {
         return Err(AppError::Network(format!("漫画来源暂时不可用（HTTP {}）", response.status().as_u16())));
     }
-    let value: Value = response.json().await.map_err(|_| invalid_data())?;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| invalid_data())? {
+        if chunk.len() > (8 * 1024 * 1024usize).saturating_sub(bytes.len()) { return Err(invalid_data()); }
+        bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| invalid_data())?;
+    if value["code"].as_i64() == Some(401) { return Err(AppError::Network("来源要求登录；当前仅支持匿名可访问内容，请在来源平台检查权限".into())); }
     if value["code"].as_i64() != Some(200) || !value["results"].is_object() { return Err(invalid_data()); }
     Ok(value["results"].clone())
 }
@@ -183,10 +190,18 @@ async fn cached_request<T: Serialize + DeserializeOwned>(
     pool: &SqlitePool, host: &str, path: &str, params: &[(String, String)],
     hours: i64, refresh: bool, parse: impl FnOnce(Value) -> AppResult<T>,
 ) -> AppResult<(T, bool)> {
+    cached_request_for(PROVIDER, pool, host, path, params, hours, refresh, parse).await
+}
+
+pub(super) async fn cached_request_for<T: Serialize + DeserializeOwned>(
+    provider: &str,
+    pool: &SqlitePool, host: &str, path: &str, params: &[(String, String)],
+    hours: i64, refresh: bool, parse: impl FnOnce(Value) -> AppResult<T>,
+) -> AppResult<(T, bool)> {
     let key = format!("v1:{host}{path}:{}", serde_json::to_string(params)?);
     let cached: Option<(String, String)> = sqlx::query_as(
         "SELECT response_json, expires_at FROM metadata_cache WHERE provider = ? AND cache_key = ?")
-        .bind(PROVIDER).bind(&key).fetch_optional(pool).await?;
+        .bind(provider).bind(&key).fetch_optional(pool).await?;
     let cached = cached.and_then(|(json, expiry)| serde_json::from_str::<T>(&json).ok().map(|data| (data, expiry)));
     let now = Utc::now();
     if !refresh && cached.as_ref().is_some_and(|(_, expiry)| chrono::DateTime::parse_from_rfc3339(expiry).is_ok_and(|expiry| expiry > now)) {
@@ -195,7 +210,7 @@ async fn cached_request<T: Serialize + DeserializeOwned>(
     match request(host, path, params).await.and_then(parse) {
         Ok(data) => {
             sqlx::query("INSERT INTO metadata_cache(provider,cache_key,response_json,fetched_at,expires_at) VALUES(?,?,?,?,?) ON CONFLICT(provider,cache_key) DO UPDATE SET response_json=excluded.response_json,fetched_at=excluded.fetched_at,expires_at=excluded.expires_at")
-                .bind(PROVIDER).bind(&key).bind(serde_json::to_string(&data)?).bind(now.to_rfc3339())
+                .bind(provider).bind(&key).bind(serde_json::to_string(&data)?).bind(now.to_rfc3339())
                 .bind((now + ChronoDuration::hours(hours)).to_rfc3339()).execute(pool).await?;
             Ok((data, false))
         }
@@ -203,7 +218,7 @@ async fn cached_request<T: Serialize + DeserializeOwned>(
     }
 }
 
-async fn local_states(pool: &SqlitePool, items: &mut [ComicItem]) -> AppResult<()> {
+pub(super) async fn local_states(pool: &SqlitePool, items: &mut [ComicItem]) -> AppResult<()> {
     let rows: Vec<(String, String, bool)> = sqlx::query_as("SELECT e.external_id,w.id,w.favorite FROM work_external_ids e JOIN works w ON w.id=e.work_id WHERE e.provider=? AND w.type='comic'")
         .bind(PROVIDER).fetch_all(pool).await?;
     let states = rows.into_iter().map(|(id, work, favorite)| (id, (work, favorite))).collect::<HashMap<_, _>>();
@@ -215,7 +230,7 @@ async fn local_states(pool: &SqlitePool, items: &mut [ComicItem]) -> AppResult<(
     Ok(())
 }
 
-fn cached_covers(app: &tauri::AppHandle, directory: &std::path::Path, items: &mut [ComicItem]) {
+pub(super) fn cached_covers(app: &tauri::AppHandle, directory: &std::path::Path, items: &mut [ComicItem]) {
     for item in items {
         if let Some(cached) = item.cover_url.as_deref().and_then(|url| crate::comic_cover_cache::peek(directory, &item.path_word, url)) {
             if crate::db::allow_cover_file(app, std::path::Path::new(&cached.cover_path)).is_ok() {
@@ -263,29 +278,33 @@ pub async fn get_comic_explore_detail(path_word: String, refresh: bool, state: S
 }
 
 async fn persist_work(pool: &SqlitePool, detail: &ComicDetail, favorite: bool, cover: Option<String>) -> AppResult<String> {
+    persist_source_work(pool, detail, favorite, cover, PROVIDER, "comic").await
+}
+
+pub(super) async fn persist_source_work(pool: &SqlitePool, detail: &ComicDetail, favorite: bool, cover: Option<String>, provider: &str, kind: &str) -> AppResult<String> {
     let (_guard, mut tx) = crate::db::begin_write(pool).await?;
     let existing: Option<String> = sqlx::query_scalar("SELECT work_id FROM work_external_ids WHERE provider=? AND external_id=?")
-        .bind(PROVIDER).bind(&detail.item.path_word).fetch_optional(&mut *tx).await?;
+        .bind(provider).bind(&detail.item.path_word).fetch_optional(&mut *tx).await?;
     if let Some(id) = existing { tx.commit().await?; return Ok(id); }
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let item = &detail.item;
     let metadata = WorkMetadata {
-        provider: PROVIDER.into(), external_id: item.path_word.clone(), title: item.title.clone(),
+        provider: provider.into(), external_id: item.path_word.clone(), title: item.title.clone(),
         original_title: None, aliases: detail.aliases.clone(), description: item.summary.clone(),
         cover_url: item.cover_url.clone(), banner_url: None, year: None, season: None,
-        subject_type: "comic".into(), genres: item.tags.clone(), score: None, rank: None,
+        subject_type: kind.into(), genres: item.tags.clone(), score: None, rank: None,
         rating_count: 0, collection_count: 0, air_date: None, broadcast: None,
-        source_keys: vec![PROVIDER.into()], cover_provider: Some(PROVIDER.into()), banner_provider: None,
+        source_keys: vec![provider.into()], cover_provider: Some(provider.into()), banner_provider: None,
         score_provider: None, fetched_at: now.clone(),
     };
-    sqlx::query("INSERT INTO works(id,title,type,status,favorite,created_at,updated_at) VALUES(?,?,'comic','planned',?,?,?)")
-        .bind(&id).bind(&item.title).bind(favorite).bind(&now).bind(&now).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO works(id,title,type,status,favorite,created_at,updated_at) VALUES(?,?,?,'planned',?,?,?)")
+        .bind(&id).bind(&item.title).bind(kind).bind(favorite).bind(&now).bind(&now).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO work_external_ids(work_id,provider,external_id,created_at,updated_at) VALUES(?,?,?,?,?)")
-        .bind(&id).bind(PROVIDER).bind(&item.path_word).bind(&now).bind(&now).execute(&mut *tx).await?;
+        .bind(&id).bind(provider).bind(&item.path_word).bind(&now).bind(&now).execute(&mut *tx).await?;
     crate::metadata::apply_metadata(&mut tx, &id, &metadata, cover, None, &now).await?;
     sqlx::query("INSERT INTO metadata_provider_records(work_id,provider,external_id,title,confidence,response_json,fetched_at) VALUES(?,?,?,?,1,?,?)")
-        .bind(&id).bind(PROVIDER).bind(&item.path_word).bind(&item.title)
+        .bind(&id).bind(provider).bind(&item.path_word).bind(&item.title)
         .bind(serde_json::to_string(&metadata)?).bind(&now).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(id)

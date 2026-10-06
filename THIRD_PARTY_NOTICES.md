@@ -61,11 +61,15 @@ Windows 包不捆绑 VLC、mpv、PotPlayer、MPC-BE 等外部程序。自动检�
 
 PotPlayer 进度适配使用其 Windows 消息协议及安装目录的 `CmdLine64.txt` 参数说明；接口常量核对自 [PotPlayerControl 的 InternalSimpleCmd.h](https://github.com/ld3l/PotPlayerControl/blob/main/InternalSimpleCmd.h)。适配器为独立 Rust 实现，未复制该项目的控制器实现、商标或素材，也未捆绑 PotPlayer。该接口在不同播放器版本中可能变化，连接或文件核对失败时保留旧进度。
 
-## Kira 漫画目录接口参考
+## Kira 漫画与轻小说接口参考
 
-漫画探索适配参考 [caolib/kira](https://github.com/caolib/kira) 的 `lib/api/manga/manga_api.dart`、`lib/api/api_transport.dart` 与 `lib/models/comic.dart`，核对版本 `19a17c5`（2026-10-02）。Genzo 独立实现 Rust 请求 / SQLite 缓存和 React 界面，借鉴其目录分页、请求头及作品字段约定；不捆绑 / 启动 Kira，不移植 Flutter 界面、账号或章节内容代码，不复制商标、Logo 与第三方素材。
+漫画目录、章节及小说接口契约参考 [caolib/kira](https://github.com/caolib/kira)，固定核对提交 `8a7b3f060ef521f0cbeda719bf0931e9af5ed89e`（2026-10-05）：`lib/api/manga/manga_api.dart`、`lib/api/novel/novel_api.dart`、`lib/api/novel/novel_text.dart`、`lib/models/chapter.dart` 与 `lib/models/novel.dart`。Genzo 独立实现 Rust 请求 / 缓存、严格编码与目录解析和 React 界面，参考分页、请求头、来源标识与整卷 TXT 行号约定；不捆绑 / 启动 Kira，不移植 Flutter 界面或来源账号代码，不复制商标、Logo 与第三方素材。
 
-上游使用 MIT License，Copyright (c) 2026 孤独的Lonely；完整版权和许可见 [licenses/kira-MIT.txt](licenses/kira-MIT.txt)。第三方客户端的许可不等于作品数据 / 封面版权或接口官方授权；封面按用户操作缓存，接口兼容性可能随服务改变。本阶段只读取作品元数据。
+上游为 MIT License，Copyright (c) 2026 孤独的Lonely；完整声明见 [licenses/kira-MIT.txt](licenses/kira-MIT.txt)。代码许可不等于作品版权或官方接口授权。当前仅按用户操作获取有权访问的匿名内容，不绕过锁定或分发正文；服务兼容性可能改变。
+
+## encoding_rs
+
+小说 UTF-8 / GBK 校验使用 encoding_rs 0.8.42，许可证 `(Apache-2.0 OR MIT) AND BSD-3-Clause`，与 Genzo GPLv3 兼容。完整声明保留于 `licenses/encoding_rs-LICENSE-MIT.txt`、`licenses/encoding_rs-LICENSE-APACHE.txt`、`licenses/encoding_rs-LICENSE-WHATWG.txt`；许可证来自锁定 crates.io 发布包。传递依赖 core_detect 为 MIT / Apache-2.0，multiversion_no_op 为 Apache-2.0 OR MIT。源库见 <https://github.com/hsivonen/encoding_rs>。
 
 ## Bangumi
 

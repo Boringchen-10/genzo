@@ -31,8 +31,8 @@ export function comicQueryFromParams(params: URLSearchParams): ComicQuery {
   };
 }
 
-export function comicListParams(input: ComicQuery): URLSearchParams {
-  const params = new URLSearchParams({ type: "comic" });
+export function comicListParams(input: ComicQuery, kind: "comic" | "novel" = "comic"): URLSearchParams {
+  const params = new URLSearchParams({ type: kind });
   if (input.query) params.set("q", input.query);
   if (!input.query && input.theme) params.set("theme", input.theme);
   if (!input.query && input.top) params.set("top", input.top);
@@ -48,7 +48,7 @@ export function appendComicPage(previous: ComicPage, next: ComicPage): ComicPage
 }
 
 async function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
-  if (!isTauri()) throw new Error("漫画探索需要在 Genzo 桌面应用中使用。");
+  if (!isTauri()) throw new Error("作品探索需要在 Genzo 桌面应用中使用。");
   return invoke<T>(command, args);
 }
 
@@ -58,4 +58,11 @@ export const comicExploreApi = {
   detail: (pathWord: string, refresh = false) => call<ComicDetail>("get_comic_explore_detail", { pathWord, refresh }),
   cacheCover: (pathWord: string, coverUrl: string, refresh = false) => call<{ coverPath: string; thumbnailPath: string | null }>("cache_comic_explore_cover", { pathWord, coverUrl, refresh }),
   save: (pathWord: string, favorite: boolean) => call<string>("save_comic_explore_work", { pathWord, favorite }),
+};
+
+export const novelExploreApi = {
+  list: (input: ComicQuery, refresh = false) => call<ComicPage>("list_novel_explore", { input, refresh }),
+  themes: () => call<ComicTheme[]>("get_novel_explore_themes"),
+  detail: (pathWord: string, refresh = false) => call<ComicDetail>("get_novel_explore_detail", { pathWord, refresh }),
+  save: (pathWord: string, favorite: boolean) => call<string>("save_novel_explore_work", { pathWord, favorite }),
 };
