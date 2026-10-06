@@ -1,5 +1,13 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 安卓 v0.2 发现与阅读补充（2026-10-07）
+
+- 当前工作树 `H:\二次元阅读器\.tmp\android-first` / 分支 `codex/android-first` 在上一版视频交付基础上新增 COPY 漫画与轻小说在线章节阅读、Bangumi 网络传输设置和发现页缓存 / 动效接入。用户明确不需要资料字段锁定，播放器正式控件仍留待后续。
+- 发现页“热门番组”现在调用已有 `get_anime_ranking`（Bangumi 官方 `POST /v0/search/subjects`，`sort=rank`，本地 12 小时缓存），首屏再显示当季番组；热门条目按 Bangumi 返回的标签生成多选筛选。发现页模块级缓存保留排行、当季和放送表，返回页面不会重复等待网络；Bangumi 网络配置变化会清除缓存并重新加载。
+- “我的 → 网络 → Bangumi 数据源”支持系统代理官方 API、官方直连和自定义镜像；自定义镜像增加 Kazumi 兼容镜像预设 `https://api.bgmapi.com`，也可输入兼容 `/v0` 与 `/calendar` 的 HTTPS 根地址。镜像设置按来源隔离探索缓存，不改变 Windows 默认行为。
+- 模拟器 `emulator-5554` 覆盖安装并验收：发现页显示 20 部真实 Bangumi 热门条目和多选标签；COPY 作品“魔都精兵的奴隸”返回 100 个章节，打开第 01 话后阅读器加载 61 张页面图片。未清应用数据、未卸载、未操作一加设备。
+- 前端 `pnpm exec tsc --noEmit`、`pnpm run build` 和 Vitest `19` 个文件 / `78` 项通过；Android x86_64 Rust 编译通过。由于中文路径下 Gradle loopback 启动异常，使用 `C:\genzo-android-copy` ASCII 构建副本完成 Gradle `:app:assembleX86_64Debug -x :app:rustBuildX86_64Debug`，生成包：`D:\DevTools\Android\Build\artifacts\Genzo-android-reading-bangumi-20261007-x86_64-debug.apk`，大小 `174,071,117` 字节，SHA256 `214EBA4EF14CA62CED1BACDBC0920E105DD3A2B9895353D8F8793A911112BC74`；`zipalign -P 16` 通过。
+
 ## 安卓设计 v0.2 视频接入交付（2026-10-06）
 
 - 工作树 `H:\二次元阅读器\.tmp\android-first` / 分支 `codex/android-first` 已完成最新 OpenDesign 前端的视频业务接入。本轮只覆盖视频管理、SAF / WebDAV、所选文件整理、资料匹配 / 刷新、分集纠错、应用内播放与续播；阅读器、阅读统计、历史清理、跨设备同步和原生播放器正式控件留待后续。用户明确不需要“锁定资料字段”，安卓页面没有该入口，共享 Windows 接口保持兼容。

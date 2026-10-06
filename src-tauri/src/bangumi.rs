@@ -10,30 +10,33 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::Duration;
-
-const API_ROOT: &str = "https://api.bgm.tv/v0";
 static RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct BangumiProvider {
     client: Client,
+    api_root: String,
 }
 
 impl BangumiProvider {
     pub fn new() -> AppResult<Self> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(12))
-            .user_agent("Genzo/0.2.0 (local media library)")
-            .build()
-            .map_err(|error| AppError::Network(format!("无法初始化 Bangumi 客户端：{error}")))?;
-        Ok(Self { client })
+        let (config, client) = crate::bangumi_network::transport()?;
+        Ok(Self::with_transport(&config, client))
+    }
+
+    pub fn with_transport(config: &crate::bangumi_network::BangumiNetwork, client: Client) -> Self {
+        Self { client, api_root: format!("{}/v0", config.base_url()) }
+    }
+
+    pub fn configured(config: &crate::bangumi_network::BangumiNetwork) -> AppResult<Self> {
+        Ok(Self { client: config.client()?, api_root: format!("{}/v0", config.base_url()) })
     }
 
     pub async fn search(&self, query: &str) -> AppResult<Vec<WorkMetadata>> {
         self.wait().await;
         let response = self
             .client
-            .post(format!("{API_ROOT}/search/subjects"))
+            .post(format!("{}/search/subjects", self.api_root))
             .json(&json!({ "keyword": query, "sort": "match", "filter": { "type": [2] } }))
             .send()
             .await
@@ -67,7 +70,7 @@ impl BangumiProvider {
         self.wait().await;
         let response = self
             .client
-            .post(format!("{API_ROOT}/search/subjects"))
+            .post(format!("{}/search/subjects", self.api_root))
             .query(&[("limit", limit.to_string()), ("offset", offset.to_string())])
             .json(&json!({
                 "keyword": "",
@@ -99,7 +102,7 @@ impl BangumiProvider {
         self.wait().await;
         let response = self
             .client
-            .get(format!("{API_ROOT}/subjects/{external_id}"))
+            .get(format!("{}/subjects/{external_id}", self.api_root))
             .send()
             .await
             .map_err(network_error)?;
@@ -125,7 +128,7 @@ impl BangumiProvider {
         self.wait().await;
         let response = self
             .client
-            .get("https://api.bgm.tv/calendar")
+            .get(format!("{}/calendar", self.api_root.trim_end_matches("/v0")))
             .send()
             .await
             .map_err(network_error)?;
@@ -158,7 +161,7 @@ impl BangumiProvider {
             self.wait().await;
             let response = self
                 .client
-                .get(format!("{API_ROOT}/episodes"))
+                .get(format!("{}/episodes", self.api_root))
                 .query(&[
                     ("subject_id", subject_id.to_string()),
                     ("limit", "100".to_string()),
@@ -285,7 +288,7 @@ impl BangumiProvider {
         self.wait().await;
         let response = self
             .client
-            .get(format!("{API_ROOT}/subjects/{external_id}/{collection}"))
+            .get(format!("{}/subjects/{external_id}/{collection}", self.api_root))
             .send()
             .await
             .map_err(network_error)?;

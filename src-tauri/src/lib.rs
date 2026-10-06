@@ -6,6 +6,7 @@ mod android_player;
 mod android_events;
 mod anime_parser;
 mod bangumi;
+mod bangumi_network;
 mod book_metadata;
 mod book_scrape;
 mod bookshelf;
@@ -60,6 +61,8 @@ pub fn run() {
             android_events::init(app.handle());
             let state = tauri::async_runtime::block_on(db::initialize(app.handle()))
                 .map_err(|error| format!("Genzo 无法初始化本地数据库。{error}"))?;
+            tauri::async_runtime::block_on(bangumi_network::initialize(&state.pool))
+                .map_err(|error| format!("Genzo 无法读取 Bangumi 网络设置。{error}"))?;
             db::allow_cached_images(app.handle(), &state.cover_cache_path)?;
             db::allow_cached_images(app.handle(), &state.thumbnail_cache_path)?;
             let metadata_pool = state.pool.clone();
@@ -105,6 +108,9 @@ pub fn run() {
             reading_network::save_reading_network,
             reading_network::fill_reading_network,
             reading_network::test_reading_network,
+            bangumi_network::get_bangumi_network,
+            bangumi_network::save_bangumi_network,
+            bangumi_network::test_bangumi_network,
             comic_explore::get_comic_explore_themes,
             comic_explore::get_comic_explore_detail,
             comic_explore::save_comic_explore_work,

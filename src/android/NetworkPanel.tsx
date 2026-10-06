@@ -1,89 +1,158 @@
-import { useState } from "react";
-import { CircleGauge, Globe, LoaderCircle, Plus, RefreshCw, Save, Server, Trash2, Zap } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CircleGauge, Globe, LoaderCircle, RefreshCw, Save, Server, Zap } from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
+import { bangumiNetworkApi, BANGUMI_NETWORK_CHANGED, defaultBangumiNetwork, type BangumiNetwork, type BangumiProbe } from "../bangumiNetwork";
+import { readingNetworkApi, readingRoutes, type NodeProbe, type ReadingNetwork } from "../readingNetwork";
 
-type NodeItem = { id: string; name: string; url: string; latency: number | null };
+type Props = { onToast: (message: string) => void };
+type LoadState = "loading" | "ready" | "error";
 
-const seedNodes = (): NodeItem[] => [
-  { id: "n1", name: "直连", url: "", latency: null },
-];
+const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : String(reason);
+const KAZUMI_MIRROR_URL = "https://api.bgmapi.com";
 
-export default function NetworkPanel({ onToast }: { onToast: (message: string) => void }) {
-  const [proxy, setProxy] = useState("");
-  const [timeout, setTimeoutMs] = useState("15");
-  const [retry, setRetry] = useState("2");
-  const [concurrency, setConcurrency] = useState("8");
-  const [nodes, setNodes] = useState<NodeItem[]>(seedNodes);
-  const [testing, setTesting] = useState(false);
-  const [domain, setDomain] = useState("");
-  const [version, setVersion] = useState("");
+export default function NetworkPanel({ onToast }: Props) {
+  const [reading, setReading] = useState<ReadingNetwork | null>(null);
+  const [bangumi, setBangumi] = useState<BangumiNetwork | null>(null);
+  const [state, setState] = useState<LoadState>("loading");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<"save" | "fill" | "test-reading" | "test-bangumi" | null>(null);
+  const [nodeProbes, setNodeProbes] = useState<NodeProbe[]>([]);
+  const [bangumiProbes, setBangumiProbes] = useState<BangumiProbe[]>([]);
 
-  const pending = (label: string) => onToast(`${label}：待接入阅读网络后端`);
+  useEffect(() => {
+    let alive = true;
+    if (!isTauri()) {
+      setState("error");
+      setError("网络设置需要在 Genzo Android 应用中使用。");
+      return () => { alive = false; };
+    }
+    void Promise.all([readingNetworkApi.get(), bangumiNetworkApi.get()]).then(([readingConfig, bangumiConfig]) => {
+      if (!alive) return;
+      setReading(readingConfig);
+      setBangumi(bangumiConfig);
+      setState("ready");
+    }).catch(reason => {
+      if (!alive) return;
+      setError(errorMessage(reason));
+      setState("error");
+    });
+    return () => { alive = false; };
+  }, []);
 
-  const addNode = () => {
-    const id = `n${Date.now()}`;
-    setNodes(list => [...list, { id, name: `线路 ${list.length + 1}`, url: "", latency: null }]);
+  const routeNodes = useMemo(() => reading ? readingRoutes[reading.route] ?? [] : [], [reading]);
+  const updateReading = (patch: Partial<ReadingNetwork>) => {
+    setReading(value => value ? { ...value, ...patch } : value);
+    setNodeProbes([]);
   };
-  const updateNode = (id: string, patch: Partial<NodeItem>) =>
-    setNodes(list => list.map(node => node.id === id ? { ...node, ...patch } : node));
-  const removeNode = (id: string) => setNodes(list => list.filter(node => node.id !== id));
+  const updateBangumi = (patch: Partial<BangumiNetwork>) => {
+    setBangumi(value => value ? { ...value, ...patch } : value);
+    setBangumiProbes([]);
+  };
 
-  const testAll = async () => {
-    setTesting(true);
+  const fillReading = async () => {
+    if (!reading) return;
+    setBusy("fill"); setError("");
     try {
-      await new Promise(resolve => window.setTimeout(resolve, 600));
-      setNodes(list => list.map((node, index) => ({ ...node, latency: node.url ? 40 + index * 12 : null })));
-      onToast("测速为界面演示，真实测速待接入后端");
-    } finally { setTesting(false); }
+      setReading(await readingNetworkApi.fill(reading));
+      onToast("COPY 网络信息已更新");
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(null); }
   };
 
+  const testReading = async () => {
+    if (!reading) return;
+    setBusy("test-reading"); setError("");
+    try { setNodeProbes(await readingNetworkApi.test(reading)); }
+    catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(null); }
+  };
+
+  const testBangumi = async () => {
+    if (!bangumi) return;
+    setBusy("test-bangumi"); setError("");
+    try { setBangumiProbes(await bangumiNetworkApi.test(bangumi)); }
+    catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(null); }
+  };
+
+  const save = async () => {
+    if (!reading || !bangumi) return;
+    setBusy("save"); setError("");
+    try {
+      await readingNetworkApi.save(reading);
+      await bangumiNetworkApi.save(bangumi);
+      window.dispatchEvent(new Event(BANGUMI_NETWORK_CHANGED));
+      onToast("网络配置已保存");
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(null); }
+  };
+
+  if (state === "loading") return <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取网络设置…</p>;
+  if (state === "error" || !reading || !bangumi) return <div className="gz-empty"><Server size={26} /><h2>网络设置不可用</h2><p>{error}</p></div>;
+
+  const disabled = busy !== null;
+  const mirrorPreset = bangumi.mirrorUrl === KAZUMI_MIRROR_URL ? "kazumi" : "custom";
   return <div className="gz-network">
     <section className="gz-net-card">
-      <div className="gz-net-head"><Server size={16} /><h2>代理设置</h2></div>
-      <label className="gz-field"><span>HTTP 代理</span>
-        <input inputMode="url" placeholder="http://127.0.0.1:7890" value={proxy} onChange={event => setProxy(event.target.value)} />
+      <div className="gz-net-head"><Globe size={16} /><h2>Bangumi 数据源</h2></div>
+      <p className="gz-meta">发现页的热门番组、搜索和放送表会使用这里选择的接口。</p>
+      <label className="gz-field"><span>连接方式</span>
+        <select value={bangumi.mode} disabled={disabled} onChange={event => updateBangumi({ mode: event.target.value as BangumiNetwork["mode"] })}>
+          <option value="system">系统代理 · 官方 API</option>
+          <option value="direct">直连 · 官方 API</option>
+          <option value="mirror">自定义镜像 · 直连</option>
+        </select>
       </label>
+      {bangumi.mode === "mirror" && <>
+        <label className="gz-field"><span>镜像源</span>
+          <select value={mirrorPreset} disabled={disabled} onChange={event => updateBangumi({ mirrorUrl: event.target.value === "kazumi" ? KAZUMI_MIRROR_URL : "" })}>
+            <option value="kazumi">Kazumi 兼容镜像</option>
+            <option value="custom">自定义镜像</option>
+          </select>
+        </label>
+        {mirrorPreset === "custom" ? <label className="gz-field"><span>镜像根地址</span>
+          <input inputMode="url" placeholder="https://mirror.example.com" value={bangumi.mirrorUrl} disabled={disabled} onChange={event => updateBangumi({ mirrorUrl: event.target.value })} />
+          <small className="gz-meta">需要兼容 /v0 和 /calendar，远程镜像使用 HTTPS。</small>
+        </label> : <p className="gz-meta">https://api.bgmapi.com · 兼容 /v0 和 /calendar</p>}
+      </>}
       <div className="gz-net-row">
-        <label className="gz-field"><span>超时（秒）</span>
-          <input inputMode="numeric" value={timeout} onChange={event => setTimeoutMs(event.target.value)} />
-        </label>
-        <label className="gz-field"><span>重试次数</span>
-          <input inputMode="numeric" value={retry} onChange={event => setRetry(event.target.value)} />
-        </label>
+        <button type="button" className="gz-btn" disabled={disabled} onClick={() => void testBangumi()}>{busy === "test-bangumi" ? <LoaderCircle className="gz-spin" size={16} /> : <Zap size={16} />}测试连接</button>
+        <button type="button" className="gz-btn" disabled={disabled} onClick={() => { setBangumi({ ...defaultBangumiNetwork }); setBangumiProbes([]); }}><RefreshCw size={16} />恢复默认</button>
       </div>
+      {!!bangumiProbes.length && <div className="gz-probe-list">{bangumiProbes.map(probe => <p key={probe.name} className={probe.error ? "gz-error" : "gz-meta"}>{probe.name}：{probe.error ?? `${probe.milliseconds} ms · 可用`}</p>)}</div>}
     </section>
 
     <section className="gz-net-card">
-      <div className="gz-net-head"><Globe size={16} /><h2>线路与节点</h2>
-        <button className="gz-iconbtn gz-net-add" aria-label="新增线路" onClick={addNode}><Plus size={18} /></button>
-      </div>
-      <ul className="gz-node-list">{nodes.map(node => <li className="gz-node" key={node.id}>
-        <input className="gz-node-name" aria-label="线路名称" value={node.name} onChange={event => updateNode(node.id, { name: event.target.value })} />
-        <input className="gz-node-url" aria-label="线路地址" inputMode="url" placeholder="https://example.com" value={node.url} onChange={event => updateNode(node.id, { url: event.target.value })} />
-        <span className={`gz-node-latency ${node.latency == null ? "" : node.latency < 120 ? "good" : "slow"}`}>{node.latency == null ? "未测" : `${node.latency} ms`}</span>
-        <button className="gz-iconbtn" aria-label="删除线路" onClick={() => removeNode(node.id)}><Trash2 size={16} /></button>
-      </li>)}</ul>
-      <button className="gz-btn" disabled={testing} onClick={() => void testAll()}>{testing ? <LoaderCircle className="gz-spin" size={16} /> : <Zap size={16} />}{testing ? "测速中…" : "一键测速"}</button>
-    </section>
-
-    <section className="gz-net-card">
-      <div className="gz-net-head"><CircleGauge size={16} /><h2>COPY 漫画源</h2></div>
-      <label className="gz-field"><span>API 域名</span>
-        <input inputMode="url" placeholder="https://api.example.com" value={domain} onChange={event => setDomain(event.target.value)} />
-      </label>
-      <label className="gz-field"><span>接口版本</span>
-        <input placeholder="v1" value={version} onChange={event => setVersion(event.target.value)} />
-      </label>
+      <div className="gz-net-head"><CircleGauge size={16} /><h2>COPY 漫画与轻小说</h2></div>
       <div className="gz-net-row">
-        <label className="gz-field"><span>并发数</span>
-          <input inputMode="numeric" value={concurrency} onChange={event => setConcurrency(event.target.value)} />
+        <label className="gz-field"><span>代理模式</span>
+          <select value={reading.proxyMode} disabled={disabled} onChange={event => updateReading({ proxyMode: event.target.value as ReadingNetwork["proxyMode"] })}>
+            <option value="system">系统代理</option><option value="direct">直连</option><option value="manual">手动 HTTP 代理</option>
+          </select>
         </label>
-        <button className="gz-btn" onClick={() => pending("填充域名与版本")}><RefreshCw size={16} />自动填充</button>
+        <label className="gz-field"><span>漫画并发</span><input inputMode="numeric" min="1" max="8" type="number" value={reading.comicConcurrency} disabled={disabled} onChange={event => updateReading({ comicConcurrency: Number(event.target.value) })} /></label>
       </div>
+      {reading.proxyMode === "manual" && <label className="gz-field"><span>代理地址</span><input inputMode="url" placeholder="http://127.0.0.1:7890" value={reading.proxyUrl} disabled={disabled} onChange={event => updateReading({ proxyUrl: event.target.value })} /></label>}
+      <div className="gz-net-row">
+        <label className="gz-field"><span>线路</span><select value={reading.route} disabled={disabled} onChange={event => updateReading({ route: Number(event.target.value), node: "" })}><option value={0}>线路 1</option><option value={1}>线路 2</option></select></label>
+        <label className="gz-field"><span>节点</span><select value={reading.node} disabled={disabled} onChange={event => updateReading({ node: event.target.value })}><option value="">自动选择</option>{routeNodes.map(node => <option key={node} value={node}>{node}</option>)}</select></label>
+      </div>
+      <div className="gz-net-row">
+        <label className="gz-field"><span>API 域名</span><input inputMode="url" value={reading.apiHost} disabled={disabled} onChange={event => updateReading({ apiHost: event.target.value })} /></label>
+        <label className="gz-field"><span>接口版本</span><input value={reading.appVersion} disabled={disabled} onChange={event => updateReading({ appVersion: event.target.value })} /></label>
+      </div>
+      <div className="gz-net-row">
+        <button type="button" className="gz-btn" disabled={disabled} onClick={() => void fillReading()}>{busy === "fill" ? <LoaderCircle className="gz-spin" size={16} /> : <RefreshCw size={16} />}自动更新版本</button>
+        <button type="button" className="gz-btn" disabled={disabled} onClick={() => void testReading()}>{busy === "test-reading" ? <LoaderCircle className="gz-spin" size={16} /> : <Zap size={16} />}一键测速</button>
+      </div>
+      {!!nodeProbes.length && <div className="gz-probe-list">{nodeProbes.map(probe => <p key={`${probe.route ?? "api"}-${probe.host}`} className={probe.error ? "gz-error" : "gz-meta"}>{probe.host}：{probe.error ?? `${probe.milliseconds} ms · 可用`}</p>)}</div>}
+      <label className="gz-toggle-row" role="switch" aria-checked={reading.autoUpdate}><span className="gz-row-main"><strong>每日自动检查</strong><span className="gz-meta">启动时检查 COPY API 和版本信息。</span></span><input type="checkbox" checked={reading.autoUpdate} disabled={disabled} onChange={event => updateReading({ autoUpdate: event.target.checked })} /></label>
     </section>
 
     <div className="gz-net-save">
-      <button className="gz-btn primary" onClick={() => pending("保存网络配置")}><Save size={16} />保存配置</button>
-      <p className="gz-meta">安卓分支尚未接入 reading_network 后端命令，本页配置暂不生效，仅作界面预览。</p>
+      {error && <p className="gz-error" role="alert">{error}</p>}
+      <button type="button" className="gz-btn primary" disabled={disabled} onClick={() => void save()}>{busy === "save" ? <LoaderCircle className="gz-spin" size={16} /> : <Save size={16} />}保存网络配置</button>
+      <p className="gz-meta">Bangumi 镜像和 COPY 设置仅保存在本机，不会同步到其他设备。</p>
     </div>
   </div>;
 }

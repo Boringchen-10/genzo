@@ -4,12 +4,14 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { AlignJustify, ArrowLeft, ArrowUp, BarChart3, Bookmark, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Cloud, Compass, Database, Download, ExternalLink, Eye, EyeOff, FileText, Film, Filter, Flame, Folder, Footprints, HardDrive, Heart, HeartCrack, History, Home, Inbox, Info, Layers, Library, LoaderCircle, MessageCircle, MessageSquare, MoreHorizontal, Network, Palette, Pencil, PieChart, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { api, bookApi } from "../api";
 import type { BookEntry } from "../bookData";
+import { bookContentApi, type ReadingKind, type SourceEntry } from "../bookContent";
 import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
 import { playbackPercent, playbackTime, type PlaybackProgress } from "../playback";
 import { usePreferences, type ThemeStyle } from "../store";
 import { androidApi, isDirectoryEntry, listenAndroidChanges, type DocumentEntry, type VideoSource } from "./api";
 import AndroidPrototype from "./AndroidPrototype";
+import BookReader from "./BookReader";
 import ExplorePanel from "./ExplorePanel";
 import NetworkPanel from "./NetworkPanel";
 import WebdavEditor from "./WebdavEditor";
@@ -372,6 +374,12 @@ export default function AndroidApp() {
   const [sortSheet, setSortSheet] = useState(false);
   const [bookEntries, setBookEntries] = useState<BookEntry[]>([]);
   const [bookEntryState, setBookEntryState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [readingSource, setReadingSource] = useState<{ kind: ReadingKind; pathWord: string } | null>(null);
+  const [sourceEntries, setSourceEntries] = useState<SourceEntry[]>([]);
+  const [sourceGroup, setSourceGroup] = useState("");
+  const [sourceGroups, setSourceGroups] = useState<{ id: string; title: string }[]>([]);
+  const [sourceState, setSourceState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [readerEntry, setReaderEntry] = useState<SourceEntry | null>(null);
   const [bookTab, setBookTab] = useState<"default" | "volume" | "chapter">("default");
   const [bookPage, setBookPage] = useState(1);
   const [bookQuery, setBookQuery] = useState("");
@@ -522,6 +530,7 @@ export default function AndroidApp() {
   }
   function back() {
     if (modal) { closeModal(); return true; }
+    if (readerEntry) { setReaderEntry(null); return true; }
     if (sortSheet) { setSortSheet(false); return true; }
     if (statusSheet) { setStatusSheet(false); return true; }
     if (historyItem) { setHistoryItem(null); return true; }
@@ -590,7 +599,7 @@ export default function AndroidApp() {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") back(); };
     addEventListener("keydown", escape);
     return () => { delete windowWithBack.__genzoBack; removeEventListener("keydown", escape); };
-  }, [route, modal, busy, modalBusy, browseStack, sortSheet, statusSheet, historyItem, historyClear, historyEdit, syncServer]);
+  }, [route, modal, busy, modalBusy, browseStack, sortSheet, statusSheet, historyItem, historyClear, historyEdit, syncServer, readerEntry]);
   useEffect(() => {
     if (!modal) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -614,6 +623,12 @@ export default function AndroidApp() {
     setDetailError("");
     setBookEntries([]);
     setBookEntryState("idle");
+    setReadingSource(null);
+    setSourceEntries([]);
+    setSourceGroups([]);
+    setSourceGroup("");
+    setSourceState("idle");
+    setReaderEntry(null);
     setBookTab("default");
     setBookPage(1);
     setDetailTab("episodes");
@@ -631,6 +646,14 @@ export default function AndroidApp() {
       if (work.type === "comic" || work.type === "novel") {
         setBookEntryState("loading");
         void bookApi.entries(work.id).then(entries => { if (active) { setBookEntries(entries); setBookEntryState("ready"); } }).catch(reason => { if (active) { setBookEntries([]); setBookEntryState("error"); setError(String(reason)); } });
+        setSourceState("loading");
+        void bookContentApi.source(work.id).then(source => {
+          if (!active || !source) { if (active) setSourceState("ready"); return; }
+          setReadingSource(source); return bookContentApi.entries(source.kind, source.pathWord);
+        }).then(page => {
+          if (!active || !page) return;
+          setSourceEntries(page.entries); setSourceGroups(page.groups); setSourceGroup(page.group); setSourceState("ready");
+        }).catch(reason => { if (active) { setSourceState("error"); setError(String(reason)); } });
       } else {
         setStructureState("loading");
         void api.getAnimeWorkStructure(work.id).then(result => { if (active && snapshot === detailSnapshot.current) { setStructure(result); setStructureState("ready"); } }).catch(() => { if (active && snapshot === detailSnapshot.current) { setStructure(null); setStructureState("error"); } });
@@ -762,6 +785,17 @@ export default function AndroidApp() {
   const bookPageCount = Math.max(1, Math.ceil(sortedBookEntries.length / bookPageSize));
   const bookPageCurrent = clamp(bookPage, 1, bookPageCount);
   const bookPageItems = useMemo(() => sortedBookEntries.slice((bookPageCurrent - 1) * bookPageSize, bookPageCurrent * bookPageSize), [sortedBookEntries, bookPageCurrent]);
+  const remoteBookSection = readingSource && <section className="gz-book-source" aria-label="在线来源章节">
+    <div className="gz-section-head"><div><h2>在线章节</h2><p className="gz-meta">来自 COPY，可直接在应用内阅读</p></div>{sourceGroups.length > 0 && <select aria-label="章节分组" value={sourceGroup} disabled={sourceState === "loading"} onChange={event => {
+      const nextGroup = event.target.value;
+      setSourceGroup(nextGroup); setSourceState("loading");
+      void bookContentApi.entries(readingSource.kind, readingSource.pathWord, nextGroup).then(page => { setSourceEntries(page.entries); setSourceGroups(page.groups); setSourceGroup(page.group); setSourceState("ready"); }).catch(reason => { setSourceState("error"); setError(String(reason)); });
+    }}>{sourceGroups.map(group => <option key={group.id} value={group.id}>{group.title}</option>)}</select>}</div>
+    {sourceState === "loading" && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取在线目录…</p>}
+    {sourceState === "error" && <p className="gz-panel gz-meta">在线目录读取失败，请检查网络设置后重新进入作品。</p>}
+    {sourceState === "ready" && sourceEntries.length > 0 && <div className="gz-chapter-grid">{sourceEntries.map(entry => <button type="button" className="gz-chapter" key={entry.id} onClick={() => setReaderEntry(entry)}><strong>{entry.title}</strong><span className="gz-chapter-badge">{entry.count ? `${entry.count} 页` : "在线"}</span></button>)}</div>}
+    {sourceState === "ready" && sourceEntries.length === 0 && <p className="gz-panel gz-meta">来源暂未提供章节目录。</p>}
+  </section>;
   const primary = route.startsWith("detail/") ? "library" : top ? route : "profile";
   const sourceManager = <>
     <p className="gz-meta">授权你已下载视频的目录。扫描只建立索引，不复制视频；停用来源保留作品和个人记录。</p>
@@ -1068,7 +1102,7 @@ export default function AndroidApp() {
             {detail.tags.length > 0 && <div className="gz-book-pills">{detail.tags.map(tag => <button className="gz-book-pill" key={tag} onClick={() => openTag(tag, detail.type)}><i aria-hidden="true" />{tag}</button>)}</div>}
             <div className="gz-book-stats">
               {detail.networkScore != null && <span className="gz-book-stat"><Star size={13} />{detail.networkScore.toFixed(1)} 分</span>}
-              <span className="gz-book-stat"><BookOpen size={13} />{bookEntries.length} 话</span>
+              <span className="gz-book-stat"><BookOpen size={13} />{readingSource ? sourceEntries.length : bookEntries.length} 话</span>
               <span className="gz-book-stat"><Library size={13} />{detail.mediaFiles.length} 个文件</span>
             </div>
           </div>
@@ -1079,17 +1113,18 @@ export default function AndroidApp() {
           <button className="gz-book-action" disabled={busy} onClick={() => setToast("评论功能待接入")}><MessageSquare size={18} />评论</button>
           <button className={`gz-book-action ${detail.favorite ? "active" : ""}`} disabled={busy} onClick={() => void run(() => favorite(detail))}><Heart size={18} fill={detail.favorite ? "currentColor" : "none"} />收藏</button>
         </div>
-        <div className="gz-book-tabs" role="tablist" aria-label="章节分类">
+        {remoteBookSection}
+        {!readingSource && <div className="gz-book-tabs" role="tablist" aria-label="章节分类">
           {bookTabs.map(tab => <button key={tab.id} role="tab" aria-selected={effectiveBookTab === tab.id} className={effectiveBookTab === tab.id ? "active" : ""} onClick={() => { setBookTab(tab.id); setBookPage(1); }}>{tab.label}<span>{tab.entries.length}</span></button>)}
-        </div>
-        {bookEntryState === "loading" ? <RowsSkeleton count={6} label="正在读取章节目录…" /> : bookPageItems.length ? <>
+        </div>}
+        {!readingSource && (bookEntryState === "loading" ? <RowsSkeleton count={6} label="正在读取章节目录…" /> : bookPageItems.length ? <>
           {bookPageCount > 1 && <div className="gz-book-groups">{Array.from({ length: bookPageCount }, (_, index) => index + 1).map(page => <button key={page} className={`gz-book-group ${page === bookPageCurrent ? "active" : ""}`} aria-current={page === bookPageCurrent ? "true" : undefined} onClick={() => setBookPage(page)}>{page}</button>)}<button className="gz-book-top" aria-label="回到顶部" onClick={() => main.current?.scrollTo({ top: 0, behavior: "smooth" })}><ArrowUp size={18} /></button></div>}
           <div className="gz-chapter-grid">{bookPageItems.map(entry => <button className={`gz-chapter ${entry.readState === "read" ? "read" : ""}`} key={entry.id} disabled={busy || entry.missing} onClick={() => setToast(`${chapterLabel(entry)} · 阅读器待接入`)}>
             <strong>{chapterLabel(entry)}</strong>
             <span className="gz-chapter-badge">{entry.missing ? "缺失" : entry.format ? entry.format.toUpperCase() : "—"}</span>
             {entry.readState === "reading" && <span className="gz-chapter-state">在读</span>}
           </button>)}</div>
-        </> : <div className="gz-shelf-empty"><span className="gz-shelf-badge"><BookOpen size={26} /></span><h2>还没有章节</h2><p>{bookEntryState === "error" ? "章节目录读取失败，请稍后重试。" : "这个作品还没有可阅读的章节文件。"}</p></div>}
+        </> : <div className="gz-shelf-empty"><span className="gz-shelf-badge"><BookOpen size={26} /></span><h2>还没有章节</h2><p>{bookEntryState === "error" ? "章节目录读取失败，请稍后重试。" : "这个作品还没有可阅读的章节文件。"}</p></div>)}
       </> : <>
         <section className="gz-detail-head gz-anime-hero">
           <h2 className="gz-subject-title">{detail.title}</h2>
@@ -1161,6 +1196,7 @@ export default function AndroidApp() {
       {route === "sync/webdav" && webdavSyncPage}
       {route === "diagnostics" && <AndroidPrototype />}
     </main>
+    {readerEntry && readingSource && <BookReader kind={readingSource.kind} pathWord={readingSource.pathWord} entryId={readerEntry.id} group={sourceGroup} onClose={() => setReaderEntry(null)} />}
     <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
     {toast && <div className="gz-toast" role="status">{toast}</div>}
     {busy && <div className="gz-busy" role="status"><LoaderCircle size={18} />正在处理…</div>}

@@ -5,6 +5,7 @@ import { api } from "../api";
 import { androidApi } from "./api";
 import type { AnimeWorkStructure, ExploreSubject, WeeklyCalendar, WeeklyCalendarDay, WorkStatus } from "../types";
 import { comicExploreApi, type ComicItem, type ComicTheme } from "../comicExplore";
+import { BANGUMI_NETWORK_CHANGED } from "../bangumiNetwork";
 
 type ExploreTab = "anime" | "comic" | "novel";
 type ExploreView = "feed" | "schedule";
@@ -129,6 +130,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const sentinelRef = useRef<HTMLDivElement>(null);
   const daysRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLSpanElement>(null);
+  const animeLoadRef = useRef(0);
   const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const backHandler = useRef<() => boolean>(() => false);
@@ -154,18 +156,41 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       setAnimeState("ready");
       return;
     }
+    const loadId = ++animeLoadRef.current;
+    const active = () => animeLoadRef.current === loadId;
     setAnimeState("loading"); setAnimeError("");
-    const [overviewResult, calendarResult] = await Promise.allSettled([api.exploreOverview(), api.weeklyCalendar()]);
-    const nextTrending = overviewResult.status === "fulfilled" ? overviewResult.value.trending.slice(0, 24) : [];
-    const nextSeasonal = overviewResult.status === "fulfilled" ? overviewResult.value.seasonal : [];
-    const nextCalendar = calendarResult.status === "fulfilled" ? calendarResult.value : null;
-    if (overviewResult.status === "fulfilled") setTrending(nextTrending);
-    if (overviewResult.status === "fulfilled") setSeasonal(nextSeasonal);
-    if (calendarResult.status === "fulfilled") setCalendar(nextCalendar); else setCalendar(null);
-    if (overviewResult.status === "fulfilled" || calendarResult.status === "fulfilled") animeExploreCache = { trending: nextTrending, seasonal: nextSeasonal, calendar: nextCalendar };
-    if (overviewResult.status === "rejected" && calendarResult.status === "rejected") {
-      setAnimeError(String(overviewResult.reason)); setAnimeState("error");
-    } else setAnimeState("ready");
+    let rankingError: unknown = null;
+    let overviewError: unknown = null;
+    let calendarError: unknown = null;
+    const rankingTask = api.animeRanking(1, 24).then(value => {
+      if (active()) { setTrending(value); setAnimeState("ready"); }
+      return value;
+    }).catch(reason => { rankingError = reason; return null; });
+    const overviewTask = api.exploreOverview().then(value => {
+      if (active()) {
+        setSeasonal(value.seasonal);
+        setAnimeState("ready");
+      }
+      return value;
+    }).catch(reason => { overviewError = reason; return null; });
+    const calendarTask = api.weeklyCalendar().then(value => {
+      if (active()) setCalendar(value);
+      return value;
+    }).catch(reason => { calendarError = reason; return null; });
+    const [ranking, overview, calendar] = await Promise.all([rankingTask, overviewTask, calendarTask]);
+    if (!active()) return;
+    const nextTrending = ranking ?? overview?.trending.slice(0, 24) ?? [];
+    const nextSeasonal = overview?.seasonal ?? [];
+    if (ranking || overview || calendar) {
+      setTrending(nextTrending);
+      setSeasonal(nextSeasonal);
+      setCalendar(calendar);
+      animeExploreCache = { trending: nextTrending, seasonal: nextSeasonal, calendar };
+      setAnimeState("ready");
+    } else {
+      setAnimeError(String(overviewError ?? rankingError ?? calendarError ?? "Bangumi 数据读取失败。"));
+      setAnimeState("error");
+    }
   }, []);
 
   const loadComics = useCallback(async (nextTheme: string) => {
@@ -184,6 +209,11 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   }, []);
 
   useEffect(() => { void loadAnime(); }, [loadAnime]);
+  useEffect(() => {
+    const changed = () => { animeExploreCache = null; void loadAnime(true); };
+    window.addEventListener(BANGUMI_NETWORK_CHANGED, changed);
+    return () => window.removeEventListener(BANGUMI_NETWORK_CHANGED, changed);
+  }, [loadAnime]);
   useEffect(() => {
     if (isCurrentCour) { setSeasonDays(null); setSeasonState("ready"); return; }
     let cancelled = false;
@@ -496,7 +526,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
             {seasonalItems.length > seasonalVisible && <div className="gz-sentinel" ref={sentinelRef} aria-hidden="true" />}
           </> : <p className="gz-panel gz-meta">{calendar ? "本周放送日历里没有索引到番组。" : "正在读取当季番组…"}</p>}</section>
       </>)}
-      <p className="gz-explore-source gz-meta">当季番组来自 Bangumi 每日放送接口（实时），与本地媒体库无关。</p>
+      <p className="gz-explore-source gz-meta">热门番组来自 Bangumi 官方排行榜；当季番组来自每日放送接口，与本地媒体库无关。</p>
 
       {tab === "comic" && (searchTerm !== null ? <>
         <p className="gz-meta">「{searchTerm}」共 {comicResults.length} 条</p>

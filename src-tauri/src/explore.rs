@@ -153,6 +153,7 @@ pub async fn overview(
             .then(|| "网络更新失败，当前使用本地过期番组索引".to_string()),
     }];
 
+    let bangumi_source_label = crate::bangumi_network::current().source_label().to_string();
     let calendar = if year.is_none_or(|value| value == now.year())
         && selected_month.is_none_or(|value| value == current_season_start(&now))
     {
@@ -160,7 +161,7 @@ pub async fn overview(
             Ok(calendar) => {
                 sources.push(ExploreSourceStatus {
                     key: BANGUMI_PROVIDER.to_string(),
-                    label: "Bangumi 官方 API".to_string(),
+                    label: bangumi_source_label.clone(),
                     available: true,
                     stale: calendar.stale,
                     fetched_at: Some(calendar.fetched_at.clone()),
@@ -173,7 +174,7 @@ pub async fn overview(
             Err(error) => {
                 sources.push(ExploreSourceStatus {
                     key: BANGUMI_PROVIDER.to_string(),
-                    label: "Bangumi 官方 API".to_string(),
+                    label: bangumi_source_label.clone(),
                     available: false,
                     stale: false,
                     fetched_at: None,
@@ -298,7 +299,8 @@ pub async fn search(pool: &SqlitePool, query: &str) -> AppResult<Vec<ExploreSubj
             "探索搜索词不能超过 200 个字符".to_string(),
         ));
     }
-    let key = format!("search:{}", normalize_title(query));
+    let base_key = format!("search:{}", normalize_title(query));
+    let key = crate::bangumi_network::current().cache_key(&base_key);
     let cached = load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &key).await?;
     let result = if cached.as_ref().is_some_and(|value| !value.stale) {
         cached.expect("fresh cache checked")
@@ -334,7 +336,8 @@ pub async fn anime_ranking(
             "排行榜页码必须从 1 开始，每页数量必须在 1 到 100 之间".to_string(),
         ));
     }
-    let key = format!("ranking:{page}:{page_size}");
+    let base_key = format!("ranking:{page}:{page_size}");
+    let key = crate::bangumi_network::current().cache_key(&base_key);
     let cached = load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &key).await?;
     let result = if cached.as_ref().is_some_and(|value| !value.stale) {
         cached.expect("fresh ranking cache checked")
@@ -531,15 +534,16 @@ async fn live_calendar_with(pool: &SqlitePool, fetch: impl std::future::Future<O
     const KEY: &str = "explore:weekly-live:v1";
     static REFRESH: Mutex<()> = Mutex::const_new(());
     let _guard = REFRESH.lock().await;
-    let cached = load_cache::<Vec<(u32, WorkMetadata)>>(pool, BANGUMI_PROVIDER, KEY).await?;
+    let key = crate::bangumi_network::current().cache_key(KEY);
+    let cached = load_cache::<Vec<(u32, WorkMetadata)>>(pool, BANGUMI_PROVIDER, &key).await?;
     let result = if cached.as_ref().is_some_and(|value| !value.stale) {
         cached.unwrap()
     } else {
         match fetch.await {
             Ok(items) => {
-                save_cache(pool, BANGUMI_PROVIDER, KEY, &items, Duration::hours(6)).await?;
+                save_cache(pool, BANGUMI_PROVIDER, &key, &items, Duration::hours(6)).await?;
                 let fetched_at: String = sqlx::query_scalar("SELECT fetched_at FROM metadata_cache WHERE provider=? AND cache_key=?")
-                    .bind(BANGUMI_PROVIDER).bind(KEY).fetch_one(pool).await?;
+                    .bind(BANGUMI_PROVIDER).bind(&key).fetch_one(pool).await?;
                 Cached { value: items, fetched_at, stale: false }
             }
             Err(error) => cached.ok_or(error)?,
@@ -1062,8 +1066,8 @@ fn build_index(json: &[u8]) -> Result<BangumiDataIndex, serde_json::Error> {
 }
 
 async fn load_calendar(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>> {
-    let cached =
-        load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, CALENDAR_CACHE_KEY).await?;
+    let key = crate::bangumi_network::current().cache_key(CALENDAR_CACHE_KEY);
+    let cached = load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &key).await?;
     if let Some(cached_value) = cached {
         if cached_value.stale {
             schedule_calendar_refresh(pool.clone());
@@ -1095,13 +1099,14 @@ fn schedule_calendar_refresh(pool: SqlitePool) {
 
 async fn fetch_calendar_and_cache(pool: &SqlitePool) -> AppResult<Cached<Vec<WorkMetadata>>> {
     let provider = BangumiProvider::new()?;
+    let key = crate::bangumi_network::current().cache_key(CALENDAR_CACHE_KEY);
     match retry_network(|| provider.calendar()).await {
         Ok(items) => {
             let fetched_at = Utc::now().to_rfc3339();
             save_cache(
                 pool,
                 BANGUMI_PROVIDER,
-                CALENDAR_CACHE_KEY,
+                &key,
                 &items,
                 Duration::hours(6),
             )
@@ -1121,7 +1126,8 @@ async fn load_subject_metadata(
     external_id: &str,
 ) -> AppResult<Cached<WorkMetadata>> {
     let external_id = validated_external_id(external_id)?;
-    let key = format!("detail:{external_id}");
+    let base_key = format!("detail:{external_id}");
+    let key = crate::bangumi_network::current().cache_key(&base_key);
     let cached_list = load_cache::<Vec<WorkMetadata>>(pool, BANGUMI_PROVIDER, &key).await?;
     let cached = cached_list.and_then(|value| {
         value.value.into_iter().next().map(|metadata| Cached {

@@ -254,6 +254,23 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-chapter.read { opacity: .5; }
 .android-app .gz-chapter.read strong { font-weight: 400; }
 .android-app .gz-chapter-state { position: absolute; top: -7px; right: -6px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); }
+.android-app .gz-book-source { display: grid; gap: 12px; margin: 18px 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.android-app .gz-book-source .gz-section-head { margin: 0; }
+.android-app .gz-book-source select { min-height: 36px; max-width: 46%; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); color: var(--text); }
+.android-app .gz-reader { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); color: var(--text); }
+.android-app .gz-reader-head { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.android-app .gz-reader-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.android-app .gz-reader-kind { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--muted); font-size: 12px; }
+.android-app .gz-reader-pages, .android-app .gz-reader-sections { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; padding: 14px; }
+.android-app .gz-reader-pages { display: grid; gap: 10px; justify-items: center; background: #101214; }
+.android-app .gz-reader-pages img, .android-app .gz-reader-section img { display: block; max-width: 100%; height: auto; border-radius: 2px; }
+.android-app .gz-reader-image-loading { display: grid; place-items: center; width: 100%; min-height: 120px; border: 1px solid var(--line); color: var(--muted); }
+.android-app .gz-reader-sections { display: grid; gap: 20px; }
+.android-app .gz-reader-section { padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.android-app .gz-reader-section h2 { margin: 0 0 10px; font-size: 16px; }
+.android-app .gz-reader-section p { margin: 0; white-space: pre-wrap; line-height: 1.85; overflow-wrap: anywhere; }
+.android-app .gz-reader-empty { display: grid; place-items: center; gap: 12px; padding: 32px 18px; text-align: center; }
+.android-app .gz-reader-error { margin: 8px 0; color: var(--warn); font-size: 12px; }
 .android-app .gz-tag { display: inline-flex; align-items: center; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-raised); color: var(--muted); cursor: pointer; }
 .android-app .gz-tag:active { color: var(--text); }
 .android-app .gz-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -348,6 +365,8 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-node-latency.good { color: var(--accent); }
 .android-app .gz-node-latency.slow { color: var(--warn); }
 .android-app .gz-net-save { display: grid; gap: 8px; }
+.android-app .gz-probe-list { display: grid; gap: 4px; padding-top: 2px; }
+.android-app .gz-probe-list p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: no-preference) { .android-app .gz-spin { animation: gz-spin 1s linear infinite; } }
 
 /* View Transitions: page slides between primary tabs, shared-element morphs from a cover into the detail header. */
