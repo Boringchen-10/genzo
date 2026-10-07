@@ -1,5 +1,12 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 实体机阅读预览（2026-10-07）
+
+- 用户随后明确要求在已连接实体机打开效果，授权本轮部署。核对设备为一加 PLK110 / Android 16 / arm64，序列号 `3B164M00Z0500000`；安装既有独立 arm64 QA 包，SHA256 `3ADD334AD5F27C46AFC95CF89341FA0B7ED4DA1E08817CA2B6115073B30124D5`。未更新普通 `com.genzo.android`。
+- 该手机安装前没有 readerqa 包；确认新包私有目录尚无 `genzo.db` 后才复制自有合成库与缓存，随后实际 IPC 核对 `/data/user/0/com.genzo.android.readerqa`。后续此包已有阅读记录，不得再次覆盖播种。未修改真实媒体文件。
+- 已实际启动 MainActivity 和 ReaderActivity，观察到 Readium 3.1.2 在线小说第01卷正文、滚动位置与原生目录 / 书签 / 设置工具栏，`rendered=true`；截图与状态在 `D:/DevTools/Android/Build/qa/reader-c/phone-preview/visible-reader.*`。保留当前阅读页给用户体验，不继续自动切章或修改设置。
+- 自动 React 点击检查遇到转场 / DOM 变化超时；没有将该脚本报为通过。本轮只确认真机安装、启动与当前小说显示，不代表完整真机功能 / 性能 / 来源回归。
+
 ## Android 原生阅读 C 方案基础交付（2026-10-07）
 
 - 用户确认 Android 优先，采用 Kotlin 漫画与 Readium 小说。本轮覆盖约定的基础交互与已有来源 / Genzo 缓存阅读；未来新功能与界面优化继续在各阅读模块迭代，不推定已经批准语音 / 标注 / 阅读同步等后续功能。

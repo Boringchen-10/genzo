@@ -54,3 +54,7 @@ Readium 固定 3.1.2，源码参考 71074ea0c424eabbc39a93b48a4cefe366f7741b，B
 双指测试使用 `scripts/fixtures/ReaderGesture.java` 的 shell 触摸注入器；用 SDK `android.jar` 编译后经 D8 转换为 dex、打成 jar，推送至 `/data/local/tmp/genzo-reader-gesture.jar`。其余入口、控件与生命周期检查使用 Playwright 连接 QA 主 WebView 和 ADB 原生输入；Readium 生成的 WebView 可用于检查实际段落 / 插图，但不能以网页 DOM 替代原生屏幕检查。
 
 本轮交付已有来源章节和 Genzo 缓存的阅读基础。真实第三方服务、复杂排版、任意外部 EPUB / SAF / WebDAV 导入、超大图片 / 全机型性能、16 KiB 页设备运行与长时间真机体验未据本轮模拟器结果宣称完成；它们按后续具体样本验收。功能扩展与界面优化沿用现有 ReaderActivity / 两类 Surface，不需要重做整个书库；Kotlin 和 SDK 改动仍需重新打包验证。
+
+## 后续实体机预览（2026-10-07）
+
+用户明确要求在已连接实体机查看。既有 arm64 独立测试包已安装到一加 PLK110 / Android 16；该包安装前不存在，确认新私有目录无数据库后才准备合成数据，未覆盖普通应用。实际启动并观察到 Readium 在线小说正文、阅读位置和原生工具栏，页面保留给用户操作。自动入口检查遇到转场 / DOM 变化超时，未报为通过；此次是安装 / 启动 / 显示检查，不代替完整真机回归。记录在 `D:/DevTools/Android/Build/qa/reader-c/phone-preview/`。
