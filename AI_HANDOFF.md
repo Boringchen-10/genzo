@@ -1,5 +1,18 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 漫画详情交互修正与模拟器前端预览（2026-10-07）
+
+- 用户要求七项漫画详情修正，并明确效果确认前不生成新 APK、先在模拟器查看，实体机验证后排。本轮只在 `H:\二次元阅读器\.tmp\android-first` / `codex/android-first` 开发，起始 HEAD `a0ef1d8`。起始 `ExplorePanel.tsx` 与 `mobile.css` 已有 OpenDesign 漫画首页／更多列表的未提交修改；保留其工作文件，通过起始备份与 HEAD 比较仅提交本轮差异。主目录 `main` 的 Windows／设计未提交内容未操作。
+- `BookDescription` 对书架与发现书籍详情按实际排版夹到三行，确有溢出才显示展开／收起；作者、状态与标签代替详情来源展示。没有实际本地／WebDAV 文件关联的作品卡片和详情隐藏文件计数与设置，不改变共享 DTO 或 Windows 页面。
+- `OnlineChapters` 共用于书架与发现详情，读取来源实际组 ID／总数，显示默认／单行本／其它组与 100 条分页；原生返回多少就展示多少，不伪造组。倒序按全目录映射请求 offset，再反转本页，214 条例子为 114／14／0，末页截取 14 条，避免只反转当前页或尾页重叠。
+- 主下载按钮进入多选，同一组内可跨页选择、全选本页、下载所选／取消；组切换清空选择。复用已有章节缓存接口，不再显示每章下载按钮或在线下载设置。下载逐章执行，中途失败保留未完成选择；取消停止后续排队，已经进行的一章由现有后端完成，不宣称原生任务立即取消或后台下载中心已经实现。阅读器传递当前真实组 ID。
+- 发现页共享封面转场改为实际被点击的卡片（首页多组存在重复封面时不取第一个）；进入详情滚到顶部，返回恢复列表位置，转场失败清理名称，减少动态效果模式回退正常导航。模拟器实际完成 forward／back 两次 `morph.ready`，无转场拒绝。
+- 最终复核发现快速缓存响应会先写完整详情，随后异步转场回调又覆盖为列表简略资料。已调整为完成详情页初始提交后再读取资料；返回／新请求使旧响应失效，资料重试不重复做前进转场。QA 增加进入两次后简介、作者、状态与标签必须匹配原生缓存 DTO 的断言，`cachedDetailPreserved=true` 已通过，避免只看章节或动画成功就报详情完成。
+- 不构建／安装 APK，通过 Vite `build --watch` 输出到 `D:\DevTools\Android\Build\frontend-preview`，`scripts/preview-android-frontend.mjs` 在模拟器已安装调试 WebView 的原生源下加载新 React。CDP 仅对当前调试会话 bypass CSP，没有改应用权限、capability 或生产配置；页面使用真实已安装后端。这不是官方 Tauri HMR，重载／重启应用会恢复包内资源，需重新启动预览；Rust／Kotlin 新能力不能靠此更新。完整启动与限制见 `docs/android/FRONTEND_LIVE_PREVIEW.md`。
+- 已通过 `pnpm check`、`pnpm test`（20 文件／86 项）与 Vite 前端构建。八组分页单元样本验证顺／倒序恰好覆盖全目录。只改 Android 页面／样式与 QA／文档；Windows 共享前端编译通过，未重新打 Windows 安装器或做全部窗口人工回归。
+- `scripts/verify-android-comic-detail.mjs` 在 `emulator-5554` 验证已有作品「魔都精兵的奴隸」三行简介展开／收起，真实 214／20／1 分组，三页与末页 14 条，全目录倒序、多选模式、无每章下载图标、无零文件与设置。三个样本章节实际调用已有后端并缓存成功，保留在 Genzo 阅读缓存；中途失败／重试另用隔离 iframe 夹具验证，不替换冻结的 Tauri invoke。20 个作品 ID／收藏／状态／评分摘要前后相同；不宣称整库文件哈希校验。
+- 360／412／915 宽度无横向溢出，页面无 `pageerror`。结果／详情与选择截图在 `D:\DevTools\Android\Build\qa\comic-detail-20261007`，`watch-preview.json` 验证保存 CSS 后模拟器自动应用及恢复。未清应用数据、卸载或操作一加 15，也未修改原始媒体文件。本轮资源只存在于当前前端预览，不能将旧 APK 报作包含这些改动的交付包。
+
 ## 动漫热度与漫画首页资料接口（2026-10-07）
 
 - 用户明确：安卓动漫「热门番组」要对应 Bangumi 动画目录「热度」顺序；漫画先提供拷贝推荐、排行榜、热门更新、全新上架、已完结接口，正式页面后续交给 OpenDesign。只在 `H:\二次元阅读器\.tmp\android-first` / `codex/android-first` 工作，起始 HEAD `c2a2ef0` 且工作树干净；主目录 `main` 的 OpenDesign / Windows 未提交内容未触碰。

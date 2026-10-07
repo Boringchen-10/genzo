@@ -256,9 +256,24 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-chapter-state { position: absolute; top: -7px; right: -6px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); }
 .android-app .gz-book-source { display: grid; gap: 12px; margin: 18px 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .android-app .gz-book-source .gz-section-head { margin: 0; }
-.android-app .gz-chapter-card { display: flex; align-items: stretch; gap: 6px; min-width: 0; }
-.android-app .gz-chapter-card .gz-chapter { flex: 1; min-width: 0; }
-.android-app .gz-chapter-download { flex: 0 0 42px; min-height: 44px; border: 1px solid var(--line); background: var(--surface); }
+.android-app .gz-book-description { margin: 12px 0; }
+.android-app .gz-book-description .gz-description { margin: 0; line-height: 1.55; }
+.android-app .gz-book-description-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.android-app .gz-book-description .gz-link { min-height: 44px; }
+.android-app .gz-online-chapters { margin-top: 18px; }
+.android-app .gz-online-chapters .gz-book-tabs { overflow-x: auto; }
+.android-app .gz-online-chapters .gz-book-tabs button { flex: 1 0 auto; min-height: 44px; }
+.android-app .gz-chapter-pages { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
+.android-app .gz-chapter-pages .gz-book-groups { flex: 1; min-width: 0; margin: 0; overflow-x: auto; }
+.android-app .gz-chapter-page-item { display: inline-flex; align-items: center; gap: 6px; }
+.android-app .gz-chapter-order { flex: none; background: var(--surface); border: 1px solid var(--line); }
+.android-app .gz-chapter-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.android-app .gz-chapter-selection button { min-height: 44px; }
+.android-app .gz-online-chapters .gz-chapter-grid { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; }
+.android-app .gz-online-chapters .gz-chapter { align-items: center; justify-content: center; gap: 7px; min-height: 64px; padding: 9px 5px; text-align: center; }
+.android-app .gz-online-chapters .gz-chapter strong { width: 100%; font-size: 12px; }
+.android-app .gz-online-chapters .gz-chapter.selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.android-app .gz-online-chapters .gz-chapter-badge { background: none; padding: 0; }
 .android-app .gz-book-source select { min-height: 36px; max-width: 46%; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); color: var(--text); }
 .android-app .gz-reader { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); color: var(--text); }
 .android-app .gz-reader-head { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }

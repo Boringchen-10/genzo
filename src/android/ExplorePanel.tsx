@@ -6,8 +6,10 @@ import { api } from "../api";
 import { androidApi } from "./api";
 import type { AnimeWorkStructure, BangumiComment, ExploreSubject, WeeklyCalendar, WeeklyCalendarDay, WorkStatus } from "../types";
 import { appendComicPage, comicExploreApi, novelExploreApi, type ComicDetail, type ComicItem, type ComicTheme, type CopyComment } from "../comicExplore";
-import { appendSourcePage, bookContentApi, type SourceEntry, type SourcePage } from "../bookContent";
+import { type SourceEntry } from "../bookContent";
 import BookReader from "./BookReader";
+import BookDescription from "./BookDescription";
+import OnlineChapters from "./OnlineChapters";
 import { BANGUMI_NETWORK_CHANGED } from "../bangumiNetwork";
 
 type ExploreTab = "anime" | "comic" | "novel";
@@ -151,8 +153,8 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const [comicDetail, setComicDetail] = useState<ComicDetail | null>(null);
   const [comicDetailKind, setComicDetailKind] = useState<"comic" | "novel">("comic");
   const [bookDetailState, setBookDetailState] = useState<LoadState>("ready");
-  const [bookSource, setBookSource] = useState<SourcePage | null>(null);
-  const [bookSourceState, setBookSourceState] = useState<LoadState>("ready");
+  const [bookSelecting, setBookSelecting] = useState(false);
+  const [readerGroup, setReaderGroup] = useState("");
   const [bookComments, setBookComments] = useState<CopyComment[]>([]);
   const [bookCommentsState, setBookCommentsState] = useState<LoadState>("ready");
   const [bookCommentsTotal, setBookCommentsTotal] = useState(0);
@@ -173,32 +175,40 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const popularSnapshotRef = useRef<PopularSnapshot | null>(null);
   const [popularLoading, setPopularLoading] = useState(false);
   const exploreCoverRef = useRef<HTMLElement | null>(null);
+  const clickedCoverRef = useRef<HTMLElement | null>(null);
+  const exploreScroll = useRef(0);
   const exploreDetailId = useRef<string | null>(null);
+  const bookDetailRequest = useRef(0);
   const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const backHandler = useRef<() => boolean>(() => false);
   const runExploreMorph = useCallback((id: string, direction: "forward" | "back", commit: () => void) => {
     document.querySelectorAll<HTMLElement>("[data-explore-cover-id]").forEach(node => node.style.removeProperty("view-transition-name"));
     const source = direction === "forward"
-      ? document.querySelector<HTMLElement>(`[data-explore-cover-id="${CSS.escape(id)}"]`)
+      ? clickedCoverRef.current?.dataset.exploreCoverId === id ? clickedCoverRef.current : document.querySelector<HTMLElement>(`[data-explore-cover-id="${CSS.escape(id)}"]`)
       : exploreCoverRef.current;
     if (!source) { commit(); return; }
+    const scroll = source.closest<HTMLElement>(".gz-scroll");
+    if (direction === "forward") exploreScroll.current = scroll?.scrollTop ?? 0;
     source.style.setProperty("view-transition-name", exploreCoverName(id));
     const root = document.documentElement;
     root.dataset.trans = "morph"; root.dataset.nav = direction;
-    const transition = startExploreTransition(() => { flushSync(commit); document.querySelector<HTMLElement>(`[data-explore-cover-id="${CSS.escape(id)}"]`)?.style.setProperty("view-transition-name", exploreCoverName(id)); });
+    const update = () => { flushSync(commit); if (scroll) scroll.scrollTop = direction === "forward" ? 0 : exploreScroll.current; document.querySelector<HTMLElement>(`[data-explore-cover-id="${CSS.escape(id)}"]`)?.style.setProperty("view-transition-name", exploreCoverName(id)); };
+    const transition = startExploreTransition(update);
     if (!transition) {
-      commit();
+      update();
       window.setTimeout(() => { source.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; }, 420);
       return;
     }
-    void transition.finished.finally(() => { source.style.removeProperty("view-transition-name"); document.querySelectorAll<HTMLElement>("[data-explore-cover-id]").forEach(node => node.style.removeProperty("view-transition-name")); delete root.dataset.trans; delete root.dataset.nav; });
+    const cleanup = () => { source.style.removeProperty("view-transition-name"); document.querySelectorAll<HTMLElement>("[data-explore-cover-id]").forEach(node => node.style.removeProperty("view-transition-name")); delete root.dataset.trans; delete root.dataset.nav; };
+    void transition.finished.then(cleanup, cleanup);
   }, []);
   backHandler.current = () => {
     if (statusSheet) { setStatusSheet(false); return true; }
     if (subject) { const id = exploreDetailId.current ?? subject.externalId; runExploreMorph(id, "back", () => setSubject(null)); return true; }
     if (readerEntry) { setReaderEntry(null); return true; }
-    if (comicDetail) { const id = comicDetail.item.pathWord; runExploreMorph(id, "back", () => setComicDetail(null)); return true; }
+    if (bookSelecting) { setBookSelecting(false); return true; }
+    if (comicDetail) { bookDetailRequest.current++; const id = comicDetail.item.pathWord; runExploreMorph(id, "back", () => setComicDetail(null)); return true; }
     if (seasonOpen) { setSeasonOpen(false); return true; }
     if (view === "schedule") { setView("feed"); return true; }
     return false;
@@ -208,6 +218,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     registerBack(() => backHandler.current());
     return () => registerBack(null);
   }, [registerBack]);
+  useEffect(() => () => { bookDetailRequest.current++; }, []);
 
   const loadAnime = useCallback(async (force = false) => {
     if (!force && animeExploreCache) {
@@ -383,24 +394,30 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   };
 
   const openBook = async (item: ComicItem, kind: "comic" | "novel") => {
-    setComicDetailKind(kind);
-    runExploreMorph(item.pathWord, "forward", () => setComicDetail({ item, aliases: [], chapterCount: null, stale: false }));
-    setBookDetailState("loading"); setBookSource(null); setBookSourceState("loading");
-    setBookComments([]); setBookCommentsState("loading"); setBookCommentsTotal(0); setBookCommentsLoadingMore(false);
+    const request = ++bookDetailRequest.current;
+    const initialize = () => {
+      setComicDetailKind(kind); setComicDetail({ item, aliases: [], chapterCount: null, stale: false });
+      setBookDetailState("loading"); setBookSelecting(false); setReaderEntry(null);
+      setBookComments([]); setBookCommentsState("loading"); setBookCommentsTotal(0); setBookCommentsLoadingMore(false);
+    };
+    if (comicDetail?.item.pathWord === item.pathWord) initialize();
+    else await new Promise<void>(resolve => runExploreMorph(item.pathWord, "forward", () => { initialize(); resolve(); }));
+    if (request !== bookDetailRequest.current) return;
     try {
-      const [detail, source] = await Promise.all([
-        kind === "comic" ? comicExploreApi.detail(item.pathWord) : novelExploreApi.detail(item.pathWord),
-        bookContentApi.entries(kind, item.pathWord),
-      ]);
-      setComicDetail(detail); setBookDetailState("ready"); setBookSource(source); setBookSourceState("ready");
+      const detail = kind === "comic" ? await comicExploreApi.detail(item.pathWord) : await novelExploreApi.detail(item.pathWord);
+      if (request !== bookDetailRequest.current) return;
+      setComicDetail(detail); setBookDetailState("ready");
     } catch (reason) {
-      setBookDetailState("error"); setBookSourceState("error");
+      if (request !== bookDetailRequest.current) return;
+      setBookDetailState("error");
       onToast(String(reason));
     }
     try {
       const comments = kind === "comic" ? await comicExploreApi.comments(item.pathWord) : await novelExploreApi.comments(item.pathWord);
+      if (request !== bookDetailRequest.current) return;
       setBookComments(comments.items); setBookCommentsTotal(comments.total); setBookCommentsState("ready");
     } catch {
+      if (request !== bookDetailRequest.current) return;
       setBookCommentsState("error");
     }
   };
@@ -427,15 +444,6 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       setSubjectCommentsTotal(next.total);
     } catch (reason) { onToast(String(reason)); }
     finally { setSubjectCommentsLoadingMore(false); }
-  };
-
-  const loadMoreBookEntries = async () => {
-    if (!bookSource || bookSource.entries.length >= bookSource.total || bookSourceState === "loading") return;
-    setBookSourceState("loading");
-    try {
-      const next = await bookContentApi.entries(comicDetailKind, comicDetail?.item.pathWord ?? "", bookSource.group, bookSource.offset + bookSource.entries.length);
-      setBookSource(appendSourcePage(bookSource, next)); setBookSourceState("ready");
-    } catch (reason) { setBookSourceState("error"); onToast(String(reason)); }
   };
 
   const switchTab = (next: ExploreTab) => {
@@ -644,16 +652,15 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
   const comicDetailView = comicDetail && <div className="gz-subject">
     <div className="gz-subject-topbar">
-      <button className="gz-iconbtn" aria-label="返回发现" onClick={() => runExploreMorph(comicDetail.item.pathWord, "back", () => setComicDetail(null))}><ArrowLeft size={20} /></button>
+      <button className="gz-iconbtn" aria-label="返回发现" onClick={() => backHandler.current()}><ArrowLeft size={20} /></button>
     </div>
     <section className="gz-subject-hero">
       <h1 className="gz-subject-title">{comicDetail.item.title}</h1>
       <div className="gz-subject-body">
         <span className="gz-subject-cover" data-explore-cover-id={comicDetail.item.pathWord}>{comicCover(comicDetail.item) ? <img src={comicCover(comicDetail.item)} alt="" /> : <BookOpen size={28} />}</span>
         <div className="gz-subject-stats">
-          {comicDetail.item.authors.length > 0 && <div className="gz-subject-stat"><span>作者:</span><strong>{comicDetail.item.authors.join(" / ")}</strong></div>}
-          <div className="gz-subject-stat"><span>来源:</span><strong>COPY {comicDetailKind === "comic" ? "漫画" : "轻小说"}</strong></div>
-          <div className="gz-subject-stat"><span>章节:</span><strong>{comicDetail.chapterCount ?? (bookSource?.total ?? "—")}</strong></div>
+          <div className="gz-book-pills">{comicDetail.item.authors.map(author => <span className="gz-book-pill" key={author}><Users size={12} />{author}</span>)}{comicDetail.item.status && <span className="gz-book-pill">{comicDetail.item.status}</span>}{comicDetail.item.tags.map(tag => <span className="gz-book-pill" key={tag}>{tag}</span>)}</div>
+          {comicDetail.chapterCount != null && <div className="gz-subject-stat"><span>章节:</span><strong>{comicDetail.chapterCount}</strong></div>}
           <button type="button" className="gz-status-pill" disabled={saving} onClick={() => void saveBook(comicDetail.item, comicDetailKind)}><BookOpen size={16} /><span>加入书架</span></button>
         </div>
       </div>
@@ -662,22 +669,11 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     {bookDetailState === "error" && <div className="gz-error" role="alert"><span>作品资料读取失败，当前显示列表缓存。</span><button className="gz-iconbtn" aria-label="重试作品资料" onClick={() => void openBook(comicDetail.item, comicDetailKind)}><RefreshCw size={16} /></button></div>}
     <section className="gz-section">
       <div className="gz-section-head"><h2>简介</h2></div>
-      <p className="gz-description">{comicDetail.item.summary || "来源未提供简介。"}</p>
+      <BookDescription text={comicDetail.item.summary} />
     </section>
-    {comicDetail.item.tags.length > 0 && <section className="gz-section">
-      <div className="gz-section-head"><h2>标签</h2></div>
-      <div className="gz-tag-grid">{comicDetail.item.tags.map(tag => <span className="gz-tag" key={tag}>{tag}</span>)}</div>
-    </section>}
-    <section className="gz-section gz-book-source" aria-label="在线章节">
-      <div className="gz-section-head"><div><h2>在线章节</h2><p className="gz-meta">来自 COPY，可直接在应用内阅读</p></div></div>
-      {bookSourceState === "loading" && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取章节目录…</p>}
-      {bookSourceState === "error" && <div className="gz-error" role="alert"><span>章节目录读取失败，请重试。</span><button className="gz-iconbtn" aria-label="重试章节目录" onClick={() => void openBook(comicDetail.item, comicDetailKind)}><RefreshCw size={16} /></button></div>}
-      {bookSourceState === "ready" && bookSource?.entries.length ? <>
-        <div className="gz-chapter-grid">{bookSource.entries.map(entry => <div className="gz-chapter-card" key={entry.id}><button type="button" className="gz-chapter" onClick={() => setReaderEntry(entry)}><strong>{entry.title}</strong><span className="gz-chapter-badge">{entry.count ? `${entry.count} 页` : "在线"}</span></button><button type="button" className="gz-iconbtn gz-chapter-download" aria-label={`下载${entry.title}`} disabled={saving} onClick={() => void (async () => { setSaving(true); try { await bookContentApi.cache(comicDetailKind, comicDetail.item.pathWord, entry.id, bookSource.group); onToast(`${entry.title} 已缓存，可离线阅读`); } catch (reason) { onToast(String(reason)); } finally { setSaving(false); } })()}><Download size={16} /></button></div>)}</div>
-        {bookSource.entries.length < bookSource.total && <button type="button" className="gz-btn" onClick={() => void loadMoreBookEntries()}>加载更多章节</button>}
-      </> : bookSourceState === "ready" ? <p className="gz-panel gz-meta">来源暂未提供章节目录。</p> : null}
-    </section>
-    <section className="gz-section">
+    <div className="gz-book-actions"><button className="gz-book-action" onClick={() => setBookSelecting(value => !value)}>{bookSelecting ? <X size={18} /> : <Download size={18} />}{bookSelecting ? "取消" : "下载"}</button><button className="gz-book-action" onClick={() => document.getElementById("gz-book-comments")?.scrollIntoView({ behavior: "smooth" })}><MessageCircle size={18} />评论</button><button className="gz-book-action" disabled={saving} onClick={() => void saveBook(comicDetail.item, comicDetailKind)}><Heart size={18} />收藏</button></div>
+    <OnlineChapters key={`${comicDetailKind}:${comicDetail.item.pathWord}`} kind={comicDetailKind} pathWord={comicDetail.item.pathWord} selecting={bookSelecting} onSelecting={setBookSelecting} onRead={(entry, group) => { setReaderEntry(entry); setReaderGroup(group); }} onToast={onToast} />
+    <section className="gz-section" id="gz-book-comments">
       <div className="gz-section-head"><h2>评论</h2><span className="gz-meta">COPY</span></div>
       {bookCommentsState === "loading" ? <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取评论…</p>
         : bookCommentsState === "error" ? <p className="gz-meta">评论暂时无法读取，请检查阅读网络设置。</p>
@@ -688,9 +684,9 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   </div>;
 
   if (subject) return <div className="gz-explore">{subjectView}</div>;
-  if (comicDetail) return <div className="gz-explore">{comicDetailView}{readerEntry && <BookReader kind={comicDetailKind} pathWord={comicDetail.item.pathWord} entryId={readerEntry.id} group={bookSource?.group ?? ""} onClose={() => setReaderEntry(null)} />}</div>;
+  if (comicDetail) return <div className="gz-explore">{comicDetailView}{readerEntry && <BookReader kind={comicDetailKind} pathWord={comicDetail.item.pathWord} entryId={readerEntry.id} group={readerGroup} onClose={() => setReaderEntry(null)} />}</div>;
 
-  return <div className="gz-explore">
+  return <div className="gz-explore" onClickCapture={event => { clickedCoverRef.current = (event.target as HTMLElement).closest("button")?.querySelector<HTMLElement>("[data-explore-cover-id]") ?? null; }}>
     {view === "schedule" ? scheduleView : <>
       <div className="gz-explore-head">
         <div className="gz-seg gz-explore-tabs" role="tablist" aria-label="发现分类">

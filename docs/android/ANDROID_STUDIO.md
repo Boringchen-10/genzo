@@ -1,5 +1,7 @@
 # 用 Android Studio 查看与调试 Genzo
 
+2026-10-07 用户要求前端效果确认前不打新 APK。当前编辑 React 页面使用[模拟器前端自动预览](FRONTEND_LIVE_PREVIEW.md)，在 Studio 的终端保持两个预览进程运行即可；不要为查看这轮 CSS／React 修改点击 Run 或调用下面的 APK 构建入口。Studio 继续用于编辑、查看设备和 Logcat，原生代码的构建流程保留。
+
 用户已于 2026-10-04 确认 Studio 显示工程。代码位于隔离工作树，不是 Windows 主工作区：
 
 当前先在电脑模拟器展示可操作前端，暂不安装实物手机；页面、测试包与编辑位置见 `FRONTEND_PREVIEW.md`。下列真机操作保留为较早阶段记录，当前运行目标选 `emulator-5554`。
