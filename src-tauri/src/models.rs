@@ -415,6 +415,17 @@ pub struct ExploreOverview {
     pub stale: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimePopularPage {
+    pub items: Vec<ExploreSubject>,
+    pub total_pages: u64,
+    pub page: u32,
+    pub page_size: u32,
+    pub has_more: bool,
+    pub stale: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExploreSaveInput {

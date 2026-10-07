@@ -1,5 +1,22 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 动漫热度与漫画首页资料接口（2026-10-07）
+
+- 用户明确：安卓动漫「热门番组」要对应 Bangumi 动画目录「热度」顺序；漫画先提供拷贝推荐、排行榜、热门更新、全新上架、已完结接口，正式页面后续交给 OpenDesign。只在 `H:\二次元阅读器\.tmp\android-first` / `codex/android-first` 工作，起始 HEAD `c2a2ef0` 且工作树干净；主目录 `main` 的 OpenDesign / Windows 未提交内容未触碰。
+- 新增 `get_anime_popular` / `api.animePopular(page,refresh)`，调用官网 `https://next.bgm.tv/p1/subjects?type=2&sort=trends&page=1`，保留来源顺序。v0 搜索 `heat` 是累计收藏人数，不能替代官网 `trends`；Windows 原 `get_anime_ranking` / `animeRanking` 保持 `rank` 评分排名语义。
+- P1 实际使用 `page`（固定每页 24），`limit/offset` 会被忽略；响应 `total` 是总页数，本轮实测 42 页，最后一页 11 项，越界空页。DTO 返回 `totalPages` / `pageSize` / `hasMore`，不能把 42 当作作品数量。前五项 ID `622288,554779,639938,568244,622206` 与用户图一及官网热度目录一致。该接口是官网内部协议，不宣称 v0 稳定开放 API；沿用客户端系统代理／直连，自定义 v0 镜像不代理 P1。
+- 安卓热门区改接此接口，明确加载／错误／重试／过期缓存状态，移除「评分榜／当季列表冒充热门」的两处回退；追加页完整显示，修复已载入内容仍被当季 `seasonalVisible=30` 截断的问题。现有卡片、标签、详情及视觉布局保持，筛选仅针对已载入内容。
+- 实测相邻热度页可能重叠，本轮前两页 48 条去重后 46 张卡片，校验原始顺序且无遗漏。P1 新请求独立使用两秒限流，避免共享 v0 后台补图队列导致交互请求长时间等待；不是移除限流，不改变 Windows 原有请求队列。
+- 截图复核发现旧加载逻辑在当季／日历较晚返回时会将已追加热门列表重置为第一页。热门分页使用当前快照保存条目／页码／剩余页；独立请求结束时读取当前快照，刷新后的旧分页响应不能覆盖新列表。QA 在追加后与延迟返回后分别校验顺序，避免只检查瞬间成功。
+- 新增 `comic_home.rs`、`get_comic_explore_home`、`list_comic_explore_section` 与 `comicExploreApi.home/section`。原生首页七组对应五项需求（排行榜含日／周／月）。真实键为 `rankDayComics/rankWeekComics/rankMonthComics`；推荐和榜单是 nested comic，热门／新上架是裸数组，完结是直接作品。章节名不覆盖作品标题，未知字段保持空值。
+- 首页榜单与更多请求采用 `audience=male` 保持原生首页顺序；女频日榜也已实测。作品 `popular` 与榜单行 `popular` 单独暴露，不把榜单快照当榜期新增人数或评分。热门更新仅确认首页组，本轮 12 项，`supportsPaging=false` / `total=null`；不得拿普通更新时间列表充当更多。
+- 复用 COPY 当前网络节点、请求与校验、SQLite `metadata_cache`、封面和本地收藏关联；首页与更多 TTL 1 小时，按来源／分组／榜期／受众／分页隔离，刷新失败保留缓存并标记 `stale`，无缓存报错。没有新增依赖或数据库迁移，没有请求章节内容、下载媒体或修改真实文件。Kira 仅为已有 MIT 协议参考，固定研究提交 `ac0a4db1d01f95d816d61a2960c48d5296a70c1b`。
+- OpenDesign 接口／状态／示例及限制：`docs/android/DISCOVERY_FEEDS_CONTRACT.md`，并从 `OPENDESIGN_HANDOFF.md` 链接。更新 `PROJECT_CONTEXT.md` / `ROADMAP.md`。漫画五组正式布局尚未接入，不能声称图三页面已经实现。
+- 自动检查通过：`pnpm check`、`pnpm test`（19 文件 / 78 项）、`pnpm build`；Windows 目标 `cargo check --manifest-path src-tauri/Cargo.toml --lib`，Rust 全套 299 通过 / 17 忽略 / 0 失败；新官网字段／排序／分页、COPY 分组／非法参数／个人记录与缓存失败测试通过。新增末次 P1 总页数回归断言单独测试通过；显式 `live_discovery_feeds` 两项在线测试通过，并核对全部支持的更多组首项与原生首页一致。
+- 最终 x86_64 调试 APK 已用 `adb -s emulator-5554 install -r` 覆盖安装并启动；未卸载、清数据或操作一加 15。`scripts/verify-android-discovery-feeds.mjs` 完整通过：官网热度分页／缓存／末页、原评分榜独立、漫画七组与全部支持的更多分页／女频日榜／非法热门更多请求、UI 前五项与滚动追加顺序。延迟日历返回后仍保持 46 张卡片；412px 无横向溢出、无 JS 错误，安装前后 20 个作品的收藏／状态／评分摘要一致。测试只读取公开作品资料，不写用户作品或账户。
+- 固定包 `D:\DevTools\Android\Build\apk\genzo-discovery-20261007-x86_64-debug.apk`，121,746,255 字节，SHA256 `0A4626649C64C04B6BF42422FE857FBC8B2938B2FE004EAC9808E7CA00083E74`，Genzo 库只有 `lib/x86_64/libgenzo_lib.so`；16 KiB zipalign 静态检查通过，未验收 16 KiB 页设备。结果、截图与 APK 校验在 `D:\DevTools\Android\Build\qa\discovery-feeds\result.json` / `anime-popular.png` / `apk-info.json`。Windows 完成本轮共享 Rust 编译／单元测试，未重新打安装器或做全部窗口人工回归。
+- 用户随后要求先说明 Kazumi 热门排序。只读研究官方仓库提交 `11671bc0ec61727e99e34810f142a1b5e4121a8e`：官方模式用 `GET https://next.bgm.tv/p1/trending/subjects?type=2&limit=24&offset=0`，每次 24 项，按来源顺序追加／ID 去重，不按本地评分排序；镜像模式用 `api.kazumi.fyi/kazumi/v1/popular/subjects`。实测官方趋势接口前五项与本轮官网目录一致；响应 `count` 的统计窗口／权重未在 Kazumi 客户端确认，不宣称播放量或收藏量。标签推荐是另一条请求分支。本轮未因参考对比改换 Genzo 已确认的官网目录接口。
+
 ## 安卓 v0.2 发现、COPY 阅读与评论补充（2026-10-07）
 
 - 当前工作树 `H:\二次元阅读器\.tmp\android-first` / 分支 `codex/android-first` 保留 HEAD `7982c3a` 及本轮 15 个有效未提交文件改动。本轮完成 OpenDesign 发现页的热门 Bangumi 默认内容、官方 / 镜像 / 自定义源选择、多标签筛选和滚动追加；动漫详情接入剧集、概览、吐槽 / 评论、角色、关联作品、制作人员、标签和资料，并为缺失数据提供空状态。

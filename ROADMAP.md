@@ -6,6 +6,12 @@
 - Windows x64 NSIS 安装包附带 WebView2 离线运行时；保留 com.genzo.desktop 与增量数据库升级。不增加功能或重新设计已认可界面。
 - 安卓独立开发，不把内置播放、文件授权或手机界面混入 Windows 安装包。以下保留历史讨论与阶段记录。
 
+## 安卓发现页数据接入（2026-10-07 用户确认）
+
+- 本轮：动漫热门番组改接 Bangumi 官网 `trends`，验证真实分页、原始排序与离线缓存；保留 Windows `rank` 排行榜。
+- 本轮：提供 COPY 推荐、日／周／月榜、热门更新、全新上架、已完结接口与类型契约，复用既有网络配置、缓存、封面和个人记录。热门更新没有确认的更多接口，按有限首页组交付。
+- 下一步：OpenDesign 按 `docs/android/DISCOVERY_FEEDS_CONTRACT.md` 设计漫画首页及更多列表，再接入正式页面；不在本轮重设计漫画界面。
+
 ## 安卓视频首版（2026-10-04 已启动）
 
 基线 `v0.5.0` / `81b41d1`；分支 `codex/android-first`，隔离工作树 `.tmp/android-first`。产品决策见 `PROJECT_CONTEXT.md`，设计回应 / 冻结契约见 `docs/android/CODEX_RESPONSE.md` 和 `BRIDGE_CONTRACT_V1.md`。

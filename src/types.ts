@@ -316,6 +316,15 @@ export interface ExploreOverview {
   stale: boolean;
 }
 
+export interface AnimePopularPage {
+  items: ExploreSubject[];
+  totalPages: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  stale: boolean;
+}
+
 export interface ExploreSaveInput {
   externalId: string;
   status: WorkStatus;

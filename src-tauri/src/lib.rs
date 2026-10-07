@@ -11,6 +11,7 @@ mod book_metadata;
 mod book_scrape;
 mod bookshelf;
 mod comic_explore;
+mod comic_home;
 mod novel_explore;
 mod book_content;
 mod reading_network;
@@ -92,6 +93,8 @@ pub fn run() {
             android_sources::scan_video_source,
             comic_cover_cache::cache_comic_explore_cover,
             comic_explore::list_comic_explore,
+            comic_home::get_comic_explore_home,
+            comic_home::list_comic_explore_section,
             novel_explore::list_novel_explore,
             novel_explore::get_novel_explore_themes,
             novel_explore::get_novel_explore_detail,
@@ -228,6 +231,7 @@ pub fn run() {
             commands::set_media_episode,
             commands::get_media_thumbnail,
             commands::get_anime_ranking,
+            commands::get_anime_popular,
             window_style::window_material_supported,
         ])
         .run(tauri::generate_context!())

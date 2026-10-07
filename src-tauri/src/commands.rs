@@ -1482,6 +1482,15 @@ pub async fn get_anime_ranking(
     Ok(result)
 }
 
+#[tauri::command]
+pub async fn get_anime_popular(
+    page: u32, refresh: bool, app: AppHandle, state: State<'_, AppState>,
+) -> AppResult<crate::models::AnimePopularPage> {
+    let mut result = explore::anime_popular(&state.pool, page, refresh).await?;
+    explore::prepare_cover_cache(&app, &state, &mut result.items).await;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

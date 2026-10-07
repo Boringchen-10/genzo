@@ -8,6 +8,7 @@ import type {
   ExternalTool,
   ExternalToolInput,
   ExploreOverview,
+  AnimePopularPage,
   ExploreSaveInput,
   ExploreSubject,
   WeeklyCalendar,
@@ -273,5 +274,9 @@ export const api = {
   animeRanking: (page = 1, pageSize = 50) =>
     call<ExploreSubject[]>("get_anime_ranking", { page, pageSize }).then((subjects) =>
       subjects.map(withExploreAssets),
+    ),
+  animePopular: (page = 1, refresh = false) =>
+    call<AnimePopularPage>("get_anime_popular", { page, refresh }).then(result =>
+      ({ ...result, items: result.items.map(withExploreAssets) }),
     ),
 };

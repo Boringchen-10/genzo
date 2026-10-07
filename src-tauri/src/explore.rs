@@ -374,6 +374,45 @@ pub async fn subject(pool: &SqlitePool, external_id: &str) -> AppResult<ExploreS
     ))
 }
 
+pub async fn anime_popular(pool: &SqlitePool, page: u32, refresh: bool) -> AppResult<crate::models::AnimePopularPage> {
+    anime_popular_with(pool, page, refresh, async {
+        BangumiProvider::new()?.popular(page).await
+    }).await
+}
+
+async fn anime_popular_with(
+    pool: &SqlitePool, page: u32, refresh: bool,
+    fetch: impl std::future::Future<Output = AppResult<crate::bangumi::PopularSubjects>>,
+) -> AppResult<crate::models::AnimePopularPage> {
+    if !(1..=10_000).contains(&page) {
+        return Err(AppError::Validation("热度列表页码必须在 1 到 10000 之间".into()));
+    }
+    let key = format!("popular:bangumi-p1-trends:v2:{page}");
+    let cached = load_cache::<crate::bangumi::PopularSubjects>(pool, BANGUMI_PROVIDER, &key).await?;
+    let result = if !refresh && cached.as_ref().is_some_and(|value| !value.stale) {
+        cached.expect("fresh popular cache checked")
+    } else {
+        match fetch.await {
+            Ok(value) => {
+                save_cache(pool, BANGUMI_PROVIDER, &key, &value, Duration::hours(1)).await?;
+                Cached { value, fetched_at: Utc::now().to_rfc3339(), stale: false }
+            }
+            Err(error) => {
+                let mut fallback = cached.ok_or(error)?;
+                fallback.stale = true;
+                fallback
+            }
+        }
+    };
+    let local_states = load_local_states(pool).await?;
+    let has_more = !result.value.items.is_empty() && u64::from(page) < result.value.total_pages;
+    Ok(crate::models::AnimePopularPage {
+        items: result.value.items.into_iter().map(|item| to_explore_subject(item, &local_states, result.stale)).collect(),
+        total_pages: result.value.total_pages, page, page_size: 24,
+        has_more, stale: result.stale,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn discovery_list(
     pool: &SqlitePool,
@@ -1567,6 +1606,31 @@ fn validated_external_id(value: &str) -> AppResult<String> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn popular_cache_is_separate_from_ranking_and_preserves_failed_refresh() {
+        let pool = db::test_pool().await.unwrap();
+        let first = anime_popular_with(&pool,1,false,async {
+            Ok(crate::bangumi::PopularSubjects { items:vec![sample_metadata()],total_pages:42 })
+        }).await.unwrap();
+        assert!(!first.stale);
+        let fresh = anime_popular_with(&pool,1,false,async { panic!("fresh cache must not fetch") }).await.unwrap();
+        assert_eq!(fresh.total_pages,42); assert!(fresh.has_more);
+        let stale = anime_popular_with(&pool,1,true,async { Err(AppError::Network("offline".into())) }).await.unwrap();
+        assert!(stale.stale && stale.items[0].stale);
+        assert_eq!(stale.items[0].external_id,first.items[0].external_id);
+        let missing_page = anime_popular_with(&pool,2,false,async { Err(AppError::Network("offline".into())) }).await;
+        assert!(missing_page.is_err());
+        let old_ranking = load_cache::<Vec<WorkMetadata>>(&pool,BANGUMI_PROVIDER,"ranking:1:24").await.unwrap();
+        assert!(old_ranking.is_none());
+        sqlx::query("UPDATE metadata_cache SET expires_at='2000-01-01'").execute(&pool).await.unwrap();
+        assert!(anime_popular_with(&pool,1,false,async { Err(AppError::Network("offline".into())) }).await.unwrap().stale);
+        let last = anime_popular_with(&pool,42,false,async { Ok(crate::bangumi::PopularSubjects { items:vec![sample_metadata()],total_pages:42 }) }).await.unwrap();
+        assert!(!last.has_more);
+        for page in [0,10_001,u32::MAX] {
+            assert!(anime_popular_with(&pool,page,false,async { panic!("invalid pagination must not fetch") }).await.is_err());
+        }
+    }
 
     #[tokio::test]
     async fn live_calendar_persists_success_and_preserves_stale_cache_on_failure() {

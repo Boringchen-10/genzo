@@ -13,6 +13,7 @@ import { BANGUMI_NETWORK_CHANGED } from "../bangumiNetwork";
 type ExploreTab = "anime" | "comic" | "novel";
 type ExploreView = "feed" | "schedule";
 type LoadState = "loading" | "ready" | "error";
+type PopularSnapshot = { items: ExploreSubject[]; page: number; hasMore: boolean };
 type SubjectDetailTab = "episodes" | "overview" | "comments" | "characters" | "related" | "staff";
 
 const pic = (path: string | null | undefined) => path
@@ -57,7 +58,7 @@ const curatedTags = (items: ExploreSubject[], limit = 24) => {
     .slice(0, limit)
     .map(([tag]) => tag);
 };
-let animeExploreCache: { trending: ExploreSubject[]; seasonal: ExploreSubject[]; calendar: WeeklyCalendar | null; rankingPage: number; rankingHasMore: boolean } | null = null;
+let animeExploreCache: { trending: ExploreSubject[]; seasonal: ExploreSubject[]; calendar: WeeklyCalendar | null; rankingPage: number; rankingHasMore: boolean; popularError: string } | null = null;
 const comicExploreCache = new Map<string, ComicItem[]>();
 let comicThemeCache: ComicTheme[] = [];
 const bookExplorePages = new Map<string, ComicPageState>();
@@ -172,6 +173,8 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const daysRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLSpanElement>(null);
   const animeLoadRef = useRef(0);
+  const popularSnapshotRef = useRef<PopularSnapshot | null>(null);
+  const [popularLoading, setPopularLoading] = useState(false);
   const exploreCoverRef = useRef<HTMLElement | null>(null);
   const exploreDetailId = useRef<string | null>(null);
   const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -215,19 +218,25 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       setSeasonal(animeExploreCache.seasonal);
       setCalendar(animeExploreCache.calendar);
       setRankingPage(animeExploreCache.rankingPage); setRankingHasMore(animeExploreCache.rankingHasMore);
+      popularSnapshotRef.current = { items: animeExploreCache.trending, page: animeExploreCache.rankingPage, hasMore: animeExploreCache.rankingHasMore };
+      setAnimeError(animeExploreCache.popularError); setPopularLoading(false);
       setAnimeState("ready");
       return;
     }
     const loadId = ++animeLoadRef.current;
+    popularSnapshotRef.current = null;
     const active = () => animeLoadRef.current === loadId;
-    setAnimeState("loading"); setAnimeError("");
+    setAnimeState("loading"); setAnimeError(""); setPopularLoading(true);
     let rankingError: unknown = null;
     let overviewError: unknown = null;
     let calendarError: unknown = null;
-    const rankingTask = api.animeRanking(1, 24).then(value => {
-      if (active()) { setTrending(value); setRankingPage(1); setRankingHasMore(value.length >= 24); setAnimeState("ready"); }
+    const rankingTask = api.animePopular(1, force).then(value => {
+      if (active()) {
+        popularSnapshotRef.current = { items: value.items, page: 1, hasMore: value.hasMore };
+        setTrending(value.items); setRankingPage(1); setRankingHasMore(value.hasMore); setPopularLoading(false); setAnimeState("ready");
+      }
       return value;
-    }).catch(reason => { rankingError = reason; return null; });
+    }).catch(reason => { rankingError = reason; if (active()) { setPopularLoading(false); setAnimeError(String(reason)); } return null; });
     const overviewTask = api.exploreOverview().then(value => {
       if (active()) {
         setSeasonal(value.seasonal);
@@ -241,16 +250,20 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     }).catch(reason => { calendarError = reason; return null; });
     const [ranking, overview, calendar] = await Promise.all([rankingTask, overviewTask, calendarTask]);
     if (!active()) return;
-    const nextTrending = ranking ?? overview?.trending.slice(0, 24) ?? [];
+    // Pagination can update this ref while the independent calendar/overview requests finish.
+    const popularSnapshot = popularSnapshotRef.current as PopularSnapshot | null;
+    const nextTrending = popularSnapshot?.items ?? [];
     const nextSeasonal = overview?.seasonal ?? [];
     if (ranking || overview || calendar) {
       setTrending(nextTrending);
       setSeasonal(nextSeasonal);
       setCalendar(calendar);
-      const nextRankingPage = ranking ? 1 : animeExploreCache?.rankingPage ?? 1;
-      const nextRankingHasMore = ranking ? ranking.length >= 24 : animeExploreCache?.rankingHasMore ?? false;
+      const nextRankingPage = popularSnapshot?.page ?? 1;
+      const nextRankingHasMore = popularSnapshot?.hasMore ?? false;
       setRankingPage(nextRankingPage); setRankingHasMore(nextRankingHasMore);
-      animeExploreCache = { trending: nextTrending, seasonal: nextSeasonal, calendar, rankingPage: nextRankingPage, rankingHasMore: nextRankingHasMore };
+      const popularError = rankingError ? String(rankingError) : "";
+      setAnimeError(popularError);
+      animeExploreCache = { trending: nextTrending, seasonal: nextSeasonal, calendar, rankingPage: nextRankingPage, rankingHasMore: nextRankingHasMore, popularError };
       setAnimeState("ready");
     } else {
       setAnimeError(String(overviewError ?? rankingError ?? calendarError ?? "Bangumi 数据读取失败。"));
@@ -260,13 +273,18 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
   const loadMoreRanking = useCallback(async () => {
     if (rankingLoadingMore || !rankingHasMore) return;
+    const loadId = animeLoadRef.current;
     setRankingLoadingMore(true);
     try {
       const page = rankingPage + 1;
-      const next = await api.animeRanking(page, 24);
-      setTrending(previous => [...new Map([...previous, ...next].map(item => [item.externalId, item])).values()]);
-      setRankingPage(page); setRankingHasMore(next.length >= 24);
-      animeExploreCache = animeExploreCache ? { ...animeExploreCache, trending: [...new Map([...animeExploreCache.trending, ...next].map(item => [item.externalId, item])).values()], rankingPage: page, rankingHasMore: next.length >= 24 } : animeExploreCache;
+      const next = await api.animePopular(page);
+      if (loadId !== animeLoadRef.current) return;
+      const hasMore = next.hasMore;
+      const items = [...new Map([...(popularSnapshotRef.current?.items ?? []), ...next.items].map(item => [item.externalId, item])).values()];
+      popularSnapshotRef.current = { items, page, hasMore };
+      setTrending(items);
+      setRankingPage(page); setRankingHasMore(hasMore);
+      animeExploreCache = animeExploreCache ? { ...animeExploreCache, trending: items, rankingPage: page, rankingHasMore: hasMore } : animeExploreCache;
     } catch (reason) { onToast(String(reason)); }
     finally { setRankingLoadingMore(false); }
   }, [onToast, rankingHasMore, rankingLoadingMore, rankingPage]);
@@ -524,7 +542,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   </button>;
 
   const today = weekdayNumber();
-  const popularItems = trending.length ? trending : seasonal;
+  const popularItems = trending;
   const hotItems = selectedTags.length
     ? popularItems.filter(item => selectedTags.some(tag => item.genres.includes(tag)))
     : popularItems;
@@ -719,7 +737,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
           : <div className="gz-empty"><Search size={26} /><h2>没有匹配的条目</h2><p>换一个关键词再试。</p></div>}
       </> : animeState === "error" ? <>
         <div className="gz-error" role="alert"><span>{animeError || "Bangumi 数据读取失败。"}</span></div>
-        <button className="gz-btn" onClick={() => void loadAnime()}><RefreshCw size={16} />重试</button>
+        <button className="gz-btn" onClick={() => void loadAnime(true)}><RefreshCw size={16} />重试</button>
       </> : animeState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取 Bangumi 数据…</p> : <>
         <section className="gz-section"><div className="gz-section-head">
           <button className="gz-section-toggle" aria-expanded={tagsOpen} onClick={() => setTagsOpen(value => !value)}>
@@ -730,7 +748,9 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
             {tagChips.map(tag => <button key={tag} className={`gz-chip ${selectedTags.includes(tag) ? "active" : ""}`} role="checkbox" aria-checked={selectedTags.includes(tag)} onClick={() => toggleTag(tag)}>{tag}</button>)}
             {selectedTags.length > 0 && <button className="gz-link" onClick={() => { setSelectedTags([]); setSeasonalVisible(30); }}>清除</button>}
           </div>}
-          {hotItems.length ? <><div className="gz-explore-grid">{hotItems.slice(0, seasonalVisible).map(animeCard)}</div>{rankingHasMore && selectedTags.length === 0 && <div className="gz-sentinel" ref={hotSentinelRef} aria-hidden="true" />}{rankingLoadingMore && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在加载更多热门番组…</p>}</> : <p className="gz-panel gz-meta">没有符合所选标签的热门番组。</p>}
+          {popularLoading ? <p className="gz-loading"><LoaderCircle />正在读取热门番组…</p> : animeError ? <>
+            <div className="gz-error" role="alert">{animeError}</div><button className="gz-btn" onClick={() => void loadAnime(true)}><RefreshCw size={16} />重试热门番组</button>
+          </> : hotItems.length ? <><div className="gz-explore-grid">{hotItems.map(animeCard)}</div>{rankingHasMore && selectedTags.length === 0 && <div className="gz-sentinel" ref={hotSentinelRef} aria-hidden="true" />}{rankingLoadingMore && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在加载更多热门番组…</p>}</> : <p className="gz-panel gz-meta">没有符合所选标签的热门番组。</p>}
         </section>
         <section className="gz-section"><div className="gz-section-head"><h2>当季番组</h2>
           <button className="gz-link" onClick={() => setView("schedule")}><CalendarDays size={16} />时间表<ChevronRight size={16} /></button></div>
@@ -739,7 +759,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
             {seasonalItems.length > seasonalVisible && <div className="gz-sentinel" ref={sentinelRef} aria-hidden="true" />}
           </> : <p className="gz-panel gz-meta">{calendar ? "本周放送日历里没有索引到番组。" : "正在读取当季番组…"}</p>}</section>
       </>)}
-      <p className="gz-explore-source gz-meta">热门番组来自 Bangumi 官方排行榜；当季番组来自每日放送接口，与本地媒体库无关。</p>
+      {tab === "anime" && <p className="gz-explore-source gz-meta">热门番组按 Bangumi 动画目录热度排序；当季番组来自每日放送接口。{trending.some(item => item.stale) ? "热门番组当前显示离线缓存。" : ""}</p>}
 
       {tab === "comic" && (searchTerm !== null ? <>
         <p className="gz-meta">「{searchTerm}」共 {comicResults.length} 条</p>

@@ -17,6 +17,22 @@ export interface ComicItem {
 }
 
 export interface ComicPage { items: ComicItem[]; total: number; page: number; stale: boolean }
+export type ComicSection = "recommended" | "ranking" | "hotUpdates" | "newArrivals" | "completed";
+export type RankPeriod = "day" | "week" | "month";
+export type RankAudience = "male" | "female";
+export interface ComicFeedEntry { item: ComicItem; popularity: number | null; rankPopularity: number | null; rank: number | null }
+export interface ComicHomeSection {
+  section: ComicSection; period: RankPeriod | null; audience: RankAudience | null;
+  items: ComicFeedEntry[]; total: number | null; supportsPaging: boolean;
+}
+export interface ComicHome { sections: ComicHomeSection[]; stale: boolean }
+export type ComicSectionQuery = { offset: number; limit: number } & (
+  | { section: "ranking"; period: RankPeriod; audience?: RankAudience }
+  | { section: "recommended" | "newArrivals" | "completed"; period?: never; audience?: never }
+);
+export interface ComicSectionPage {
+  items: ComicFeedEntry[]; total: number; offset: number; limit: number; hasMore: boolean; stale: boolean;
+}
 export interface ComicDetail { item: ComicItem; aliases: string[]; chapterCount: number | null; stale: boolean }
 export interface ComicTheme { name: string; pathWord: string }
 export interface ComicQuery { query: string; theme: string; top: string; sort: "popular" | "updated"; page: number }
@@ -66,6 +82,8 @@ async function call<T>(command: string, args: Record<string, unknown> = {}): Pro
 }
 
 export const comicExploreApi = {
+  home: (refresh = false) => call<ComicHome>("get_comic_explore_home", { refresh }),
+  section: (input: ComicSectionQuery, refresh = false) => call<ComicSectionPage>("list_comic_explore_section", { input, refresh }),
   list: (input: ComicQuery, refresh = false) => call<ComicPage>("list_comic_explore", { input, refresh }),
   themes: () => call<ComicTheme[]>("get_comic_explore_themes"),
   detail: (pathWord: string, refresh = false) => call<ComicDetail>("get_comic_explore_detail", { pathWord, refresh }),

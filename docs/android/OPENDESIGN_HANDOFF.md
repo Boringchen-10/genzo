@@ -1,5 +1,7 @@
 # Android 首版：OpenDesign 数据与交互交接
 
+2026-10-07：动漫热度排序与漫画五组首页数据的最新接口见 [DISCOVERY_FEEDS_CONTRACT.md](DISCOVERY_FEEDS_CONTRACT.md)。漫画正式页面等待 OpenDesign 设计接入；该文档给出原始分组、日／周／月榜、更多分页、封面、本地记录与缓存状态，不以本页早期首版扩展占位描述代替当前代码。
+
 2026-10-04，开发基线 `v0.5.0` / `81b41d1`。下表是首版目标，不是全部完成的承诺。已按OpenDesign交付接入React可操作前端与本地数据 / 播放 / 续播，用户当前在电脑模拟器继续设计，暂不部署手机；原生控件仍为验证版。具体已验收与后续范围见 `FRONTEND_PREVIEW.md`。
 
 2026-10-06 接入状态以 [BACKEND_INTEGRATION.md](BACKEND_INTEGRATION.md) 为准：播放控制、字幕、WebDAV 原流、事件与多来源目录已通过模拟器合成样本验证；作者 / sourceScope / 浏览时间仍有明确缺口。继续复用 PC 共享 API，正式播放器控件由原生实现，React 不叠视频占位。

@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::Duration;
 static RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
+static WEBSITE_RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct BangumiProvider {
@@ -96,6 +97,25 @@ impl BangumiProvider {
             .flatten()
             .filter_map(subject_to_metadata)
             .collect())
+    }
+
+    pub async fn popular(&self, page: u32) -> AppResult<PopularSubjects> {
+        // Do not queue interactive website reads behind v0 background detail hydration.
+        WEBSITE_RATE_LIMITER.get_or_init(|| ProviderRateLimiter::new(Duration::from_secs(2)))
+            .wait().await;
+        // Website trends differs from v0 search heat (all-time collections).
+        // P1 belongs to the official website; v0 mirrors do not promise this route.
+        let response = self.client.get("https://next.bgm.tv/p1/subjects")
+            .query(&[("type", "2".to_string()), ("sort", "trends".to_string()),
+                ("page", page.to_string())])
+            .send().await.map_err(network_error)?;
+        if !response.status().is_success() {
+            return Err(AppError::Network(format!("Bangumi 热度列表读取失败（HTTP {}）", response.status().as_u16())));
+        }
+        let body = response.json().await.map_err(|error| {
+            AppError::Network(format!("Bangumi 返回了无法解析的热度数据：{error}"))
+        })?;
+        parse_popular_subjects(body)
     }
 
     pub async fn get_details(&self, external_id: &str) -> AppResult<WorkMetadata> {
@@ -442,6 +462,34 @@ fn network_error(error: reqwest::Error) -> AppError {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PopularSubjects {
+    pub items: Vec<WorkMetadata>,
+    pub total_pages: u64,
+}
+
+fn parse_popular_subjects(body: Value) -> AppResult<PopularSubjects> {
+    let invalid = || AppError::Network("Bangumi 热度列表没有返回有效动画资料".into());
+    let rows = body["data"].as_array().ok_or_else(invalid)?;
+    // P1 total is the number of pages, not the number of subjects.
+    let total_pages = body["total"].as_u64().ok_or_else(invalid)?;
+    let items = rows.iter().map(|row| {
+        if row["type"].as_u64() != Some(2) || !row["id"].as_i64().is_some_and(|id| id > 0) {
+            return Err(invalid());
+        }
+        let mut normalized = row.clone();
+        normalized["name_cn"] = row["nameCN"].clone();
+        let tags = row["metaTags"].as_array().ok_or_else(invalid)?;
+        normalized["tags"] = Value::Array(tags.iter().map(|name| json!({"name": name})).collect());
+        normalized["platform"] = tags.iter().find(|tag| {
+            tag.as_str().is_some_and(|name| matches!(name, "TV" | "WEB" | "OVA" | "OAD" | "剧场版"))
+        }).cloned().unwrap_or(Value::Null);
+        subject_to_metadata(&normalized).ok_or_else(invalid)
+    }).collect::<AppResult<Vec<_>>>()?;
+    if rows.len() > 24 || (total_pages == 0 && !items.is_empty()) { return Err(invalid()); }
+    Ok(PopularSubjects { items, total_pages })
+}
+
 pub(crate) fn subject_to_metadata(value: &Value) -> Option<WorkMetadata> {
     let external_id = value.get("id")?.as_i64()?.to_string();
     let original = nonempty(value.get("name").and_then(Value::as_str));
@@ -584,6 +632,42 @@ fn extract_season(value: &Value) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn website_trends_preserves_order_and_normalizes_p1_metadata() {
+        let body = json!({"total":42,"data":[
+            {"id":11,"type":2,"name":"Original","nameCN":"热门动画","metaTags":["WEB","漫画改"],"rating":{"rank":900,"score":7.2,"total":123},"images":{"large":"https://lain.bgm.tv/cover.jpg"}},
+            {"id":12,"type":2,"name":"Lower popularity","nameCN":"","metaTags":["剧场版"],"rating":{"rank":1,"score":9.5}}
+        ]});
+        let result = parse_popular_subjects(body.clone()).unwrap();
+        assert_eq!(result.total_pages,42);
+        assert_eq!(result.items.iter().map(|item| item.external_id.as_str()).collect::<Vec<_>>(), ["11","12"]);
+        assert_eq!(result.items[0].title,"热门动画");
+        assert_eq!(result.items[0].subject_type,"web");
+        assert_eq!(result.items[1].subject_type,"movie");
+        assert_eq!(result.items[0].genres,["WEB","漫画改"]);
+        assert_eq!(result.items[0].rank,Some(900));
+        assert!(result.items[0].air_date.is_none());
+        let mut one_page = body.clone(); one_page["total"] = json!(1);
+        assert_eq!(parse_popular_subjects(one_page).unwrap().items.len(),2);
+        let mut invalid = body;
+        invalid["data"][0]["type"] = json!(1);
+        assert!(parse_popular_subjects(invalid).is_err());
+        assert!(parse_popular_subjects(json!({"data":[]})).is_err());
+        assert!(parse_popular_subjects(json!({"data":null,"total":0})).is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "explicit official website metadata smoke test"]
+    async fn live_discovery_feeds_bangumi() {
+        let provider = BangumiProvider::new().unwrap();
+        let result = provider.popular(1).await.unwrap();
+        assert_eq!(result.items.len(),24);
+        assert!(result.total_pages > 1);
+        let next = provider.popular(2).await.unwrap();
+        assert_ne!(result.items[0].external_id,next.items[0].external_id);
+        println!("Bangumi trends: {:?}",result.items.iter().map(|item| (&item.external_id,&item.title)).collect::<Vec<_>>());
+    }
     #[test]
     fn calendar_uses_weekday_buckets_and_rejects_bad_responses() {
         let items = calendar_by_weekday(&json!([{"weekday":{"id":2},"items":[{"id":123,"name":"Test","air_date":"2023-09-29"}]}])).unwrap();
