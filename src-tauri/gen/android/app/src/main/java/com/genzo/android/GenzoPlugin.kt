@@ -40,6 +40,10 @@ class ControlArgs { lateinit var action: String; var value: Double = 0.0; var ur
 class SessionArgs { lateinit var sessionId: String }
 @InvokeArg
 class AppearanceArgs { var dark: Boolean = true }
+@InvokeArg
+class ReaderArgs { lateinit var sessionId: String; lateinit var baseUrl: String; lateinit var kind: String; lateinit var entryId: String }
+@InvokeArg
+class ReaderControlArgs { lateinit var sessionId: String; lateinit var action: String; var value: Double = 0.0; var settings: String? = null }
 
 @TauriPlugin
 class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
@@ -47,6 +51,36 @@ class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
     private val worker = Executors.newSingleThreadExecutor()
     private val timeouts = Executors.newSingleThreadScheduledExecutor()
     private val credentials = CredentialStore(activity)
+
+    @Command
+    fun openReader(invoke: Invoke) {
+        val args = invoke.parseArgs(ReaderArgs::class.java)
+        val uri = Uri.parse(args.baseUrl)
+        if (uri.scheme != "http" || uri.host != "127.0.0.1" || uri.port <= 0 || args.kind !in listOf("comic", "novel")) {
+            invoke.reject("invalid_reader_session"); return
+        }
+        activity.startActivity(Intent(activity, ReaderActivity::class.java)
+            .putExtra("baseUrl", args.baseUrl).putExtra("sessionId", args.sessionId)
+            .putExtra("kind", args.kind).putExtra("entryId", args.entryId))
+        invoke.resolve(JSObject().put("status", "opening"))
+    }
+    @Command
+    fun readerState(invoke: Invoke) {
+        if (!BuildConfig.DEBUG || activity.packageName != "com.genzo.android.readerqa") { invoke.reject("qa_only"); return }
+        activity.runOnUiThread {
+            ReaderActivity.current?.get()?.report(ReaderActivity.snapshot.optString("status", "ready"))
+            invoke.resolve(JSObject(ReaderActivity.snapshot.toString()))
+        }
+    }
+    @Command
+    fun readerControl(invoke: Invoke) {
+        if (!BuildConfig.DEBUG || activity.packageName != "com.genzo.android.readerqa") { invoke.reject("qa_only"); return }
+        val args = invoke.parseArgs(ReaderControlArgs::class.java)
+        val reader = ReaderActivity.current?.get()
+        if (reader == null || reader.intent.getStringExtra("sessionId") != args.sessionId) { invoke.reject("reader_session_expired"); return }
+        activity.runOnUiThread { try { reader.qaControl(args.action, args.value, args.settings); invoke.resolve(JSObject(ReaderActivity.snapshot.toString())) }
+            catch (_: Exception) { invoke.reject("invalid_reader_action") } }
+    }
 
     @Command
     fun appearance(invoke: Invoke) {

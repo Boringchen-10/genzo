@@ -43,6 +43,7 @@ pub fn source(source: &crate::android_sources::VideoSource) {
 }
 
 pub fn player(snapshot: Value) { publish("player-state", snapshot); }
+pub fn reading(snapshot: Value) { publish("reading-progress-updated", snapshot); }
 
 pub fn recognition(media_ids: Vec<String>, work_ids: Vec<String>) {
     publish("recognition-updated", json!({"revision":revision(),"mediaFileIds":media_ids,"workIds":work_ids}));

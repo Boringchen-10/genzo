@@ -3,6 +3,7 @@ export type ReadingKind = "comic" | "novel";
 export interface SourceEntry { id: string; title: string; order: number; count: number }
 export interface SourcePage { entries: SourceEntry[]; total: number; offset: number; group: string; groups: { id: string; title: string }[]; stale: boolean }
 export interface CachedContent { entryId: string; title: string; format: string; bytes: number; cachedAt: string }
+export interface ReadingResume { entryId: string; group: string; updatedAt: string }
 export interface OnlineContent { title: string; pages: string[]; sections: { title: string; text: string | null; imageUrl: string | null }[] }
 async function call<T>(command: string, args: Record<string, unknown>): Promise<T> {
   if (!isTauri()) throw new Error("正文获取和外部阅读器需要在 Genzo 桌面应用中使用。");
@@ -15,6 +16,7 @@ export function appendSourcePage(previous: SourcePage, next: SourcePage): Source
   return { ...next, offset: previous.offset, entries: [...previous.entries, ...next.entries], stale: previous.stale || next.stale };
 }
 export const bookContentApi = {
+  resume: (kind: ReadingKind, pathWord: string) => call<ReadingResume | null>("get_reading_resume", { kind, pathWord }),
   source: (workId: string) => call<{ kind: ReadingKind; pathWord: string } | null>("get_book_reading_source", { workId }),
   entries: (kind: ReadingKind, pathWord: string, group = "", offset = 0, refresh = false) => call<SourcePage>("get_book_source_entries", { kind, pathWord, group, offset, refresh }),
   cached: (kind: ReadingKind, pathWord: string, entryIds: string[]) => call<CachedContent[]>("list_cached_book_content", { kind, pathWord, entryIds }),

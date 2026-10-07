@@ -6,6 +6,7 @@ Genzo 的重要变更记录在此文件中。格式参考 Keep a Changelog，版
 
 ### Added
 
+- 安卓 C 方案基础阅读：Kotlin 漫画四模式 / RTL / 缩放 / 目录 / 连续阅读，Readium 小说分页 / 滚动 / 排版 / 插图；已有来源与 Genzo 缓存接入、SQLite 位置 / 书签 / 最近阅读及续读入口。独立模拟器测试包通过生命周期、离线与失败重试验证；范围和真机 / 服务兼容边界见 `docs/android/READER_C_V1.md`，未作为正式版本发布。
 - 从 Windows v0.5.0 隔离开发的安卓能力验证工程：Tauri 2 / arm64、一加真机 SQLite / 缓存 / SAF 持久化、Android Keystore WebDAV 凭据适配和 LibVLC 3.7.7 原生播放原型。
 - Android Studio / D 盘构建脚本、可重复合成样本及真机 QA，OpenDesign 七项回应 / 桥接契约、内核评估与测试边界。此为未发布的调试原型，完整安卓媒体库 / WebDAV 播放与正式页面后续接入；Windows 已发布功能保留。
 - 安卓 SAF 来源与文档定位增量迁移、递归视频 / 字幕索引和共享扫描任务；重复扫描复用元数据，保留媒体身份与手工个人资料。来源停用 / 不可用不删除索引。

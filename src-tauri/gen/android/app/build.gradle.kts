@@ -18,7 +18,7 @@ android {
     namespace = "com.genzo.android"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.genzo.android"
+        applicationId = if (System.getenv("GENZO_READER_QA") == "1") "com.genzo.android.readerqa" else "com.genzo.android"
         minSdk = 26
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
@@ -43,6 +43,11 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+        isCoreLibraryDesugaringEnabled = true
+    }
     buildFeatures {
         buildConfig = true
     }
@@ -53,6 +58,14 @@ rust {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    implementation("org.readium.kotlin-toolkit:readium-shared:3.1.2")
+    implementation("org.readium.kotlin-toolkit:readium-streamer:3.1.2")
+    implementation("org.readium.kotlin-toolkit:readium-navigator:3.1.2")
+    implementation("org.jsoup:jsoup:1.18.1")
+    implementation("com.davemorrissey.labs:subsampling-scale-image-view:3.10.0")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
     implementation("org.videolan.android:libvlc-all:3.7.7")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { ArrowDown, ArrowUp, Download, RefreshCw, X } from "lucide-react";
-import { bookContentApi, type ReadingKind, type SourceEntry, type SourcePage } from "../bookContent";
+import { bookContentApi, type ReadingKind, type SourceEntry, type SourcePage, type ReadingResume } from "../bookContent";
 import LoadingIndicator from "./LoadingIndicator";
 import { androidSession, READING_NETWORK_CHANGED } from "./sessionCache";
 
@@ -31,6 +32,18 @@ export default function OnlineChapters({ kind, pathWord, selecting, onSelecting,
   const lastRequest = useRef<{ group: string; page: number; reverse: boolean; total?: number }>({ group: "", page: 1, reverse: false });
   const downloadActive = useRef(false);
   const mounted = useRef(true);
+  const [resume, setResume] = useState<ReadingResume | null>(null);
+  useEffect(() => {
+    let active = true;
+    let revision = 0;
+    let unlisten: (() => void) | undefined;
+    void listen<ReadingResume & { kind: ReadingKind; pathWord: string }>("reading-progress-updated", event => {
+      if (active && event.payload.kind === kind && event.payload.pathWord === pathWord) { revision++; setResume(event.payload); }
+    }).then(value => { if (active) unlisten = value; else value(); }).catch(() => {});
+    const refresh = () => { const current = revision; void bookContentApi.resume(kind, pathWord).then(value => { if (active && current === revision) setResume(value); }).catch(() => {}); };
+    refresh(); window.addEventListener("focus", refresh);
+    return () => { active = false; unlisten?.(); window.removeEventListener("focus", refresh); };
+  }, [kind, pathWord]);
 
   async function readPage(group: string, offset: number, refresh: boolean) {
     const value = await androidSession.load(`${cachePrefix}${group}:${offset}`, () => bookContentApi.entries(kind, pathWord, group, offset, refresh), refresh);
@@ -114,7 +127,7 @@ export default function OnlineChapters({ kind, pathWord, selecting, onSelecting,
   const groupPriority = (group: { id: string; title: string }) => group.id === "default" ? 0 : /单行本|單行本/.test(group.title) ? 1 : 2;
   const groups = [...(source?.groups ?? [])].sort((a, b) => groupPriority(a) - groupPriority(b));
   return <section className="gz-online-chapters" aria-label="在线章节">
-    <div className="gz-section-head"><h2>在线章节</h2></div>
+    <div className="gz-section-head"><h2>在线章节</h2>{resume && !selecting && <button className="gz-btn" type="button" disabled={busy} onClick={() => onRead({ id: resume.entryId, title: "继续上次阅读", order: 0, count: 0 }, resume.group)}>继续上次阅读</button>}</div>
     {source && source.groups.length > 0 && <div className="gz-book-tabs" role="tablist" aria-label="章节分组">
       {groups.map(group => <button key={group.id} role="tab" className={source.group === group.id ? "active" : ""} aria-selected={source.group === group.id} disabled={busy || loading} onClick={() => { setSelected(new Map()); void load(group.id, 1, descending); }}>{group.id === "default" ? "默认" : group.title}{groupTotals[group.id] != null && <span>({groupTotals[group.id]})</span>}</button>)}
     </div>}

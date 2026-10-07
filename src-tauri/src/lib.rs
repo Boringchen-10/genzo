@@ -14,6 +14,7 @@ mod comic_explore;
 mod comic_home;
 mod novel_explore;
 mod book_content;
+mod android_reader;
 mod reading_network;
 mod comic_cover_cache;
 mod commands;
@@ -195,6 +196,9 @@ pub fn run() {
             commands::launch_media,
             playback::get_playback_progress,
             android_player::open_internal_player,
+            android_reader::open_internal_reader,
+            android_reader::get_reading_resume,
+            android_reader::open_reader_online_fixture,
             android_player::get_internal_player_state,
             android_player::control_internal_player,
             android_player::pick_external_subtitle,

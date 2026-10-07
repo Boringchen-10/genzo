@@ -1,5 +1,19 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## Android 原生阅读 C 方案基础交付（2026-10-07）
+
+- 用户确认 Android 优先，采用 Kotlin 漫画与 Readium 小说。本轮覆盖约定的基础交互与已有来源 / Genzo 缓存阅读；未来新功能与界面优化继续在各阅读模块迭代，不推定已经批准语音 / 标注 / 阅读同步等后续功能。
+- 工作树 `H:/二次元阅读器/.tmp/android-first`，分支 `codex/android-first`，基线 `75810a8`；最终提交包含本记录，以该分支 Git 日志为准。只纳入本轮阅读改动，主 Windows 工作区已有设计 / UI 修改未操作。主要技能 project-builder；范围与复现说明见 `docs/android/READER_C_V1.md`。
+- 用户已允许构建与电脑模拟器安装。只操作 `emulator-5554` 的独立 `com.genzo.android.readerqa`；IPC 核对数据根 `/data/user/0/com.genzo.android.readerqa`。普通包 `com.genzo.android`、一加手机和真实媒体未操作。QA 数据是自制的两作品、各两章卷，长图1000×12000、小说600段中文和插图；生成目录 `D:/DevTools/Android/Build/qa/reader-c/7cf49f17ac1749228162aef76665c1e2`。
+- 实现：Rust `android_reader.rs` 提供本机随机令牌会话、有限并发内容 / 目录 / 位置 / 书签 / 最近阅读；会话关闭终止工作请求。Kotlin ReaderActivity 负责原生控件 / 生命周期，ComicReaderSurface 提供四模式 / RTL / 缩放 / 临时长按 / 查看器 / 自动滚动，NovelReaderSurface 使用 Readium 排版 / 目录 / 插图 / Locator。React BookReader 启动原生页面，OnlineChapters 增加续读与阅读事件刷新。
+- 迁移 `0027_android_reading.sql` 已实际执行，新增阅读位置与书签；`0026` 留给既有同步。不得编辑已经运行的迁移；后续数据库改动新增迁移。位置以 kind / 来源作品 / group / entry 绑定，不按临时 URL 存储；打开没有将作品标记已读。
+- Readium 3.1.2（BSD-3-Clause）、SSIV 3.10.0（Apache-2.0）、jsoup 1.18.1（MIT）固定，许可在 licenses 与 THIRD_PARTY_NOTICES。Readium 内部使用 WebView；字体大小是比例，UI逻辑值除16。在线 TXT / 目录适配内存 Publication，图片按需读取；旧 `<pre>` EPUB 在内存转段落与可点插图链接，不改缓存或真实文件。
+- 修复并验证：滚动模式使用 SDK evaluateJavascript 实际滚动、firstVisibleElementLocator 保存段落、插图 URI 使用分层 genzo-image://reader/、小说旋转按 Activity 重建恢复位置、长按松手恢复原缩放、自动滚动到末尾可进入下一章。QA state 在 UI 线程读取实际视图尺寸 / 缩放 / Window 参数，生产包严格拒绝 QA 控制。
+- 最新检查通过：pnpm check，前端21文件 /92项；共享 Windows-target Rust306通过 /17忽略 /0失败（含HTTP令牌 / Origin、分组书签与存量25→27升级保留个人记录和迁移校验和）；x86_64 / arm64 Rust、Kotlin、Gradle打包及APK签名 /16KiB ZIP对齐静态检查。arm64未装真机，也未做Windows安装器 /全窗口人工回归。
+- 七组设备脚本通过：verify-android-reader（11项模式 /长图 /RTL /重开）；verify-reader-controls（原生目录 /书签 /设置 /前后章、真实音量、亮度 /常亮）；verify-reader-gestures（真实双指约4.33倍、长按1→2.5→1、双击查看器、自动滚动）；verify-reader-lifecycle（旋转 /进程重启，小说保持#p57 /第357段，漫画保持第4页）；verify-reader-online（自有TXT /插图经真实HTTP Publication，不是第三方取数证明）；verify-reader-recovery（飞行模式缓存目录 /正文、只破坏自制CBZ的第6页失败 /恢复 /重试 /重开，网络与原文件字节已恢复）；verify-reader-entry（真实React章节 /续读按钮、最近任务回前台、原生返回、连续开关、作品状态不改）。最新JSON /截图 /日志在 `D:/DevTools/Android/Build/qa/reader-c/`。早期失败日志保留，但不得作为当前通过证据。
+- 最终x86_64独立包SHA256 `B1A3544082FB2CD9842870DD446E97F0D1465682C77B394A8BB8E5BF08F98491`；arm64独立包SHA256 `3ADD334AD5F27C46AFC95CF89341FA0B7ED4DA1E08817CA2B6115073B30124D5`。构建输出在 `D:/DevTools/Android/Build/reader-gradle/app/outputs/apk/`，固定备份见 `Build/artifacts/Genzo-reader-c-20261007-*-readerqa-*.apk`。仅调试包，不是正式发布；版本未提升，无发布标签或推送。
+- 续作：先核对 Git / 工作区 / 已安装APK，再按用户指定功能迭代。真实第三方服务、复杂排版、任意外部EPUB / SAF / WebDAV书籍导入、长时间真机与全机型性能、16KiB页设备运行需各自样本验收，不能据合成模拟器结果宣称全部兼容。原生代码改动必须重新打APK；前端预览不能验证它。日常回归保留QA阅读记录；生成新夹具只能使用不存在genzo.db的新目录，不清正式应用数据。
+
 ## 安卓加载与会话保留优化（2026-10-07）
 
 - 本轮开始状态：安卓工作树 `H:\二次元阅读器\.tmp\android-first`／分支 `codex/android-first`，HEAD `73c6d69`，工作区干净。`5844264` 已纳入此前漫画首页／OpenDesign 改动；主仓库仍有其他 Windows／设计修改，本轮未操作或提交它们。
