@@ -58,3 +58,5 @@ Readium 固定 3.1.2，源码参考 71074ea0c424eabbc39a93b48a4cefe366f7741b，B
 ## 后续实体机预览（2026-10-07）
 
 用户明确要求在已连接实体机查看。既有 arm64 独立测试包已安装到一加 PLK110 / Android 16；该包安装前不存在，确认新私有目录无数据库后才准备合成数据，未覆盖普通应用。实际启动并观察到 Readium 在线小说正文、阅读位置和原生工具栏，页面保留给用户操作。自动入口检查遇到转场 / DOM 变化超时，未报为通过；此次是安装 / 启动 / 显示检查，不代替完整真机回归。记录在 `D:/DevTools/Android/Build/qa/reader-c/phone-preview/`。
+
+实体机可用桌面快捷方式 `F:/desktop/Genzo 手机投屏.lnk` 打开“Genzo 实体机画面”。使用已核对官方 SHA256 的 scrcpy 5.0 便携版，指定本轮手机序列号，保持原分辨率并限制最高 60 fps；禁用音频 / 剪贴板自动同步。可鼠标操作、右键返回、F11 全屏，用 Windows 截图工具截取窗口。启动器和日志在 `D:/DevTools/Android/Tools/open-genzo-phone.ps1` / `Build/qa/phone-mirror/`；此工具不捆绑进 Genzo APK。

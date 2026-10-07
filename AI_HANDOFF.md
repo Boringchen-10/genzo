@@ -1,5 +1,10 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 手机桌面投屏（2026-10-07）
+
+- 用户要求把实体机画面显示到 Windows 桌面以便截图。使用官方 scrcpy 5.0 Windows x64 便携包，ZIP SHA256 `44c10d9e82f20ea67227d14d37bf9fbe3603117c5736df3f514544a02ba20a73`；解压在 `D:/DevTools/Android/Tools/scrcpy-5.0/`，复用 SDK ADB，只指定实体机 `3B164M00Z0500000`。
+- 桌面快捷方式 `F:/desktop/Genzo 手机投屏.lnk`，启动器 `D:/DevTools/Android/Tools/open-genzo-phone.ps1`。窗口标题“Genzo 实体机画面”，已核对窗口句柄 / 响应、手机连接与 D3D11 视频解码纹理初始化。音频和剪贴板自动同步关闭，鼠标控制保留；关闭窗口后可双击快捷方式重开。日志在 `D:/DevTools/Android/Build/qa/phone-mirror/`。此为本机调试工具，不是应用运行依赖。
+
 ## 实体机阅读预览（2026-10-07）
 
 - 用户随后明确要求在已连接实体机打开效果，授权本轮部署。核对设备为一加 PLK110 / Android 16 / arm64，序列号 `3B164M00Z0500000`；安装既有独立 arm64 QA 包，SHA256 `3ADD334AD5F27C46AFC95CF89341FA0B7ED4DA1E08817CA2B6115073B30124D5`。未更新普通 `com.genzo.android`。
