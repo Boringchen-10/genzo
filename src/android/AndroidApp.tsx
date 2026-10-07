@@ -973,10 +973,12 @@ export default function AndroidApp() {
         </div>
         <div className="gz-shelf-bar">
           {works.length > 0 && <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => { setCollectionScope(option.id); setLimit(48); }}>{option.label}</button>)}</div>}
-          {!mediaSearchOpen && query && <button className="gz-chip active" onClick={() => { setQuery(""); setLimit(48); }}>搜索：{query}<X size={13} /></button>}
           <button className="gz-iconbtn" aria-label={mediaSearchOpen ? "关闭搜索" : "搜索媒体库"} aria-expanded={mediaSearchOpen} onClick={() => setMediaSearchOpen(open => !open)}><Search size={18} /></button>
           <button className="gz-chip" aria-haspopup="dialog" onClick={() => setSortSheet(true)}><Filter size={15} />有更新</button>
         </div>
+        {!mediaSearchOpen && query && <div className="gz-chips gz-shelf-filters" role="group" aria-label="活动筛选">
+          <button className="gz-chip active" onClick={() => { setQuery(""); setLimit(48); }}>搜索：{query}<X size={13} /></button>
+        </div>}
         {mediaSearchOpen && <label className="gz-search"><Search size={18} /><input autoFocus type="search" aria-label="搜索媒体库" placeholder="搜索标题 / 原名 / 标签" value={query} onChange={event => { setQuery(event.target.value); setLimit(48); }} /></label>}
         {works.length > 0 && <div className="gz-collection-meta">
           <p className="gz-meta">共 {filtered.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>
@@ -1164,11 +1166,13 @@ export default function AndroidApp() {
         </div>
         <div className="gz-shelf-bar">
           {shelfHasItems && <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => setCollectionScope(option.id)}>{option.label}</button>)}</div>}
-          {bookQuery && <button className="gz-chip active" onClick={() => setBookQuery("")}>标签：{bookQuery}<X size={13} /></button>}
-          {!shelfSearchOpen && shelfQuery && <button className="gz-chip active" onClick={() => setShelfQuery("")}>搜索：{shelfQuery}<X size={13} /></button>}
           <button className="gz-iconbtn" aria-label={shelfSearchOpen ? "关闭搜索" : "搜索书架"} aria-expanded={shelfSearchOpen} onClick={() => setShelfSearchOpen(open => !open)}><Search size={18} /></button>
           <button className="gz-chip" aria-haspopup="dialog" onClick={() => setSortSheet(true)}><Filter size={15} />有更新</button>
         </div>
+        {(bookQuery || (!shelfSearchOpen && shelfQuery)) && <div className="gz-chips gz-shelf-filters" role="group" aria-label="活动筛选">
+          {bookQuery && <button className="gz-chip active" onClick={() => setBookQuery("")}>标签：{bookQuery}<X size={13} /></button>}
+          {!shelfSearchOpen && shelfQuery && <button className="gz-chip active" onClick={() => setShelfQuery("")}>搜索：{shelfQuery}<X size={13} /></button>}
+        </div>}
         {shelfSearchOpen && <label className="gz-search"><Search size={18} /><input autoFocus type="search" aria-label="搜索书架" placeholder="搜索标题 / 原名 / 标签" value={shelfQuery} onChange={event => setShelfQuery(event.target.value)} /></label>}
         {shelfHasItems && <div className="gz-collection-meta">
           <p className="gz-meta">共 {shelfWorks.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>

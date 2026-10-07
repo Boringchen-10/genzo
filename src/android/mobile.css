@@ -72,6 +72,8 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-shelf-tabs button.active::after { content: ""; position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%); width: 22px; height: 3px; border-radius: 999px; background: var(--accent); }
 .android-app .gz-shelf-bar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 16px; }
 .android-app .gz-shelf-bar .gz-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; color: var(--text); }
+.android-app .gz-shelf-filters { margin: 0 0 12px; }
+.android-app .gz-shelf-filters .gz-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; color: var(--text); }
 .android-app .gz-shelf-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 48px 16px 32px; color: var(--muted); }
 .android-app .gz-shelf-badge { display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 6px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
 .android-app .gz-shelf-empty h2 { color: var(--text); font-size: 17px; }
