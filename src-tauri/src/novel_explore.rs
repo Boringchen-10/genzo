@@ -93,6 +93,38 @@ pub async fn save_novel_explore_work(path_word: String, favorite: bool, state: S
     catalog::persist_source_work(&state.pool, &result, favorite, cover, PROVIDER, "novel").await
 }
 
+#[tauri::command]
+pub async fn get_novel_explore_comments(path_word: String, offset: u32, limit: u32, state: State<'_, AppState>) -> AppResult<catalog::CopyCommentPage> {
+    if !catalog::valid_id(&path_word) || offset > 1_000_000 || !(1..=100).contains(&limit) {
+        return Err(AppError::Validation("评论分页参数无效".into()));
+    }
+    let value = catalog::request_comments_in_pool(&state.pool, catalog::CATALOG_HOST, "/api/v3/bookcomments", &[
+        ("book_id".into(), path_word),
+        ("reply_id".into(), String::new()),
+        ("limit".into(), limit.to_string()),
+        ("offset".into(), offset.to_string()),
+    ], "same-site").await?;
+    let rows = value["list"].as_array().ok_or_else(invalid)?;
+    let items = rows.iter().filter_map(|row| {
+        let id = catalog::string_value(&row["id"]);
+        if id.is_empty() { return None; }
+        Some(catalog::CopyComment {
+            id,
+            create_at: catalog::string_value(&row["create_at"]),
+            user_id: catalog::string_value(&row["user_id"]),
+            user_name: catalog::string_value(&row["user_name"]),
+            user_avatar: catalog::string_value(&row["user_avatar"]),
+            comment: catalog::string_value(&row["comment"]),
+            reply_count: row["count"].as_u64().or_else(|| row["count"].as_str().and_then(|v| v.parse().ok())).unwrap_or_default(),
+            parent_id: (!row["parent_id"].is_null()).then(|| catalog::string_value(&row["parent_id"])).filter(|v| !v.is_empty()),
+            parent_user_id: (!row["parent_user_id"].is_null()).then(|| catalog::string_value(&row["parent_user_id"])).filter(|v| !v.is_empty()),
+            parent_user_name: (!row["parent_user_name"].is_null()).then(|| catalog::string_value(&row["parent_user_name"])).filter(|v| !v.is_empty()),
+        })
+    }).collect::<Vec<_>>();
+    let total = value["total"].as_u64().or_else(|| value["total"].as_str().and_then(|v| v.parse().ok())).unwrap_or(offset as u64 + items.len() as u64);
+    Ok(catalog::CopyCommentPage { items, total, offset, limit })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

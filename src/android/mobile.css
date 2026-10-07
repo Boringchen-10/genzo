@@ -256,6 +256,9 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-chapter-state { position: absolute; top: -7px; right: -6px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); }
 .android-app .gz-book-source { display: grid; gap: 12px; margin: 18px 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .android-app .gz-book-source .gz-section-head { margin: 0; }
+.android-app .gz-chapter-card { display: flex; align-items: stretch; gap: 6px; min-width: 0; }
+.android-app .gz-chapter-card .gz-chapter { flex: 1; min-width: 0; }
+.android-app .gz-chapter-download { flex: 0 0 42px; min-height: 44px; border: 1px solid var(--line); background: var(--surface); }
 .android-app .gz-book-source select { min-height: 36px; max-width: 46%; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); color: var(--text); }
 .android-app .gz-reader { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); color: var(--text); }
 .android-app .gz-reader-head { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }

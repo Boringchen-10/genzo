@@ -340,6 +340,26 @@ pub struct AnimeWorkStructure {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BangumiComment {
+    pub id: String,
+    pub user_name: String,
+    pub user_avatar: Option<String>,
+    pub comment: String,
+    pub created_at: String,
+    pub rate: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BangumiCommentPage {
+    pub items: Vec<BangumiComment>,
+    pub total: u64,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExploreSubject {
     pub provider: String,
     pub external_id: String,

@@ -251,7 +251,10 @@ where F: FnMut(reqwest::Url, usize) -> Fut, Fut: std::future::Future<Output = Ap
         let chapter = &value["chapter"];
         if chapter["uuid"].as_str() != Some(entry) { return Err(invalid("漫画章节 ID 不符")); }
         let images = chapter["contents"].as_array().filter(|v| !v.is_empty() && v.len() <= 1000).ok_or_else(|| invalid("来源尚未提供可访问的漫画页面；可能需要来源账号权限"))?;
-        if chapter["size"].as_u64().is_some_and(|n| n != images.len() as u64) { return Err(invalid("漫画页面数量不完整")); }
+        // COPY occasionally returns a stale `size` count while the actual page
+        // list is usable. The page list is the authoritative reader input;
+        // reject only an empty or malformed list above and keep all available
+        // pages readable.
         let mut zip = ZipWriter::new(fs::File::create(directory.join("chapter.cbz"))?);
         let mut size = 0;
         let urls = images.iter().map(|page| content_url(page["url"].as_str().ok_or_else(|| invalid("漫画页面地址缺失"))?)).collect::<AppResult<Vec<_>>>()?;
@@ -351,7 +354,8 @@ pub async fn get_book_online_content(kind: String, path_word: String, entry_id: 
         let chapter = &value["chapter"];
         if chapter["uuid"].as_str() != Some(&entry_id) || chapter["comic_path_word"].as_str() != Some(&path_word) { return Err(invalid("漫画章节作品归属不符")); }
         let images = chapter["contents"].as_array().filter(|v| !v.is_empty() && v.len() <= 1000).ok_or_else(|| invalid("来源未提供可访问的漫画页面"))?;
-        if chapter["size"].as_u64().is_some_and(|n| n != images.len() as u64) { return Err(invalid("漫画页面数量不完整")); }
+        // The source's declared size can lag behind its page list. Use the
+        // validated URLs instead of failing the whole chapter on that hint.
         let pages = images.iter().map(|v| content_url(v["url"].as_str().ok_or_else(|| invalid("漫画页面地址缺失"))?).map(String::from)).collect::<AppResult<Vec<_>>>()?;
         return Ok(OnlineContent { title: chapter["name"].as_str().unwrap_or(&entry_id).into(), pages, sections: vec![] });
     }
@@ -569,7 +573,11 @@ mod tests {
         assert_eq!(zip.by_index(0).unwrap().name(),"0001.png"); assert_eq!(zip.by_index(1).unwrap().name(),"0002.png");
         assert!(generate("comic","book","wrong",&value,root.path(), 2, |_,_| async { panic!("wrong chapter must not fetch") }).await.is_err());
         let partial = json!({"chapter":{"uuid":"c1","size":3,"contents":[{"url":"https://s3.mangafunb.fun/p.png"}]}});
-        assert!(generate("comic","book","c1",&partial,root.path(), 2, |_,_| async { panic!("partial metadata must not fetch") }).await.is_err());
+        let partial_calls = Arc::new(Mutex::new(0_u32));
+        let seen_partial = partial_calls.clone();
+        let generated = generate("comic","book","c1",&partial,root.path(), 2, move |_,_| { let seen_partial = seen_partial.clone(); async move { *seen_partial.lock().await += 1; Ok(png()) } }).await.unwrap();
+        assert_eq!(*partial_calls.lock().await, 1);
+        assert_eq!(generated.0, "c1");
         assert!(generate("novel","wrong","v1",&novel_fixture(),root.path(), 2, |_,_| async { panic!("wrong book must not fetch") }).await.is_err());
     }
     async fn http_response(response: Vec<u8>) -> reqwest::Url {

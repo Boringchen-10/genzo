@@ -62,6 +62,30 @@ pub struct ComicTheme {
     pub(super) path_word: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyComment {
+    pub id: String,
+    pub create_at: String,
+    pub user_id: String,
+    pub user_name: String,
+    pub user_avatar: String,
+    pub comment: String,
+    pub reply_count: u64,
+    pub parent_id: Option<String>,
+    pub parent_user_id: Option<String>,
+    pub parent_user_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyCommentPage {
+    pub items: Vec<CopyComment>,
+    pub total: u64,
+    pub offset: u32,
+    pub limit: u32,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComicQuery {
@@ -166,18 +190,34 @@ pub(super) async fn request(host: &str, path: &str, params: &[(String, String)])
 }
 
 pub(super) async fn request_configured(config: &crate::reading_network::ReadingNetwork, host: &str, path: &str, params: &[(String, String)], detail: bool) -> AppResult<Value> {
-    request_once(config, host, path, params, detail).await.map_err(|(error, _)| error)
+    request_once(config, host, path, params, detail, None).await.map_err(|(error, _)| error)
 }
 
-async fn request_once(config: &crate::reading_network::ReadingNetwork, host: &str, path: &str, params: &[(String, String)], detail: bool) -> Result<Value, (AppError, bool)> {
+async fn request_once(
+    config: &crate::reading_network::ReadingNetwork,
+    host: &str,
+    path: &str,
+    params: &[(String, String)],
+    detail: bool,
+    comment_site: Option<&str>,
+) -> Result<Value, (AppError, bool)> {
     let client = config.client(Duration::from_secs(15)).map_err(|e| (e, false))?;
-    let mut response = client.get(format!("{host}{path}")).query(params)
+    let mut request = client.get(format!("{host}{path}")).query(params)
         .header("Accept", "application/json").header("platform", "3")
         .header("source", "copyApp")
         .header("version", if detail { "2024.04.28" } else { &config.app_version })
         .header("User-Agent", if detail { "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131.0.6778.200 Mobile Safari/537.36".into() } else { format!("COPY/{}", config.app_version) })
         .header("webp", "1").header("X-Requested-With", "com.manga2020.app")
-        .send().await.map_err(|_| (AppError::Network(format!("阅读来源连接失败（{host}），请在设置 → 阅读网络中测速或检查代理")), true))?;
+        ;
+    if let Some(site) = comment_site {
+        // Kira marks comment reads as browser-originated requests. COPY rejects
+        // otherwise valid comment calls when these navigation headers are absent.
+        request = request
+            .header("Origin", "https://copy4000.com")
+            .header("Referer", "https://copy4000.com/")
+            .header("sec-fetch-site", site);
+    }
+    let mut response = request.send().await.map_err(|_| (AppError::Network(format!("阅读来源连接失败（{host}），请在设置 → 阅读网络中测速或检查代理")), true))?;
     if !response.status().is_success() {
         let status = response.status();
         return Err((AppError::Network(format!("阅读来源暂时不可用（HTTP {}，{host}）", status.as_u16())), status.is_server_error() || matches!(status.as_u16(), 408 | 429)));
@@ -199,12 +239,76 @@ pub(super) async fn request_in_pool(pool: &SqlitePool, host: &str, path: &str, p
     let hosts = if detail { config.detail_hosts() } else if host == CATALOG_HOST { vec![format!("https://{}", config.api_host)] } else { vec![host.into()] };
     let mut failure = invalid_data();
     for host in hosts {
-        match request_once(&config, &host, path, params, detail).await {
+        match request_once(&config, &host, path, params, detail, None).await {
             Ok(value) => return Ok(value),
             Err((error, retryable)) => { failure = error; if !retryable { break; } }
         }
     }
     Err(failure)
+}
+
+pub(super) async fn request_comments_in_pool(
+    pool: &SqlitePool,
+    host: &str,
+    path: &str,
+    params: &[(String, String)],
+    sec_fetch_site: &str,
+) -> AppResult<Value> {
+    let config = crate::reading_network::load(pool).await?;
+    let hosts = if host == CATALOG_HOST {
+        vec![format!("https://{}", config.api_host)]
+    } else {
+        vec![host.into()]
+    };
+    let mut failure = invalid_data();
+    for host in hosts {
+        match request_once(&config, &host, path, params, false, Some(sec_fetch_site)).await {
+            Ok(value) => return Ok(value),
+            Err((error, retryable)) => { failure = error; if !retryable { break; } }
+        }
+    }
+    Err(failure)
+}
+
+pub(super) fn string_value(value: &Value) -> String {
+    value.as_str().map(str::to_string).or_else(|| value.as_i64().map(|v| v.to_string())).unwrap_or_default()
+}
+
+pub(super) async fn comments_for(pool: &SqlitePool, id: &str, offset: u32, limit: u32) -> AppResult<CopyCommentPage> {
+    if !valid_id(id) || offset > 1_000_000 || !(1..=100).contains(&limit) {
+        return Err(AppError::Validation("评论分页参数无效".into()));
+    }
+    let value = request_comments_in_pool(pool, CATALOG_HOST, "/api/v3/comments", &[
+        ("comic_id".into(), id.into()),
+        ("reply_id".into(), String::new()),
+        ("limit".into(), limit.to_string()),
+        ("offset".into(), offset.to_string()),
+        ("platform".into(), "3".into()),
+    ], "cross-site").await?;
+    let rows = value.get("list").and_then(Value::as_array).ok_or_else(invalid_data)?;
+    let items = rows.iter().filter_map(|row| {
+        let id = string_value(&row["id"]);
+        if id.is_empty() { return None; }
+        Some(CopyComment {
+            id,
+            create_at: string_value(&row["create_at"]),
+            user_id: string_value(&row["user_id"]),
+            user_name: string_value(&row["user_name"]),
+            user_avatar: string_value(&row["user_avatar"]),
+            comment: string_value(&row["comment"]),
+            reply_count: row["count"].as_u64().or_else(|| row["count"].as_str().and_then(|v| v.parse().ok())).unwrap_or(0),
+            parent_id: (!row["parent_id"].is_null()).then(|| string_value(&row["parent_id"])).filter(|v| !v.is_empty()),
+            parent_user_id: (!row["parent_user_id"].is_null()).then(|| string_value(&row["parent_user_id"])).filter(|v| !v.is_empty()),
+            parent_user_name: (!row["parent_user_name"].is_null()).then(|| string_value(&row["parent_user_name"])).filter(|v| !v.is_empty()),
+        })
+    }).collect::<Vec<_>>();
+    let total = value["total"].as_u64().or_else(|| value["total"].as_str().and_then(|v| v.parse().ok())).unwrap_or(items.len() as u64);
+    Ok(CopyCommentPage { items, total, offset, limit })
+}
+
+#[tauri::command]
+pub async fn get_comic_explore_comments(path_word: String, offset: u32, limit: u32, state: State<'_, AppState>) -> AppResult<CopyCommentPage> {
+    comments_for(&state.pool, &path_word, offset, limit).await
 }
 
 async fn cached_request<T: Serialize + DeserializeOwned>(

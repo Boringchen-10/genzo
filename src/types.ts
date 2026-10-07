@@ -402,3 +402,19 @@ export interface AnimeWorkStructure {
   characters: AnimeCharacter[];
   warnings: string[];
 }
+
+export interface BangumiComment {
+  id: string;
+  userName: string;
+  userAvatar: string | null;
+  comment: string;
+  createdAt: string;
+  rate: number | null;
+}
+
+export interface BangumiCommentPage {
+  items: BangumiComment[];
+  total: number;
+  offset: number;
+  limit: number;
+}

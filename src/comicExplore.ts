@@ -20,6 +20,19 @@ export interface ComicPage { items: ComicItem[]; total: number; page: number; st
 export interface ComicDetail { item: ComicItem; aliases: string[]; chapterCount: number | null; stale: boolean }
 export interface ComicTheme { name: string; pathWord: string }
 export interface ComicQuery { query: string; theme: string; top: string; sort: "popular" | "updated"; page: number }
+export interface CopyComment {
+  id: string;
+  createAt: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  comment: string;
+  replyCount: number;
+  parentId: string | null;
+  parentUserId: string | null;
+  parentUserName: string | null;
+}
+export interface CopyCommentPage { items: CopyComment[]; total: number; offset: number; limit: number }
 
 export function comicQueryFromParams(params: URLSearchParams): ComicQuery {
   const page = Number(params.get("page") ?? 1);
@@ -58,6 +71,7 @@ export const comicExploreApi = {
   detail: (pathWord: string, refresh = false) => call<ComicDetail>("get_comic_explore_detail", { pathWord, refresh }),
   cacheCover: (pathWord: string, coverUrl: string, refresh = false) => call<{ coverPath: string; thumbnailPath: string | null }>("cache_comic_explore_cover", { pathWord, coverUrl, refresh }),
   save: (pathWord: string, favorite: boolean) => call<string>("save_comic_explore_work", { pathWord, favorite }),
+  comments: (pathWord: string, offset = 0, limit = 10) => call<CopyCommentPage>("get_comic_explore_comments", { pathWord, offset, limit }),
 };
 
 export const novelExploreApi = {
@@ -65,4 +79,5 @@ export const novelExploreApi = {
   themes: () => call<ComicTheme[]>("get_novel_explore_themes"),
   detail: (pathWord: string, refresh = false) => call<ComicDetail>("get_novel_explore_detail", { pathWord, refresh }),
   save: (pathWord: string, favorite: boolean) => call<string>("save_novel_explore_work", { pathWord, favorite }),
+  comments: (pathWord: string, offset = 0, limit = 10) => call<CopyCommentPage>("get_novel_explore_comments", { pathWord, offset, limit }),
 };

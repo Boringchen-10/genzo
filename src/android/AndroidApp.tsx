@@ -793,7 +793,7 @@ export default function AndroidApp() {
     }}>{sourceGroups.map(group => <option key={group.id} value={group.id}>{group.title}</option>)}</select>}</div>
     {sourceState === "loading" && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取在线目录…</p>}
     {sourceState === "error" && <p className="gz-panel gz-meta">在线目录读取失败，请检查网络设置后重新进入作品。</p>}
-    {sourceState === "ready" && sourceEntries.length > 0 && <div className="gz-chapter-grid">{sourceEntries.map(entry => <button type="button" className="gz-chapter" key={entry.id} onClick={() => setReaderEntry(entry)}><strong>{entry.title}</strong><span className="gz-chapter-badge">{entry.count ? `${entry.count} 页` : "在线"}</span></button>)}</div>}
+    {sourceState === "ready" && sourceEntries.length > 0 && <div className="gz-chapter-grid">{sourceEntries.map(entry => <div className="gz-chapter-card" key={entry.id}><button type="button" className="gz-chapter" onClick={() => setReaderEntry(entry)}><strong>{entry.title}</strong><span className="gz-chapter-badge">{entry.count ? `${entry.count} 页` : "在线"}</span></button><button type="button" className="gz-iconbtn gz-chapter-download" aria-label={`下载${entry.title}`} disabled={busy} onClick={() => void run(async () => { await bookContentApi.cache(readingSource.kind, readingSource.pathWord, entry.id, sourceGroup); setToast(`${entry.title} 已缓存，可离线阅读`); })}><Download size={16} /></button></div>)}</div>}
     {sourceState === "ready" && sourceEntries.length === 0 && <p className="gz-panel gz-meta">来源暂未提供章节目录。</p>}
   </section>;
   const primary = route.startsWith("detail/") ? "library" : top ? route : "profile";
@@ -1109,8 +1109,8 @@ export default function AndroidApp() {
         </section>
         <p className="gz-description">{detail.description || "暂无作品简介。"}</p>
         <div className="gz-book-actions">
-          <button className="gz-book-action" disabled={busy} onClick={() => setToast("下载功能待接入")}><Download size={18} />下载</button>
-          <button className="gz-book-action" disabled={busy} onClick={() => setToast("评论功能待接入")}><MessageSquare size={18} />评论</button>
+          <button className="gz-book-action" disabled={busy || !readingSource} onClick={() => setToast(readingSource ? "请在章节右侧选择下载" : "该作品没有可用的 COPY 在线来源")}><Download size={18} />下载</button>
+          <button className="gz-book-action" disabled={busy} onClick={() => { setDetailTab("comments"); setToast("评论请在作品资料中查看"); }}><MessageSquare size={18} />评论</button>
           <button className={`gz-book-action ${detail.favorite ? "active" : ""}`} disabled={busy} onClick={() => void run(() => favorite(detail))}><Heart size={18} fill={detail.favorite ? "currentColor" : "none"} />收藏</button>
         </div>
         {remoteBookSection}

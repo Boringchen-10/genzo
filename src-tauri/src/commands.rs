@@ -1419,6 +1419,23 @@ pub async fn get_anime_work_structure(
 }
 
 #[tauri::command]
+pub async fn get_bangumi_subject_structure(
+    external_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<AnimeWorkStructure> {
+    crate::anime_details::bangumi_subject_structure(&state.pool, &external_id).await
+}
+
+#[tauri::command]
+pub async fn get_bangumi_subject_comments(
+    external_id: String,
+    offset: u32,
+    limit: u32,
+) -> AppResult<crate::models::BangumiCommentPage> {
+    crate::bangumi::BangumiProvider::new()?.comments(&external_id, offset, limit).await
+}
+
+#[tauri::command]
 pub async fn refresh_work_metadata(
     work_id: String,
     app: AppHandle,

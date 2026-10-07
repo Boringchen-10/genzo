@@ -7,6 +7,7 @@ type ReaderImageProps = { url: string; alt: string };
 function ReaderImage({ url, alt }: ReaderImageProps) {
   const [source, setSource] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
@@ -16,8 +17,8 @@ function ReaderImage({ url, alt }: ReaderImageProps) {
       setSource(objectUrl);
     }).catch(reason => { if (active) setError(String(reason)); });
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [url]);
-  if (error) return <p className="gz-reader-error">图片读取失败，点击上方刷新重试。</p>;
+  }, [attempt, url]);
+  if (error) return <div className="gz-reader-error"><span>图片读取失败：{error}</span><button type="button" className="gz-btn" onClick={() => { setError(""); setSource(null); setAttempt(value => value + 1); }}>重试</button></div>;
   if (!source) return <span className="gz-reader-image-loading"><LoaderCircle className="gz-spin" size={20} /></span>;
   return <img src={source} alt={alt} loading="lazy" />;
 }

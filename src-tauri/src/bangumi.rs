@@ -1,8 +1,8 @@
 use crate::error::{AppError, AppResult};
 use crate::metadata_provider::{MetadataProvider, MetadataSearchQuery, ProviderRateLimiter};
 use crate::models::{
-    AnimeCharacter, AnimeCredit, AnimeEpisodeMetadata, AnimeSeasonOption, MetadataProviderStatus,
-    WorkMetadata,
+    AnimeCharacter, AnimeCredit, AnimeEpisodeMetadata, AnimeSeasonOption, BangumiComment,
+    BangumiCommentPage, MetadataProviderStatus, WorkMetadata,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -277,6 +277,38 @@ impl BangumiProvider {
                 })
             })
             .collect())
+    }
+
+    pub async fn comments(&self, external_id: &str, offset: u32, limit: u32) -> AppResult<BangumiCommentPage> {
+        let subject_id = external_id.trim().parse::<i64>().map_err(|_| AppError::Validation("Bangumi 条目 ID 无效".into()))?;
+        if offset > 1_000_000 || !(1..=100).contains(&limit) { return Err(AppError::Validation("Bangumi 评论分页参数无效".into())); }
+        self.wait().await;
+        let response = self.client.get(format!("{}/subjects/{subject_id}/comments", self.api_root))
+            .query(&[("limit", limit.to_string()), ("offset", offset.to_string())])
+            .send().await.map_err(network_error)?;
+        if !response.status().is_success() { return Err(AppError::Network(format!("Bangumi 吐槽读取失败（HTTP {}）", response.status().as_u16()))); }
+        let body: Value = response.json().await.map_err(|error| AppError::Network(format!("Bangumi 返回了无法解析的吐槽数据：{error}")))?;
+        let (rows, declared_total) = if let Some(rows) = body.as_array() {
+            (rows.clone(), None)
+        } else {
+            (body.get("data").and_then(Value::as_array).cloned().unwrap_or_default(), body.get("total").and_then(Value::as_u64))
+        };
+        let items = rows.into_iter().filter_map(|row| {
+            let id = row.get("id").and_then(|v| v.as_i64()).or_else(|| row.get("id").and_then(|v| v.as_str()).and_then(|v| v.parse().ok()))?.to_string();
+            let user = row.get("user").unwrap_or(&row);
+            let comment = row.get("comment").or_else(|| row.get("content")).and_then(Value::as_str).unwrap_or_default().trim().to_string();
+            if comment.is_empty() { return None; }
+            Some(BangumiComment {
+                id,
+                user_name: user.get("nickname").or_else(|| user.get("username")).and_then(Value::as_str).unwrap_or("匿名用户").to_string(),
+                user_avatar: user.get("avatar").and_then(|v| v.get("large").or_else(|| v.get("medium")).or_else(|| v.get("small"))).and_then(Value::as_str).map(normalize_bangumi_image_url),
+                comment,
+                created_at: row.get("created_at").or_else(|| row.get("createdAt")).and_then(Value::as_str).unwrap_or_default().to_string(),
+                rate: row.get("rate").and_then(Value::as_f64),
+            })
+        }).collect::<Vec<_>>();
+        let total = declared_total.unwrap_or_else(|| offset as u64 + items.len() as u64);
+        Ok(BangumiCommentPage { items, total, offset, limit })
     }
 
     async fn get_subject_collection(

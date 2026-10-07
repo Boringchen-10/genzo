@@ -444,6 +444,43 @@ pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<Anime
     })
 }
 
+pub async fn bangumi_subject_structure(pool: &SqlitePool, external_id: &str) -> AppResult<AnimeWorkStructure> {
+    let provider = BangumiProvider::new()?;
+    let metadata = provider.get_details(external_id).await?;
+    let bangumi_id = metadata.external_id.clone();
+    let mut warnings = Vec::new();
+    let episodes = match provider.episodes(&bangumi_id).await {
+        Ok(items) => items,
+        Err(error) => { warnings.push(format!("分集资料读取失败：{error}")); Vec::new() }
+    }.into_iter().map(|episode| AnimeEpisodeEntry {
+        image_url: None,
+        local_files: vec![],
+        episode,
+    }).collect();
+    let mut seasons = match provider.related_subjects(&bangumi_id).await {
+        Ok(items) => items,
+        Err(error) => { warnings.push(format!("关联作品读取失败：{error}")); Vec::new() }
+    };
+    for season in &mut seasons {
+        season.local_work_id = sqlx::query_scalar("SELECT work_id FROM work_external_ids WHERE provider = 'bangumi' AND external_id = ?")
+            .bind(&season.external_id).fetch_optional(pool).await?;
+    }
+    seasons.insert(0, AnimeSeasonOption {
+        external_id: bangumi_id.clone(), title: metadata.title, original_title: metadata.original_title,
+        relation: "当前作品".into(), season_number: metadata.season.and_then(|value| u32::try_from(value).ok()),
+        cover_url: metadata.cover_url, local_work_id: None, current: true,
+    });
+    let staff = match provider.staff(&bangumi_id).await {
+        Ok(items) => items,
+        Err(error) => { warnings.push(format!("制作人员读取失败：{error}")); Vec::new() }
+    };
+    let characters = match provider.characters(&bangumi_id).await {
+        Ok(items) => items,
+        Err(error) => { warnings.push(format!("角色资料读取失败：{error}")); Vec::new() }
+    };
+    Ok(AnimeWorkStructure { work_id: String::new(), bangumi_id, seasons, episodes, unmatched_files: vec![], staff, characters, warnings })
+}
+
 pub async fn refresh_work_metadata(
     state: &AppState,
     app: &AppHandle,

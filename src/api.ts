@@ -16,6 +16,7 @@ import type {
   MetadataProviderStatus,
   AnimeEpisodeMetadata,
   AnimeWorkStructure,
+  BangumiCommentPage,
   LibraryRoot,
   MediaFile,
   ResourceDestination,
@@ -259,6 +260,10 @@ export const api = {
     call<AnimeEpisodeMetadata[]>("list_anime_episodes", { workId }),
   getAnimeWorkStructure: async (workId: string) =>
     withAnimeStructureAssets(await call<AnimeWorkStructure>("get_anime_work_structure", { workId })),
+  getBangumiSubjectStructure: async (externalId: string) =>
+    withAnimeStructureAssets(await call<AnimeWorkStructure>("get_bangumi_subject_structure", { externalId })),
+  bangumiComments: (externalId: string, offset = 0, limit = 20) =>
+    call<BangumiCommentPage>("get_bangumi_subject_comments", { externalId, offset, limit }),
   refreshWorkMetadata: async (workId: string) =>
     withAnimeStructureAssets(await call<AnimeWorkStructure>("refresh_work_metadata", { workId })),
   setMediaEpisode: (mediaFileId: string, episodeExternalId: string | null) =>
