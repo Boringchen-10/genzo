@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, BookOpen, LoaderCircle, RefreshCw } from "lucide-react";
 import { bookContentApi, type OnlineContent, type ReadingKind } from "../bookContent";
+import LoadingIndicator from "./LoadingIndicator";
 
 type ReaderImageProps = { url: string; alt: string };
 
@@ -50,7 +51,7 @@ export default function BookReader({ kind, pathWord, entryId, group, onClose }: 
       <strong className="gz-reader-title">{content?.title ?? "在线阅读"}</strong>
       <span className="gz-reader-kind"><BookOpen size={15} />{kind === "comic" ? "漫画" : "轻小说"}</span>
     </header>
-    {state === "loading" && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取正文…</p>}
+    {state === "loading" && <LoadingIndicator label="正在读取正文…" />}
     {state === "error" && <div className="gz-reader-empty"><p>{error || "正文读取失败。"}</p><button type="button" className="gz-btn" onClick={() => setAttempt(value => value + 1)}><RefreshCw size={16} />重试</button></div>}
     {state === "ready" && content && kind === "comic" && <div className="gz-reader-pages">{content.pages.map((url, index) => <ReaderImage key={url} url={url} alt={`第 ${index + 1} 页`} />)}</div>}
     {state === "ready" && content && kind === "novel" && <div className="gz-reader-sections">{content.sections.map((section, index) => <article className="gz-reader-section" key={`${section.title}-${index}`}>

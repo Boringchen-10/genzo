@@ -3,6 +3,8 @@ import { CircleGauge, Globe, LoaderCircle, RefreshCw, Save, Server, Zap } from "
 import { isTauri } from "@tauri-apps/api/core";
 import { bangumiNetworkApi, BANGUMI_NETWORK_CHANGED, defaultBangumiNetwork, type BangumiNetwork, type BangumiProbe } from "../bangumiNetwork";
 import { readingNetworkApi, readingRoutes, type NodeProbe, type ReadingNetwork } from "../readingNetwork";
+import LoadingIndicator from "./LoadingIndicator";
+import { androidSession, READING_NETWORK_CHANGED } from "./sessionCache";
 
 type Props = { onToast: (message: string) => void };
 type LoadState = "loading" | "ready" | "error";
@@ -80,6 +82,8 @@ export default function NetworkPanel({ onToast }: Props) {
     setBusy("save"); setError("");
     try {
       await readingNetworkApi.save(reading);
+      androidSession.invalidate("reading:");
+      window.dispatchEvent(new Event(READING_NETWORK_CHANGED));
       await bangumiNetworkApi.save(bangumi);
       window.dispatchEvent(new Event(BANGUMI_NETWORK_CHANGED));
       onToast("网络配置已保存");
@@ -87,7 +91,7 @@ export default function NetworkPanel({ onToast }: Props) {
     finally { setBusy(null); }
   };
 
-  if (state === "loading") return <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取网络设置…</p>;
+  if (state === "loading") return <LoadingIndicator label="正在读取网络设置…" />;
   if (state === "error" || !reading || !bangumi) return <div className="gz-empty"><Server size={26} /><h2>网络设置不可用</h2><p>{error}</p></div>;
 
   const disabled = busy !== null;

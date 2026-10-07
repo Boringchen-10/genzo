@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Download, LoaderCircle, RefreshCw, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, RefreshCw, X } from "lucide-react";
 import { bookContentApi, type ReadingKind, type SourceEntry, type SourcePage } from "../bookContent";
+import LoadingIndicator from "./LoadingIndicator";
+import { androidSession, READING_NETWORK_CHANGED } from "./sessionCache";
 
 export const CHAPTER_PAGE_SIZE = 100;
+type ChapterView = { source: SourcePage; page: number; descending: boolean; groupTotals: Record<string, number> };
 export function chapterPageRange(total: number, page: number, descending: boolean) {
   const start = (page - 1) * CHAPTER_PAGE_SIZE;
   return { offset: descending ? Math.max(0, total - start - CHAPTER_PAGE_SIZE) : start, length: Math.max(0, Math.min(CHAPTER_PAGE_SIZE, total - start)) };
@@ -12,28 +15,42 @@ export default function OnlineChapters({ kind, pathWord, selecting, onSelecting,
   kind: ReadingKind; pathWord: string; selecting: boolean; onSelecting: (value: boolean) => void;
   onRead: (entry: SourceEntry, group: string) => void; onToast: (message: string) => void; onTotal?: (total: number) => void;
 }) {
-  const [source, setSource] = useState<SourcePage | null>(null);
-  const [page, setPage] = useState(1);
-  const [descending, setDescending] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const cachePrefix = `reading:chapters:${kind}:${pathWord}:`;
+  const viewKey = `reading:chapter-view:${kind}:${pathWord}`;
+  const saved = androidSession.peek<ChapterView>(viewKey);
+  const [source, setSource] = useState<SourcePage | null>(() => saved?.source ?? null);
+  const [page, setPage] = useState(() => saved?.page ?? 1);
+  const [descending, setDescending] = useState(() => saved?.descending ?? false);
+  const [loading, setLoading] = useState(() => !saved);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Map<string, SourceEntry>>(new Map());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [cached, setCached] = useState<Set<string>>(new Set());
-  const [groupTotals, setGroupTotals] = useState<Record<string, number>>({});
+  const [groupTotals, setGroupTotals] = useState<Record<string, number>>(() => saved?.groupTotals ?? {});
   const request = useRef(0);
   const lastRequest = useRef<{ group: string; page: number; reverse: boolean; total?: number }>({ group: "", page: 1, reverse: false });
   const downloadActive = useRef(false);
   const mounted = useRef(true);
+
+  async function readPage(group: string, offset: number, refresh: boolean) {
+    const value = await androidSession.load(`${cachePrefix}${group}:${offset}`, () => bookContentApi.entries(kind, pathWord, group, offset, refresh), refresh);
+    if (androidSession.peek(`${cachePrefix}${group}:${offset}`) === value) androidSession.set(`${cachePrefix}${value.group}:${offset}`, value);
+    return value;
+  }
+  function readCached(entries: SourceEntry[], sequence: number) {
+    void bookContentApi.cached(kind, pathWord, entries.map(entry => entry.id)).then(items => {
+      if (mounted.current && sequence === request.current) setCached(previous => new Set([...previous].filter(id => !entries.some(entry => entry.id === id)).concat(items.map(item => item.entryId))));
+    }).catch(() => {});
+  }
 
   async function load(group = "", nextPage = 1, reverse = false, total?: number, refresh = false) {
     const sequence = ++request.current;
     lastRequest.current = { group, page: nextPage, reverse, total };
     setLoading(true); setError("");
     try {
-      let value = await bookContentApi.entries(kind, pathWord, group, total == null ? 0 : chapterPageRange(total, nextPage, reverse).offset, refresh);
+      let value = await readPage(group, total == null ? 0 : chapterPageRange(total, nextPage, reverse).offset, refresh);
       if (reverse && total == null && value.total > CHAPTER_PAGE_SIZE) {
-        value = await bookContentApi.entries(kind, pathWord, value.group, chapterPageRange(value.total, nextPage, true).offset, refresh);
+        value = await readPage(value.group, chapterPageRange(value.total, nextPage, true).offset, refresh);
       }
       if (sequence !== request.current) return;
       const length = chapterPageRange(value.total, nextPage, reverse).length;
@@ -42,23 +59,27 @@ export default function OnlineChapters({ kind, pathWord, selecting, onSelecting,
       setSource({ ...value, entries }); setPage(nextPage); setDescending(reverse); setLoading(false); onTotal?.(value.total);
       setGroupTotals(previous => ({ ...previous, [value.group]: value.total }));
       if (!group) void Promise.allSettled(value.groups.filter(candidate => candidate.id !== value.group).map(async candidate => {
-        const other = await bookContentApi.entries(kind, pathWord, candidate.id);
-        if (mounted.current) setGroupTotals(previous => ({ ...previous, [candidate.id]: other.total }));
+        const other = await readPage(candidate.id, 0, refresh);
+        if (mounted.current && sequence === request.current) setGroupTotals(previous => ({ ...previous, [candidate.id]: other.total }));
       }));
-      void bookContentApi.cached(kind, pathWord, entries.map(entry => entry.id)).then(items => {
-        if (sequence === request.current) setCached(previous => new Set([...previous, ...items.map(item => item.entryId)]));
-      }).catch(() => {});
+      readCached(entries, sequence);
     } catch (reason) {
       if (sequence === request.current) { setError(String(reason)); setLoading(false); }
     }
   }
   useEffect(() => {
     mounted.current = true;
-    void load();
-    return () => { mounted.current = false; request.current++; downloadActive.current = false; };
+    if (saved) { lastRequest.current = { group: saved.source.group, page: saved.page, reverse: saved.descending, total: saved.source.total }; onTotal?.(saved.source.total); readCached(saved.source.entries, request.current); }
+    else void load();
+    const changed = () => { setSelected(new Map()); setGroupTotals({}); void load("", 1, lastRequest.current.reverse, undefined, true); };
+    window.addEventListener(READING_NETWORK_CHANGED, changed);
+    return () => { window.removeEventListener(READING_NETWORK_CHANGED, changed); mounted.current = false; request.current++; downloadActive.current = false; };
     // A new work mounts a fresh component; other controls request their own pages.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, pathWord]);
+  useEffect(() => {
+    if (source && !loading && !error) androidSession.set(viewKey, { source, page, descending, groupTotals } satisfies ChapterView);
+  }, [source, page, descending, groupTotals, loading, error, viewKey]);
   useEffect(() => { if (!selecting) { setSelected(new Map()); downloadActive.current = false; } }, [selecting]);
 
   async function downloadSelected() {
@@ -106,9 +127,9 @@ export default function OnlineChapters({ kind, pathWord, selecting, onSelecting,
       <button className="gz-btn primary" disabled={busy || !selected.size} onClick={() => void downloadSelected()}><Download size={16} />{progress ? `下载 ${progress.done}/${progress.total}` : `下载 ${selected.size} 话`}</button>
       <button className="gz-chip" disabled={busy} onClick={() => onSelecting(false)}><X size={14} />取消</button>
     </div>}
-    {loading && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取章节目录…</p>}
+    {loading && <LoadingIndicator label="正在读取章节目录…" compact={!!source} />}
     {error && <div className="gz-error" role="alert"><span>{error}</span><button className="gz-iconbtn" aria-label="重试章节目录" onClick={() => { const query = lastRequest.current; void load(query.group, query.page, query.reverse, query.total, true); }}><RefreshCw size={16} /></button></div>}
-    {!loading && !error && source && <div className="gz-chapter-grid">{source.entries.map(entry => <button type="button" data-chapter-id={entry.id} className={`gz-chapter${selected.has(entry.id) ? " selected" : ""}`} key={entry.id} disabled={busy} aria-pressed={selecting ? selected.has(entry.id) : undefined} onClick={() => selecting ? setSelected(previous => { const next = new Map(previous); if (next.has(entry.id)) next.delete(entry.id); else next.set(entry.id, entry); return next; }) : onRead(entry, source.group)}><strong>{entry.title}</strong><span className="gz-chapter-badge">{cached.has(entry.id) ? "已下载" : entry.count ? `${entry.count}P` : "在线"}</span></button>)}</div>}
+    {source && <div className="gz-chapter-grid">{source.entries.map(entry => <button type="button" data-chapter-id={entry.id} className={`gz-chapter${selected.has(entry.id) ? " selected" : ""}`} key={entry.id} disabled={busy || loading || !!error} aria-pressed={selecting ? selected.has(entry.id) : undefined} onClick={() => selecting ? setSelected(previous => { const next = new Map(previous); if (next.has(entry.id)) next.delete(entry.id); else next.set(entry.id, entry); return next; }) : onRead(entry, source.group)}><strong>{entry.title}</strong><span className="gz-chapter-badge">{cached.has(entry.id) ? "已下载" : entry.count ? `${entry.count}P` : "在线"}</span></button>)}</div>}
     {!loading && !error && source?.entries.length === 0 && <p className="gz-meta">暂无章节。</p>}
     {source?.stale && <p className="gz-meta">当前显示缓存目录，可重试刷新。</p>}
   </section>;

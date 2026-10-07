@@ -16,6 +16,8 @@ import BookDescription from "./BookDescription";
 import OnlineChapters from "./OnlineChapters";
 import { comicExploreApi, novelExploreApi, type ComicDetail } from "../comicExplore";
 import ExplorePanel from "./ExplorePanel";
+import LoadingIndicator from "./LoadingIndicator";
+import { androidSession } from "./sessionCache";
 import NetworkPanel from "./NetworkPanel";
 import WebdavEditor from "./WebdavEditor";
 import CorrectionEditor from "./CorrectionEditor";
@@ -53,6 +55,7 @@ const stars = (value: number | null) => { const filled = value == null ? 0 : Mat
 const WorkStatusIcon = ({ id, size = 16 }: { id: WorkStatus; size?: number }) => id === "in_progress" ? <Heart size={size} fill="currentColor" /> : id === "planned" ? <Star size={size} /> : id === "paused" ? <Clock size={size} /> : id === "completed" ? <Check size={size} /> : <HeartCrack size={size} />;
 const asset = (path: string | null | undefined) => path ? (/^(https?:|asset:|data:|blob:)/.test(path) ? path : convertFileSrc(path)) : undefined;
 const routeFromHash = () => location.hash.slice(2) || "home";
+const readWork = (id: string, refresh = false) => androidSession.load(`work:${id}`, () => api.getWork(id), refresh);
 type ViewTransitionHandle = { finished: Promise<void> };
 const startViewTransition = (callback: () => void | Promise<void>): ViewTransitionHandle | null => {
   const doc = document as Document & { startViewTransition?: (callback: () => void | Promise<void>) => ViewTransitionHandle };
@@ -327,12 +330,14 @@ function useSheetDrag(sheetRef: React.RefObject<HTMLElement | null>, onDismiss: 
 
 export default function AndroidApp() {
   const [route, setRoute] = useState(routeFromHash);
+  const [visitedPanels, setVisitedPanels] = useState<string[]>([]);
   const [allWorks, setAllWorks] = useState<WorkListItem[]>([]);
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [groups, setGroups] = useState<UnassignedMediaGroup[]>([]);
   const [sources, setSources] = useState<VideoSource[]>([]);
   const [tasks, setTasks] = useState<ScanTask[]>([]);
   const [progress, setProgress] = useState<PlaybackProgress[]>([]);
+  const [progressLoading, setProgressLoading] = useState(true);
   const [detail, setDetail] = useState<WorkDetail | null>(null);
   const [detailError, setDetailError] = useState("");
   const [theme, setTheme] = useState<ThemeMode>("system");
@@ -422,6 +427,7 @@ export default function AndroidApp() {
   const namedCover = useRef<HTMLElement | null>(null);
   const detailRequest = useRef(0);
   const detailSnapshot = useRef(0);
+  const refreshPending = useRef<Promise<void> | null>(null);
   const browseRequest = useRef(0);
   const routeRef = useRef(route);
   const lastHashRef = useRef(location.hash);
@@ -451,14 +457,20 @@ export default function AndroidApp() {
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
   const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观", history: "浏览记录", "reading-stats": "阅读统计", "reading-stats-settings": "阅读统计设置", sync: "同步备份", "sync/bangumi": "追番同步", "sync/webdav": "多设备同步" }[route]) || "作品详情";
 
-  async function refresh() {
+  async function refresh(renew = false): Promise<void> {
+    if (refreshPending.current) return renew ? refreshPending.current.catch(() => {}).then(() => refresh(true)) : refreshPending.current;
+    if (renew) { androidSession.invalidate("work:"); androidSession.invalidate("local:"); }
     const sequence = ++refreshSequence.current;
-    const [workList, allGroups, allSources, allTasks, overview] = await Promise.all([api.listWorks(), api.listUnassignedGroups(), androidApi.sources(), androidApi.tasks(), androidApi.progress()]);
-    if (sequence !== refreshSequence.current) return;
-    setAllWorks(workList);
-    setWorks(workList.filter(work => work.type === "video"));
-    setGroups(allGroups.filter(group => group.destination === "media" && group.mediaType === "video"));
-    setSources(allSources); setTasks(allTasks); setProgress(overview.items);
+    const active = () => sequence === refreshSequence.current;
+    const pending = Promise.allSettled([
+      api.listWorks().then(workList => { if (active()) { setAllWorks(workList); setWorks(workList.filter(work => work.type === "video")); setLoading(false); } }),
+      api.listUnassignedGroups().then(value => { if (active()) setGroups(value.filter(group => group.destination === "media" && group.mediaType === "video")); }),
+      androidApi.sources().then(value => { if (active()) setSources(value); }),
+      androidApi.tasks().then(value => { if (active()) setTasks(value); }),
+      androidApi.progress().then(value => { if (active()) setProgress(value.items); }).finally(() => { if (active()) setProgressLoading(false); }),
+    ]).then(results => { const failure = results.find(result => result.status === "rejected"); if (failure) throw failure.reason; }).finally(() => { if (refreshPending.current === pending) refreshPending.current = null; });
+    refreshPending.current = pending;
+    return pending;
   }
   async function refreshWithStartupRetry() {
     for (let attempt = 0; ; attempt++) {
@@ -516,7 +528,7 @@ export default function AndroidApp() {
       const token = ++detailRequest.current;
       void (async () => {
         let work: WorkDetail | null = null;
-        try { work = await api.getWork(id); } catch { work = null; }
+        try { work = await readWork(id); } catch { work = null; }
         if (detailRequest.current !== token) return;
         incomingDetail.current = work;
         runMorph(id, "forward", () => { flushSync(() => { if (work) setDetail(work); setRoute(next); }); });
@@ -620,8 +632,9 @@ export default function AndroidApp() {
     return () => { removeEventListener("keydown", trap); previous?.focus(); };
   }, [modal]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2800); return () => clearTimeout(timer); }, [toast]);
-  useEffect(() => { if (route !== "bookshelf") { setBookQuery(""); setShelfQuery(""); setShelfSearchOpen(false); } }, [route]);
-  useEffect(() => { if (route !== "library" && route !== "favorites") setMediaSearchOpen(false); }, [route]);
+  useEffect(() => {
+    if (route === "explore" || route === "network") setVisitedPanels(previous => previous.includes(route) ? previous : [...previous, route]);
+  }, [route]);
   useEffect(() => {
     let active = true;
     const snapshot = ++detailSnapshot.current;
@@ -643,23 +656,27 @@ export default function AndroidApp() {
     setDescExpanded(false);
     setStatusSheet(false);
     if (!workId) { setDetail(null); return; }
-    const preset = incomingDetail.current?.id === workId ? incomingDetail.current : null;
+    const preset = incomingDetail.current?.id === workId ? incomingDetail.current : androidSession.peek<WorkDetail>(`work:${workId}`) ?? null;
     incomingDetail.current = null;
     setDetail(preset);
-    void (preset ? Promise.resolve(preset) : api.getWork(workId)).then(work => {
+    void (preset ? Promise.resolve(preset) : readWork(workId)).then(work => {
       if (!active || snapshot !== detailSnapshot.current) return;
       setDetail(work);
       if (work.type === "comic" || work.type === "novel") {
-        setBookEntryState("loading");
-        void bookApi.entries(work.id).then(entries => { if (active) { setBookEntries(entries); setBookEntryState("ready"); } }).catch(reason => { if (active) { setBookEntries([]); setBookEntryState("error"); setError(String(reason)); } });
-        void bookContentApi.source(work.id).then(source => {
+        const entriesKey = `local:book-entries:${work.id}`;
+        const cachedEntries = androidSession.peek<BookEntry[]>(entriesKey);
+        setBookEntries(cachedEntries ?? []); setBookEntryState(cachedEntries ? "ready" : "loading");
+        void androidSession.load(entriesKey, () => bookApi.entries(work.id)).then(entries => { if (active) { setBookEntries(entries); setBookEntryState("ready"); } }).catch(reason => { if (active) { setBookEntries([]); setBookEntryState("error"); setError(String(reason)); } });
+        void androidSession.load(`local:book-source:${work.id}`, () => bookContentApi.source(work.id)).then(source => {
           if (!active || !source) return;
           setReadingSource(source);
-          void (source.kind === "comic" ? comicExploreApi.detail(source.pathWord) : novelExploreApi.detail(source.pathWord)).then(value => { if (active) setReadingDetail(value); }).catch(() => {});
+          void androidSession.load(`reading:detail:${source.kind}:${source.pathWord}`, () => source.kind === "comic" ? comicExploreApi.detail(source.pathWord) : novelExploreApi.detail(source.pathWord)).then(value => { if (active) setReadingDetail(value); }).catch(() => {});
         }).catch(reason => { if (active) setError(String(reason)); });
       } else {
-        setStructureState("loading");
-        void api.getAnimeWorkStructure(work.id).then(result => { if (active && snapshot === detailSnapshot.current) { setStructure(result); setStructureState("ready"); } }).catch(() => { if (active && snapshot === detailSnapshot.current) { setStructure(null); setStructureState("error"); } });
+        const structureKey = `local:structure:${work.id}`;
+        const cachedStructure = androidSession.peek<AnimeWorkStructure>(structureKey);
+        setStructure(cachedStructure ?? null); setStructureState(cachedStructure ? "ready" : "loading");
+        void androidSession.load(structureKey, () => api.getAnimeWorkStructure(work.id)).then(result => { if (active && snapshot === detailSnapshot.current) { setStructure(result); setStructureState("ready"); } }).catch(() => { if (active && snapshot === detailSnapshot.current) { setStructure(null); setStructureState("error"); } });
       }
     }).catch(reason => { if (active) { setError(String(reason)); setDetailError(String(reason)); } });
     return () => { active = false; };
@@ -672,7 +689,7 @@ export default function AndroidApp() {
     let changedRecognition = false;
     void listenAndroidChanges(name => {
       if (disposed || document.hidden) return;
-      changedRecognition ||= name === "recognition-updated";
+      changedRecognition ||= name !== "player-state";
       if (timer) return;
       timer = setTimeout(() => { timer = undefined; const details = changedRecognition; changedRecognition = false; void (details ? refreshDisplayed() : refresh()).catch(reason => setError(String(reason))); }, 100);
     }).then(unlisten => {
@@ -692,31 +709,33 @@ export default function AndroidApp() {
     const current = await api.getWork(work.id);
     const updated = await api.updateWork(work.id, { ...inputFor(current), favorite: !current.favorite });
     if (workId === work.id) setDetail(updated);
-    await refresh(); setToast(updated.favorite ? "已加入收藏" : "已取消收藏");
+    await refresh(true); androidSession.set(`work:${work.id}`, updated); setToast(updated.favorite ? "已加入收藏" : "已取消收藏");
   }
   async function authorize(id?: string, reuse = false) {
     const result = await androidApi.authorize(id, reuse);
     if (result.status === "permission_denied") throw new Error("没有目录读取授权。请重新选择目录，并在系统提示中确认。");
-    if (result.status === "authorized") { await refresh(); setToast("来源已添加，可以开始扫描"); }
+    if (result.status === "authorized") { await refresh(true); setToast("来源已添加，可以开始扫描"); }
   }
   async function reloadDetail(id: string, nextStructure?: AnimeWorkStructure) {
     const snapshot = ++detailSnapshot.current;
-    const [work, result] = await Promise.all([api.getWork(id), nextStructure ? Promise.resolve(nextStructure) : api.getAnimeWorkStructure(id).catch(() => null)]);
+    const [work, result] = await Promise.all([readWork(id, true), nextStructure ? Promise.resolve(nextStructure) : androidSession.load(`local:structure:${id}`, () => api.getAnimeWorkStructure(id), true).catch(() => null)]);
+    if (nextStructure) androidSession.set(`local:structure:${id}`, nextStructure);
     if (snapshot !== detailSnapshot.current || routeRef.current !== `detail/${encodeURIComponent(id)}`) return;
     setDetail(work);
     setStructure(result); setStructureState(result ? "ready" : "error");
   }
   async function refreshDisplayed() {
     const currentRoute = routeRef.current;
+    androidSession.invalidate("work:"); androidSession.invalidate("local:");
     await Promise.all([refresh(), currentRoute.startsWith("detail/") ? reloadDetail(decodeURIComponent(currentRoute.slice(7))) : Promise.resolve()]);
   }
   async function loadFolders(uri: string | null) {
     const request = ++browseRequest.current;
     setBrowseState("loading");
     try {
-      const listing = await androidApi.listTree(uri ?? undefined, browseSource.current);
+      const listing = await androidSession.load(`local:folders:${browseSource.current}:${uri ?? ""}`, () => androidApi.listTree(uri ?? undefined, browseSource.current));
       if (request !== browseRequest.current) return;
-      if (listing.status !== "available") { setBrowseFolders([]); setBrowseState("error"); setError(listing.status === "permission_denied" ? "目录授权已失效，请在系统选择器中重新授权该目录。" : "来源暂时无法访问，请稍后重试。"); return; }
+      if (listing.status !== "available") { androidSession.invalidate(`local:folders:${browseSource.current}:${uri ?? ""}`); setBrowseFolders([]); setBrowseState("error"); setError(listing.status === "permission_denied" ? "目录授权已失效，请在系统选择器中重新授权该目录。" : "来源暂时无法访问，请稍后重试。"); return; }
       const folders = (listing.files ?? []).filter(isDirectoryEntry);
       setBrowseFolders(folders);
       setBrowseState(folders.length ? "available" : "empty");
@@ -801,8 +820,8 @@ export default function AndroidApp() {
     {sources.map(source => { const task = tasks.find(task => task.rootId === source.id); const canBrowse = source.kind === "saf"; return <section className="gz-panel gz-source" key={source.id}>
       <button type="button" className="gz-row gz-row-link" disabled={!canBrowse} onClick={() => canBrowse && openBrowse(source.label, null, source.id)}><Folder /><span className="gz-row-main"><strong>{source.label}</strong><span className="gz-meta">{canBrowse ? "本地授权目录 · 点击浏览" : "WebDAV 服务"}</span></span>{canBrowse && <ChevronRight size={18} />}</button>
       {source.error && <p className="gz-error" role="alert">{source.error.message}</p>}
-      <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(); })}><RefreshCw size={16} />扫描</button><button className="gz-btn" disabled={busy || !!task && activeScan(task)} onClick={() => void run(async () => { await api.updateRoot(source.id, "video", !source.enabled); await refresh(); })}>{source.enabled ? "停用来源" : "启用来源"}</button>{canBrowse && ["not_authorized", "permission_denied", "offline"].includes(source.state) && <button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(source.id))}>重新授权</button>}{!canBrowse && <button className="gz-btn" disabled={busy} onClick={() => setModal({ kind: "webdav", sourceId: source.id })}><Pencil size={16} />连接凭据</button>}</div>
-      {task && (activeScan(task) || task.errors.length > 0 || ["failed", "interrupted", "cancelled"].includes(task.stage)) && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy || task.stage === "committing"} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(); })}>取消扫描</button> : <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(); })}>{task.failedDirectories.length ? "重试失败范围" : "重新扫描"}</button>}</div>}
+      <div className="gz-actions"><button className="gz-btn" disabled={busy || !source.enabled || !!task && activeScan(task)} onClick={() => void run(async () => { await androidApi.scan(source.id); await refresh(true); })}><RefreshCw size={16} />扫描</button><button className="gz-btn" disabled={busy || !!task && activeScan(task)} onClick={() => void run(async () => { await api.updateRoot(source.id, "video", !source.enabled); await refresh(true); })}>{source.enabled ? "停用来源" : "启用来源"}</button>{canBrowse && ["not_authorized", "permission_denied", "offline"].includes(source.state) && <button className="gz-btn" disabled={busy} onClick={() => void run(() => authorize(source.id))}>重新授权</button>}{!canBrowse && <button className="gz-btn" disabled={busy} onClick={() => setModal({ kind: "webdav", sourceId: source.id })}><Pencil size={16} />连接凭据</button>}</div>
+      {task && (activeScan(task) || task.errors.length > 0 || ["failed", "interrupted", "cancelled"].includes(task.stage)) && <div className="gz-task"><strong>{taskStages[task.stage]}</strong><progress aria-label="扫描进度" {...(!["scanning", "queued"].includes(task.stage) ? { max: Math.max(1, task.discovered), value: task.processed } : {})} /><p className="gz-meta">已发现 {task.discovered} · 已处理 {task.processed} · 复用 {task.reused} · 目录 {task.visitedDirectories}</p>{task.errors.length > 0 && <details><summary>{task.errors.length} 项问题</summary>{task.errors.map((message, index) => <p className="gz-file-name" key={index}>{message}</p>)}</details>}{activeScan(task) ? <button className="gz-btn" disabled={busy || task.stage === "committing"} onClick={() => void run(async () => { await androidApi.cancel(task.id); await refresh(true); })}>取消扫描</button> : <button className="gz-btn" disabled={busy || !source.enabled} onClick={() => void run(async () => { await androidApi.retry(task.id); await refresh(true); })}>{task.failedDirectories.length ? "重试失败范围" : "重新扫描"}</button>}</div>}
     </section>; })}
   </>;
   const historyRow = (entry: typeof historyEntries[number]) => {
@@ -962,9 +981,9 @@ export default function AndroidApp() {
     <main ref={main} inert={!!modal} className="gz-scroll" onScroll={() => { scrollPositions.current[route] = main.current?.scrollTop ?? 0; }}>
       {!top && <button className="gz-iconbtn gz-back" aria-label="返回" onClick={() => back()}><ArrowLeft /></button>}
       {error && <div className="gz-error" role="alert"><span>{error}</span><button className="gz-iconbtn" aria-label="关闭错误提示" onClick={() => setError("")}><X size={18} /></button></div>}
-      {loading && <GridSkeleton count={9} label="正在读取媒体库…" />}
+      {loading && ["home", "library", "favorites", "bookshelf"].includes(route) ? <><LoadingIndicator label="正在读取媒体库…" compact /><GridSkeleton count={9} /></> : <>
       {route === "home" && <>
-        <Section title="继续观看">{continueItems.length ? <div className="gz-rail gz-cover-rail">{continueItems.map(item => <button className="gz-continue" disabled={busy || item.missing} key={item.mediaFileId} onClick={() => void run(() => play(item.mediaFileId))}><div className="gz-continue-cover"><Play /><span>{item.missing ? "文件缺失" : `${playbackTime(item.positionMs)} / ${playbackTime(item.durationMs)}`}</span><progress max={100} value={playbackPercent(item)} /></div><strong>{item.title}</strong><span className="gz-meta">{item.fileName}</span></button>)}</div> : <p className="gz-panel gz-meta">暂无观看记录。开始播放后，续播入口会出现在这里。</p>}</Section>
+        <Section title="继续观看">{progressLoading ? <LoadingIndicator label="正在读取观看记录…" compact /> : continueItems.length ? <div className="gz-rail gz-cover-rail">{continueItems.map(item => <button className="gz-continue" disabled={busy || item.missing} key={item.mediaFileId} onClick={() => void run(() => play(item.mediaFileId))}><div className="gz-continue-cover"><Play /><span>{item.missing ? "文件缺失" : `${playbackTime(item.positionMs)} / ${playbackTime(item.durationMs)}`}</span><progress max={100} value={playbackPercent(item)} /></div><strong>{item.title}</strong><span className="gz-meta">{item.fileName}</span></button>)}</div> : <p className="gz-panel gz-meta">暂无观看记录。开始播放后，续播入口会出现在这里。</p>}</Section>
         {allWorks.length ? homeSectionsData.map(({ section, items }) => <Section key={section.id} title={section.title} action={<button className="gz-link" onClick={() => section.id === "books" ? navigate("bookshelf") : openCategory(section.id)}>更多<ChevronRight size={16} /></button>}>{items.length ? <div className="gz-rail gz-cover-rail">{items.map(work => <button className="gz-cover" key={work.id} onClick={() => navigate(`detail/${encodeURIComponent(work.id)}`)}><Poster work={work} /><span className="gz-cover-label">{work.title}</span></button>)}</div> : <p className="gz-panel gz-meta">{section.id === "books" ? "漫画与轻小说书架将在后续版本接入。" : "暂无最近添加的作品。"}</p>}</Section>) : <section className="gz-hero"><div className="gz-hero-inner"><span className="gz-eyebrow">你的媒体，安静归档</span><h2>从你的第一部作品开始</h2><p className="gz-meta">添加已下载视频的目录，整理作品与观看记录。</p><div className="gz-actions"><button className="gz-btn primary" onClick={() => navigate("sources")}><Plus size={18} />添加来源</button></div></div></section>}
       </>}
       {(route === "library" || route === "favorites") && <>
@@ -1150,7 +1169,7 @@ export default function AndroidApp() {
             {detail.tags.length ? <div className="gz-tag-grid">{detail.tags.map(tag => <button type="button" className="gz-tag" key={tag} onClick={() => openTag(tag)}>{tag}</button>)}</div> : <p className="gz-meta">还没有标签。</p>}
           </Section>
           <Section title="个人备注"><p className="gz-description">{detail.notes || "还没有写下备注。"}</p></Section>
-          <Section title="资料管理"><div className="gz-actions"><button className="gz-btn" disabled={busy || !detail.metadata} onClick={() => void run(async () => { const result = await api.refreshWorkMetadata(detail.id); await reloadDetail(detail.id, result); await refresh(); setToast("作品资料已刷新"); })}><RefreshCw size={16} />刷新已匹配资料</button><button className="gz-btn" disabled={busy || !detail.mediaFiles.some(file => file.mediaType === "video" && !file.missing)} onClick={() => { const file = detail.mediaFiles.find(item => item.mediaType === "video" && !item.missing); if (file) setModal({ kind: "match", work: detail, mediaId: file.id }); }}><Search size={16} />{detail.metadata ? "重新匹配资料" : "匹配作品资料"}</button><button className="gz-btn" disabled={busy || !detail.mediaFiles.some(file => file.mediaType === "video")} onClick={() => setModal({ kind: "correct", work: detail })}><Pencil size={16} />分集纠错</button></div><p className="gz-meta">{detail.metadata ? `资料来源 ${detail.metadata.provider}；刷新失败时保留已有资料。` : "当前为手动作品，尚未绑定资料来源。"}</p></Section>
+          <Section title="资料管理"><div className="gz-actions"><button className="gz-btn" disabled={busy || !detail.metadata} onClick={() => void run(async () => { const result = await api.refreshWorkMetadata(detail.id); await reloadDetail(detail.id, result); await refresh(true); setToast("作品资料已刷新"); })}><RefreshCw size={16} />刷新已匹配资料</button><button className="gz-btn" disabled={busy || !detail.mediaFiles.some(file => file.mediaType === "video" && !file.missing)} onClick={() => { const file = detail.mediaFiles.find(item => item.mediaType === "video" && !item.missing); if (file) setModal({ kind: "match", work: detail, mediaId: file.id }); }}><Search size={16} />{detail.metadata ? "重新匹配资料" : "匹配作品资料"}</button><button className="gz-btn" disabled={busy || !detail.mediaFiles.some(file => file.mediaType === "video")} onClick={() => setModal({ kind: "correct", work: detail })}><Pencil size={16} />分集纠错</button></div><p className="gz-meta">{detail.metadata ? `资料来源 ${detail.metadata.provider}；刷新失败时保留已有资料。` : "当前为手动作品，尚未绑定资料来源。"}</p></Section>
         </>}
         {detailTab === "comments" && <Section title="吐槽" action={<span className="gz-meta">Bangumi 条目评论</span>}>
           <div className="gz-empty"><MessageCircle size={26} /><h2>吐槽数据待接入</h2><p>吐槽来自 Bangumi 条目评论，后端接口尚未接入；接入后会在这里按时间展示真实评论。</p></div>
@@ -1187,8 +1206,6 @@ export default function AndroidApp() {
           {bookQuery ? <button className="gz-btn" onClick={() => setBookQuery("")}>清除标签筛选</button> : shelfQuery ? <button className="gz-btn" onClick={() => { setShelfQuery(""); setCollectionScope("all"); }}>清除搜索</button> : shelfHasItems ? <button className="gz-btn" onClick={() => setCollectionScope("all")}>查看全部</button> : <button className="gz-btn" disabled={busy} onClick={() => void run(refresh)}>刷新</button>}
         </div>}
       </>}
-      {route === "explore" && <ExplorePanel onToast={setToast} registerBack={registerSubviewBack} />}
-      {route === "network" && <NetworkPanel onToast={setToast} />}
       {route.startsWith("future/") && <Empty title={`${decodeURIComponent(route.slice(7))} · Future`}><p>该能力尚未接入，保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
       {route === "history" && historyPage}
       {route === "reading-stats" && readingStatsPage}
@@ -1197,6 +1214,9 @@ export default function AndroidApp() {
       {route === "sync/bangumi" && bangumiSyncPage}
       {route === "sync/webdav" && webdavSyncPage}
       {route === "diagnostics" && <AndroidPrototype />}
+      </>}
+      {(route === "explore" || visitedPanels.includes("explore")) && <div className="gz-kept-page" hidden={route !== "explore"}><ExplorePanel active={route === "explore"} onToast={setToast} onLibraryChanged={() => void refresh(true).catch(reason => setError(String(reason)))} registerBack={registerSubviewBack} /></div>}
+      {(route === "network" || visitedPanels.includes("network")) && <div className="gz-kept-page" hidden={route !== "network"}><NetworkPanel onToast={setToast} /></div>}
     </main>
     {readerEntry && readingSource && <BookReader kind={readingSource.kind} pathWord={readingSource.pathWord} entryId={readerEntry.id} group={sourceGroup} onClose={() => setReaderEntry(null)} />}
     <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
@@ -1206,10 +1226,10 @@ export default function AndroidApp() {
       <span className="gz-sheet-handle" {...modalDrag} aria-hidden="true" />
       <div className="gz-section-head"><h2 id="gz-dialog-title">{modal.kind === "edit" ? "个人记录" : modal.kind === "webdav" ? modal.sourceId ? "WebDAV 连接凭据" : "添加 WebDAV 视频来源" : modal.kind === "correct" ? "分集纠错" : "整理作品"}</h2><button className="gz-iconbtn" aria-label="关闭" disabled={busy || modalBusy} onClick={closeModal}><X /></button></div>
       {error && <p className="gz-error" role="alert">{error}</p>}
-      {modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { await api.updateWork(modal.work.id, input); await reloadDetail(modal.work.id); await refresh(); setModal(null); setToast("个人记录已保存"); })} />
-        : modal.kind === "webdav" ? <WebdavEditor sourceId={modal.sourceId} onBusyChange={setModalBusy} onSaved={async () => { await refresh(); setModal(null); setToast("WebDAV 来源已保存"); }} />
-        : modal.kind === "correct" ? <CorrectionEditor work={modal.work} works={works} onBusyChange={setModalBusy} onSaved={async id => { await refresh(); await reloadDetail(modal.work.id); setModal(null); if (id !== modal.work.id) navigate(`detail/${id}`); setToast("分集纠错已保存"); }} />
-        : <Organize mediaId={modal.kind === "match" ? modal.mediaId : modal.group.representative.id} initialTitle={modal.kind === "match" ? modal.work.title : modal.group.representative.parsedTitle || modal.group.title} linkedWorkId={modal.kind === "match" ? modal.work.id : undefined} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(); if (routeRef.current === `detail/${id}`) await reloadDetail(id); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}
+      {modal.kind === "edit" ? <WorkEditor work={modal.work} busy={busy} onSave={input => void run(async () => { await api.updateWork(modal.work.id, input); await reloadDetail(modal.work.id); await refresh(true); setModal(null); setToast("个人记录已保存"); })} />
+        : modal.kind === "webdav" ? <WebdavEditor sourceId={modal.sourceId} onBusyChange={setModalBusy} onSaved={async () => { await refresh(true); setModal(null); setToast("WebDAV 来源已保存"); }} />
+        : modal.kind === "correct" ? <CorrectionEditor work={modal.work} works={works} onBusyChange={setModalBusy} onSaved={async id => { await refresh(true); await reloadDetail(modal.work.id); setModal(null); if (id !== modal.work.id) navigate(`detail/${id}`); setToast("分集纠错已保存"); }} />
+        : <Organize mediaId={modal.kind === "match" ? modal.mediaId : modal.group.representative.id} initialTitle={modal.kind === "match" ? modal.work.title : modal.group.representative.parsedTitle || modal.group.title} linkedWorkId={modal.kind === "match" ? modal.work.id : undefined} works={works} busy={busy} onRun={operation => void run(operation)} onDone={async id => { await refresh(true); if (routeRef.current === `detail/${id}`) await reloadDetail(id); setModal(null); navigate(`detail/${id}`); setToast("作品整理完成"); }} />}
     </section></div>}
     {pickerOpen && <ColorPicker hue={accentHue} sat={accentSat} light={accentLight} onCancel={() => setPickerOpen(false)} onConfirm={value => { setAccentHue(Math.round(value.hue)); setAccentSat(Math.round(value.sat)); setAccentLight(Math.round(value.light)); setPickerOpen(false); }} />}
     {sortSheet && <div className="gz-scrim" onClick={() => setSortSheet(false)}><section ref={sortSheetRef} className="gz-sheet" role="dialog" aria-modal="true" aria-labelledby="gz-sort-title" onClick={event => event.stopPropagation()}>
@@ -1226,7 +1246,7 @@ export default function AndroidApp() {
       <span className="gz-sheet-handle" aria-hidden="true" />
       <h2 className="gz-sheet-title">追番状态</h2>
       <div className="gz-status-list">
-        {localStatusRows.map(id => <button type="button" key={id} className={`gz-status-row${detail.status === id ? " active" : ""}`} aria-pressed={detail.status === id} disabled={busy} onClick={() => void run(async () => { const updated = await api.updateWork(detail.id, { ...inputFor(detail), status: id }); setDetail(updated); await refresh(); setStatusSheet(false); setToast("追番状态已更新"); })}>
+        {localStatusRows.map(id => <button type="button" key={id} className={`gz-status-row${detail.status === id ? " active" : ""}`} aria-pressed={detail.status === id} disabled={busy} onClick={() => void run(async () => { const updated = await api.updateWork(detail.id, { ...inputFor(detail), status: id }); setDetail(updated); await refresh(true); setStatusSheet(false); setToast("追番状态已更新"); })}>
           <WorkStatusIcon id={id} size={18} /><span>{statuses[id]}</span>
         </button>)}
       </div>

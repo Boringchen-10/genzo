@@ -2,17 +2,18 @@ import { useEffect, useState } from "react";
 import { Check, Eye, EyeOff, Trash2 } from "lucide-react";
 import { api } from "../api";
 import type { MetadataProviderStatus } from "../types";
+import { androidSession } from "./sessionCache";
 
 export default function MetadataSettings() {
-  const [providers, setProviders] = useState<MetadataProviderStatus[]>([]);
+  const [providers, setProviders] = useState<MetadataProviderStatus[]>(() => androidSession.peek<MetadataProviderStatus[]>("provider-status") ?? []);
   const [token, setToken] = useState("");
   const [visible, setVisible] = useState(false);
-  const [busy, setBusy] = useState(true);
+  const [busy, setBusy] = useState(() => !androidSession.peek("provider-status"));
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   useEffect(() => {
     let active = true;
-    void api.metadataProviderStatuses().then(value => { if (active) setProviders(value); })
+    void androidSession.load("provider-status", () => api.metadataProviderStatuses()).then(value => { if (active) setProviders(value); })
       .catch(reason => { if (active) setError(String(reason)); }).finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
   }, []);
@@ -21,7 +22,7 @@ export default function MetadataSettings() {
     try {
       await api.setSetting("metadata.tmdb_read_token", value);
       setToken(""); setVisible(false);
-      setProviders(await api.metadataProviderStatuses());
+      setProviders(await androidSession.load("provider-status", () => api.metadataProviderStatuses(), true));
       setMessage(value ? "TMDB 配置已保存" : "TMDB 配置已清除");
     } catch (reason) { setError(String(reason)); }
     finally { setBusy(false); }

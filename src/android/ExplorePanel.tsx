@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, Clock, Download, Heart, HeartCrack, LoaderCircle, MessageCircle, Play, RefreshCw, Search, Star, Users, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, Clock, Download, Heart, HeartCrack, MessageCircle, Play, RefreshCw, Search, Star, Users, X } from "lucide-react";
 import { api } from "../api";
 import { androidApi } from "./api";
 import type { AnimeWorkStructure, BangumiComment, ExploreSubject, WeeklyCalendar, WeeklyCalendarDay, WorkStatus } from "../types";
@@ -10,6 +10,8 @@ import { type SourceEntry } from "../bookContent";
 import BookReader from "./BookReader";
 import BookDescription from "./BookDescription";
 import OnlineChapters from "./OnlineChapters";
+import LoadingIndicator from "./LoadingIndicator";
+import { androidSession, READING_NETWORK_CHANGED } from "./sessionCache";
 import { BANGUMI_NETWORK_CHANGED } from "../bangumiNetwork";
 
 type ExploreTab = "anime" | "comic" | "novel";
@@ -110,7 +112,7 @@ const startExploreTransition = (callback: () => void | Promise<void>): ExploreTr
 };
 const exploreCoverName = (id: string) => `gz-explore-cover-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 
-export default function ExplorePanel({ onToast, registerBack }: { onToast: (message: string) => void; registerBack?: (handler: (() => boolean) | null) => void }) {
+export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, active = true }: { onToast: (message: string) => void; onLibraryChanged?: () => void; registerBack?: (handler: (() => boolean) | null) => void; active?: boolean }) {
   const [tab, setTab] = useState<ExploreTab>("anime");
   const [view, setView] = useState<ExploreView>("feed");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -187,6 +189,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const daysRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLSpanElement>(null);
   const animeLoadRef = useRef(0);
+  const readingLoadRef = useRef(0);
   const popularSnapshotRef = useRef<PopularSnapshot | null>(null);
   const [popularLoading, setPopularLoading] = useState(false);
   const exploreCoverRef = useRef<HTMLElement | null>(null);
@@ -194,6 +197,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const exploreScroll = useRef(0);
   const exploreDetailId = useRef<string | null>(null);
   const bookDetailRequest = useRef(0);
+  const subjectRequest = useRef(0);
   const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const backHandler = useRef<() => boolean>(() => false);
@@ -220,7 +224,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   }, []);
   backHandler.current = () => {
     if (statusSheet) { setStatusSheet(false); return true; }
-    if (subject) { const id = exploreDetailId.current ?? subject.externalId; runExploreMorph(id, "back", () => setSubject(null)); return true; }
+    if (subject) { subjectRequest.current++; const id = exploreDetailId.current ?? subject.externalId; runExploreMorph(id, "back", () => setSubject(null)); return true; }
     if (readerEntry) { setReaderEntry(null); return true; }
     if (bookSelecting) { setBookSelecting(false); return true; }
     if (comicDetail) { bookDetailRequest.current++; const id = comicDetail.item.pathWord; runExploreMorph(id, "back", () => setComicDetail(null)); return true; }
@@ -230,11 +234,11 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     return false;
   };
   useEffect(() => {
-    if (!registerBack) return;
+    if (!registerBack || !active) return;
     registerBack(() => backHandler.current());
     return () => registerBack(null);
-  }, [registerBack]);
-  useEffect(() => () => { bookDetailRequest.current++; }, []);
+  }, [registerBack, active]);
+  useEffect(() => () => { bookDetailRequest.current++; subjectRequest.current++; }, []);
 
   const loadAnime = useCallback(async (force = false) => {
     if (!force && animeExploreCache) {
@@ -303,6 +307,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   }, [onToast, rankingHasMore, rankingLoadingMore, rankingPage]);
 
   const loadBooks = useCallback(async (nextTheme: string, nextPage = 1, append = false) => {
+    const generation = readingLoadRef.current;
     const key = `novel:${nextTheme}`;
     const cached = bookExplorePages.get(key);
     if (!append && nextPage === 1 && cached) {
@@ -314,23 +319,27 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     else { setNovelState("loading"); setNovelError(""); }
     try {
       const page = await novelExploreApi.list({ query: "", theme: nextTheme, top: "", sort: "popular", page: nextPage });
+      if (generation !== readingLoadRef.current) return;
       const previous = append && cached ? { items: cached.items, total: cached.total, page: cached.page, stale: cached.stale } : { items: [], total: 0, page: 0, stale: false };
       const merged = append && previous.page > 0 ? appendComicPage(previous, page) : page;
       bookExplorePages.set(key, { items: merged.items, total: merged.total, page: page.page, stale: merged.stale });
       setNovels(merged.items); setNovelState("ready");
       setBookPage(page.page); setBookTotal(merged.total);
     } catch (reason) {
+      if (generation !== readingLoadRef.current) return;
       setNovelError(String(reason)); setNovelState("error");
-    } finally { setBookLoadingMore(false); }
+    } finally { if (generation === readingLoadRef.current) setBookLoadingMore(false); }
   }, []);
 
   const loadComicHome = useCallback(async (force = false) => {
+    const generation = readingLoadRef.current;
     if (!force && comicHomeCache) { setComicHome(comicHomeCache); setComicHomeState("ready"); return; }
     setComicHomeState("loading"); setComicHomeError("");
     try {
       const value = await comicExploreApi.home(force);
+      if (generation !== readingLoadRef.current) return;
       comicHomeCache = value; setComicHome(value); setComicHomeState("ready");
-    } catch (reason) { setComicHomeError(String(reason)); setComicHomeState("error"); }
+    } catch (reason) { if (generation === readingLoadRef.current) { setComicHomeError(String(reason)); setComicHomeState("error"); } }
   }, []);
 
   const openComicSection = useCallback((section: ComicSection, period: RankPeriod | null = null, force = false) => {
@@ -366,15 +375,38 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
   useEffect(() => { void loadAnime(); }, [loadAnime]);
   useEffect(() => {
-    const changed = () => { animeExploreCache = null; void loadAnime(true); };
+    const changed = () => {
+      animeExploreCache = null; androidSession.invalidate("bangumi:"); androidSession.invalidate("local:structure:"); void loadAnime(true);
+      if (subject) {
+        const request = ++subjectRequest.current;
+        void androidSession.load(`bangumi:subject:${subject.externalId}`, () => api.getExploreSubject(subject.externalId)).then(value => { if (request === subjectRequest.current) setSubject(value); }).catch(() => {});
+        void androidSession.load(`bangumi:comments:${subject.externalId}`, () => api.bangumiComments(subject.externalId)).then(value => { if (request === subjectRequest.current) { setSubjectComments(value.items); setSubjectCommentsTotal(value.total); setSubjectCommentsState("ready"); } }).catch(() => { if (request === subjectRequest.current) setSubjectCommentsState("error"); });
+      }
+    };
     window.addEventListener(BANGUMI_NETWORK_CHANGED, changed);
     return () => window.removeEventListener(BANGUMI_NETWORK_CHANGED, changed);
-  }, [loadAnime]);
+  }, [loadAnime, subject]);
+  useEffect(() => {
+    const changed = () => {
+      const generation = ++readingLoadRef.current;
+      comicHomeCache = null; comicSectionCache.clear(); bookExplorePages.clear();
+      setNovelThemes([]); setBookLoadingMore(false);
+      void loadComicHome(true);
+      if (tab === "novel") {
+        void androidSession.load("reading:novel-themes", () => novelExploreApi.themes()).then(value => { if (generation === readingLoadRef.current) setNovelThemes(value); }).catch(() => {});
+        void loadBooks(novelTheme);
+      }
+      if (comicSection) openComicSection(comicSection.section, comicSection.period, true);
+      if (comicDetail) void openBook(comicDetail.item, comicDetailKind);
+    };
+    window.addEventListener(READING_NETWORK_CHANGED, changed);
+    return () => window.removeEventListener(READING_NETWORK_CHANGED, changed);
+  }, [tab, novelTheme, comicSection, comicDetail, comicDetailKind, loadComicHome, loadBooks, openComicSection]);
   useEffect(() => {
     if (isCurrentCour) { setSeasonDays(null); setSeasonState("ready"); return; }
     let cancelled = false;
     setSeasonState("loading");
-    api.exploreOverview(scheduleYear, scheduleMonth)
+    androidSession.load(`bangumi:season:${scheduleYear}:${scheduleMonth}`, () => api.exploreOverview(scheduleYear, scheduleMonth))
       .then(overview => { if (!cancelled) { setSeasonDays(groupByWeekday(overview.seasonal)); setSeasonState("ready"); } })
       .catch(() => { if (!cancelled) { setSeasonDays(null); setSeasonState("error"); } });
     return () => { cancelled = true; };
@@ -387,49 +419,51 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
   useEffect(() => {
     if (tab !== "novel") return;
-    if (!novelThemes.length) void novelExploreApi.themes().then(setNovelThemes).catch(() => {});
+    const generation = readingLoadRef.current;
+    if (!novelThemes.length) void androidSession.load("reading:novel-themes", () => novelExploreApi.themes()).then(value => { if (generation === readingLoadRef.current) setNovelThemes(value); }).catch(() => {});
     void loadBooks(novelTheme);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   useEffect(() => {
     const node = bookSentinelRef.current;
-    if (!node || tab !== "novel") return;
+    if (!node || !active || tab !== "novel") return;
     const observer = new IntersectionObserver(entries => {
       if (!entries.some(entry => entry.isIntersecting) || bookLoadingMore || bookPage * 24 >= bookTotal) return;
       void loadBooks(novelTheme, bookPage + 1, true);
     }, { rootMargin: "320px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [bookLoadingMore, bookPage, bookTotal, loadBooks, novelTheme, tab]);
+  }, [active, bookLoadingMore, bookPage, bookTotal, loadBooks, novelTheme, tab]);
 
   useEffect(() => {
     const node = comicSectionSentinelRef.current;
-    if (!node || view !== "section" || !comicSection) return;
+    if (!node || !active || view !== "section" || !comicSection) return;
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) void loadMoreComicSection();
     }, { rootMargin: "320px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [comicSection, comicSectionPage?.items.length, loadMoreComicSection, view]);
+  }, [active, comicSection, comicSectionPage?.items.length, loadMoreComicSection, view]);
 
   useEffect(() => {
     const node = hotSentinelRef.current;
-    if (!node || tab !== "anime" || !rankingHasMore) return;
+    if (!node || !active || tab !== "anime" || !rankingHasMore) return;
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) void loadMoreRanking();
     }, { rootMargin: "320px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [loadMoreRanking, rankingHasMore, tab, trending.length, selectedTags.length]);
+  }, [active, loadMoreRanking, rankingHasMore, tab, trending.length, selectedTags.length]);
 
   useEffect(() => {
     const workId = subject?.localWorkId;
-    setStructure(null);
-    if (!subject) { setStructureState("ready"); return; }
+    if (!subject) { setStructure(null); setStructureState("ready"); return; }
     let cancelled = false;
-    setStructureState("loading");
-    (workId ? api.getAnimeWorkStructure(workId) : api.getBangumiSubjectStructure(subject.externalId))
+    const key = workId ? `local:structure:${workId}` : `bangumi:structure:${subject.externalId}`;
+    const cached = androidSession.peek<AnimeWorkStructure>(key);
+    setStructure(cached ?? null); setStructureState(cached ? "ready" : "loading");
+    androidSession.load(key, () => workId ? api.getAnimeWorkStructure(workId) : api.getBangumiSubjectStructure(subject.externalId))
       .then(value => { if (!cancelled) { setStructure(value); setStructureState("ready"); } })
       .catch(() => { if (!cancelled) { setStructure(null); setStructureState("error"); } });
     return () => { cancelled = true; };
@@ -442,28 +476,38 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   });
 
   const openSubject = async (item: ExploreSubject) => {
+    const request = ++subjectRequest.current;
     exploreDetailId.current = item.externalId;
-    runExploreMorph(item.externalId, "forward", () => { setSubject(item); setSubjectTab(item.localWorkId ? "episodes" : "overview"); setDescExpanded(false); setSearchOpen(false); setTagsOpen(false); });
-    setSubjectComments([]); setSubjectCommentsState("loading"); setSubjectCommentsTotal(0);
-    try { setSubject(await api.getExploreSubject(item.externalId)); } catch { /* keep list data */ }
+    const subjectKey = `bangumi:subject:${item.externalId}`;
+    const commentsKey = `bangumi:comments:${item.externalId}`;
+    const cachedComments = androidSession.peek<Awaited<ReturnType<typeof api.bangumiComments>>>(commentsKey);
+    await new Promise<void>(resolve => runExploreMorph(item.externalId, "forward", () => { setSubject(androidSession.peek<ExploreSubject>(subjectKey) ?? item); setSubjectTab(item.localWorkId ? "episodes" : "overview"); setDescExpanded(false); setSearchOpen(false); setTagsOpen(false); resolve(); }));
+    if (request !== subjectRequest.current) return;
+    setSubjectComments(cachedComments?.items ?? []); setSubjectCommentsState(cachedComments ? "ready" : "loading"); setSubjectCommentsTotal(cachedComments?.total ?? 0);
+    try { const value = await androidSession.load(subjectKey, () => api.getExploreSubject(item.externalId)); if (request !== subjectRequest.current) return; setSubject(value); } catch { /* keep list data */ }
     try {
-      const comments = await api.bangumiComments(item.externalId);
+      const comments = await androidSession.load(commentsKey, () => api.bangumiComments(item.externalId));
+      if (request !== subjectRequest.current) return;
       setSubjectComments(comments.items); setSubjectCommentsTotal(comments.total); setSubjectCommentsState("ready");
-    } catch { setSubjectCommentsState("error"); }
+    } catch { if (request === subjectRequest.current) setSubjectCommentsState("error"); }
   };
 
   const openBook = async (item: ComicItem, kind: "comic" | "novel") => {
     const request = ++bookDetailRequest.current;
+    const detailKey = `reading:detail:${kind}:${item.pathWord}`;
+    const commentsKey = `reading:comments:${kind}:${item.pathWord}`;
+    const cachedDetail = androidSession.peek<ComicDetail>(detailKey);
+    const cachedComments = androidSession.peek<Awaited<ReturnType<typeof comicExploreApi.comments>>>(commentsKey);
     const initialize = () => {
-      setComicDetailKind(kind); setComicDetail({ item, aliases: [], chapterCount: null, stale: false });
-      setBookDetailState("loading"); setBookSelecting(false); setReaderEntry(null);
-      setBookComments([]); setBookCommentsState("loading"); setBookCommentsTotal(0); setBookCommentsLoadingMore(false);
+      setComicDetailKind(kind); setComicDetail(cachedDetail ?? { item, aliases: [], chapterCount: null, stale: false });
+      setBookDetailState(cachedDetail ? "ready" : "loading"); setBookSelecting(false); setReaderEntry(null);
+      setBookComments(cachedComments?.items ?? []); setBookCommentsState(cachedComments ? "ready" : "loading"); setBookCommentsTotal(cachedComments?.total ?? 0); setBookCommentsLoadingMore(false);
     };
     if (comicDetail?.item.pathWord === item.pathWord) initialize();
     else await new Promise<void>(resolve => runExploreMorph(item.pathWord, "forward", () => { initialize(); resolve(); }));
     if (request !== bookDetailRequest.current) return;
     try {
-      const detail = kind === "comic" ? await comicExploreApi.detail(item.pathWord) : await novelExploreApi.detail(item.pathWord);
+      const detail = await androidSession.load(detailKey, () => kind === "comic" ? comicExploreApi.detail(item.pathWord) : novelExploreApi.detail(item.pathWord), bookDetailState === "error");
       if (request !== bookDetailRequest.current) return;
       setComicDetail(detail); setBookDetailState("ready");
     } catch (reason) {
@@ -472,7 +516,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       onToast(String(reason));
     }
     try {
-      const comments = kind === "comic" ? await comicExploreApi.comments(item.pathWord) : await novelExploreApi.comments(item.pathWord);
+      const comments = await androidSession.load(commentsKey, () => kind === "comic" ? comicExploreApi.comments(item.pathWord) : novelExploreApi.comments(item.pathWord));
       if (request !== bookDetailRequest.current) return;
       setBookComments(comments.items); setBookCommentsTotal(comments.total); setBookCommentsState("ready");
     } catch {
@@ -538,7 +582,9 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     setSaving(true);
     try {
       await api.saveExploreSubject({ externalId: subject.externalId, status, favorite: subject.favorite });
-      setSubject(await api.getExploreSubject(subject.externalId));
+      const updated = await api.getExploreSubject(subject.externalId);
+      androidSession.set(`bangumi:subject:${subject.externalId}`, updated); setSubject(updated);
+      onLibraryChanged?.();
       onToast("追番状态已更新");
     } catch (reason) { onToast(String(reason)); }
     finally { setSaving(false); }
@@ -549,6 +595,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     try {
       if (kind === "comic") await comicExploreApi.save(item.pathWord, true);
       else await novelExploreApi.save(item.pathWord, true);
+      onLibraryChanged?.();
       onToast("已加入书架");
     } catch (reason) { onToast(String(reason)); }
     finally { setSaving(false); }
@@ -634,8 +681,8 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       <h2>放送时间表</h2>
       <button className="gz-season-btn" aria-haspopup="dialog" aria-expanded={seasonOpen} onClick={() => setSeasonOpen(true)}>{seasonLabel}<ChevronDown size={14} /></button>
     </div>
-    {isCurrentCour && !calendar ? <p className="gz-loading"><LoaderCircle />正在读取放送时间表…</p>
-      : !isCurrentCour && seasonState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取该季度番组…</p>
+    {isCurrentCour && !calendar ? <LoadingIndicator label="正在读取放送时间表…" compact />
+      : !isCurrentCour && seasonState === "loading" ? <LoadingIndicator label="正在读取该季度番组…" compact />
         : !isCurrentCour && seasonState === "error" ? <div className="gz-error" role="alert"><span>该季度数据读取失败。</span></div>
           : <>
             {scheduleDays && <div className={`gz-sched-days${pill ? " has-pill" : ""}`} role="tablist" aria-label="星期" ref={daysRef}>
@@ -651,7 +698,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
   const subjectView = subject && <div className="gz-subject">
     <div className="gz-subject-topbar">
-      <button className="gz-iconbtn" aria-label="返回发现" onClick={() => { const id = exploreDetailId.current ?? subject.externalId; runExploreMorph(id, "back", () => setSubject(null)); }}><ArrowLeft size={20} /></button>
+      <button className="gz-iconbtn" aria-label="返回发现" onClick={() => backHandler.current()}><ArrowLeft size={20} /></button>
     </div>
     <section className="gz-subject-hero">
       <h1 className="gz-subject-title">{subject.title}</h1>
@@ -672,7 +719,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
       {SUBJECT_TABS.map(tab => <button type="button" role="tab" key={tab.id} aria-selected={subjectTab === tab.id} className={subjectTab === tab.id ? "active" : ""} onClick={() => setSubjectTab(tab.id)}>{tab.label}</button>)}
     </div>
     {subjectTab === "episodes" && <section className="gz-section">
-      {structureState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取剧集…</p>
+      {structureState === "loading" ? <LoadingIndicator label="正在读取剧集…" compact />
           : structure && structure.episodes.length ? <>
             <div className="gz-section-head"><h2>剧集</h2><span className="gz-meta">{structure.episodes.length} 集</span></div>
             <div className="gz-episodes">{structure.episodes.map(episode => { const file = episode.localFiles[0]; const label = episode.episodeNumber != null ? `第 ${episode.episodeNumber} 集` : `#${episode.sortNumber}`; return <button className="gz-episode" key={episode.externalId} disabled={!file || file.missing} onClick={() => file && !file.missing && void playEpisode(file.id)}><div className="gz-episode-cover"><Play /><span>{label}</span></div><strong>{episode.title || label}</strong><span className="gz-meta">{file ? (file.missing ? "文件缺失" : file.fileName) : "未关联本地文件"}</span></button>; })}</div>
@@ -701,23 +748,23 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     </>}
     {subjectTab === "comments" && <section className="gz-section">
       <div className="gz-section-head"><h2>吐槽</h2><span className="gz-meta">Bangumi 条目评论</span></div>
-      {subjectCommentsState === "loading" ? <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取吐槽…</p>
+      {subjectCommentsState === "loading" ? <LoadingIndicator label="正在读取吐槽…" compact />
         : subjectCommentsState === "error" ? <div className="gz-error" role="alert"><span>吐槽读取失败，请检查 Bangumi 网络设置。</span><button className="gz-iconbtn" aria-label="重试吐槽" onClick={() => void api.bangumiComments(subject.externalId).then(page => { setSubjectComments(page.items); setSubjectCommentsTotal(page.total); setSubjectCommentsState("ready"); }).catch(() => setSubjectCommentsState("error"))}><RefreshCw size={16} /></button></div>
           : subjectComments.length ? <><div className="gz-credit-list">{subjectComments.map(comment => <article className="gz-credit" key={comment.id}><span className="gz-credit-avatar">{comment.userName.slice(0, 1) || "匿"}</span><span className="gz-credit-main"><strong>{comment.userName || "匿名用户"}</strong><span>{comment.comment}</span></span></article>)}</div>{subjectComments.length < subjectCommentsTotal && <button className="gz-btn" type="button" disabled={subjectCommentsLoadingMore} onClick={() => void loadMoreSubjectComments()}>{subjectCommentsLoadingMore ? "加载中…" : "加载更多吐槽"}</button>}</>
           : <div className="gz-empty"><MessageCircle size={26} /><h2>暂无吐槽</h2><p>Bangumi 尚未提供该条目的公开吐槽。</p></div>}
     </section>}
     {subjectTab === "characters" && <section className="gz-section">
-      {structureState === "loading" ? <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取角色资料…</p> : structure && structure.characters.length
+      {structureState === "loading" ? <LoadingIndicator label="正在读取角色资料…" compact /> : structure && structure.characters.length
         ? <><div className="gz-section-head"><h2>角色</h2><span className="gz-meta">{structure.characters.length} 位</span></div><div className="gz-credit-list">{structure.characters.map(character => <div className="gz-credit" key={character.externalId}><span className="gz-credit-avatar">{character.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{character.name}</strong><span>{[character.role, character.actors.join(" / ")].filter(Boolean).join(" · ") || "角色"}</span></span></div>)}</div></>
         : <><div className="gz-section-head"><h2>角色</h2><span className="gz-meta">Bangumi 条目资料</span></div><div className="gz-empty"><Users size={26} /><h2>{structureState === "error" ? "角色资料读取失败" : "暂无角色资料"}</h2><p>{structureState === "error" ? "请检查网络设置后重试。" : "Bangumi 尚未提供该条目的角色与声优。"}</p></div></>}
     </section>}
     {subjectTab === "related" && <section className="gz-section">
-      {structureState === "loading" ? <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取关联作品…</p> : structure && structure.seasons.length
+      {structureState === "loading" ? <LoadingIndicator label="正在读取关联作品…" compact /> : structure && structure.seasons.length
         ? <><div className="gz-section-head"><h2>关联</h2><span className="gz-meta">{structure.seasons.length} 部</span></div><div className="gz-related-list">{structure.seasons.map(season => <div className={`gz-related ${season.current ? "is-current" : ""}`} key={season.externalId}><span className="gz-credit-avatar">{season.title.slice(0, 1)}</span><span className="gz-related-main"><strong>{season.title}</strong><span>{[season.relation, season.seasonNumber ? `第 ${season.seasonNumber} 季` : null, season.current ? "当前作品" : null].filter(Boolean).join(" · ")}</span></span></div>)}</div></>
         : <><div className="gz-section-head"><h2>关联</h2><span className="gz-meta">Bangumi 条目资料</span></div><div className="gz-empty"><Users size={26} /><h2>{structureState === "error" ? "关联资料读取失败" : "暂无关联作品"}</h2><p>{structureState === "error" ? "请检查网络设置后重试。" : "Bangumi 尚未提供该条目的关联作品。"}</p></div></>}
     </section>}
     {subjectTab === "staff" && <section className="gz-section">
-      {structureState === "loading" ? <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取制作人员…</p> : structure && structure.staff.length
+      {structureState === "loading" ? <LoadingIndicator label="正在读取制作人员…" compact /> : structure && structure.staff.length
         ? <><div className="gz-section-head"><h2>制作人员</h2><span className="gz-meta">{structure.staff.length} 位</span></div><div className="gz-credit-list">{structure.staff.map(credit => <div className="gz-credit" key={credit.externalId}><span className="gz-credit-avatar">{credit.name.slice(0, 1)}</span><span className="gz-credit-main"><strong>{credit.name}</strong><span>{credit.role}</span></span></div>)}</div></>
         : <><div className="gz-section-head"><h2>制作人员</h2><span className="gz-meta">Bangumi 条目资料</span></div><div className="gz-empty"><Users size={26} /><h2>{structureState === "error" ? "制作人员读取失败" : "暂无制作人员资料"}</h2><p>{structureState === "error" ? "请检查网络设置后重试。" : "Bangumi 尚未提供该条目的制作人员。"}</p></div></>}
     </section>}
@@ -747,7 +794,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
         </div>
       </div>
     </section>
-    {bookDetailState === "loading" && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取作品资料…</p>}
+    {bookDetailState === "loading" && <LoadingIndicator label="正在读取作品资料…" compact />}
     {bookDetailState === "error" && <div className="gz-error" role="alert"><span>作品资料读取失败，当前显示列表缓存。</span><button className="gz-iconbtn" aria-label="重试作品资料" onClick={() => void openBook(comicDetail.item, comicDetailKind)}><RefreshCw size={16} /></button></div>}
     <section className="gz-section">
       <div className="gz-section-head"><h2>简介</h2></div>
@@ -757,7 +804,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     <OnlineChapters key={`${comicDetailKind}:${comicDetail.item.pathWord}`} kind={comicDetailKind} pathWord={comicDetail.item.pathWord} selecting={bookSelecting} onSelecting={setBookSelecting} onRead={(entry, group) => { setReaderEntry(entry); setReaderGroup(group); }} onToast={onToast} />
     <section className="gz-section" id="gz-book-comments">
       <div className="gz-section-head"><h2>评论</h2><span className="gz-meta">COPY</span></div>
-      {bookCommentsState === "loading" ? <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取评论…</p>
+      {bookCommentsState === "loading" ? <LoadingIndicator label="正在读取评论…" compact />
         : bookCommentsState === "error" ? <p className="gz-meta">评论暂时无法读取，请检查阅读网络设置。</p>
           : bookComments.length ? <div className="gz-credit-list">{bookComments.map(comment => <article className="gz-credit" key={comment.id}><span className="gz-credit-avatar">{comment.userName.slice(0, 1) || "匿"}</span><span className="gz-credit-main"><strong>{comment.userName || "匿名用户"}</strong><span>{comment.comment}</span></span></article>)}</div>
             : <p className="gz-meta">暂无评论。</p>}
@@ -774,12 +821,12 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     {comicSection.section === "ranking" && <div className="gz-seg gz-comic-period-seg" role="tablist" aria-label="榜单周期">
       {RANK_PERIODS.map(period => <button key={period} role="tab" aria-selected={comicSection.period === period} className={comicSection.period === period ? "active" : ""} onClick={() => openComicSection("ranking", period)}>{RANK_PERIOD_LABELS[period]}</button>)}
     </div>}
-    {comicSectionState === "loading" && !comicSectionPage ? <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取作品…</p>
+    {comicSectionState === "loading" && !comicSectionPage ? <LoadingIndicator label="正在读取作品…" compact />
       : comicSectionState === "error" ? <><div className="gz-error" role="alert"><span>{comicSectionError || "作品列表读取失败。"}</span></div><button className="gz-btn" onClick={() => openComicSection(comicSection.section, comicSection.period, true)}><RefreshCw size={16} />重试</button></>
         : comicSectionPage && comicSectionPage.items.length ? <>
           <div className="gz-comic-grid gz-comic-grid-lg">{comicSectionPage.items.map(entry => comicHomeCard(entry, comicSection.section === "ranking"))}</div>
           {comicSectionPage.hasMore && <div className="gz-sentinel" ref={comicSectionSentinelRef} aria-hidden="true" />}
-          {comicSectionMore && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在加载更多…</p>}
+          {comicSectionMore && <LoadingIndicator label="正在加载更多…" compact />}
         </> : <div className="gz-empty"><BookOpen size={26} /><h2>暂无作品</h2><p>该分组暂时没有内容。</p></div>}
   </div>;
 
@@ -803,20 +850,20 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
       {tab === "anime" && (searchTerm !== null ? <>
         <p className="gz-meta">「{searchTerm}」共 {animeResults.length} 条</p>
-        {searching ? <p className="gz-loading"><LoaderCircle />正在搜索…</p> : animeResults.length
+        {searching ? <LoadingIndicator label="正在搜索…" compact /> : animeResults.length
           ? <div className="gz-explore-grid">{animeResults.map(animeCard)}</div>
           : <div className="gz-empty"><Search size={26} /><h2>没有匹配的条目</h2><p>换一个关键词再试。</p></div>}
       </> : animeState === "error" ? <>
         <div className="gz-error" role="alert"><span>{animeError || "Bangumi 数据读取失败。"}</span></div>
         <button className="gz-btn" onClick={() => void loadAnime(true)}><RefreshCw size={16} />重试</button>
-      </> : animeState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取 Bangumi 数据…</p> : <>
+      </> : animeState === "loading" ? <LoadingIndicator label="正在读取 Bangumi 数据…" compact /> : <>
         <section className="gz-section">
           <div className="gz-section-head"><h2>每日更新</h2>
             <button className="gz-link" onClick={() => setView("schedule")}><CalendarDays size={16} />时间表<ChevronRight size={16} /></button></div>
           {calendar ? (dailyItems.length
             ? <div className="gz-rail gz-cover-rail">{dailyItems.map(animeCard)}</div>
             : <p className="gz-panel gz-meta">今天没有更新的番组，去时间表看看本周放送。</p>)
-            : <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取每日更新…</p>}
+            : <LoadingIndicator label="正在读取每日更新…" compact />}
         </section>
         <section className="gz-section"><div className="gz-section-head">
           <button className="gz-section-toggle" aria-expanded={tagsOpen} onClick={() => setTagsOpen(value => !value)}>
@@ -827,22 +874,22 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
             {tagChips.map(tag => <button key={tag} className={`gz-chip ${selectedTags.includes(tag) ? "active" : ""}`} role="checkbox" aria-checked={selectedTags.includes(tag)} onClick={() => toggleTag(tag)}>{tag}</button>)}
             {selectedTags.length > 0 && <button className="gz-link" onClick={() => setSelectedTags([])}>清除</button>}
           </div>}
-          {popularLoading ? <p className="gz-loading"><LoaderCircle />正在读取热门番组…</p> : animeError ? <>
+          {popularLoading ? <LoadingIndicator label="正在读取热门番组…" compact /> : animeError ? <>
             <div className="gz-error" role="alert">{animeError}</div><button className="gz-btn" onClick={() => void loadAnime(true)}><RefreshCw size={16} />重试热门番组</button>
-          </> : hotItems.length ? <><div className="gz-explore-grid">{hotItems.map(animeCard)}</div>{rankingHasMore && selectedTags.length === 0 && <div className="gz-sentinel" ref={hotSentinelRef} aria-hidden="true" />}{rankingLoadingMore && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在加载更多热门番组…</p>}</> : <p className="gz-panel gz-meta">没有符合所选标签的热门番组。</p>}
+          </> : hotItems.length ? <><div className="gz-explore-grid">{hotItems.map(animeCard)}</div>{rankingHasMore && selectedTags.length === 0 && <div className="gz-sentinel" ref={hotSentinelRef} aria-hidden="true" />}{rankingLoadingMore && <LoadingIndicator label="正在加载更多热门番组…" compact />}</> : <p className="gz-panel gz-meta">没有符合所选标签的热门番组。</p>}
         </section>
       </>)}
       {tab === "anime" && <p className="gz-explore-source gz-meta">每日更新来自 Bangumi 每日放送接口；热门番组按 Bangumi 动画目录热度排序。{trending.some(item => item.stale) ? "热门番组当前显示离线缓存。" : ""}</p>}
 
       {tab === "comic" && (searchTerm !== null ? <>
         <p className="gz-meta">「{searchTerm}」共 {comicResults.length} 条</p>
-        {searching ? <p className="gz-loading"><LoaderCircle />正在搜索…</p> : comicResults.length
+        {searching ? <LoadingIndicator label="正在搜索…" compact /> : comicResults.length
           ? <div className="gz-explore-grid">{comicResults.map(item => comicCard(item))}</div>
           : <div className="gz-empty"><Search size={26} /><h2>没有匹配的漫画</h2><p>换一个关键词再试。</p></div>}
       </> : comicHomeState === "error" ? <>
         <div className="gz-error" role="alert"><span>{comicHomeError || "漫画首页读取失败。"}</span></div>
         <button className="gz-btn" onClick={() => void loadComicHome(true)}><RefreshCw size={16} />重试</button>
-      </> : comicHomeState === "loading" && !comicHome ? <p className="gz-loading"><LoaderCircle />正在读取漫画首页…</p> : comicHome ? <>
+      </> : comicHomeState === "loading" && !comicHome ? <LoadingIndicator label="正在读取漫画首页…" compact /> : comicHome ? <>
         {comicSections.recommended && comicSections.recommended.items.length > 0 && <section className="gz-section">
           <div className="gz-section-head"><h2>推荐</h2><button className="gz-link" onClick={() => openComicSection("recommended")}>更多<ChevronRight size={16} /></button></div>
           <div className="gz-rail gz-cover-rail gz-comic-rail">{comicSections.recommended.items.map(entry => comicHomeCard(entry))}</div>
@@ -875,7 +922,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
       {tab === "novel" && (searchTerm !== null ? <>
         <p className="gz-meta">「{searchTerm}」共 {novelResults.length} 条</p>
-        {searching ? <p className="gz-loading"><LoaderCircle />正在搜索…</p> : novelResults.length
+        {searching ? <LoadingIndicator label="正在搜索…" compact /> : novelResults.length
           ? <div className="gz-explore-grid">{novelResults.map(item => comicCard(item, "novel"))}</div>
           : <div className="gz-empty"><Search size={26} /><h2>没有匹配的轻小说</h2><p>换一个关键词再试。</p></div>}
       </> : <>
@@ -884,8 +931,8 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
           {novelThemes.map(item => <button key={item.pathWord} className={`gz-chip ${novelTheme === item.pathWord ? "active" : ""}`} role="radio" aria-checked={novelTheme === item.pathWord} onClick={() => { setNovelTheme(item.pathWord); void loadBooks(item.pathWord); }}>{item.name}</button>)}
         </div>
         {novelState === "error" ? <><div className="gz-error" role="alert"><span>{novelError || "轻小说来源读取失败。"}</span></div><button className="gz-btn" onClick={() => void loadBooks(novelTheme)}><RefreshCw size={16} />重试</button></>
-          : novelState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取轻小说来源…</p>
-            : novels.length ? <><div className="gz-explore-grid">{novels.map(item => comicCard(item, "novel"))}</div>{novels.length < bookTotal && <div className="gz-sentinel" ref={bookSentinelRef} aria-hidden="true" />}{bookLoadingMore && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在加载更多…</p>}</>
+          : novelState === "loading" ? <LoadingIndicator label="正在读取轻小说来源…" compact />
+            : novels.length ? <><div className="gz-explore-grid">{novels.map(item => comicCard(item, "novel"))}</div>{novels.length < bookTotal && <div className="gz-sentinel" ref={bookSentinelRef} aria-hidden="true" />}{bookLoadingMore && <LoadingIndicator label="正在加载更多…" compact />}</>
               : <div className="gz-empty"><BookOpen size={26} /><h2>没有轻小说</h2><p>这个题材下暂无作品。</p></div>}
       </>)}
     </>}
