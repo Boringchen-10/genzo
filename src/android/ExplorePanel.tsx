@@ -5,7 +5,7 @@ import { ArrowLeft, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, Cl
 import { api } from "../api";
 import { androidApi } from "./api";
 import type { AnimeWorkStructure, BangumiComment, ExploreSubject, WeeklyCalendar, WeeklyCalendarDay, WorkStatus } from "../types";
-import { appendComicPage, comicExploreApi, novelExploreApi, type ComicDetail, type ComicItem, type ComicTheme, type CopyComment } from "../comicExplore";
+import { appendComicPage, comicExploreApi, novelExploreApi, type ComicDetail, type ComicFeedEntry, type ComicHome, type ComicItem, type ComicSection, type ComicSectionPage, type ComicSectionQuery, type ComicTheme, type CopyComment, type RankPeriod } from "../comicExplore";
 import { type SourceEntry } from "../bookContent";
 import BookReader from "./BookReader";
 import BookDescription from "./BookDescription";
@@ -13,7 +13,7 @@ import OnlineChapters from "./OnlineChapters";
 import { BANGUMI_NETWORK_CHANGED } from "../bangumiNetwork";
 
 type ExploreTab = "anime" | "comic" | "novel";
-type ExploreView = "feed" | "schedule";
+type ExploreView = "feed" | "schedule" | "section";
 type LoadState = "loading" | "ready" | "error";
 type PopularSnapshot = { items: ExploreSubject[]; page: number; hasMore: boolean };
 type SubjectDetailTab = "episodes" | "overview" | "comments" | "characters" | "related" | "staff";
@@ -61,9 +61,19 @@ const curatedTags = (items: ExploreSubject[], limit = 24) => {
     .map(([tag]) => tag);
 };
 let animeExploreCache: { trending: ExploreSubject[]; calendar: WeeklyCalendar | null; rankingPage: number; rankingHasMore: boolean; popularError: string } | null = null;
-const comicExploreCache = new Map<string, ComicItem[]>();
-let comicThemeCache: ComicTheme[] = [];
+let comicHomeCache: ComicHome | null = null;
+const comicSectionCache = new Map<string, ComicSectionPage>();
 const bookExplorePages = new Map<string, ComicPageState>();
+
+const COMIC_SECTION_LABELS: Record<ComicSection, string> = { recommended: "推荐", ranking: "排行榜", hotUpdates: "热门更新", newArrivals: "全新上架", completed: "已完结" };
+const RANK_PERIODS: RankPeriod[] = ["day", "week", "month"];
+const RANK_PERIOD_LABELS: Record<RankPeriod, string> = { day: "日榜", week: "周榜", month: "月榜" };
+const formatPopularity = (value: number | null) => value == null ? "" : value >= 10000 ? `${(value / 10000).toFixed(1)}万` : String(value);
+const makeSectionQuery = (section: ComicSection, period: RankPeriod | null, offset: number, limit = 24): ComicSectionQuery => {
+  if (section === "ranking") return { section, period: period ?? "day", offset, limit };
+  if (section === "recommended" || section === "newArrivals" || section === "completed") return { section, offset, limit };
+  return { section: "recommended", offset, limit };
+};
 
 type ComicPageState = { page: number; total: number; items: ComicItem[]; stale: boolean };
 
@@ -131,11 +141,14 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const [seasonState, setSeasonState] = useState<LoadState>("ready");
   const isCurrentCour = scheduleYear === currentCour.year && scheduleMonth === currentCour.month;
 
-  const [themes, setThemes] = useState<ComicTheme[]>(() => comicThemeCache);
-  const [theme, setTheme] = useState("");
-  const [comics, setComics] = useState<ComicItem[]>(() => comicExploreCache.get("") ?? []);
-  const [comicState, setComicState] = useState<LoadState>(() => comicExploreCache.has("") ? "ready" : "loading");
-  const [comicError, setComicError] = useState("");
+  const [comicHome, setComicHome] = useState<ComicHome | null>(() => comicHomeCache);
+  const [comicHomeState, setComicHomeState] = useState<LoadState>(() => comicHomeCache ? "ready" : "loading");
+  const [comicHomeError, setComicHomeError] = useState("");
+  const [comicSection, setComicSection] = useState<{ section: ComicSection; period: RankPeriod | null } | null>(null);
+  const [comicSectionPage, setComicSectionPage] = useState<ComicSectionPage | null>(null);
+  const [comicSectionState, setComicSectionState] = useState<LoadState>("ready");
+  const [comicSectionError, setComicSectionError] = useState("");
+  const [comicSectionMore, setComicSectionMore] = useState(false);
   const [novelThemes, setNovelThemes] = useState<ComicTheme[]>([]);
   const [novelTheme, setNovelTheme] = useState("");
   const [novels, setNovels] = useState<ComicItem[]>([]);
@@ -169,6 +182,8 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
 
   const hotSentinelRef = useRef<HTMLDivElement>(null);
   const bookSentinelRef = useRef<HTMLDivElement>(null);
+  const comicSectionSentinelRef = useRef<HTMLDivElement>(null);
+  const comicSectionReqRef = useRef(0);
   const daysRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLSpanElement>(null);
   const animeLoadRef = useRef(0);
@@ -210,6 +225,7 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     if (bookSelecting) { setBookSelecting(false); return true; }
     if (comicDetail) { bookDetailRequest.current++; const id = comicDetail.item.pathWord; runExploreMorph(id, "back", () => setComicDetail(null)); return true; }
     if (seasonOpen) { setSeasonOpen(false); return true; }
+    if (view === "section") { setComicSection(null); setView("feed"); return true; }
     if (view === "schedule") { setView("feed"); return true; }
     return false;
   };
@@ -286,33 +302,67 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     finally { setRankingLoadingMore(false); }
   }, [onToast, rankingHasMore, rankingLoadingMore, rankingPage]);
 
-  const loadBooks = useCallback(async (kind: "comic" | "novel", nextTheme: string, nextPage = 1, append = false) => {
-    const key = `${kind}:${nextTheme}`;
+  const loadBooks = useCallback(async (nextTheme: string, nextPage = 1, append = false) => {
+    const key = `novel:${nextTheme}`;
     const cached = bookExplorePages.get(key);
     if (!append && nextPage === 1 && cached) {
-      if (kind === "comic") { setComics(cached.items); setComicState("ready"); }
-      else { setNovels(cached.items); setNovelState("ready"); }
+      setNovels(cached.items); setNovelState("ready");
       setBookPage(cached.page); setBookTotal(cached.total);
       return;
     }
     if (append) setBookLoadingMore(true);
-    else if (kind === "comic") { setComicState("loading"); setComicError(""); }
     else { setNovelState("loading"); setNovelError(""); }
     try {
-      const page = kind === "comic"
-        ? await comicExploreApi.list({ query: "", theme: nextTheme, top: "", sort: "popular", page: nextPage })
-        : await novelExploreApi.list({ query: "", theme: nextTheme, top: "", sort: "popular", page: nextPage });
+      const page = await novelExploreApi.list({ query: "", theme: nextTheme, top: "", sort: "popular", page: nextPage });
       const previous = append && cached ? { items: cached.items, total: cached.total, page: cached.page, stale: cached.stale } : { items: [], total: 0, page: 0, stale: false };
       const merged = append && previous.page > 0 ? appendComicPage(previous, page) : page;
       bookExplorePages.set(key, { items: merged.items, total: merged.total, page: page.page, stale: merged.stale });
-      if (kind === "comic") { comicExploreCache.set(nextTheme, merged.items); setComics(merged.items); setComicState("ready"); }
-      else { setNovels(merged.items); setNovelState("ready"); }
+      setNovels(merged.items); setNovelState("ready");
       setBookPage(page.page); setBookTotal(merged.total);
     } catch (reason) {
-      if (kind === "comic") { setComicError(String(reason)); setComicState("error"); }
-      else { setNovelError(String(reason)); setNovelState("error"); }
+      setNovelError(String(reason)); setNovelState("error");
     } finally { setBookLoadingMore(false); }
   }, []);
+
+  const loadComicHome = useCallback(async (force = false) => {
+    if (!force && comicHomeCache) { setComicHome(comicHomeCache); setComicHomeState("ready"); return; }
+    setComicHomeState("loading"); setComicHomeError("");
+    try {
+      const value = await comicExploreApi.home(force);
+      comicHomeCache = value; setComicHome(value); setComicHomeState("ready");
+    } catch (reason) { setComicHomeError(String(reason)); setComicHomeState("error"); }
+  }, []);
+
+  const openComicSection = useCallback((section: ComicSection, period: RankPeriod | null = null, force = false) => {
+    const key = `${section}:${period ?? ""}`;
+    const request = ++comicSectionReqRef.current;
+    setComicSection({ section, period }); setView("section");
+    setComicSectionError(""); setComicSectionMore(false);
+    const cached = comicSectionCache.get(key);
+    if (cached && !force) { setComicSectionPage(cached); setComicSectionState("ready"); return; }
+    setComicSectionPage(null); setComicSectionState("loading");
+    void comicExploreApi.section(makeSectionQuery(section, period, 0), force).then(page => {
+      if (comicSectionReqRef.current !== request) return;
+      comicSectionCache.set(key, page); setComicSectionPage(page); setComicSectionState("ready");
+    }).catch(reason => {
+      if (comicSectionReqRef.current !== request) return;
+      setComicSectionError(String(reason)); setComicSectionState("error");
+    });
+  }, []);
+
+  const loadMoreComicSection = useCallback(async () => {
+    if (!comicSection || !comicSectionPage || comicSectionMore || !comicSectionPage.hasMore || comicSectionState !== "ready") return;
+    const request = comicSectionReqRef.current;
+    setComicSectionMore(true);
+    try {
+      const next = await comicExploreApi.section(makeSectionQuery(comicSection.section, comicSection.period, comicSectionPage.items.length));
+      if (comicSectionReqRef.current !== request) return;
+      const merged = { ...next, items: [...comicSectionPage.items, ...next.items] };
+      comicSectionCache.set(`${comicSection.section}:${comicSection.period ?? ""}`, merged);
+      setComicSectionPage(merged);
+    } catch (reason) { onToast(String(reason)); }
+    finally { setComicSectionMore(false); }
+  }, [comicSection, comicSectionPage, comicSectionMore, comicSectionState, onToast]);
 
   useEffect(() => { void loadAnime(); }, [loadAnime]);
   useEffect(() => {
@@ -331,28 +381,37 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   }, [isCurrentCour, scheduleYear, scheduleMonth]);
   useEffect(() => {
     if (tab !== "comic") return;
-    if (!themes.length) void comicExploreApi.themes().then(value => { comicThemeCache = value; setThemes(value); }).catch(() => {});
-    void loadBooks("comic", theme);
+    void loadComicHome();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   useEffect(() => {
     if (tab !== "novel") return;
     if (!novelThemes.length) void novelExploreApi.themes().then(setNovelThemes).catch(() => {});
-    void loadBooks("novel", novelTheme);
+    void loadBooks(novelTheme);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   useEffect(() => {
     const node = bookSentinelRef.current;
-    if (!node || (tab !== "comic" && tab !== "novel")) return;
+    if (!node || tab !== "novel") return;
     const observer = new IntersectionObserver(entries => {
       if (!entries.some(entry => entry.isIntersecting) || bookLoadingMore || bookPage * 24 >= bookTotal) return;
-      void loadBooks(tab, tab === "comic" ? theme : novelTheme, bookPage + 1, true);
+      void loadBooks(novelTheme, bookPage + 1, true);
     }, { rootMargin: "320px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [bookLoadingMore, bookPage, bookTotal, loadBooks, novelTheme, tab, theme]);
+  }, [bookLoadingMore, bookPage, bookTotal, loadBooks, novelTheme, tab]);
+
+  useEffect(() => {
+    const node = comicSectionSentinelRef.current;
+    if (!node || view !== "section" || !comicSection) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) void loadMoreComicSection();
+    }, { rootMargin: "320px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [comicSection, comicSectionPage?.items.length, loadMoreComicSection, view]);
 
   useEffect(() => {
     const node = hotSentinelRef.current;
@@ -515,6 +574,19 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     <span className="gz-cover-label">{item.title}</span>
   </button>;
 
+  const comicHomeCard = (entry: ComicFeedEntry, showRank = false) => {
+    const item = entry.item;
+    const sub = [formatPopularity(entry.popularity ?? entry.rankPopularity), item.authors[0]].filter(Boolean).join(" ");
+    return <button className="gz-comic-card" key={item.pathWord} onClick={() => void openBook(item, "comic")}>
+      <span className="gz-comic-poster" data-explore-cover-id={item.pathWord}>
+        {comicCover(item) ? <img src={comicCover(item)} alt="" loading="lazy" /> : <BookOpen size={22} />}
+        {showRank && entry.rank != null && <span className="gz-comic-rank">{entry.rank}</span>}
+      </span>
+      <strong className="gz-comic-title">{item.title}</strong>
+      {sub && <span className="gz-comic-sub">{sub}</span>}
+    </button>;
+  };
+
   const scheduleRow = (item: ExploreSubject) => <button className="gz-sched-row" key={item.externalId} onClick={() => void openSubject(item)}>
     <span className="gz-sched-cover">{cover(item) ? <img src={cover(item)} alt="" loading="lazy" /> : <BookOpen size={20} />}</span>
     <span className="gz-sched-body">
@@ -536,6 +608,16 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
   const scheduleDays = isCurrentCour ? calendar?.days ?? null : seasonDays;
   const scheduleItems = scheduleDays?.find(day => day.weekday === scheduleDay)?.items ?? [];
   const subjectStatusId = subject ? statusIdOf(subject) : "none";
+  const comicSections = useMemo(() => {
+    const sections = comicHome?.sections ?? [];
+    return {
+      recommended: sections.find(section => section.section === "recommended") ?? null,
+      ranking: sections.filter(section => section.section === "ranking"),
+      hotUpdates: sections.find(section => section.section === "hotUpdates") ?? null,
+      newArrivals: sections.find(section => section.section === "newArrivals") ?? null,
+      completed: sections.find(section => section.section === "completed") ?? null,
+    };
+  }, [comicHome]);
 
   useLayoutEffect(() => {
     const container = daysRef.current;
@@ -683,11 +765,29 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
     </section>
   </div>;
 
+  const comicSectionView = comicSection && <div className="gz-explore-section">
+    <div className="gz-sched-head">
+      <button className="gz-iconbtn" aria-label="返回发现" onClick={() => setView("feed")}><ArrowLeft size={20} /></button>
+      <h2>{COMIC_SECTION_LABELS[comicSection.section]}</h2>
+      {comicSectionPage?.total != null && <span className="gz-meta">{comicSectionPage.total} 部</span>}
+    </div>
+    {comicSection.section === "ranking" && <div className="gz-seg gz-comic-period-seg" role="tablist" aria-label="榜单周期">
+      {RANK_PERIODS.map(period => <button key={period} role="tab" aria-selected={comicSection.period === period} className={comicSection.period === period ? "active" : ""} onClick={() => openComicSection("ranking", period)}>{RANK_PERIOD_LABELS[period]}</button>)}
+    </div>}
+    {comicSectionState === "loading" && !comicSectionPage ? <p className="gz-loading"><LoaderCircle className="gz-spin" />正在读取作品…</p>
+      : comicSectionState === "error" ? <><div className="gz-error" role="alert"><span>{comicSectionError || "作品列表读取失败。"}</span></div><button className="gz-btn" onClick={() => openComicSection(comicSection.section, comicSection.period, true)}><RefreshCw size={16} />重试</button></>
+        : comicSectionPage && comicSectionPage.items.length ? <>
+          <div className="gz-comic-grid gz-comic-grid-lg">{comicSectionPage.items.map(entry => comicHomeCard(entry, comicSection.section === "ranking"))}</div>
+          {comicSectionPage.hasMore && <div className="gz-sentinel" ref={comicSectionSentinelRef} aria-hidden="true" />}
+          {comicSectionMore && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在加载更多…</p>}
+        </> : <div className="gz-empty"><BookOpen size={26} /><h2>暂无作品</h2><p>该分组暂时没有内容。</p></div>}
+  </div>;
+
   if (subject) return <div className="gz-explore">{subjectView}</div>;
   if (comicDetail) return <div className="gz-explore">{comicDetailView}{readerEntry && <BookReader kind={comicDetailKind} pathWord={comicDetail.item.pathWord} entryId={readerEntry.id} group={readerGroup} onClose={() => setReaderEntry(null)} />}</div>;
 
   return <div className="gz-explore" onClickCapture={event => { clickedCoverRef.current = (event.target as HTMLElement).closest("button")?.querySelector<HTMLElement>("[data-explore-cover-id]") ?? null; }}>
-    {view === "schedule" ? scheduleView : <>
+    {view === "section" && comicSection ? comicSectionView : view === "schedule" ? scheduleView : <>
       <div className="gz-explore-head">
         <div className="gz-seg gz-explore-tabs" role="tablist" aria-label="发现分类">
           {([["anime", "动漫"], ["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) =>
@@ -739,18 +839,39 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
         {searching ? <p className="gz-loading"><LoaderCircle />正在搜索…</p> : comicResults.length
           ? <div className="gz-explore-grid">{comicResults.map(item => comicCard(item))}</div>
           : <div className="gz-empty"><Search size={26} /><h2>没有匹配的漫画</h2><p>换一个关键词再试。</p></div>}
-      </> : <>
-        <div className="gz-chips" role="radiogroup" aria-label="漫画主题">
-          <button className={`gz-chip ${theme === "" ? "active" : ""}`} role="radio" aria-checked={theme === ""} onClick={() => { setTheme(""); void loadBooks("comic", ""); }}>全部</button>
-          {themes.map(item => <button key={item.pathWord} className={`gz-chip ${theme === item.pathWord ? "active" : ""}`} role="radio" aria-checked={theme === item.pathWord} onClick={() => { setTheme(item.pathWord); void loadBooks("comic", item.pathWord); }}>{item.name}</button>)}
-        </div>
-        {comicState === "error" ? <>
-          <div className="gz-error" role="alert"><span>{comicError || "漫画来源读取失败。"}</span></div>
-          <button className="gz-btn" onClick={() => void loadBooks("comic", theme)}><RefreshCw size={16} />重试</button>
-        </> : comicState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取漫画来源…</p> : comics.length
-           ? <><div className="gz-explore-grid">{comics.map(item => comicCard(item))}</div>{comics.length < bookTotal && <div className="gz-sentinel" ref={bookSentinelRef} aria-hidden="true" />}{bookLoadingMore && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在加载更多…</p>}</>
-          : <div className="gz-empty"><BookOpen size={26} /><h2>没有漫画</h2><p>这个主题下暂无作品。</p></div>}
-      </> )}
+      </> : comicHomeState === "error" ? <>
+        <div className="gz-error" role="alert"><span>{comicHomeError || "漫画首页读取失败。"}</span></div>
+        <button className="gz-btn" onClick={() => void loadComicHome(true)}><RefreshCw size={16} />重试</button>
+      </> : comicHomeState === "loading" && !comicHome ? <p className="gz-loading"><LoaderCircle />正在读取漫画首页…</p> : comicHome ? <>
+        {comicSections.recommended && comicSections.recommended.items.length > 0 && <section className="gz-section">
+          <div className="gz-section-head"><h2>推荐</h2><button className="gz-link" onClick={() => openComicSection("recommended")}>更多<ChevronRight size={16} /></button></div>
+          <div className="gz-rail gz-cover-rail gz-comic-rail">{comicSections.recommended.items.map(entry => comicHomeCard(entry))}</div>
+        </section>}
+        {comicSections.ranking.length > 0 && <section className="gz-section">
+          <div className="gz-section-head"><h2>排行榜</h2><button className="gz-link" onClick={() => openComicSection("ranking", "day")}>更多<ChevronRight size={16} /></button></div>
+          {RANK_PERIODS.map(period => {
+            const group = comicSections.ranking.find(section => section.period === period);
+            if (!group || !group.items.length) return null;
+            return <div className="gz-comic-period-block" key={period}>
+              <p className="gz-comic-period">{RANK_PERIOD_LABELS[period]}</p>
+              <div className="gz-comic-grid">{group.items.slice(0, 4).map(entry => comicHomeCard(entry, true))}</div>
+            </div>;
+          })}
+        </section>}
+        {comicSections.hotUpdates && comicSections.hotUpdates.items.length > 0 && <section className="gz-section">
+          <div className="gz-section-head"><h2>热门更新</h2><span className="gz-meta">{comicSections.hotUpdates.items.length} 部</span></div>
+          <div className="gz-rail gz-cover-rail gz-comic-rail">{comicSections.hotUpdates.items.map(entry => comicHomeCard(entry))}</div>
+        </section>}
+        {comicSections.newArrivals && comicSections.newArrivals.items.length > 0 && <section className="gz-section">
+          <div className="gz-section-head"><h2>全新上架</h2><button className="gz-link" onClick={() => openComicSection("newArrivals")}>更多<ChevronRight size={16} /></button></div>
+          <div className="gz-comic-grid">{comicSections.newArrivals.items.slice(0, 4).map(entry => comicHomeCard(entry))}</div>
+        </section>}
+        {comicSections.completed && comicSections.completed.items.length > 0 && <section className="gz-section">
+          <div className="gz-section-head"><h2>已完结</h2><button className="gz-link" onClick={() => openComicSection("completed")}>更多<ChevronRight size={16} /></button></div>
+          <div className="gz-comic-grid">{comicSections.completed.items.slice(0, 4).map(entry => comicHomeCard(entry))}</div>
+        </section>}
+        <p className="gz-explore-source gz-meta">漫画首页来自 COPY 目录的推荐、排行榜与新上架接口；数字为来源热度。{comicHome.stale ? "当前显示离线缓存。" : ""}</p>
+      </> : null)}
 
       {tab === "novel" && (searchTerm !== null ? <>
         <p className="gz-meta">「{searchTerm}」共 {novelResults.length} 条</p>
@@ -759,10 +880,10 @@ export default function ExplorePanel({ onToast, registerBack }: { onToast: (mess
           : <div className="gz-empty"><Search size={26} /><h2>没有匹配的轻小说</h2><p>换一个关键词再试。</p></div>}
       </> : <>
         <div className="gz-chips" role="radiogroup" aria-label="轻小说题材">
-          <button className={`gz-chip ${novelTheme === "" ? "active" : ""}`} role="radio" aria-checked={novelTheme === ""} onClick={() => { setNovelTheme(""); void loadBooks("novel", ""); }}>全部</button>
-          {novelThemes.map(item => <button key={item.pathWord} className={`gz-chip ${novelTheme === item.pathWord ? "active" : ""}`} role="radio" aria-checked={novelTheme === item.pathWord} onClick={() => { setNovelTheme(item.pathWord); void loadBooks("novel", item.pathWord); }}>{item.name}</button>)}
+          <button className={`gz-chip ${novelTheme === "" ? "active" : ""}`} role="radio" aria-checked={novelTheme === ""} onClick={() => { setNovelTheme(""); void loadBooks(""); }}>全部</button>
+          {novelThemes.map(item => <button key={item.pathWord} className={`gz-chip ${novelTheme === item.pathWord ? "active" : ""}`} role="radio" aria-checked={novelTheme === item.pathWord} onClick={() => { setNovelTheme(item.pathWord); void loadBooks(item.pathWord); }}>{item.name}</button>)}
         </div>
-        {novelState === "error" ? <><div className="gz-error" role="alert"><span>{novelError || "轻小说来源读取失败。"}</span></div><button className="gz-btn" onClick={() => void loadBooks("novel", novelTheme)}><RefreshCw size={16} />重试</button></>
+        {novelState === "error" ? <><div className="gz-error" role="alert"><span>{novelError || "轻小说来源读取失败。"}</span></div><button className="gz-btn" onClick={() => void loadBooks(novelTheme)}><RefreshCw size={16} />重试</button></>
           : novelState === "loading" ? <p className="gz-loading"><LoaderCircle />正在读取轻小说来源…</p>
             : novels.length ? <><div className="gz-explore-grid">{novels.map(item => comicCard(item, "novel"))}</div>{novels.length < bookTotal && <div className="gz-sentinel" ref={bookSentinelRef} aria-hidden="true" />}{bookLoadingMore && <p className="gz-loading"><LoaderCircle className="gz-spin" />正在加载更多…</p>}</>
               : <div className="gz-empty"><BookOpen size={26} /><h2>没有轻小说</h2><p>这个题材下暂无作品。</p></div>}

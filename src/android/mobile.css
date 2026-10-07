@@ -367,6 +367,22 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-season-seg { border-radius: 999px; }
 .android-app .gz-season-seg button { padding: 8px; border-radius: 999px; }
 @media (min-width: 700px) { .android-app .gz-explore-grid { grid-template-columns: repeat(6, minmax(0,1fr)); } }
+.android-app .gz-comic-rail { margin-top: 4px; }
+.android-app .gz-comic-rail .gz-comic-card { width: clamp(104px, 30vw, 132px); }
+.android-app .gz-comic-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px 9px; }
+.android-app .gz-comic-grid-lg { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px 12px; }
+.android-app .gz-comic-card { display: grid; gap: 5px; flex: none; min-width: 0; text-align: left; }
+.android-app .gz-comic-card:active { transform: scale(.97); }
+.android-app .gz-comic-poster { position: relative; display: grid; place-items: center; aspect-ratio: 2 / 3; overflow: hidden; border-radius: var(--radius); background: var(--bg-raised); color: var(--quiet); }
+.android-app .gz-comic-poster img { width: 100%; height: 100%; object-fit: cover; }
+.android-app .gz-comic-rank { position: absolute; z-index: 1; top: 0; left: 0; min-width: 20px; padding: 3px 6px; display: grid; place-items: center; font-size: 11px; font-weight: 700; line-height: 1.1; color: var(--accent-ink); background: var(--accent); border-bottom-right-radius: 7px; }
+.android-app .gz-comic-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 12px; font-weight: 600; line-height: 1.3; }
+.android-app .gz-comic-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.android-app .gz-comic-period-block { margin-top: 16px; }
+.android-app .gz-comic-period-block:first-of-type { margin-top: 4px; }
+.android-app .gz-comic-period { margin: 0 0 8px 2px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.android-app .gz-explore-section { padding-bottom: 8px; }
+.android-app .gz-comic-period-seg { margin-bottom: 14px; }
 
 /* Network (网络) */
 .android-app .gz-network { display: grid; gap: 16px; padding-bottom: 8px; }
