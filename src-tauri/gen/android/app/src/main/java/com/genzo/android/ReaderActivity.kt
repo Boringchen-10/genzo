@@ -15,9 +15,13 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
+import java.io.File
 
 interface ReaderSurface {
     val view: View
@@ -61,6 +65,15 @@ class ReaderActivity : AppCompatActivity() {
     private var autoScroll: Job? = null
     private val writes = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeLock = kotlinx.coroutines.sync.Mutex()
+    private val catalogueLock = kotlinx.coroutines.sync.Mutex()
+    val imageDownloads = Semaphore(4)
+    val imagePrefetchSlots = Semaphore(2)
+    private class PreparedImage(var started:Boolean=false,var request:Deferred<File>?=null)
+    private var nextFrom:String?=null
+    private var nextId:String?=null
+    private var nextManifest:Deferred<JSONObject?>?=null
+    private var nextImages:Job?=null
+    private val preparedImages=mutableMapOf<String,PreparedImage>()
     val readerBackground: Int get() = when (settings.optString("theme", "dark")) {
         "white" -> Color.rgb(250,250,250); "green" -> Color.rgb(218,232,211)
         "paper" -> Color.rgb(247,244,235); else -> Color.rgb(15,19,21)
@@ -149,16 +162,68 @@ class ReaderActivity : AppCompatActivity() {
         surface?.close(); surface = null
         showError(message) { load(entry) }; report("error")
     }
+    private fun stopNextPreparation(keepStarted:Boolean=false) {
+        nextManifest?.cancel();nextManifest=null;nextFrom=null;nextId=null
+        if(!keepStarted) {nextImages?.cancel();preparedImages.clear()}
+        else for(key in preparedImages.keys.toList()) {
+            val image=preparedImages[key]?:continue
+            if(!image.started){image.request?.cancel();preparedImages.remove(key)}
+        }
+    }
+    fun preparedComicImage(key:String?):Deferred<File>? {
+        val image=key?.let {preparedImages[it]}?:return null
+        if(image.started&&image.request?.isCancelled!=true)return image.request
+        image.request?.cancel();preparedImages.remove(key);return null
+    }
+    fun prepareNextComicChapter() {
+        if(kind!="comic"||loading||isFinishing||nextFrom==entry)return
+        stopNextPreparation();val from=entry;nextFrom=from
+        val metadata=lifecycleScope.async {
+            try {
+                catalogueEntries()
+                val index=(0 until entries.length()).firstOrNull {entries.getJSONObject(it).getString("id")==from}?:return@async null
+                if(index+1>=entries.length()||nextFrom!=from)return@async null
+                val id=entries.getJSONObject(index+1).getString("id");nextId=id
+                client.json("chapter/$id")
+            } catch(error:CancellationException){throw error}
+            catch(_:Exception){null}
+        }
+        nextManifest=metadata
+        nextImages=lifecycleScope.launch {
+            val data=metadata.await()?:return@launch
+            if(nextFrom!=from||data.optBoolean("offline"))return@launch
+            val pages=data.getJSONArray("pages");val keys=data.optJSONArray("cacheKeys")
+            supervisorScope {
+            for(index in 0 until minOf(6,pages.length())) {
+                val key=keys?.optString(index)?.takeIf {it.isNotEmpty()}?:continue
+                val image=PreparedImage();preparedImages[key]=image
+                image.request=async {
+                    try {imagePrefetchSlots.withPermit {
+                        while(imageDownloads.availablePermits==0)delay(50)
+                        imageDownloads.withPermit {
+                        image.started=true
+                        client.image(pages.getString(index),File(cacheDir,"reader-network-images"),key,settings.optDouble("imageTimeout",15.0).toInt())
+                    } }} catch(error:CancellationException){throw error}
+                    catch(error:Exception){if(preparedImages[key]===image)preparedImages.remove(key);throw error}
+                }
+            }
+            }
+        }
+    }
     fun load(id: String, desired: JSONObject? = null) {
-        if (loading) return
+        if (loading || isFinishing) return
+        val prepared=nextManifest?.takeIf {kind=="comic"&&nextFrom==entry&&nextId==id}
+        if(prepared==null)stopNextPreparation()
         save(); loading = true; val request = ++generation
         if (surface == null) { content.removeAllViews(); content.addView(ProgressBar(this), FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER)) }
         title.text = "正在读取正文…"
         report("loading")
         lifecycleScope.launch {
             try {
-                val data = client.json("chapter/$id")
+                val data = prepared?.await() ?: client.json("chapter/$id")
+                yield() // A cached chapter may be selected inside a ViewPager layout callback.
                 if (request != generation) return@launch
+                stopNextPreparation(keepStarted=prepared!=null)
                 surface?.close(); surface = null; content.removeAllViews(); entry = id; manifest = data
                 title.text = data.getString("title") + if (data.optBoolean("offline")) " · 离线" else ""
                 val location = desired ?: data.optJSONObject("location")
@@ -174,8 +239,8 @@ class ReaderActivity : AppCompatActivity() {
             } finally { if (request == generation) loading = false }
         }
     }
-    private suspend fun catalogueEntries() {
-        if (entries.length() > 0) return
+    private suspend fun catalogueEntries() = catalogueLock.withLock {
+        if (entries.length() > 0) return@withLock
         val result = JSONArray(); var offset = 0
         do {
             val page = client.json("entries/$offset"); val items = page.getJSONArray("entries")
@@ -350,8 +415,15 @@ class ReaderActivity : AppCompatActivity() {
     override fun onSaveInstanceState(out: Bundle) { out.putString("entry", entry); out.putString("location", surface?.location()?.toString()); super.onSaveInstanceState(out) }
     override fun onPause() { pendingSave?.cancel(); autoScroll?.cancel(); save(); super.onPause() }
     override fun onResume() { super.onResume(); if (::root.isInitialized) applyAppearance() }
+    override fun finish() {
+        generation++
+        (surface as? ComicReaderSurface)?.close()
+        stopNextPreparation()
+        if(kind=="comic")lifecycleScope.cancel()
+        super.finish()
+    }
     override fun onDestroy() {
-        generation++; surface?.close(); super.onDestroy()
+        generation++;stopNextPreparation();surface?.close(); super.onDestroy()
         if (current?.get() === this) { current = null; snapshot = JSONObject().put("status", "closed") }
         if (isFinishing) writes.launch { writeLock.lock(); try { client.json("close", JSONObject()) } catch (_: Exception) {} finally { writeLock.unlock(); writes.cancel() } }
         else writes.launch { writeLock.lock(); writeLock.unlock(); writes.cancel() }

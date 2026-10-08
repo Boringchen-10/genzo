@@ -15,7 +15,6 @@ import androidx.viewpager2.widget.ViewPager2
 import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import kotlinx.coroutines.*
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 import org.json.JSONArray
@@ -33,14 +32,14 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
     }
     private val archiveEntries = data.optJSONArray("archiveEntries")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val downloads = Semaphore(4)
+    private val downloads = host.imageDownloads
     private val files = File(host.cacheDir, "reader-images/${host.intent.getStringExtra("sessionId")}/${host.entry}")
     private val requests = mutableMapOf<Int, Deferred<File>>()
     private val fetching = mutableSetOf<Int>()
     private val prefetching = mutableSetOf<Int>()
     private var preloadTargets = emptyList<Int>()
     private var preloadKey = ""
-    private var readingDirection = 1
+    private var readingDirection = if(initial?.optBoolean("end")==true)-1 else 1
     private val naturalSizes=mutableMapOf<Int,Pair<Int,Int>>()
     private val networkFiles=File(host.cacheDir,"reader-network-images")
     private var globalHold:FloatArray?=null
@@ -97,7 +96,10 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
 
     init { require(urls.isNotEmpty()); build() }
     private fun file(index: Int): Deferred<File> = requests.getOrPut(index) {
-        scope.async { try { downloads.withPermit {
+        scope.async { try {
+            val prepared=host.preparedComicImage(cacheKeys?.optString(index))
+            if(prepared!=null)return@async prepared.await()
+            downloads.withPermit {
             fetching.add(index)
             try {
             if (archive != null) host.client.cachedImage(archive,requireNotNull(archiveEntries).getString(index),files)
@@ -109,7 +111,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                 result
             }
             } finally { fetching.remove(index) }
-        } } finally { prefetching.remove(index);pumpPreload() } }
+        } } finally { if(prefetching.remove(index))host.imagePrefetchSlots.release();pumpPreload() } }
     }
     private fun attachedPages():Set<Int> {
         val recycler=list?:pager?.getChildAt(0) as? RecyclerView?:return emptySet()
@@ -120,14 +122,16 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         for(index in preloadTargets) {
             if(prefetching.size>=2||downloads.availablePermits==0)return
             if(index in requests)continue
+            if(!host.imagePrefetchSlots.tryAcquire())return
             prefetching.add(index);file(index)
         }
     }
     private fun active(index: Int) {
-        if (index !in urls.indices || restoring) return
+        if (!scope.isActive || index !in urls.indices || restoring) return
         if(index!=page)readingDirection=if(index>page)1 else -1
         page = index; offset = if (pager != null) 0.0 else offset
         host.locationChanged(page, urls.size, if (urls.size == 1) offset else (page + offset) / (urls.size - 1))
+        if(readingDirection>0&&index>=urls.size-maxOf(6,(urls.size*.2).toInt()))host.prepareNextComicChapter()
         file(index)
         val first=manager?.findFirstVisibleItemPosition()?.takeIf {it>=0}?:index
         val last=manager?.findLastVisibleItemPosition()?.takeIf {it>=0}?:index

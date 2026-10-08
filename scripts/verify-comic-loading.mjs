@@ -24,6 +24,7 @@ let root;
 const server = createServer((request, response) => {
   const route = request.url.split("?")[0].split("/").slice(2).join("/");
   if (request.method === "POST") { response.end("{}"); return; }
+  if (route === "entries/0") { response.setHeader("Content-Type", "application/json"); response.end(JSON.stringify({ total: 1, entries: [{ id: "one", title: "36页延迟加载回归", order: 0, count: images.length }] })); return; }
   if (route === "chapter/one") { response.setHeader("Content-Type", "application/json"); response.end(JSON.stringify({ kind: "comic", entryId: "one", title: "36页延迟加载回归", offline: false, pages: images.map((_, i) => `${root}chapter/one/page/${i}`), cacheKeys: images.map((_, i) => createHash("sha256").update(`${namespace}/image/${i}`).digest("hex")), location: { pageIndex: 0, offset: 0 } })); return; }
   const index = Number(route.split("/").at(-1));
   events.push({ index, event: "start", time: Date.now() });

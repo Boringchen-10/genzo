@@ -16,6 +16,7 @@ const keys=images.map((_,i)=>createHash("sha256").update(`${namespace}/original/
 const server=createServer((request,response)=>{
  const route=request.url.split("?")[0].split("/").slice(2).join("/");
  if(request.method==="POST"){response.writeHead(200,{"Content-Type":"application/json"});response.end("{}");return;}
+ if(route==="entries/0"){response.setHeader("Content-Type","application/json");response.end(JSON.stringify({total:1,entries:[{id:"one",title:"自制漫画",order:0,count:images.length}]}));return;}
  if(route==="chapter/one") {response.writeHead(200,{"Content-Type":"application/json"});response.end(JSON.stringify({kind:"comic",entryId:"one",title:"自制漫画",offline:!!archivePath,archivePath,archiveEntries:images.map((_,i)=>`${i}.png`),pages:images.map((_,i)=>`${root}chapter/one/page/${i}`),cacheKeys:keys,location:{pageIndex:0,offset:0}}));return;}
  const index=Number(route.split("/").at(-1));requests.push(index);requestTimes.push(Date.now());failures.set(index,(failures.get(index)||0)+1);
  if(index===5&&failures.get(index)===1){response.writeHead(503);response.end();return;}
