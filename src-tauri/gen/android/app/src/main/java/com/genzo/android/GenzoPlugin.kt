@@ -132,6 +132,12 @@ class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(JSObject().put("status", "opening"))
     }
     @Command
+    fun openComicFixture(invoke:Invoke) {
+        if(!BuildConfig.DEBUG||activity.packageName!="com.genzo.android.readerqa"){invoke.reject("qa_only");return}
+        if(invoke.parseArgs(ReaderArgs::class.java).kind!="comic"){invoke.reject("comic_fixture_only");return}
+        openReader(invoke)
+    }
+    @Command
     fun readerState(invoke: Invoke) {
         if (!BuildConfig.DEBUG || activity.packageName != "com.genzo.android.readerqa") { invoke.reject("qa_only"); return }
         activity.runOnUiThread {

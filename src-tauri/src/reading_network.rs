@@ -83,7 +83,10 @@ impl ReadingNetwork {
         Ok(client)
     }
     pub fn detail_hosts(&self) -> Vec<String> {
-        if self.node.is_empty() { ROUTES[self.route].iter().map(|v| format!("https://{v}")).collect() }
+        if self.node.is_empty() {
+            ROUTES[self.route].iter().chain(ROUTES.iter().enumerate().filter(|(index,_)|*index!=self.route).flat_map(|(_,hosts)|hosts.iter()))
+                .map(|host|format!("https://{host}")).collect()
+        }
         else { vec![format!("https://{}", self.node)] }
     }
 }
@@ -157,6 +160,12 @@ pub async fn test_reading_network(config: ReadingNetwork) -> AppResult<Vec<NodeP
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn automatic_nodes_can_recover_from_a_dead_route_and_fixed_nodes_stay_fixed() {
+        let mut config=ReadingNetwork::default();let hosts=config.detail_hosts();
+        assert_eq!(hosts.len(),6);assert!(hosts[0].contains(ROUTES[0][0]));assert!(hosts[3].contains(ROUTES[1][0]));
+        config.node=ROUTES[0][1].into();assert_eq!(config.detail_hosts(),vec![format!("https://{}",config.node)]);
+    }
     #[tokio::test]
     async fn repeated_clients_reuse_one_http_connection() {
         use tokio::io::{AsyncReadExt,AsyncWriteExt};

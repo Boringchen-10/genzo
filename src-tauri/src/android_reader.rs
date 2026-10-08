@@ -111,7 +111,10 @@ impl Session {
         let links: Vec<Value> = chapter.sections.iter().enumerate().map(|(index, section)| json!({"href":format!("OEBPS/chapter-{index}.xhtml"),"type":"application/xhtml+xml","title":section["title"]})).collect();
         let resources: Vec<Value> = chapter.sections.iter().enumerate().filter(|(_, section)| section["imageUrl"].is_string())
             .map(|(index, _)| json!({"href":format!("OEBPS/image-{index}"),"type":"image/jpeg"})).collect();
-        Ok(json!({"kind":self.kind,"entryId":entry,"title":chapter.title,"offline":chapter.archive.is_some(),
+        let cache_keys:Vec<String>=chapter.pages.iter().map(|source|{
+            use sha2::{Digest,Sha256};format!("{:x}",Sha256::digest(source.as_bytes()))
+        }).collect();
+        Ok(json!({"kind":self.kind,"entryId":entry,"title":chapter.title,"offline":chapter.archive.is_some(),"cacheKeys":cache_keys,
             "archivePath":chapter.archive,"archiveEntries":if chapter.archive.is_some() {chapter.pages.clone()} else {vec![]},"pages":pages,"contentBase":content_base,
             "location":saved.and_then(|value| serde_json::from_str::<Value>(&value).ok()),
             "publication":{"metadata":{"identifier":format!("genzo:{}:{}:{entry}",self.kind,self.book),"title":chapter.title,"language":["zh"],"@type":"http://schema.org/Book"},
@@ -219,6 +222,11 @@ pub async fn open_reader_online_fixture(state: tauri::State<'_, AppState>) -> Ap
 }
 
 async fn route(session: &Session, method: &str, path: &str, body: &[u8]) -> AppResult<(Vec<u8>, &'static str)> {
+    let (path,query)=path.split_once('?').unwrap_or((path,""));
+    let timeout=if query.is_empty(){15}else{
+        let value=query.strip_prefix("timeout=").and_then(|value|value.parse::<u64>().ok()).filter(|value|(5..=60).contains(value));
+        value.ok_or_else(||invalid("图片超时参数无效"))?
+    };
     // Match EPUB-relative resource names, keeping online/offline locator HREFs equal.
     let normalized = path.replace("/OEBPS/", "/");
     let segments: Vec<_> = normalized.split('/').collect();
@@ -244,7 +252,7 @@ async fn route(session: &Session, method: &str, path: &str, body: &[u8]) -> AppR
             let source = chapter.pages.get(index).ok_or_else(|| invalid("图片页码超出范围"))?.clone();
             let bytes = if let Some(archive) = chapter.archive.clone() {
                 tokio::task::spawn_blocking(move || archive_resource(&archive, &source)).await.map_err(|error| AppError::System(error.to_string()))??
-            } else { book_content::online_image(&session.state.pool, &source).await? };
+            } else { book_content::reader_image(&session.state.pool, &source,timeout).await? };
             let mime = image_mime(&bytes); return Ok((bytes, mime));
         }
         ["chapter", entry, resource] if method == "GET" => {
@@ -308,7 +316,12 @@ async fn serve(mut stream: tokio::net::TcpStream, session: &Session, token: &str
     let origin_ok = headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("origin"))
         .all(|(_, origin)| session.base.starts_with(&format!("{}/", origin.trim())));
     let result = if request.len() == 3 && origin_ok && path.is_some() {
-        route(session, if request[0] == "HEAD" { "GET" } else { request[0] }, path.unwrap(), &body).await
+        if request[0]=="GET"&&path.unwrap().contains("/page/") {
+            tokio::select! {
+                result=route(session,"GET",path.unwrap(),&body)=>result,
+                _=stream.read_u8()=>return Ok(()),
+            }
+        } else { route(session,if request[0]=="HEAD"{"GET"}else{request[0]},path.unwrap(),&body).await }
     } else { Err(invalid("阅读会话无效")) };
     let (status, bytes, mime) = match result {
         Ok((bytes, mime)) => ("200 OK", bytes, mime),
@@ -322,6 +335,15 @@ async fn serve(mut stream: tokio::net::TcpStream, session: &Session, token: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn image_cache_identity_survives_new_session_addresses_and_timeout_is_bounded() {
+        let (first,_one)=fixture("comic").await;let (mut second,_two)=fixture("comic").await;
+        second.base="http://127.0.0.1:5678/different-session/".into();
+        let a=first.manifest("one").await.unwrap();let b=second.manifest("one").await.unwrap();
+        assert_ne!(a["pages"],b["pages"]);assert_eq!(a["cacheKeys"],b["cacheKeys"]);
+        assert!(route(&first,"GET","chapter/one/page/0?timeout=999",b"").await.is_err());
+        assert!(route(&first,"GET","chapter/one/page/0?timeout=0",b"").await.is_err());
+    }
     async fn fixture(kind: &str) -> (Session, tempfile::TempDir) {
         let root = tempfile::tempdir().unwrap();
         let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();

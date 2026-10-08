@@ -1,5 +1,15 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 漫画四项Kira适配修复（2026-10-08）
+
+- 用户确认滚动阅读整段一起缩放 / 横向拖动；状态栏应与界面同色，加载时点击中间可开关菜单。保留已选Kotlin / SSIV与其他模块。当前提交以Git日志为准。
+- 实际读取 caolib/kira `fc3f242fee2e3b68de94bc35296fc73db60031c3` 的图片服务 / pipeline / 滚动模式 / pinch_zoomable / API transport。具体对照见 `docs/android/COMIC_KIRA_FOLLOWUP.md`，MIT声明保留。不是嵌入Flutter或声称全部Kira功能均移植。
+- 实施：状态 / 切口背景由chrome承载；容器手势覆盖占位；滚动整段1–5倍缩放 / 拖动，分页仍单图；URL哈希跨会话图缓存7天 /256MiB，15s /1次 /200ms策略、±2邻图、有界并发与当前页不排在预加载后；移除在线Rust完整像素解码（下载归档完整验证保留），取消旧读图同时中止远端请求。设置展示真实网络加载均值，磁盘命中不计数。
+- 一加实体机 `verify-comic-four.mjs`：延迟首图期间中心点击、两张图统一4.33倍（布局1272 /显示5512）、横向平移、恰好一次自动重试、换令牌会话不重下载、同色状态区以及新自制CBZ四模式 /分页居中通过。证据 `D:/DevTools/Android/Build/qa/comic-four-1791452722619/`。旧reader-fixture缓存目前手机不存在，未覆盖播种DB；本轮用新自制CBZ验证，不能把旧缓存脚本失败报为通过。
+- 真实线路0全部不可达，线路1可达；在自动节点模式追加已知另一线路回退，固定节点仍固定，保存设置不变。此兜底为Genzo针对失效线路的补充，Kira原码本身是所选线路内测速权重选择。测速证据 `D:/DevTools/Android/Build/qa/comic-source-probes.json`。
+- 真章 `modujingbingdenuli` 第01话成功在线显示，从目录 /章节获取到首图5990ms，重开含章节获取1284ms；均非单张网络耗时，不能宣称全部来源0.5秒。证据 `D:/DevTools/Android/Build/qa/comic-real-online.json` /png。原有设置保留，手机留在这部漫画供查看。
+- Rust321通过 /18忽略，前端类型检查 /94项通过；arm64压缩APK构建成功，最终SHA256 `3964F97EC425665EF0C134CD8C61B33704385178C05F92280BA12470300C84CB`，固定副本 `D:/DevTools/Android/Build/artifacts/Genzo-comic-kira-arm64-readerqa-3964F97E.apk`，已安装独立readerqa包。普通应用、真实媒体和Windows主工作区不动。
+
 ## 实体机网络、资料共享与轻量化交付（2026-10-08）
 
 - 工作树 `H:/二次元阅读器/.tmp/android-first`，分支 `codex/android-first`。阅读 / 网络六项修复已提交 `a8a0073`；资料共享已提交 `9c48982`，Bangumi持久缓存 / 瞬断恢复已提交 `55c5b9a`；构建优化提交以 Git 日志为准。主目录的 UI / 设计草稿及普通 Android 包不操作。

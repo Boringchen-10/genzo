@@ -75,6 +75,8 @@ PotPlayer 进度适配使用其 Windows 消息协议及安装目录的 `CmdLine6
 
 ## Kira 漫画与轻小说接口参考
 
+漫画阅读四项补充适配固定 `fc3f242fee2e3b68de94bc35296fc73db60031c3` 的 `reader_image_cache.dart`、`reader_image_pipeline.dart`、`reader_scroll_mode.dart` 和 `pinch_zoomable.dart`：图片请求头、缓存 / 重试 / 预加载及整段缩放算法。MIT Copyright (c) 2026 孤独的Lonely；完整许可仍见 `licenses/kira-MIT.txt`。Kotlin适配文件保留来源说明，具体差异及验收见 `docs/android/COMIC_KIRA_FOLLOWUP.md`。
+
 漫画目录、章节及小说接口契约参考 [caolib/kira](https://github.com/caolib/kira)，固定核对提交 `8a7b3f060ef521f0cbeda719bf0931e9af5ed89e`（2026-10-05）：`lib/api/manga/manga_api.dart`、`lib/api/novel/novel_api.dart`、`lib/api/novel/novel_text.dart`、`lib/models/chapter.dart` 与 `lib/models/novel.dart`。Genzo 独立实现 Rust 请求 / 缓存、严格编码与目录解析和 React 界面，参考分页、请求头、来源标识与整卷 TXT 行号约定；不捆绑 / 启动 Kira，不移植 Flutter 界面或来源账号代码，不复制商标、Logo 与第三方素材。
 
 上游为 MIT License，Copyright (c) 2026 孤独的Lonely；完整声明见 [licenses/kira-MIT.txt](licenses/kira-MIT.txt)。代码许可不等于作品版权或官方接口授权。当前仅按用户操作获取有权访问的匿名内容，不绕过锁定或分发正文；服务兼容性可能改变。

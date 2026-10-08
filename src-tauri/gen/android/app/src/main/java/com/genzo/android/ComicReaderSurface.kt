@@ -1,7 +1,6 @@
 package com.genzo.android
 
 import android.os.SystemClock
-import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -19,22 +18,28 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 
 /** Bounded page loading; large static images are decoded in tiles by SSIV. */
 class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, initial: JSONObject?) : ReaderSurface {
-    override val view = FrameLayout(host)
+    override val view = ComicViewport(host,::tap,::doubleTap,::hold,::releaseHold,{ value -> touching=value;autoPausedUntil=SystemClock.uptimeMillis()+2000 },{host.report("ready")})
     private val ready = mutableSetOf<Int>()
     override val rendered: Boolean get() = page in ready
     private val urls = data.getJSONArray("pages").let { array -> (0 until array.length()).map { array.getString(it) } }
+    private val cacheKeys=data.optJSONArray("cacheKeys")
     private val archive = data.optString("archivePath").takeIf { it.isNotEmpty() && it != "null" }?.let { File(it).canonicalFile }.also { path ->
         if (path != null) require(path.path.startsWith(File(host.applicationInfo.dataDir,"reading-cache").canonicalPath + "/"))
     }
     private val archiveEntries = data.optJSONArray("archiveEntries")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val downloads = Semaphore(2)
+    private val downloads = Semaphore(4)
     private val files = File(host.cacheDir, "reader-images/${host.intent.getStringExtra("sessionId")}/${host.entry}")
     private val requests = mutableMapOf<Int, Deferred<File>>()
+    private val naturalSizes=mutableMapOf<Int,Pair<Int,Int>>()
+    private val networkFiles=File(host.cacheDir,"reader-network-images")
+    private var globalHold:FloatArray?=null
+    private var preload:Job?=null
     private var pager: ViewPager2? = null
     private var list: RecyclerView? = null
     private var manager: LinearLayoutManager? = null
@@ -49,6 +54,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
     private var touching = false
     private var overlayVisible = false
     override fun zoomRatio(): Float {
+        if(mode.startsWith("scroll"))return view.ratio
         val recycler = list ?: pager?.getChildAt(0) as? RecyclerView
         return (recycler?.findViewHolderForAdapterPosition(page) as? PageHolder)?.zoomRatio() ?: 1f
     }
@@ -56,13 +62,44 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         val recycler = list ?: pager?.getChildAt(0) as? RecyclerView
         return (recycler?.findViewHolderForAdapterPosition(page) as? PageHolder)?.geometry()
     }
+    fun visiblePages():JSONArray {
+        val result=JSONArray();val recycler=list?:pager?.getChildAt(0) as? RecyclerView?:return result
+        for(index in 0 until recycler.childCount){val child=recycler.getChildAt(index);val holder=recycler.getChildViewHolder(child) as? PageHolder?:continue
+            result.put(JSONObject().put("index",holder.bindingAdapterPosition).put("width",child.width).put("visualWidth",child.width*if(list!=null)view.ratio else holder.zoomRatio()).put("localZoom",holder.zoomRatio()))
+        };return result
+    }
+    fun zoomDiagnostics()=view.diagnostics()
+    private fun holderAt(x:Float,y:Float):PageHolder? {
+        val recycler=list?:pager?.getChildAt(0) as? RecyclerView?:return null
+        val child=if(list!=null)recycler.findChildViewUnder((x-view.offsetX)/view.ratio,(y-view.offsetY)/view.ratio)else manager?.findViewByPosition(page)
+        return (child?.let {recycler.getChildViewHolder(it)}?:recycler.findViewHolderForAdapterPosition(page)) as? PageHolder
+    }
+    private fun tap(x:Float,y:Float){
+        val axis=if(mode=="page-vertical")y else x;val size=if(mode=="page-vertical")view.height else view.width
+        val rtl=mode=="page-horizontal"&&host.settings.optBoolean("rtl",false)
+        if(mode.startsWith("page")&&axis<size*.3f)move(rtl)else if(mode.startsWith("page")&&axis>size*.7f)move(!rtl)else host.toggleMenu()
+    }
+    private fun doubleTap(x:Float,y:Float){holderAt(x,y)?.sourceFile?.let {source->overlayVisible=true;showReaderImage(host,source){overlayVisible=false;autoPausedUntil=SystemClock.uptimeMillis()+2000}}}
+    private fun hold(x:Float,y:Float){
+        if(!host.settings.optBoolean("longPressZoom",true))return
+        if(list!=null){if(view.ratio>1.01f)return;globalHold=floatArrayOf(view.ratio,view.offsetX,view.offsetY);view.zoomAt(2.5f,x,y)}else holderAt(x,y)?.holdAt(x,y)
+    }
+    private fun releaseHold(){globalHold?.let {view.restore(it[0],it[1],it[2])};globalHold=null
+        val recycler=list?:pager?.getChildAt(0) as? RecyclerView?:return
+        for(index in 0 until recycler.childCount)(recycler.getChildViewHolder(recycler.getChildAt(index)) as? PageHolder)?.releaseHold()
+    }
     private fun currentLayoutKey() = "${host.settings.optString("mode","scroll-vertical")}:${host.settings.optBoolean("rtl",false)}:${host.settings.optDouble("gap",0.0)}:${host.resources.configuration.orientation}"
 
     init { require(urls.isNotEmpty()); build() }
     private fun file(index: Int): Deferred<File> = requests.getOrPut(index) {
         scope.async { downloads.withPermit {
             if (archive != null) host.client.cachedImage(archive,requireNotNull(archiveEntries).getString(index),files)
-            else host.client.image(urls[index], files)
+            else {
+                val result=host.client.image(urls[index],networkFiles,cacheKeys?.optString(index)?.takeIf {it.isNotEmpty()},host.settings.optDouble("imageTimeout",15.0).toInt())
+                val protected=(maxOf(0,page-2)..minOf(urls.lastIndex,page+2)).mapNotNull {cacheKeys?.optString(it)}.toSet()
+                scope.launch {host.client.trimImages(networkFiles,protected)}
+                result
+            }
         } }
     }
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -70,18 +107,23 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         if (index !in urls.indices || restoring) return
         page = index; offset = if (pager != null) 0.0 else offset
         host.locationChanged(page, urls.size, if (urls.size == 1) offset else (page + offset) / (urls.size - 1))
-        // At most the visible page and the following two pages are requested.
-        for (next in index + 1..minOf(index + 2, urls.lastIndex)) file(next)
+        // Kira: visible image first, then two neighbors in both directions.
+        file(index)
+        preload?.cancel();preload=scope.launch {
+            delay(100)
+            if(page!=index)return@launch
+            for (distance in 1..2) {if(index+distance in urls.indices)file(index+distance);if(index-distance in urls.indices)file(index-distance)}
+        }
         val keep = index - 2..index + 2
         for (old in requests.keys.filter { it !in keep }) {
             val request = requests.remove(old) ?: continue
-            if (request.isCompleted && !request.isCancelled) runCatching { request.getCompleted().delete() }
+            if (archive!=null&&request.isCompleted && !request.isCancelled) runCatching { request.getCompleted().delete() }
             else request.cancel()
         }
     }
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun build() {
-        restoring = true; pager?.adapter = null; list?.adapter = null; pager = null; list = null; manager = null; view.removeAllViews()
+        restoring = true;pager?.adapter = null;list?.adapter = null;view.reset();view.scroll=null;pager=null;list=null;manager=null;view.removeAllViews()
         mode = host.settings.optString("mode","scroll-vertical")
         layoutKey = currentLayoutKey()
         view.setBackgroundColor(host.readerBackground)
@@ -134,6 +176,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                     }
                 })
             }
+            view.scroll=list;view.vertical=vertical
             view.addView(list, FrameLayout.LayoutParams(-1,-1)); manager!!.scrollToPositionWithOffset(page,0)
         }
         view.post { restoring = false; active(page) }
@@ -144,6 +187,9 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         private var bound = -1
         private var holdScale: Float? = null
         private var holdCenter: android.graphics.PointF? = null
+        var sourceFile:File?=null;private set
+        private var retries=0
+        private var version=0
         fun zoomRatio(): Float = image?.let { if (it.isReady && it.minScale > 0) it.scale / it.minScale else 1f } ?: 1f
         fun geometry(): JSONObject? {
             val picture = image?.takeIf { it.isReady } ?: return null
@@ -151,11 +197,22 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
             val last = picture.sourceToViewCoord(picture.sWidth.toFloat(),picture.sHeight.toFloat()) ?: return null
             return JSONObject().put("left",first.x).put("top",first.y).put("right",last.x).put("bottom",last.y).put("width",picture.width).put("height",picture.height).put("source",if (archive != null) "local-cbz" else "online")
         }
-        fun release() { task?.cancel(); ready.remove(bound); image?.recycle(); image = null; frame.removeAllViews(); holdScale = null; holdCenter = null }
+        fun holdAt(x:Float,y:Float){val picture=image?.takeIf {it.isReady&&it.scale<=it.minScale*1.01f}?:return;val rootLocation=IntArray(2);val location=IntArray(2);view.getLocationOnScreen(rootLocation);picture.getLocationOnScreen(location)
+            val point=picture.viewToSourceCoord(x+rootLocation[0]-location[0],y+rootLocation[1]-location[1])?:return
+            holdScale=picture.scale;holdCenter=picture.center?.let {android.graphics.PointF(it.x,it.y)};picture.setScaleAndCenter(picture.minScale*2.5f,point);frame.parent?.requestDisallowInterceptTouchEvent(true)
+        }
+        fun releaseHold(){holdScale?.let {scale->holdCenter?.let {image?.setScaleAndCenter(scale,it)}};holdScale=null;holdCenter=null}
+        fun release() {version++;task?.cancel();ready.remove(bound);image?.recycle();image=null;sourceFile=null;frame.removeAllViews();holdScale=null;holdCenter=null;bound=-1}
         fun bind(index: Int) {
+            if(bound!=index)retries=0
             release(); bound = index
             val gap = host.dp(host.settings.optDouble("gap",0.0).toInt())
             frame.setPadding(0,0,if (mode == "scroll-horizontal") gap else 0,if (mode == "scroll-vertical") gap else 0)
+            if(mode.startsWith("scroll"))frame.layoutParams=frame.layoutParams.apply {
+                val dimensions=naturalSizes[index];val ratio=dimensions?.let {it.second.toDouble()/it.first}?:naturalSizes.values.map {it.second.toDouble()/it.first}.sorted().let {if(it.isEmpty())1.35 else it[it.size/2]}
+                if(mode=="scroll-vertical")height=(maxOf(view.width,host.resources.displayMetrics.widthPixels)*ratio).toInt()+gap
+                else width=(maxOf(view.height,host.resources.displayMetrics.heightPixels)/ratio).toInt()+gap
+            }
             if (index == urls.size) {
                 val actions = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
                 actions.addView(TextView(host).apply { text = "本话读完"; setTextColor(host.readerForeground) })
@@ -165,7 +222,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
             frame.addView(ProgressBar(host),FrameLayout.LayoutParams(host.dp(36),host.dp(36),Gravity.CENTER))
             task = scope.launch {
                 try {
-                    val source = file(index).await()
+                    val source = file(index).await();sourceFile=source
                     if (bound != index) return@launch
                     frame.removeAllViews()
                     val picture = SubsamplingScaleImageView(host)
@@ -173,6 +230,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                     picture.setMinimumScaleType(SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE)
                     picture.setMaxScale(8f)
                     picture.setDoubleTapZoomScale(2.5f)
+                    picture.setZoomEnabled(mode.startsWith("page"));picture.setPanEnabled(mode.startsWith("page"))
                     picture.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
                         if (picture.isReady && (right-left != oldRight-oldLeft || bottom-top != oldBottom-oldTop) && holdScale == null) picture.resetScaleAndCenter()
                     }
@@ -183,9 +241,11 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                         override fun onCenterChanged(center: android.graphics.PointF?, origin: Int) {}
                     })
                     picture.setOnImageEventListener(object : SubsamplingScaleImageView.DefaultOnImageEventListener() {
-                        override fun onImageLoaded() { ready.add(index); host.report("ready") }
+                        override fun onImageLoaded() { if(bound==index){retries=0;ready.add(index);host.report("ready")} }
                         override fun onReady() {
                             if (bound != index) return
+                            naturalSizes[index]=picture.sWidth to picture.sHeight
+                            while(naturalSizes.size>120)naturalSizes.remove(naturalSizes.keys.first())
                             if (mode == "scroll-vertical") frame.layoutParams = frame.layoutParams.apply {
                                 height = (maxOf(frame.width,view.width).toDouble() * picture.sHeight / picture.sWidth).toInt().coerceAtLeast(host.dp(80)) + gap
                             }
@@ -197,39 +257,12 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                                 restoring = true; manager?.scrollToPositionWithOffset(page,-(offset * size).toInt()); list?.post { restoring = false }
                             }
                         }
-                        override fun onImageLoadError(error: Exception) { showFailure(index) }
+                        override fun onImageLoadError(error: Exception) { if(archive==null)sourceFile?.delete();sourceFile=null;showFailure(index) }
                     })
-                    val gesture = GestureDetector(host, object : GestureDetector.SimpleOnGestureListener() {
-                        override fun onDown(event: MotionEvent): Boolean { autoPausedUntil = SystemClock.uptimeMillis() + 2500; return false }
-                        override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
-                            val axis = if (mode == "page-vertical") event.y else event.x
-                            val size = if (mode == "page-vertical") frame.height else frame.width
-                            val rtl = mode == "page-horizontal" && host.settings.optBoolean("rtl",false)
-                            if (mode.startsWith("page") && axis < size * .3f) move(rtl)
-                            else if (mode.startsWith("page") && axis > size * .7f) move(!rtl)
-                            else host.toggleMenu()
-                            return true
-                        }
-                        override fun onDoubleTap(event: MotionEvent): Boolean { overlayVisible = true; showReaderImage(host,source) { overlayVisible = false; autoPausedUntil = SystemClock.uptimeMillis() + 2000 }; return true }
-                        override fun onLongPress(event: MotionEvent) {
-                            if (host.settings.optBoolean("longPressZoom",true) && picture.isReady) {
-                                val point = picture.viewToSourceCoord(event.x,event.y) ?: return
-                                holdScale = picture.scale; holdCenter = picture.center?.let { android.graphics.PointF(it.x,it.y) }
-                                picture.setScaleAndCenter(picture.minScale * 2.5f,point)
-                                frame.parent?.requestDisallowInterceptTouchEvent(true)
-                            }
-                        }
-                    })
-                    picture.setOnTouchListener { _, event ->
-                        val consumed = gesture.onTouchEvent(event)
-                        if (event.actionMasked == MotionEvent.ACTION_DOWN) touching = true
-                        if (event.pointerCount > 1 || picture.isReady && picture.scale > picture.minScale * 1.05f) frame.parent?.requestDisallowInterceptTouchEvent(true)
-                        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                            holdScale?.let { scale -> holdCenter?.let { center -> picture.setScaleAndCenter(scale,center) } }
-                            holdScale = null; holdCenter = null
-                            touching = false; autoPausedUntil = SystemClock.uptimeMillis() + 2000; frame.parent?.requestDisallowInterceptTouchEvent(false)
-                        }
-                        consumed
+                    picture.setOnTouchListener { _,event ->
+                        if(mode.startsWith("page")&&(event.pointerCount>1||picture.isReady&&picture.scale>picture.minScale*1.05f))frame.parent?.requestDisallowInterceptTouchEvent(true)
+                        if(event.actionMasked==MotionEvent.ACTION_UP||event.actionMasked==MotionEvent.ACTION_CANCEL)frame.parent?.requestDisallowInterceptTouchEvent(false)
+                        false
                     }
                     frame.addView(picture,FrameLayout.LayoutParams(-1,-1)); picture.setImage(ImageSource.uri(source.absolutePath))
                 } catch (error: CancellationException) { throw error }
@@ -241,8 +274,11 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
             image?.recycle(); image = null; frame.removeAllViews()
             val panel = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
             panel.addView(TextView(host).apply { text = "第 ${index + 1} 页读取失败"; setTextColor(host.readerForeground) })
-            panel.addView(host.button("重试") { requests.remove(index)?.cancel(); bind(index) })
+            panel.addView(host.button("重试") { retries=0;requests.remove(index)?.cancel();bind(index) })
             frame.addView(panel,FrameLayout.LayoutParams(-1,-1))
+            if(archive==null&&retries<host.settings.optDouble("imageRetries",1.0).toInt().coerceIn(0,5)) {
+                retries++;val expected=version;frame.postDelayed({if(bound==index&&version==expected&&scope.isActive){requests.remove(index)?.cancel();bind(index)}},200)
+            }
         }
     }
     override fun location(): JSONObject = JSONObject().put("pageIndex",page).put("offset",offset)

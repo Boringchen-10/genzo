@@ -17,6 +17,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 interface ReaderSurface {
     val view: View
@@ -55,6 +56,7 @@ class ReaderActivity : AppCompatActivity() {
     private var generation = 0
     private var menu = true
     private var firstContent = true
+    private var menuTouched = false
     private var pendingSave: Job? = null
     private var autoScroll: Job? = null
     private val writes = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -77,6 +79,7 @@ class ReaderActivity : AppCompatActivity() {
         client = ReaderClient(requireNotNull(intent.getStringExtra("baseUrl")))
         settings = runCatching { JSONObject(getSharedPreferences("genzo-reader-settings", 0).getString(kind, "{}")!!) }.getOrDefault(JSONObject())
         root = FrameLayout(this); content = FrameLayout(this).apply { id = R.id.genzo_reader_content }
+        content.setOnClickListener { if(surface==null)toggleMenu() }
         root.addView(content, FrameLayout.LayoutParams(-1, -1))
         dimmer = View(this).apply { setBackgroundColor(Color.BLACK); isClickable = false }
         root.addView(dimmer, FrameLayout.LayoutParams(-1, -1))
@@ -104,10 +107,8 @@ class ReaderActivity : AppCompatActivity() {
         if (savedInstanceState != null) supportFragmentManager.fragments.forEach { supportFragmentManager.beginTransaction().remove(it).commitNow() }
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            // Comic pages occupy the full viewport; only their controls avoid system bars/cutouts.
-            root.setPadding(bars.left, if (kind == "comic") 0 else bars.top, bars.right, if (kind == "comic") 0 else bars.bottom)
-            (top.layoutParams as FrameLayout.LayoutParams).apply { topMargin = if (kind == "comic") bars.top else 0; top.layoutParams = this }
-            (bottom.layoutParams as FrameLayout.LayoutParams).apply { bottomMargin = if (kind == "comic") bars.bottom else 0; bottom.layoutParams = this }
+            // Chrome owns the status/cutout background; artwork starts below it.
+            root.setPadding(bars.left,bars.top,bars.right,bars.bottom)
             WindowInsetsCompat.Builder(insets).setInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),androidx.core.graphics.Insets.NONE).build()
         }
         applyAppearance(); load(entry, savedInstanceState?.getString("location")?.let { runCatching { JSONObject(it) }.getOrNull() })
@@ -118,7 +119,7 @@ class ReaderActivity : AppCompatActivity() {
         contentDescription = label; setTextColor(readerForeground)
         backgroundTintList = android.content.res.ColorStateList.valueOf(if (settings.optString("theme","dark") == "dark") Color.rgb(33,43,42) else Color.rgb(230,231,222))
     }
-    fun toggleMenu() { menu = !menu; applyMenu(); report(snapshot.optString("status","ready")) }
+    fun toggleMenu() { menuTouched = true;menu = !menu; applyMenu(); report(snapshot.optString("status","ready")) }
     private fun applyMenu() { top.visibility = if (menu) View.VISIBLE else View.GONE; bottom.visibility = top.visibility
         WindowInsetsControllerCompat(window, root).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -252,14 +253,14 @@ class ReaderActivity : AppCompatActivity() {
             column.addView(Switch(this).apply { text = label; setTextColor(readerForeground); minHeight = dp(48); isChecked = settings.optBoolean(key, default)
                 setOnCheckedChangeListener { _, value -> settings.put(key, value); persistSettings() } })
         }
-        fun slider(label: String, key: String, low: Double, high: Double, default: Double) {
+        fun slider(label: String, key: String, low: Double, high: Double, default: Double, integer:Boolean=false) {
             val text = TextView(this).apply { setTextColor(readerForeground) }; column.addView(text)
             val bar = SeekBar(this).apply { max = 100; progress = ((settings.optDouble(key, default) - low) / (high - low) * 100).toInt().coerceIn(0, 100) }
-            fun update() { val value = low + bar.progress / 100.0 * (high - low); text.text = "$label：${"%.1f".format(value)}" }
+            fun update() { val value = low + bar.progress / 100.0 * (high - low); text.text = "$label：${if(integer)value.roundToInt().toString()else "%.1f".format(value)}" }
             bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(bar: SeekBar?, value: Int, user: Boolean) { update() }
                 override fun onStartTrackingTouch(bar: SeekBar?) {}
-                override fun onStopTrackingTouch(bar: SeekBar?) { settings.put(key, low + (bar?.progress ?: 0) / 100.0 * (high - low)); persistSettings() }
+                override fun onStopTrackingTouch(bar: SeekBar?) { val value=low+(bar?.progress?:0)/100.0*(high-low);settings.put(key,if(integer)value.roundToInt().toDouble()else value);persistSettings() }
             }); update(); column.addView(bar, LinearLayout.LayoutParams(-1, dp(44)))
         }
         column.addView(button("阅读配色") { choice("配色", listOf("深色", "纸张", "白色", "护眼绿")) { settings.put("theme", listOf("dark", "paper", "white", "green")[it]); persistSettings() } })
@@ -269,6 +270,10 @@ class ReaderActivity : AppCompatActivity() {
             toggle("长按放大", "longPressZoom", true); slider("页面间距", "gap", 0.0, 24.0, 0.0)
             toggle("自动滚动", "autoScroll", false); slider("自动滚动速度", "autoSpeed", 10.0, 100.0, 35.0)
             slider("夜间遮罩", "dimming", 0.0, 0.8, 0.0)
+            slider("图片超时（秒）", "imageTimeout", 5.0, 60.0, 15.0,true)
+            slider("图片重试次数", "imageRetries", 0.0, 5.0, 1.0,true)
+            val stats=ReaderClient.imageStats()
+            column.addView(TextView(this).apply {setTextColor(readerForeground);text="最近10分钟内加载 ${stats.optInt("count")} 张，平均 ${"%.2f".format(stats.optLong("averageMs")/1000.0)} 秒"})
         } else {
             toggle("滚动阅读", "scroll", false)
             column.addView(button("字体") { choice("字体", listOf("系统无衬线", "系统衬线", "等宽")) { settings.put("font", listOf("sans-serif", "serif", "monospace")[it]); persistSettings() } })
@@ -285,7 +290,7 @@ class ReaderActivity : AppCompatActivity() {
         report("ready")
     }
     fun report(status: String) {
-        if (firstContent && surface?.rendered == true) { firstContent = false; menu = false; applyMenu() }
+        if (firstContent && surface?.rendered == true) { firstContent = false;if(!menuTouched){menu = false;applyMenu()} }
         snapshot = JSONObject().put("status", status).put("kind", kind).put("entryId", entry)
             .put("sessionId", intent.getStringExtra("sessionId")).put("engine", if (kind == "comic") "Kotlin/SSIV" else "Readium 3.1.2")
             .put("title", manifest?.optString("title")).put("offline", manifest?.optBoolean("offline") ?: false)
@@ -297,6 +302,10 @@ class ReaderActivity : AppCompatActivity() {
             .put("viewportWidth", content.width).put("viewportHeight", content.height)
             .put("zoomRatio", surface?.zoomRatio() ?: 1f)
             .put("imageGeometry", surface?.imageGeometry())
+            .put("visiblePages",(surface as? ComicReaderSurface)?.visiblePages())
+            .put("zoomDiagnostics",(surface as? ComicReaderSurface)?.zoomDiagnostics())
+            .put("imageStats",ReaderClient.imageStats())
+            .put("contentTop",content.top).put("chromeColor",readerBackground)
             .put("progress", if (::seek.isInitialized) seek.progress else 0)
     }
     /** Debug QA package only: exercises the same surface/settings methods as UI controls. */

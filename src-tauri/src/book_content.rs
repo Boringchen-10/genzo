@@ -218,12 +218,17 @@ async fn bytes(client: &reqwest::Client, url: reqwest::Url, limit: usize) -> App
     }
     Err(AppError::Network(format!("正文连接或传输失败（{host}），已重试 3 次；请检查阅读网络设置，原有缓存保留")))
 }
-fn image_extension(data: &[u8]) -> AppResult<&'static str> {
+fn image_header(data: &[u8]) -> AppResult<&'static str> {
     let format = image::guess_format(data).map_err(|_| invalid("来源返回的页面不是有效图片"))?;
     let ext = match format { image::ImageFormat::Jpeg => "jpg", image::ImageFormat::Png => "png", image::ImageFormat::WebP => "webp", _ => return Err(invalid("正文图片格式暂不支持")) };
     let reader = image::ImageReader::with_format(std::io::Cursor::new(data), format);
     let (w, h) = reader.into_dimensions().map_err(|_| invalid("正文图片损坏"))?;
     if w == 0 || h == 0 || u64::from(w) * u64::from(h) > 64_000_000 { return Err(invalid("正文图片尺寸异常")); }
+    Ok(ext)
+}
+fn image_extension(data: &[u8]) -> AppResult<&'static str> {
+    let ext = image_header(data)?;
+    let format = image::guess_format(data).map_err(|_| invalid("来源返回的页面不是有效图片"))?;
     let mut reader = image::ImageReader::with_format(std::io::Cursor::new(data), format);
     let mut limits = image::Limits::default(); limits.max_alloc = Some(256 * 1024 * 1024); reader.limits(limits);
     reader.decode().map_err(|_| invalid("正文图片不完整或损坏"))?;
@@ -418,6 +423,26 @@ pub(crate) async fn online_image(pool: &sqlx::SqlitePool, url: &str) -> AppResul
     let config = crate::reading_network::load(pool).await?;
     let data = bytes(&config.client(Duration::from_secs(60))?, content_url(url)?, MAX_IMAGE).await?;
     image_extension(&data)?; Ok(data)
+}
+// Kira reader_image_cache.dart: browser image headers, one pooled transport,
+// bounded timeout. Native SSIV performs the display decode; archive downloads
+// retain their full validation above.
+pub(crate) async fn reader_image(pool:&sqlx::SqlitePool,url:&str,timeout:u64)->AppResult<Vec<u8>> {
+    let config=crate::reading_network::load(pool).await?;
+    let mut response=config.client(Duration::from_secs(timeout.clamp(5,60)))?.get(content_url(url)?)
+        .header("User-Agent","Mozilla/5.0 (Linux; Android 12; 23117RK66C Build/V417IR; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.154 Mobile Safari/537.36")
+        .header("Accept","image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+        .header("X-Requested-With","com.manga2020.app")
+        .header("sec-fetch-site","cross-site").header("sec-fetch-mode","no-cors").header("sec-fetch-dest","image")
+        .header("Accept-Language","zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
+        .send().await.map_err(|_|AppError::Network("漫画图片连接失败，请重试".into()))?
+        .error_for_status().map_err(|_|AppError::Network("漫画图片暂不可访问，请重试".into()))?;
+    if response.content_length().is_some_and(|size|size>MAX_IMAGE as u64){return Err(invalid("图片超过大小限制"));}
+    let mut data=Vec::new();
+    while let Some(chunk)=response.chunk().await.map_err(|_|AppError::Network("漫画图片传输中断，请重试".into()))? {
+        if chunk.len()>MAX_IMAGE.saturating_sub(data.len()){return Err(invalid("图片超过大小限制"));}data.extend_from_slice(&chunk);
+    }
+    image_header(&data)?;Ok(data)
 }
 #[tauri::command]
 pub async fn cache_book_source_content(kind: String, path_word: String, entry_id: String, group: String, refresh: bool, state: State<'_, AppState>) -> AppResult<CachedContent> {
