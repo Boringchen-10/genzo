@@ -11,6 +11,7 @@ import { type SourceEntry } from "../bookContent";
 import BookReader from "./BookReader";
 import BookDescription from "./BookDescription";
 import { ComicCover } from "../components/ComicCover";
+import AnimeCover from "./AnimeCover";
 import OnlineChapters from "./OnlineChapters";
 import LoadingIndicator from "./LoadingIndicator";
 import { androidSession, READING_NETWORK_CHANGED } from "./sessionCache";
@@ -613,7 +614,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   const selectDay = (next: number) => { setSlideDir(next >= scheduleDay ? "right" : "left"); setScheduleDay(next); };
 
   const animeCard = (item: ExploreSubject) => <button className="gz-cover" key={item.externalId} onClick={() => void openSubject(item)}>
-    <span className="gz-explore-poster" data-explore-cover-id={item.externalId}>{cover(item) ? <img src={cover(item)} alt="" loading="lazy" /> : <BookOpen size={24} />}</span>
+    <span className="gz-explore-poster" data-explore-cover-id={item.externalId}><AnimeCover id={item.externalId} url={cover(item)} /></span>
     <span className="gz-cover-label">{item.title}</span>
   </button>;
 
@@ -636,7 +637,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   };
 
   const scheduleRow = (item: ExploreSubject) => <button className="gz-sched-row" key={item.externalId} onClick={() => void openSubject(item)}>
-    <span className="gz-sched-cover">{cover(item) ? <img src={cover(item)} alt="" loading="lazy" /> : <BookOpen size={20} />}</span>
+    <span className="gz-sched-cover"><AnimeCover id={item.externalId} url={cover(item)} /></span>
     <span className="gz-sched-body">
       <strong>{item.title}</strong>
       <span className="gz-meta">{[subjectTypeLabels[item.subjectType], ...item.genres.slice(0, 3)].filter(Boolean).join(" · ")}</span>
@@ -705,7 +706,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
       <h1 className="gz-subject-title">{subject.title}</h1>
       {subject.originalTitle && <p className="gz-subject-original">{subject.originalTitle}</p>}
       <div className="gz-subject-body">
-        <span className="gz-subject-cover" data-explore-cover-id={subject.externalId}>{cover(subject) ? <img src={cover(subject)} alt="" /> : <BookOpen size={28} />}</span>
+        <span className="gz-subject-cover" data-explore-cover-id={subject.externalId}><AnimeCover id={subject.externalId} url={cover(subject)} /></span>
         <div className="gz-subject-stats">
           <div className="gz-subject-stat"><span>放送开始:</span><strong>{subject.airDate ?? "未提供"}</strong></div>
           <div className="gz-subject-stat"><span>{subject.ratingCount > 0 ? `${subject.ratingCount} 人评分:` : "评分:"}</span><strong className="gz-subject-score">{score(subject.score)}<em>{stars(subject.score)}</em></strong></div>

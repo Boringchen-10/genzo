@@ -297,11 +297,14 @@ async fn cache_image(url: &str, destination: &Path, create_thumbnail: bool) -> A
             "元数据源返回了不受信任的封面地址".to_string(),
         ));
     }
-    let response = reqwest::Client::builder()
+    let client = if matches!(parsed.host_str(), Some("lain.bgm.tv" | "bgm.tv")) {
+        crate::bangumi_network::transport()?.1
+    } else { reqwest::Client::builder()
         .timeout(StdDuration::from_secs(20))
         .user_agent("Genzo/0.3.0 (local media library)")
         .build()
-        .map_err(|error| AppError::Network(format!("无法初始化封面客户端：{error}")))?
+        .map_err(|error| AppError::Network(format!("无法初始化封面客户端：{error}")))? };
+    let response = client
         .get(parsed)
         .send()
         .await

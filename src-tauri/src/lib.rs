@@ -96,6 +96,7 @@ pub fn run() {
             android_sources::get_video_source_states,
             android_sources::scan_video_source,
             comic_cover_cache::cache_comic_explore_cover,
+            explore::cache_anime_explore_cover,
             comic_explore::list_comic_explore,
             comic_home::get_comic_explore_home,
             comic_home::list_comic_explore_section,

@@ -210,9 +210,12 @@ mod tests {
     async fn live_bangumi_ech() {
         let config = BangumiNetwork {mode:"direct".into(),mirror_url:String::new()};
         let client = ech_client(&config).await.unwrap();
-        let provider = crate::bangumi::BangumiProvider::with_transport(&config,client);
+        let provider = crate::bangumi::BangumiProvider::with_transport(&config,client.clone());
         assert!(!provider.comments("400602",0,2).await.unwrap().items.is_empty());
         assert!(!provider.episodes("400602").await.unwrap().is_empty());
+        let cover = client.get("https://lain.bgm.tv/pic/cover/l/d3/99/622288_nmbC3.jpg")
+            .send().await.unwrap().error_for_status().unwrap().bytes().await.unwrap();
+        assert!(image::load_from_memory(&cover).unwrap().width() > 80);
     }
 
     #[test]

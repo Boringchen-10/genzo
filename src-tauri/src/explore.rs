@@ -714,10 +714,14 @@ pub(crate) async fn prepare_cover_cache(
             continue;
         }
         if let Some(remote_url) = subject.cover_url.clone() {
+            #[cfg(not(target_os = "android"))]
             let destination = state.cover_cache_path.join(format!(
                 "explore-bangumi-{}-poster.jpg",
                 subject.external_id
             ));
+            #[cfg(target_os = "android")]
+            let destination = crate::metadata_aggregator::artwork_cache_path(
+                &state.cover_cache_path, &format!("bangumi:{}", subject.external_id), "cover", &remote_url);
             let cached = prepare_cached_image(
                 app,
                 &remote_url,
@@ -796,6 +800,14 @@ async fn prepare_cached_image(
         return display_path.to_string_lossy().to_string();
     }
 
+    // Android cards request visible posters through cache_anime_explore_cover.
+    // Returning a remote URL must not leave a WebView waiting on a blocked CDN,
+    // or enqueue every offscreen poster ahead of the visible cards.
+    #[cfg(target_os = "android")]
+    return display_url;
+
+    #[cfg(not(target_os = "android"))]
+    {
     let cache_key = destination.to_string_lossy().to_string();
     let mut in_flight = cover_cache_in_flight().lock().await;
     if !in_flight.insert(cache_key.clone()) {
@@ -825,6 +837,30 @@ async fn prepare_cached_image(
         cover_cache_in_flight().lock().await.remove(&cache_key);
     });
     display_url
+    }
+}
+
+#[tauri::command]
+pub async fn cache_anime_explore_cover(
+    external_id: String, cover_url: String, state: tauri::State<'_, AppState>, app: AppHandle,
+) -> AppResult<String> {
+    let id = validated_external_id(&external_id)?;
+    let url = normalize_trusted_image_url(&cover_url);
+    let parsed = reqwest::Url::parse(&url).map_err(|_| AppError::Validation("动漫封面地址无效".into()))?;
+    if parsed.scheme() != "https" || !matches!(parsed.host_str(), Some("lain.bgm.tv" | "s4.anilist.co"))
+        || !parsed.username().is_empty() || parsed.password().is_some() || url.len() > 4096 {
+        return Err(AppError::Validation("动漫封面地址无效".into()));
+    }
+    let destination = crate::metadata_aggregator::artwork_cache_path(
+        &state.cover_cache_path, &format!("bangumi:{id}"), "cover", &url);
+    let thumbnail = crate::metadata_aggregator::thumbnail_path(&destination);
+    let limiter = COVER_CACHE_LIMIT.get_or_init(|| Arc::new(Semaphore::new(4)));
+    let _permit = limiter.acquire().await.map_err(|_| AppError::System("封面缓存已关闭".into()))?;
+    if !thumbnail.is_file() {
+        crate::metadata_aggregator::cache_cover(&url, &destination).await?;
+    }
+    db::allow_cover_file(&app, &thumbnail)?;
+    Ok(thumbnail.to_string_lossy().into_owned())
 }
 
 fn cover_cache_in_flight() -> &'static Mutex<HashSet<String>> {
