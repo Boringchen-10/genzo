@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSyncRefresh } from "../useSyncRefresh";
 import { Heart, Search } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { dataProvider as api } from "../data";
@@ -18,13 +19,14 @@ export function FavoritesPage() {
   const category = categories.find(([value]) => value === params.get("category"))?.[0] ?? "all";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const load = useCallback(async () => {
-    setLoading(true); setError("");
+  const load = useCallback(async (background = false) => {
+    if (!background) setLoading(true); setError("");
     try { setWorks((await api.listWorks()).filter((work) => work.favorite)); }
     catch (reason: unknown) { setError(getErrorMessage(reason)); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => void load(), [load]);
+  useSyncRefresh(() => void load(true));
   const filtered = useMemo(() => works.filter((work) => matchesLibraryCategory(work, category) && (!query.trim() || `${work.title} ${work.originalTitle ?? ""}`.toLocaleLowerCase("zh-CN").includes(query.trim().toLocaleLowerCase("zh-CN")))), [category, query, works]);
   return <div className="page workspace-page gnz-favorites-page">
     <header className="page-header gnz-favorites-header">

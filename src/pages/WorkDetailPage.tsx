@@ -1,5 +1,6 @@
 import { availableForWork, firstWorkFile } from "../workSelection";
 import { usePlaybackProgress } from "../usePlaybackProgress";
+import { useSyncRefresh } from "../useSyncRefresh";
 import { latestPlayback } from "../playback";
 import { EpisodePlaybackProgress } from "../components/EpisodePlaybackProgress";
 import { EpisodeStill, EpisodeArtworkControl, useEpisodeArtwork } from "../components/EpisodeArtwork";
@@ -265,6 +266,14 @@ export function WorkDetailPage() {
     }
   }, [detailProvider, id]);
   useEffect(() => void load(), [load]);
+  const notesDraftDirty = useRef(false);
+  notesDraftDirty.current = !!work && notesDraft !== work.notes;
+  useSyncRefresh(() => {
+    void api.getWork(id).then(next => {
+      setWork(next);
+      if (!notesDraftDirty.current) setNotesDraft(next.notes);
+    }).catch(reason => setError(getErrorMessage(reason)));
+  });
 
   useEffect(() => {
     if (!isTauri()) return;

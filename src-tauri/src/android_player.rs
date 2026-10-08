@@ -98,8 +98,18 @@ async fn persist(pool: &SqlitePool, sample: &Value) -> AppResult<()> {
         sqlx::query("INSERT INTO playback_progress(media_file_id,tool_id,position_ms,duration_ms,completed,updated_at) VALUES(?,NULL,?,?,?,?) ON CONFLICT(media_file_id) DO UPDATE SET tool_id=NULL,position_ms=excluded.position_ms,duration_ms=excluded.duration_ms,completed=excluded.completed,updated_at=excluded.updated_at WHERE excluded.updated_at>playback_progress.updated_at")
             .bind(id).bind(position).bind(duration).bind(completed)
             .bind(updated.to_rfc3339()).execute(&mut *tx).await?;
+        if let Some(session) = sample["sessionId"].as_str().filter(|id| uuid::Uuid::parse_str(id).is_ok()) {
+            let observed = updated.to_rfc3339();
+            let started: Option<String> = sqlx::query_scalar("SELECT started_at FROM sync_viewing_sessions WHERE id=?").bind(session).fetch_optional(&mut *tx).await?;
+            genzo_sync::store::record_session(&mut tx,id,session,started.as_deref().unwrap_or(&observed),&observed,position,duration,completed)
+                .await.map_err(|error| AppError::Validation(format!("观看会话保存失败：{error}")))?;
+            if matches!(sample["status"].as_str(),Some("closed"|"ended"|"error"|"permission_denied"|"playback_error")) {
+                sqlx::query("UPDATE sync_viewing_sessions SET ended=1 WHERE id=?").bind(session).execute(&mut *tx).await?;
+            }
+        }
     }
     tx.commit().await?;
+    crate::personal_sync::request();
     Ok(())
 }
 

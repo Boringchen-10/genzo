@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
+genzo-sync = { path = "../crates/genzo-sync" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }

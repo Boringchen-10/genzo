@@ -123,6 +123,21 @@ async fn known_schema(pool: &SqlitePool) -> AppResult<bool> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn adds_reserved_sync_migration_to_existing_reader_database_without_rewriting_records() {
+        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let mut reader = sqlx::migrate!("./migrations");
+        reader.migrations = Cow::Owned(reader.migrations.into_owned().into_iter().filter(|migration|migration.version != 26).collect());
+        reader.run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO works(id,title,type,notes,created_at,updated_at) VALUES('kept','已有书籍','novel','保留笔记','t','t')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO android_reading_progress VALUES('novel','book','','one','{\"href\":\"OEBPS/chapter-0.xhtml\"}','t')").execute(&pool).await.unwrap();
+        let checksums: Vec<(i64,Vec<u8>)> = sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations ORDER BY version").fetch_all(&pool).await.unwrap();
+        super::run(&pool).await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,String>("SELECT notes FROM works WHERE id='kept'").fetch_one(&pool).await.unwrap(),"保留笔记");
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM android_reading_progress").fetch_one(&pool).await.unwrap(),1);
+        assert_eq!(sqlx::query_as::<_,(i64,Vec<u8>)>("SELECT version,checksum FROM _sqlx_migrations WHERE version!=26 ORDER BY version").fetch_all(&pool).await.unwrap(),checksums);
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM sync_runtime").fetch_one(&pool).await.unwrap(),1);
+    }
     use super::*;
     use crate::error::AppError;
     use sqlx::migrate::Migration;

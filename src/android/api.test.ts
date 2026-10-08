@@ -9,7 +9,7 @@ describe("Android event subscriptions", () => {
 
   it("ignores repeated and out-of-order revisions independently for each source and session", async () => {
     const handlers = new Map<string, (event: { payload: object }) => void>();
-    const stops = Array.from({ length: 4 }, () => vi.fn());
+    const stops = Array.from({ length: 5 }, () => vi.fn());
     listen.mockImplementation(async (name, handler) => { handlers.set(name, handler); return stops[handlers.size - 1]; });
     const changed = vi.fn();
     const stop = await listenAndroidChanges(changed);
@@ -25,6 +25,8 @@ describe("Android event subscriptions", () => {
     player({ payload: { sessionId: "new", revision: 1 } });
     player({ payload: { sessionId: "new", revision: 0 } });
     expect(changed).toHaveBeenCalledTimes(5);
+    handlers.get("sync-library-updated")!({payload:{}});
+    expect(changed).toHaveBeenLastCalledWith("sync-library-updated");
     stop(); stops.forEach(unlisten => expect(unlisten).toHaveBeenCalledTimes(1));
   });
 

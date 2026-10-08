@@ -44,9 +44,76 @@ class AppearanceArgs { var dark: Boolean = true }
 class ReaderArgs { lateinit var sessionId: String; lateinit var baseUrl: String; lateinit var kind: String; lateinit var entryId: String }
 @InvokeArg
 class ReaderControlArgs { lateinit var sessionId: String; lateinit var action: String; var value: Double = 0.0; var settings: String? = null }
+@InvokeArg
+class DataPackageArgs { lateinit var data: String }
 
 @TauriPlugin
 class GenzoPlugin(private val activity: Activity) : Plugin(activity) {
+    @Command
+    fun fingerprintDocument(invoke: Invoke) {
+        val uri = Uri.parse(invoke.parseArgs(TreeArgs::class.java).uri)
+        if (uri.scheme != "content") { invoke.reject("invalid_document"); return }
+        worker.execute { try {
+            fun attributes(): Pair<Long, Long> = requireNotNull(activity.contentResolver.query(uri,
+                arrayOf(DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED),null,null,null)).use { cursor ->
+                require(cursor.moveToFirst() && !cursor.isNull(0) && !cursor.isNull(1))
+                Pair(cursor.getLong(0),cursor.getLong(1))
+            }
+            val before = attributes(); require(before.first > 0)
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            var size = 0L
+            requireNotNull(activity.contentResolver.openInputStream(uri)).use { input ->
+                val buffer = ByteArray(1024*1024)
+                while (true) { val count=input.read(buffer); if (count<0) break; digest.update(buffer,0,count); size+=count }
+            }
+            require(attributes()==before && size==before.first)
+            val hash=digest.digest().joinToString("") { "%02x".format(it) }
+            invoke.resolve(JSObject().put("size",size).put("version","sha256:$hash:$size"))
+        } catch (_:Exception) { invoke.reject("document_verification_failed"); } }
+    }
+    private var pendingDataPackage: ByteArray? = null
+    @Command
+    fun exportDataPackage(invoke: Invoke) {
+        val data = invoke.parseArgs(DataPackageArgs::class.java).data.toByteArray(Charsets.UTF_8)
+        if (data.size > 16 * 1024 * 1024 || pendingDataPackage != null) { invoke.reject("package_limit_or_busy"); return }
+        pendingDataPackage = data
+        startActivityForResult(invoke,Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE)
+            .putExtra(Intent.EXTRA_TITLE,"Genzo-personal-data.json"),"dataPackageSaved")
+    }
+    @ActivityCallback
+    fun dataPackageSaved(invoke: Invoke,result: ActivityResult) {
+        val bytes = pendingDataPackage; pendingDataPackage = null
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) { invoke.resolve(JSObject().put("status","cancelled")); return }
+        if (bytes == null || uri.scheme != "content") { invoke.reject("invalid_package_target"); return }
+        worker.execute { try {
+            requireNotNull(activity.contentResolver.openOutputStream(uri,"wt")).use { it.write(bytes) }
+            invoke.resolve(JSObject().put("status","saved"))
+        } catch (_: Exception) { invoke.reject("package_write_failed") } }
+    }
+    @Command
+    fun importDataPackage(invoke: Invoke) {
+        startActivityForResult(invoke,Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE),"dataPackageSelected")
+    }
+    @ActivityCallback
+    fun dataPackageSelected(invoke: Invoke,result: ActivityResult) {
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) { invoke.resolve(JSObject().put("status","cancelled")); return }
+        if (uri.scheme != "content") { invoke.reject("invalid_package_source"); return }
+        worker.execute { try {
+            val bytes = requireNotNull(activity.contentResolver.openInputStream(uri)).use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(32768)
+                while (true) {
+                    val count = input.read(buffer); if (count < 0) break
+                    require(output.size()+count <= 16*1024*1024)
+                    output.write(buffer,0,count)
+                }
+                output.toByteArray()
+            }
+            invoke.resolve(JSObject().put("status","selected").put("data",bytes.toString(Charsets.UTF_8)))
+        } catch (_: Exception) { invoke.reject("package_read_failed") } }
+    }
     private val preferences = activity.getSharedPreferences("genzo-prototype", 0)
     private val worker = Executors.newSingleThreadExecutor()
     private val timeouts = Executors.newSingleThreadScheduledExecutor()

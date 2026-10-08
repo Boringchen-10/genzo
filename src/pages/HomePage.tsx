@@ -1,6 +1,7 @@
 import { recentlyAdded } from "../workSelection";
 import { isBookshelfWork } from "../bookshelf";
 import { usePlaybackProgress } from "../usePlaybackProgress";
+import { useSyncRefresh } from "../useSyncRefresh";
 import { latestPlayback } from "../playback";
 import { useToasts } from "../store";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
@@ -141,8 +142,8 @@ export function HomePage() {
     }
   }, [previewMode]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (background = false) => {
+    if (!background) setLoading(true);
     setError("");
     void loadRecommended();
     try {
@@ -166,6 +167,7 @@ export function HomePage() {
   }, [previewMode, loadRecommended]);
 
   useEffect(() => void load(), [load]);
+  useSyncRefresh(() => void load(true));
 
   const mediaWorks = useMemo(() => works.filter((work) => !isBookshelfWork(work)), [works]);
   const carouselWorks = useMemo(() => recentlyAdded(mediaWorks).slice(0, 4), [mediaWorks]);

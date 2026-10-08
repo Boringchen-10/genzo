@@ -26,3 +26,12 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+-keep class com.genzo.android.DataPackageArgs { *; }
+-keep class com.genzo.android.SessionArgs { *; }
+-keep class com.genzo.android.AppearanceArgs { *; }
+# Tauri's Rust JNI resolves this generated method by its original name.
+-keep class com.genzo.android.TauriActivity {
+    app.tauri.plugin.PluginManager getPluginManager();
+}
+# LibVLC resolves interface classes and fields from its native library.
+-keep class org.videolan.libvlc.** { *; }

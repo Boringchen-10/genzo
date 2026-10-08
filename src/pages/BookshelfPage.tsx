@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSyncRefresh } from "../useSyncRefresh";
 import { BookOpen, Grid2X2, Heart, List, RefreshCw, Search, Star } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -42,8 +43,8 @@ export function BookshelfPage() {
   const view = usePreferences((state) => state.libraryView);
   const setView = usePreferences((state) => state.setLibraryView);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (background = false) => {
+    if (!background) setLoading(true);
     setError("");
     try {
       const nextWorks = await api.listWorks();
@@ -55,6 +56,7 @@ export function BookshelfPage() {
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useSyncRefresh(() => void load(true));
 
   const setSection = (next: ShelfSection) => {
     setParams(previous => {

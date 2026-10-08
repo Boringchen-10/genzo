@@ -5,6 +5,7 @@ import { ErrorState, LoadingState } from "./common";
 import { usePreferences, useToasts } from "../store";
 import type { AppInfo, ThemeMode } from "../types";
 import { getErrorMessage } from "../utils";
+import { PersonalSyncPanel } from "./PersonalSyncPanel";
 
 const hueToHex = (hue: number, dark: boolean) => {
   const saturation = dark ? 0.48 : 0.66;
@@ -163,6 +164,7 @@ export function SettingsPanel() {
         <>
           {loading ? <LoadingState label="正在读取本地设置" /> : null}
           {!loading && error ? <ErrorState message={error} retry={() => void load()} /> : null}
+          <PersonalSyncPanel />
           {!loading && info ? (
             <section className="settings-local" aria-label="本地设置">
           <div className="settings-local-head"><HardDrive size={17} /><div><h2>本地设置</h2><p>扫描和数据均只作用于这台电脑。</p></div></div>

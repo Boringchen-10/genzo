@@ -60,6 +60,7 @@ export async function listenAndroidChanges(onChange: (name: string) => void): Pr
         revisions.set(key, payload.revision); onChange(name);
       }));
     }
+    unlisten.push(await listen("sync-library-updated", () => onChange("sync-library-updated")));
     return () => unlisten.forEach(stop => stop());
   } catch (error) { unlisten.forEach(stop => stop()); throw error; }
 }

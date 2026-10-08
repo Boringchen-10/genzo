@@ -15,6 +15,8 @@ mod comic_home;
 mod novel_explore;
 mod book_content;
 mod android_reader;
+mod personal_sync;
+mod portable_data;
 mod reading_network;
 mod comic_cover_cache;
 mod commands;
@@ -69,6 +71,7 @@ pub fn run() {
             db::allow_cached_images(app.handle(), &state.thumbnail_cache_path)?;
             let metadata_pool = state.pool.clone();
             let reading_pool = state.pool.clone();
+            personal_sync::start(app.handle().clone(),state.pool.clone());
             tauri::async_runtime::spawn(reading_network::auto_update(reading_pool));
             app.manage(state);
             tauri::async_runtime::spawn_blocking(|| {
@@ -236,6 +239,24 @@ pub fn run() {
             commands::get_media_thumbnail,
             commands::get_anime_ranking,
             commands::get_anime_popular,
+            personal_sync::sync_status,
+            portable_data::export_personal_data,
+            portable_data::export_personal_data_file,
+            portable_data::pick_personal_data_file,
+            portable_data::publish_personal_data,
+            portable_data::fetch_personal_data,
+            portable_data::save_personal_data_file,
+            portable_data::read_personal_data_file,
+            portable_data::preview_personal_data,
+            portable_data::import_personal_data,
+            personal_sync::sync_test_connection,
+            personal_sync::sync_connect,
+            personal_sync::sync_now,
+            personal_sync::sync_set_enabled,
+            personal_sync::sync_update_credentials,
+            personal_sync::sync_conflicts,
+            personal_sync::sync_resolve,
+            personal_sync::sync_bind_media,
             window_style::window_material_supported,
         ])
         .run(tauri::generate_context!())

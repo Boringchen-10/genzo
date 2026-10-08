@@ -1348,6 +1348,7 @@ dependencies = [
  "dunce",
  "encoding_rs",
  "futures-util",
+ "genzo-sync",
  "image",
  "lru",
  "natord",
@@ -1374,6 +1375,21 @@ dependencies = [
  "webpki-roots",
  "windows",
  "zip",
+]
+
+[[package]]
+name = "genzo-sync"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "thiserror 2.0.20",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
