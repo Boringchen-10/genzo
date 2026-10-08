@@ -2,6 +2,7 @@
 
 ## Android v0.5.1正式分发（2026-10-08）
 
+- 已公开发布：https://github.com/Boringchen-10/genzo/releases/tag/v0.5.1 。发布提交 `c197e9f40e230d41ef3e71547a1414afdb7b8d94`，注释标签v0.5.1与分支已推送；附件只有正式APK /SHA256SUMS.txt，GitHub资产digest与本地APK SHA256一致。后续交接文档提交不移动发布标签。
 - 用户明确要求打包v0.5.1供实际用户分发，不保留 /携带测试数据。基线 `64cd09c`；发布源码用本分支v0.5.1注释标签固定，主目录的桌面 /设计未提交改动保留。
 - 同步package /Cargo /Tauri版本0.5.1、Cargo.lock与生成Android versionCode5001。APK普通包`com.genzo.android`、arm64、min26 /target36、非debuggable、R8 /资源收缩；本次Windows安装器仍v0.5.0。
 - Android-only入口 /真实Provider /publicDir关闭，生产前端408kB JS，排除桌面mock /演示封面 /设计图；关于显示0.5.1与GPLv3，不展示开发验证页。正式WebView调试关闭，补齐虚拟asset.localhost本地资源许可。开发预览与Windows默认入口保留。
