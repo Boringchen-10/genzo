@@ -37,10 +37,13 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
     private val files = File(host.cacheDir, "reader-images/${host.intent.getStringExtra("sessionId")}/${host.entry}")
     private val requests = mutableMapOf<Int, Deferred<File>>()
     private val fetching = mutableSetOf<Int>()
+    private val prefetching = mutableSetOf<Int>()
+    private var preloadTargets = emptyList<Int>()
+    private var preloadKey = ""
+    private var readingDirection = 1
     private val naturalSizes=mutableMapOf<Int,Pair<Int,Int>>()
     private val networkFiles=File(host.cacheDir,"reader-network-images")
     private var globalHold:FloatArray?=null
-    private var preload:Job?=null
     private var pager: ViewPager2? = null
     private var list: RecyclerView? = null
     private var manager: LinearLayoutManager? = null
@@ -94,45 +97,63 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
 
     init { require(urls.isNotEmpty()); build() }
     private fun file(index: Int): Deferred<File> = requests.getOrPut(index) {
-        scope.async { downloads.withPermit {
+        scope.async { try { downloads.withPermit {
             fetching.add(index)
             try {
             if (archive != null) host.client.cachedImage(archive,requireNotNull(archiveEntries).getString(index),files)
             else {
                 val result=host.client.image(urls[index],networkFiles,cacheKeys?.optString(index)?.takeIf {it.isNotEmpty()},host.settings.optDouble("imageTimeout",15.0).toInt())
-                val protected=(maxOf(0,page-2)..minOf(urls.lastIndex,page+2)).mapNotNull {cacheKeys?.optString(it)}.toSet()
+                val window=if(readingDirection>0)maxOf(0,page-2)..minOf(urls.lastIndex,page+6) else maxOf(0,page-6)..minOf(urls.lastIndex,page+2)
+                val protected=(window.toSet()+attachedPages()+fetching).mapNotNull {cacheKeys?.optString(it)}.toSet()
                 scope.launch {host.client.trimImages(networkFiles,protected)}
                 result
             }
             } finally { fetching.remove(index) }
-        } }
+        } } finally { prefetching.remove(index);pumpPreload() } }
     }
     private fun attachedPages():Set<Int> {
         val recycler=list?:pager?.getChildAt(0) as? RecyclerView?:return emptySet()
         return (0 until recycler.childCount).map { recycler.getChildAdapterPosition(recycler.getChildAt(it)) }.toSet()
     }
+    private fun pumpPreload() {
+        if(!scope.isActive||restoring)return
+        for(index in preloadTargets) {
+            if(prefetching.size>=2||downloads.availablePermits==0)return
+            if(index in requests)continue
+            prefetching.add(index);file(index)
+        }
+    }
     private fun active(index: Int) {
         if (index !in urls.indices || restoring) return
+        if(index!=page)readingDirection=if(index>page)1 else -1
         page = index; offset = if (pager != null) 0.0 else offset
         host.locationChanged(page, urls.size, if (urls.size == 1) offset else (page + offset) / (urls.size - 1))
-        // Kira: visible image first, then two neighbors in both directions.
         file(index)
-        preload?.cancel();preload=scope.launch {
-            delay(100)
-            if(page!=index)return@launch
-            for (distance in 1..2) {if(index+distance in urls.indices)file(index+distance);if(index-distance in urls.indices)file(index-distance)}
+        val first=manager?.findFirstVisibleItemPosition()?.takeIf {it>=0}?:index
+        val last=manager?.findLastVisibleItemPosition()?.takeIf {it>=0}?:index
+        val edge=if(readingDirection>0)maxOf(index,last)else minOf(index,first)
+        val key="$index:$edge:$readingDirection"
+        if(preloadKey==key)return
+        if(preloadKey!=key) {
+            preloadKey=key
+            val nearby=(1..6).map {edge+it*readingDirection}+(1..2).map {index-it*readingDirection}
+            // Full current chapter on disk; near pages first, without decoding every image.
+            val rest=if(archive!=null)emptyList()else if(readingDirection>0)(edge+1..urls.lastIndex).toList()+(0 until index).reversed() else (0 until edge).reversed()+(index+1..urls.lastIndex).toList()
+            preloadTargets=(nearby+rest).filter {it in urls.indices}.distinct()
         }
         val attached=attachedPages()
-        for (old in requests.keys.filter { it !in index-2..index+2 && it !in attached && it !in fetching }) {
+        val keep=preloadTargets.toSet()+attached+index
+        for (old in requests.keys.filter { it !in keep && it !in fetching }) {
             val request = requests.remove(old) ?: continue
             // Keep downloads already in flight and their disk files, as Kira's cache manager does.
             // Only obsolete queued work is cancelled so it cannot block newly visible pages.
             if(!request.isCompleted)request.cancel()
         }
+        pumpPreload()
     }
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun build() {
-        restoring = true;pager?.adapter = null;list?.adapter = null;view.reset();view.scroll=null;pager=null;list=null;manager=null;view.removeAllViews()
+        restoring = true;preloadKey="";preloadTargets=emptyList();pager?.adapter = null;list?.adapter = null;view.reset();view.scroll=null;pager=null;list=null;manager=null;view.removeAllViews()
         mode = host.settings.optString("mode","scroll-vertical")
         layoutKey = currentLayoutKey()
         view.setBackgroundColor(host.readerBackground)
@@ -176,6 +197,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                         val start = if (vertical) child.top else if (host.settings.optBoolean("rtl",false)) recycler.width - child.right else child.left
                         offset = if (size > 0) (-start.toDouble() / size).coerceIn(0.0,1.0) else 0.0
                         moving = if (vertical) dy > 0 else if (host.settings.optBoolean("rtl",false)) dx < 0 else dx > 0
+                        if(dx!=0||dy!=0)readingDirection=if(moving)1 else -1
                         active(index)
                     }
                     override fun onScrollStateChanged(recycler: RecyclerView, state: Int) {
@@ -315,7 +337,9 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         }
     }
     override fun seek(fraction: Double) {
-        page = (fraction * urls.lastIndex).toInt().coerceIn(0,urls.lastIndex); offset = 0.0
+        val target=(fraction * urls.lastIndex).toInt().coerceIn(0,urls.lastIndex)
+        if(target!=page)readingDirection=if(target>page)1 else -1
+        page = target; offset = 0.0
         pager?.setCurrentItem(page,false); manager?.scrollToPositionWithOffset(page,0); active(page)
     }
     override fun settingsChanged() {

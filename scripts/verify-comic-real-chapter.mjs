@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium } from "playwright-core";
+import { createHash } from "node:crypto";
 
 const adb = "D:/DevTools/Android/Sdk/platform-tools/adb.exe", serial = "3B164M00Z0500000", app = "com.genzo.android.readerqa";
 const output = `D:/DevTools/Android/Build/qa/comic-real-chapter-${Date.now()}`;
@@ -13,7 +14,7 @@ const invoke = (command, args = {}) => page.evaluate(({ command, args }) => wind
 const native = (command, payload = {}) => invoke("android_native", { command, payload });
 const state = () => native("readerState");
 const control = async (action, value = 0, settings) => native("readerControl", { sessionId: (await state()).sessionId, action, value, settings: settings ? JSON.stringify(settings) : null });
-const args = { kind: "comic", pathWord: "modujingbingdenuli", entryId: "52615840-10a4-11e9-b68d-00163e0ca5bd", group: "default" };
+const args = { kind: "comic", pathWord: "modujingbingdenuli", entryId: process.env.GENZO_COMIC_ENTRY_ID || "52615840-10a4-11e9-b68d-00163e0ca5bd", group: "default" };
 const result = { cases: [], visited: [] }; let original;
 async function settle(name) {
   const started = Date.now(); let value;
@@ -25,11 +26,27 @@ async function settle(name) {
 try {
   const start = Date.now(), chapter = await invoke("get_book_online_content", args);
   result.chapter = { title: chapter.title, pages: chapter.pages.length, metadataMs: Date.now() - start };
+  const keys = chapter.pages.map(url => createHash("sha256").update(url).digest("hex"));
+  const cachedFiles = () => new Set(cmd("shell", "run-as", app, "ls", "cache/reader-network-images").trim().split(/\s+/));
+  if (process.argv.includes("--prefetch")) { const before = cachedFiles(); result.cachedBefore = keys.filter(key => before.has(key)).length; }
   if ((await state()).status !== "closed") await control("close");
   await invoke("open_internal_reader", args);
   await settle("open"); original = (await state()).settings;
   await control("settings", 0, { mode: "scroll-vertical", autoScroll: false, gap: 0 });
-  for (const index of [9, 19, 29, 39, 49, 59, 29, 9, 0]) {
+  if (process.argv.includes("--prefetch")) {
+    const started = Date.now(); let files;
+    do {
+      files = cachedFiles();
+      if (!result.firstSixMs && keys.slice(1, 7).every(key => files.has(key))) result.firstSixMs = Date.now() - started;
+      if (keys.every(key => files.has(key))) break;
+      await page.waitForTimeout(300);
+    } while (Date.now() - started < 75000);
+    result.wholePrefetchMs = Date.now() - started;
+    result.prefetchedPages = keys.filter(key => files.has(key)).length;
+    assert.equal(result.prefetchedPages, keys.length, "whole real chapter is on disk before navigating beyond its first page");
+    assert.ok((await state()).location.pageIndex <= 1);
+  }
+  for (const index of [9, 19, 29, 39, 49, 59, 29, 9, 0].filter(index => index < chapter.pages.length)) {
     await control("seek", index / (chapter.pages.length - 1) + 0.00001); await settle(`seek-${index + 1}`);
   }
   const visited = new Set();
@@ -44,7 +61,7 @@ try {
   for (let i = 0; i < 5; i++) cmd("shell", "input", "swipe", "636", "700", "636", "2150", "150");
   await settle("fast-return");
   writeFileSync(`${output}/phone.png`, execFileSync(adb, ["-s", serial, "exec-out", "screencap", "-p"], { maxBuffer: 16 * 1024 * 1024 }));
-  console.log(JSON.stringify({ output, pages: chapter.pages.length, visited: visited.size, maximumMs: Math.max(...result.cases.map(c => c.milliseconds)), jumps: result.cases.filter(c => c.name.startsWith("seek")).map(c => ({ name: c.name, ms: c.milliseconds })) }));
+  console.log(JSON.stringify({ output, pages: chapter.pages.length, cachedBefore: result.cachedBefore, firstSixMs: result.firstSixMs, wholePrefetchMs: result.wholePrefetchMs, prefetchedPages: result.prefetchedPages, visited: visited.size, maximumMs: Math.max(...result.cases.map(c => c.milliseconds)), jumps: result.cases.filter(c => c.name.startsWith("seek")).map(c => ({ name: c.name, ms: c.milliseconds })) }));
 } catch (error) { result.error = String(error); throw error; }
 finally {
   if (original && (await state()).status !== "closed") await control("settings", 0, original);
