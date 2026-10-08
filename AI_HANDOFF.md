@@ -1,5 +1,15 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## Android v0.5.1正式分发（2026-10-08）
+
+- 用户明确要求打包v0.5.1供实际用户分发，不保留 /携带测试数据。基线 `64cd09c`；发布源码用本分支v0.5.1注释标签固定，主目录的桌面 /设计未提交改动保留。
+- 同步package /Cargo /Tauri版本0.5.1、Cargo.lock与生成Android versionCode5001。APK普通包`com.genzo.android`、arm64、min26 /target36、非debuggable、R8 /资源收缩；本次Windows安装器仍v0.5.0。
+- Android-only入口 /真实Provider /publicDir关闭，生产前端408kB JS，排除桌面mock /演示封面 /设计图；关于显示0.5.1与GPLv3，不展示开发验证页。正式WebView调试关闭，补齐虚拟asset.localhost本地资源许可。开发预览与Windows默认入口保留。
+- 正式文件 `D:/DevTools/Android/Build/releases/v0.5.1/Genzo_0.5.1_android_arm64-v8a.apk`，74,869,842字节，SHA256 `d599124d1c7952f1c6f3fa1ee9e73b1e839ff2b1b673c258e3a55e99071a476b`；发布附件只APK /SHA256SUMS.txt，不上传截图 /测试包 /签名私钥。
+- 固定签名证书SHA256 `cee90e5f49edc18217ec2d1f7cdf360f50b61af1e99e4eefdb0837b549c13cdb`；本机私钥 /密码仅在 `D:/DevTools/Android/Signing/`，权限限当前用户 /SYSTEM，不纳入仓库。后续发布必须复用这份签名，`build-android-release.ps1`要求已有签名文件。
+- 类型 /前端96项、Rust321通过 /18忽略、arm64Release /R8 /lintVital、签名 /16KiB ZIP通过。包内没有DB /测试书籍 /demo /design /fixtures目录；编译前端不含mock /原型文字。正式包已在一加Android16首次安装启动，versionName0.5.1 /5001，run-as拒绝调试且无WebView调试socket；用户在正式包确认小说正文正常。
+- 正式包安装前手机没有普通包，本轮首次安装不覆盖readerqa或其数据；没有清库或播种。用户实际浏览产生的数据只留在设备，不进入APK。原始阅读回归与正式验证边界见 `docs/RELEASE_V0.5.1.md`。
+
 ## 话末准备下一话（2026-10-08）
 
 - 基线 `5d9533b`，起点干净。用户确认接近本话结束时预载下一话；只做漫画跨话衔接，不扩展整本预取、小说分卷策略或修改已有自动连续阅读开关。

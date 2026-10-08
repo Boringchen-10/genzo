@@ -6,7 +6,14 @@
 
 ## 下载与安装
 
-**当前正式版：Windows x64 v0.5.0。安卓版本尚未交付。**
+**当前正式版：Android arm64 v0.5.1；Windows x64 v0.5.0。**
+
+- [下载安卓 APK：Genzo_0.5.1_android_arm64-v8a.apk](https://github.com/Boringchen-10/genzo/releases/download/v0.5.1/Genzo_0.5.1_android_arm64-v8a.apk)
+- [安卓 v0.5.1 发行说明与校验文件](https://github.com/Boringchen-10/genzo/releases/tag/v0.5.1)
+
+安卓需要 Android 8.0及以上的64位 ARM 设备。下载 APK 后允许浏览器或文件管理器安装此应用；正式包为 `com.genzo.android`，使用固定发布签名，后续同签名版本可覆盖升级。安装包不包含测试作品、数据库或个人数据，首次启动后自行添加来源或浏览作品资料。
+
+此前独立 `com.genzo.android.readerqa` 测试包与正式包数据独立；本次只分发正式 APK。普通包若曾安装早期调试原型，签名不同会阻止覆盖，不能通过自动卸载旧包丢弃数据；如需保留个人资料，可先使用资料包导出 / 预览导入。本版未实现 Bangumi 账号同步或 Kazumi 规则播放。
 
 - [下载安装器 Genzo_0.5.0_x64-setup.exe](https://github.com/Boringchen-10/genzo/releases/download/v0.5.0/Genzo_0.5.0_x64-setup.exe)
 - [发行说明与全部附件](https://github.com/Boringchen-10/genzo/releases/tag/v0.5.0)
@@ -23,7 +30,7 @@
 Get-FileHash .\Genzo_0.5.0_x64-setup.exe -Algorithm SHA256
 ```
 
-播放器、阅读器和游戏本体需自行安装 / 准备，Genzo 安装包不包含这些工具。本版没有自动更新器，升级时请关闭 Genzo 后运行新安装包，沿用相同安装目录与 Windows 用户。旧库通过增量迁移升级；建议先备份本地数据，不要手动清库或降级运行旧程序。
+Windows 版的外部播放器、阅读器和游戏本体需自行安装 / 准备。安卓 APK 包含漫画 / 小说阅读器与 LibVLC 播放内核。本版没有自动更新器；Windows 升级时关闭 Genzo 后运行新安装包，沿用相同安装目录与用户。旧库通过增量迁移升级，不要手动清库或降级运行旧程序。
 
 ## 界面预览
 

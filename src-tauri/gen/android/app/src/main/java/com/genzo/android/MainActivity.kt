@@ -24,6 +24,7 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
         webView.evaluateJavascript("Boolean(window.__genzoBack && window.__genzoBack())") { handled ->

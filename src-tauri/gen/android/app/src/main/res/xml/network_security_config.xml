@@ -4,5 +4,6 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">tauri.localhost</domain>
+        <domain includeSubdomains="false">asset.localhost</domain>
     </domain-config>
 </network-security-config>

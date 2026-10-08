@@ -16,6 +16,9 @@ foreach ($taskFile in (& git -C $taskSource ls-files -co --exclude-standard)) {
 foreach ($taskFile in @('src-tauri/gen/android/tauri.settings.gradle','src-tauri/gen/android/app/tauri.build.gradle.kts','src-tauri/gen/android/local.properties','src-tauri/gen/android/app/tauri.properties')) {
     Copy-Item -LiteralPath (Join-Path $taskSource $taskFile) -Destination (Join-Path $taskCopy $taskFile) -Force
 }
+$taskVersion = [Version](Get-Content -LiteralPath (Join-Path $taskSource 'package.json') -Raw | ConvertFrom-Json).version
+$taskVersionCode = $taskVersion.Major * 1000000 + $taskVersion.Minor * 1000 + $taskVersion.Build
+@("tauri.android.versionName=$taskVersion", "tauri.android.versionCode=$taskVersionCode") | Set-Content -LiteralPath (Join-Path $taskCopy 'src-tauri/gen/android/app/tauri.properties') -Encoding ascii
 $taskGenerated = 'src-tauri/gen/android/app/src/main/java/com/genzo/android/generated'
 New-Item -ItemType Directory -Force -Path (Join-Path $taskCopy $taskGenerated) | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $taskSource $taskGenerated) -File | ForEach-Object {
@@ -59,6 +62,7 @@ $env:WRY_ANDROID_KOTLIN_FILES_OUT_DIR = Join-Path $taskCopy $taskGenerated
 # Tauri's JNI symbols follow the Kotlin namespace; Gradle applicationId isolates data.
 $env:TAURI_CONFIG = '{"identifier":"com.genzo.android","build":{"devUrl":null}}'
 $env:GENZO_READER_QA = '1'
+$env:GENZO_ANDROID_FRONTEND = '1'
 $env:GENZO_ANDROID_OPTIMIZE = if ($Optimize) { '1' } else { '0' }
 $env:GENZO_ANDROID_BUILD_DIR = Join-Path $taskTools $(if ($Optimize) { 'Build\reader-optimized-gradle' } else { 'Build\reader-gradle' })
 $env:TEMP = Join-Path $taskTools 'Temp'
@@ -69,7 +73,7 @@ Push-Location $taskSource
 try {
     $taskDist = [IO.Path]::GetFullPath((Join-Path $taskCopy 'dist'))
     if ($taskDist -ne 'D:\DevTools\Android\Build\reader-source\dist') { throw 'Unexpected generated frontend directory' }
-    & pnpm exec vite build --outDir $taskDist --emptyOutDir
+    & node (Join-Path $taskSource 'node_modules/vite/bin/vite.js') build --outDir $taskDist --emptyOutDir
     if ($LASTEXITCODE -ne 0) { throw 'Reader frontend build failed' }
 } finally { Pop-Location }
 Push-Location $taskCopy

@@ -1,4 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import buildInfo from "../../package.json";
 import { flushSync } from "react-dom";
 import { PersonalSyncPanel } from "../components/PersonalSyncPanel";
 import { personalSync, type SyncStatus } from "../personalSync";
@@ -451,7 +452,7 @@ export default function AndroidApp() {
   }, [accentHue, accentSatValue, accentLightValue, neutralSatValue, neutralLiftValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
-  const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: "开发验证", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观", history: "浏览记录", "reading-stats": "阅读统计", "reading-stats-settings": "阅读统计设置", sync: "同步备份", "sync/bangumi": "追番同步", "sync/webdav": "多设备同步" }[route]) || "作品详情";
+  const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: import.meta.env.DEV ? "开发验证" : "关于", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观", history: "浏览记录", "reading-stats": "阅读统计", "reading-stats-settings": "阅读统计设置", sync: "同步备份", "sync/bangumi": "追番同步", "sync/webdav": "多设备同步" }[route]) || "作品详情";
 
   async function refresh(renew = false): Promise<void> {
     if (refreshPending.current) return renew ? refreshPending.current.catch(() => {}).then(() => refresh(true)) : refreshPending.current;
@@ -1020,7 +1021,7 @@ export default function AndroidApp() {
           <MenuRow label="存储管理" icon={HardDrive} subtitle="后续更新" onClick={() => navigate("future/存储管理")} />
           <MenuRow label="关于" icon={Info} onClick={() => navigate("diagnostics")} />
         </MenuSection>
-        <p className="gz-footer">Genzo · 基于 Windows v0.5.0 · GPLv3</p>
+        <p className="gz-footer">Genzo v{buildInfo.version} · GPLv3</p>
       </div>}
       {route === "appearance" && <>
         <SettingBlock title="主题模式">
@@ -1065,7 +1066,7 @@ export default function AndroidApp() {
         </SettingBlock>
         <div className="gz-appearance-actions">
           <button className="gz-btn" onClick={resetAppearance}>恢复默认外观</button>
-          <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>
+          {import.meta.env.DEV && <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>}
         </div>
       </>}
       {route === "sources" && <>
@@ -1189,7 +1190,7 @@ export default function AndroidApp() {
       {route === "sync" && syncSettingsPage}
       {route === "sync/bangumi" && bangumiSyncPage}
       {route === "sync/webdav" && webdavSyncPage}
-      {route === "diagnostics" && <AndroidPrototype />}
+      {route === "diagnostics" && (import.meta.env.DEV ? <AndroidPrototype /> : <Section title={`Genzo v${buildInfo.version}`}><p className="gz-meta">本地优先的 ACGN 统一媒体库，管理你的作品、个人记录与阅读进度。</p><p className="gz-meta">本软件采用 GPLv3。源代码与第三方许可：github.com/Boringchen-10/genzo</p></Section>)}
       </>}
       {(route === "explore" || visitedPanels.includes("explore")) && <div className="gz-kept-page" hidden={route !== "explore"}><ExplorePanel active={route === "explore"} onToast={setToast} onLibraryChanged={() => void refresh(true).catch(reason => setError(String(reason)))} registerBack={registerSubviewBack} /></div>}
       {(route === "network" || visitedPanels.includes("network")) && <div className="gz-kept-page" hidden={route !== "network"}><NetworkPanel onToast={setToast} /></div>}

@@ -42,7 +42,7 @@ let provider: GenzoDataProvider | null = null;
  */
 export function getDataProvider(): GenzoDataProvider {
   if (!provider) {
-    provider = isTauriRuntime() ? createTauriProvider() : createMockProvider();
+    provider = (__GENZO_ANDROID__ || isTauriRuntime()) ? createTauriProvider() : createMockProvider();
   }
   return provider;
 }
