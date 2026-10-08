@@ -173,6 +173,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
   const [structureState, setStructureState] = useState<LoadState>("ready");
   const [structureAttempt, setStructureAttempt] = useState(0);
+  const structureRetry = useRef(0);
   const [subjectComments, setSubjectComments] = useState<BangumiComment[]>([]);
   const [subjectCommentsState, setSubjectCommentsState] = useState<LoadState>("ready");
   const [subjectCommentsTotal, setSubjectCommentsTotal] = useState(0);
@@ -458,9 +459,12 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
     if (!workId && (subjectTab === "overview" || subjectTab === "comments")) return;
     let cancelled = false;
     const key = workId ? `local:structure:${workId}` : `bangumi:structure:${subject.externalId}:${subjectTab}`;
+    const force = structureRetry.current !== structureAttempt;
+    structureRetry.current = structureAttempt;
+    if (force) androidSession.invalidate(key);
     const cached = androidSession.peek<AnimeWorkStructure>(key);
     setStructure(cached ?? null); setStructureState(cached ? "ready" : "loading");
-    androidSession.load(key, () => workId ? api.getAnimeWorkStructure(workId) : api.getBangumiSubjectStructure(subject.externalId,subjectTab))
+    androidSession.load(key, () => workId ? api.getAnimeWorkStructure(workId) : api.getBangumiSubjectStructure(subject.externalId,subjectTab,force))
       .then(value => { if (!cancelled) { setStructure(value); setStructureState("ready"); } })
       .catch(() => { if (!cancelled) { setStructure(null); setStructureState("error"); } });
     return () => { cancelled = true; };
@@ -715,6 +719,10 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
     <div className="gz-detail-tabs" role="tablist" aria-label="条目详情分类">
       {SUBJECT_TABS.map(tab => <button type="button" role="tab" key={tab.id} aria-selected={subjectTab === tab.id} className={subjectTab === tab.id ? "active" : ""} onClick={() => setSubjectTab(tab.id)}>{tab.label}</button>)}
     </div>
+    {subjectTab !== "comments" && !!structure?.warnings.length && <div className="gz-section">
+      {structure.warnings.map((warning,index)=><p className="gz-meta" key={`${warning}-${index}`}>{warning}</p>)}
+      {!subject.localWorkId && <button className="gz-btn" onClick={()=>setStructureAttempt(value=>value+1)}>重试更新资料</button>}
+    </div>}
     {subjectTab === "episodes" && <section className="gz-section">
       {structureState === "loading" ? <LoadingIndicator label="正在读取剧集…" compact />
           : structure && structure.episodes.length ? <>
@@ -740,7 +748,6 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
           <div className="gz-subject-stat"><span>收藏人数:</span><strong>{subject.collectionCount}</strong></div>
           <div className="gz-subject-stat"><span>数据来源:</span><strong>Bangumi</strong></div>
         </div>
-        {structure?.warnings.map((warning, index) => <p className="gz-meta" key={`${warning}-${index}`}>{warning}</p>)}
       </section>
     </>}
     {subjectTab === "comments" && <section className="gz-section">

@@ -261,8 +261,8 @@ export const api = {
     call<AnimeEpisodeMetadata[]>("list_anime_episodes", { workId }),
   getAnimeWorkStructure: async (workId: string) =>
     withAnimeStructureAssets(await call<AnimeWorkStructure>("get_anime_work_structure", { workId })),
-  getBangumiSubjectStructure: async (externalId: string, section?: string) =>
-    withAnimeStructureAssets(await call<AnimeWorkStructure>("get_bangumi_subject_structure", { externalId, section: section ?? null })),
+  getBangumiSubjectStructure: async (externalId: string, section?: string, force = false) =>
+    withAnimeStructureAssets(await call<AnimeWorkStructure>("get_bangumi_subject_structure", { externalId, section: section ?? null, force })),
   bangumiComments: (externalId: string, offset = 0, limit = 20) =>
     call<BangumiCommentPage>("get_bangumi_subject_comments", { externalId, offset, limit }),
   refreshWorkMetadata: async (workId: string) =>

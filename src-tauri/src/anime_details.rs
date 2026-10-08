@@ -444,18 +444,23 @@ pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<Anime
     })
 }
 
-pub async fn bangumi_subject_structure(pool: &SqlitePool, external_id: &str, section: Option<&str>) -> AppResult<AnimeWorkStructure> {
+pub async fn bangumi_subject_structure(pool: &SqlitePool, external_id: &str, section: Option<&str>, force: bool) -> AppResult<AnimeWorkStructure> {
     let provider = BangumiProvider::new()?;
     if let Some(section) = section {
         let mut result = AnimeWorkStructure { work_id:String::new(),bangumi_id:external_id.into(),seasons:vec![],episodes:vec![],unmatched_files:vec![],staff:vec![],characters:vec![],warnings:vec![] };
         match section {
-            "episodes" => result.episodes = provider.episodes(external_id).await?.into_iter().map(|episode| AnimeEpisodeEntry {image_url:None,local_files:vec![],episode}).collect(),
+            "episodes" => {
+                let (items,warning) = cached_subject_section(pool,&provider.structure_cache_key(external_id,section),force,provider.episodes(external_id)).await?;
+                result.episodes = items.into_iter().map(|episode| AnimeEpisodeEntry {image_url:None,local_files:vec![],episode}).collect();
+                result.warnings.extend(warning);
+            }
             "related" => {
-                result.seasons = provider.related_subjects(external_id).await?;
+                let (items,warning) = cached_subject_section(pool,&provider.structure_cache_key(external_id,section),force,provider.related_subjects(external_id)).await?;
+                result.seasons = items;result.warnings.extend(warning);
                 for item in &mut result.seasons { item.local_work_id = sqlx::query_scalar("SELECT work_id FROM work_external_ids WHERE provider='bangumi' AND external_id=?").bind(&item.external_id).fetch_optional(pool).await?; }
             }
-            "staff" => result.staff = provider.staff(external_id).await?,
-            "characters" => result.characters = provider.characters(external_id).await?,
+            "staff" => {let (items,warning)=cached_subject_section(pool,&provider.structure_cache_key(external_id,section),force,provider.staff(external_id)).await?;result.staff=items;result.warnings.extend(warning);}
+            "characters" => {let (items,warning)=cached_subject_section(pool,&provider.structure_cache_key(external_id,section),force,provider.characters(external_id)).await?;result.characters=items;result.warnings.extend(warning);}
             _ => return Err(AppError::Validation("Bangumi 详情分类无效".into())),
         }
         return Ok(result);
@@ -680,6 +685,21 @@ async fn cache_artwork(url: Option<&str>, destination: PathBuf, cover: bool) -> 
         .then(|| destination.to_string_lossy().to_string())
 }
 
+async fn cached_subject_section<T: Serialize + DeserializeOwned, F: Future<Output=AppResult<T>>>(pool:&SqlitePool,key:&str,force:bool,fetch:F)->AppResult<(T,Option<String>)> {
+    let row:Option<(String,String)>=sqlx::query_as("SELECT response_json,expires_at FROM metadata_cache WHERE provider='bangumi' AND cache_key=?").bind(key).fetch_optional(pool).await?;
+    let fresh=row.as_ref().is_some_and(|(_,expiry)|chrono::DateTime::parse_from_rfc3339(expiry).is_ok_and(|expiry|expiry>Utc::now()));
+    let mut cached=row.and_then(|(data,_)|serde_json::from_str::<T>(&data).ok());
+    if !force&&fresh {if let Some(value)=cached.take(){return Ok((value,None));}}
+    match fetch.await {
+        Ok(value)=>{
+            let now=Utc::now();
+            sqlx::query("INSERT INTO metadata_cache(provider,cache_key,response_json,fetched_at,expires_at) VALUES('bangumi',?,?,?,?) ON CONFLICT(provider,cache_key) DO UPDATE SET response_json=excluded.response_json,fetched_at=excluded.fetched_at,expires_at=excluded.expires_at")
+                .bind(key).bind(serde_json::to_string(&value)?).bind(now.to_rfc3339()).bind((now+chrono::Duration::hours(1)).to_rfc3339()).execute(pool).await?;
+            Ok((value,None))
+        }
+        Err(error)=>match cached {Some(value)=>Ok((value,Some(format!("来源暂不可用，显示已有缓存：{error}")))),None=>Err(error)},
+    }
+}
 async fn cached_or_fetch<T, F>(
     pool: &SqlitePool,
     key: &str,
@@ -715,6 +735,17 @@ where
 mod tests {
     use super::*;
     use crate::db;
+    #[tokio::test]
+    async fn subject_section_cache_is_fast_and_retains_data_on_failed_refresh() {
+        let pool=db::test_pool().await.unwrap();
+        let key="subject:https://api.bgm.tv/v0:42:episodes";
+        let (value,warning)=cached_subject_section(&pool,key,false,async {Ok(vec!["one".to_string()])}).await.unwrap();assert_eq!(value,vec!["one"]);assert!(warning.is_none());
+        let (value,_)=cached_subject_section::<Vec<String>,_>(&pool,key,false,async {panic!("fresh cache must not issue a request")}).await.unwrap();assert_eq!(value,vec!["one"]);
+        sqlx::query("UPDATE metadata_cache SET expires_at='2000-01-01T00:00:00Z'").execute(&pool).await.unwrap();
+        let (value,warning)=cached_subject_section::<Vec<String>,_>(&pool,key,false,async {Err(AppError::Network("offline".into()))}).await.unwrap();assert_eq!(value,vec!["one"]);assert!(warning.unwrap().contains("显示已有缓存"));
+        let (value,warning)=cached_subject_section(&pool,key,true,async {Ok(vec!["two".to_string()])}).await.unwrap();assert_eq!(value,vec!["two"]);assert!(warning.is_none());
+        assert!(cached_subject_section::<Vec<String>,_>(&pool,"another-provider-scope",false,async {Err(AppError::Network("offline".into()))}).await.is_err());
+    }
 
     #[tokio::test]
     async fn mounted_thumbnails_retry_and_use_cache_while_offline() {

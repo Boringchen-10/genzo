@@ -15,6 +15,8 @@
 
 部分手机请求的 COPY 首页返回 HTTP 200，但所有分组都是空列表；不能把它缓存成正常首页。现拒绝全空响应，必要时读取同源已有的推荐 / 日周月榜 / 新上架 / 已完结独立接口；首页未知的热门更新没有代用品，缺失分组显示提示和重试，不制造内容或把另一列表冒充它。
 
+后续最终包回归曾出现一次Bangumi分集12秒超时：在线分类此前缺少跨进程缓存和瞬断重试。现在分集 / 角色 / 关联 / 人员按来源根地址和分类独立保存一小时缓存；失败保留旧值并显示缓存提示，可强制更新。分集公开GET遇到连接 / 超时错误最多重试一次，每次4秒，HTTP429等响应不重试。真实手机受控服务证明第二次读取不再请求网络、失败刷新保留资料和警告；没有修改PC已有的“本地结构只读、不在首屏触发刮削”行为。
+
 ## 参考来源与边界
 
 - Kira MIT 快照 `ac0a4db1d01f95d816d61a2960c48d5296a70c1b`：`api/api_transport.dart`、`api/manga/manga_api.dart`、`api/novel/novel_api.dart`、`api/api_client.dart`、`pages/reader/reader_image_cache.dart`、`reader_image_pipeline.dart`。借鉴长期连接、分离请求配置、UUID、缓存 / 占位 / 按需图像的具体实现；Rust / Kotlin / React 适配现有架构。

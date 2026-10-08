@@ -22,6 +22,9 @@ pub struct BangumiProvider {
 }
 
 impl BangumiProvider {
+    pub fn structure_cache_key(&self, subject: &str, section: &str) -> String {
+        format!("subject:{}:{subject}:{section}", self.api_root)
+    }
     pub fn new() -> AppResult<Self> {
         let (config, client) = crate::bangumi_network::transport()?;
         Ok(Self::with_transport(&config, client))
@@ -182,17 +185,15 @@ impl BangumiProvider {
         let mut offset = 0_u32;
         loop {
             self.wait().await;
-            let response = self
+            let request = self
                 .client
                 .get(format!("{}/episodes", self.api_root))
                 .query(&[
                     ("subject_id", subject_id.to_string()),
                     ("limit", "100".to_string()),
                     ("offset", offset.to_string()),
-                ])
-                .send()
-                .await
-                .map_err(network_error)?;
+                ]);
+            let response = retry_public_get(request).await?;
             if response.status().as_u16() == 429 {
                 return Err(AppError::Network(
                     "Bangumi 请求过于频繁，请稍后再试".to_string(),
@@ -462,6 +463,15 @@ impl MetadataProvider for BangumiProvider {
     }
 }
 
+async fn retry_public_get(request: reqwest::RequestBuilder) -> AppResult<reqwest::Response> {
+    let request = request.timeout(Duration::from_secs(4));
+    let retry = request.try_clone().expect("public GET has no streaming body");
+    match request.send().await {
+        Ok(response) => Ok(response),
+        Err(error) if error.is_timeout() || error.is_connect() || error.is_request() => retry.send().await.map_err(network_error),
+        Err(error) => Err(network_error(error)),
+    }
+}
 fn network_error(error: reqwest::Error) -> AppError {
     if error.is_timeout() {
         AppError::Network("连接 Bangumi 超时，请检查网络后重试".to_string())
@@ -641,6 +651,20 @@ fn extract_season(value: &Value) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn public_get_retries_a_dropped_connection_but_not_rate_limit_responses() {
+        use tokio::io::{AsyncReadExt,AsyncWriteExt};
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
+        let server=tokio::spawn(async move {
+            let (mut first,_)=listener.accept().await.unwrap();first.read(&mut [0;1024]).await.unwrap();drop(first);
+            let (mut second,_)=tokio::time::timeout(std::time::Duration::from_secs(2),listener.accept()).await.unwrap().unwrap();second.read(&mut [0;1024]).await.unwrap();second.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").await.unwrap();
+        });
+        let client=reqwest::Client::builder().no_proxy().build().unwrap();
+        assert_eq!(super::retry_public_get(client.get(format!("http://{address}/episodes"))).await.unwrap().text().await.unwrap(),"ok");server.await.unwrap();
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
+        let server=tokio::spawn(async move {let (mut stream,_)=listener.accept().await.unwrap();stream.read(&mut [0;1024]).await.unwrap();stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").await.unwrap();assert!(tokio::time::timeout(std::time::Duration::from_millis(100),listener.accept()).await.is_err());});
+        assert_eq!(super::retry_public_get(client.get(format!("http://{address}/episodes"))).await.unwrap().status().as_u16(),429);server.await.unwrap();
+    }
     #[test]
     fn parses_p1_comments_without_a_comment_id_and_keeps_pagination() {
         let page = super::parse_comments(serde_json::json!({"data":[{"user":{"id":42,"nickname":"读者"},"comment":"测试吐槽","rate":8,"updatedAt":1700000000}],"total":123}),400602,0,20).unwrap();
