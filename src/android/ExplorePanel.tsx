@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
+import { startAndroidTransition as startExploreTransition } from "./viewTransition";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArrowLeft, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, Clock, Download, Heart, HeartCrack, MessageCircle, Play, RefreshCw, Search, Star, Users, X } from "lucide-react";
 import { api } from "../api";
@@ -9,6 +10,7 @@ import { appendComicPage, comicExploreApi, novelExploreApi, type ComicDetail, ty
 import { type SourceEntry } from "../bookContent";
 import BookReader from "./BookReader";
 import BookDescription from "./BookDescription";
+import { ComicCover } from "../components/ComicCover";
 import OnlineChapters from "./OnlineChapters";
 import LoadingIndicator from "./LoadingIndicator";
 import { androidSession, READING_NETWORK_CHANGED } from "./sessionCache";
@@ -24,7 +26,6 @@ const pic = (path: string | null | undefined) => path
   ? (/^(https?:|asset:|data:|blob:)/.test(path) ? path : convertFileSrc(path))
   : undefined;
 const cover = (subject: ExploreSubject) => pic(subject.coverUrl);
-const comicCover = (item: ComicItem) => pic(item.cachedCoverPath) ?? pic(item.coverUrl);
 const score = (value: number | null) => value == null ? "暂无评分" : value.toFixed(1);
 const stars = (value: number | null) => {
   const filled = value == null ? 0 : Math.max(0, Math.min(5, Math.round(value / 2)));
@@ -104,12 +105,6 @@ const StatusIcon = ({ id, size = 16 }: { id: WorkStatus | "none"; size?: number 
           : id === "completed" ? <Check size={size} />
             : <HeartCrack size={size} />;
 
-type ExploreTransition = { finished: Promise<void> };
-const startExploreTransition = (callback: () => void | Promise<void>): ExploreTransition | null => {
-  const doc = document as Document & { startViewTransition?: (callback: () => void | Promise<void>) => ExploreTransition };
-  if (typeof doc.startViewTransition !== "function" || matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
-  return doc.startViewTransition(callback);
-};
 const exploreCoverName = (id: string) => `gz-explore-cover-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 
 export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, active = true }: { onToast: (message: string) => void; onLibraryChanged?: () => void; registerBack?: (handler: (() => boolean) | null) => void; active?: boolean }) {
@@ -177,6 +172,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   const [readerEntry, setReaderEntry] = useState<SourceEntry | null>(null);
   const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
   const [structureState, setStructureState] = useState<LoadState>("ready");
+  const [structureAttempt, setStructureAttempt] = useState(0);
   const [subjectComments, setSubjectComments] = useState<BangumiComment[]>([]);
   const [subjectCommentsState, setSubjectCommentsState] = useState<LoadState>("ready");
   const [subjectCommentsTotal, setSubjectCommentsTotal] = useState(0);
@@ -219,7 +215,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
       window.setTimeout(() => { source.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; }, 420);
       return;
     }
-    const cleanup = () => { source.style.removeProperty("view-transition-name"); document.querySelectorAll<HTMLElement>("[data-explore-cover-id]").forEach(node => node.style.removeProperty("view-transition-name")); delete root.dataset.trans; delete root.dataset.nav; };
+    const cleanup = () => { if (!transition.isCurrent()) return; source.style.removeProperty("view-transition-name"); document.querySelectorAll<HTMLElement>("[data-explore-cover-id]").forEach(node => node.style.removeProperty("view-transition-name")); delete root.dataset.trans; delete root.dataset.nav; };
     void transition.finished.then(cleanup, cleanup);
   }, []);
   backHandler.current = () => {
@@ -459,15 +455,16 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   useEffect(() => {
     const workId = subject?.localWorkId;
     if (!subject) { setStructure(null); setStructureState("ready"); return; }
+    if (!workId && (subjectTab === "overview" || subjectTab === "comments")) return;
     let cancelled = false;
-    const key = workId ? `local:structure:${workId}` : `bangumi:structure:${subject.externalId}`;
+    const key = workId ? `local:structure:${workId}` : `bangumi:structure:${subject.externalId}:${subjectTab}`;
     const cached = androidSession.peek<AnimeWorkStructure>(key);
     setStructure(cached ?? null); setStructureState(cached ? "ready" : "loading");
-    androidSession.load(key, () => workId ? api.getAnimeWorkStructure(workId) : api.getBangumiSubjectStructure(subject.externalId))
+    androidSession.load(key, () => workId ? api.getAnimeWorkStructure(workId) : api.getBangumiSubjectStructure(subject.externalId,subjectTab))
       .then(value => { if (!cancelled) { setStructure(value); setStructureState("ready"); } })
       .catch(() => { if (!cancelled) { setStructure(null); setStructureState("error"); } });
     return () => { cancelled = true; };
-  }, [subject]);
+  }, [subject?.externalId, subject?.localWorkId, subjectTab, structureAttempt]);
 
   useEffect(() => {
     exploreCoverRef.current = subject || comicDetail
@@ -617,7 +614,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   </button>;
 
   const comicCard = (item: ComicItem, kind: "comic" | "novel" = "comic") => <button className="gz-cover" key={item.pathWord} onClick={() => void openBook(item, kind)}>
-    <span className="gz-explore-poster" data-explore-cover-id={item.pathWord}>{comicCover(item) ? <img src={comicCover(item)} alt="" loading="lazy" /> : <BookOpen size={24} />}</span>
+    <span className="gz-explore-poster" data-explore-cover-id={item.pathWord}><ComicCover item={item} /></span>
     <span className="gz-cover-label">{item.title}</span>
   </button>;
 
@@ -626,7 +623,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
     const sub = [formatPopularity(entry.popularity ?? entry.rankPopularity), item.authors[0]].filter(Boolean).join(" ");
     return <button className="gz-comic-card" key={item.pathWord} onClick={() => void openBook(item, "comic")}>
       <span className="gz-comic-poster" data-explore-cover-id={item.pathWord}>
-        {comicCover(item) ? <img src={comicCover(item)} alt="" loading="lazy" /> : <BookOpen size={22} />}
+        <ComicCover item={item} />
         {showRank && entry.rank != null && <span className="gz-comic-rank">{entry.rank}</span>}
       </span>
       <strong className="gz-comic-title">{item.title}</strong>
@@ -723,7 +720,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
           : structure && structure.episodes.length ? <>
             <div className="gz-section-head"><h2>剧集</h2><span className="gz-meta">{structure.episodes.length} 集</span></div>
             <div className="gz-episodes">{structure.episodes.map(episode => { const file = episode.localFiles[0]; const label = episode.episodeNumber != null ? `第 ${episode.episodeNumber} 集` : `#${episode.sortNumber}`; return <button className="gz-episode" key={episode.externalId} disabled={!file || file.missing} onClick={() => file && !file.missing && void playEpisode(file.id)}><div className="gz-episode-cover"><Play /><span>{label}</span></div><strong>{episode.title || label}</strong><span className="gz-meta">{file ? (file.missing ? "文件缺失" : file.fileName) : "未关联本地文件"}</span></button>; })}</div>
-          </> : structureState === "error" ? <div className="gz-error" role="alert"><span>Bangumi 分集资料读取失败。</span><button className="gz-iconbtn" aria-label="重试分集资料" onClick={() => setSubject({ ...subject })}><RefreshCw size={16} /></button></div> : <div className="gz-empty"><BookOpen size={26} /><h2>暂无剧集资料</h2><p>Bangumi 未提供该条目的分集资料。</p></div>}
+          </> : structureState === "error" ? <div className="gz-error" role="alert"><span>Bangumi 分集资料读取失败。</span><button className="gz-iconbtn" aria-label="重试分集资料" onClick={() => setStructureAttempt(value=>value+1)}><RefreshCw size={16} /></button></div> : <div className="gz-empty"><BookOpen size={26} /><h2>暂无剧集资料</h2><p>Bangumi 未提供该条目的分集资料。</p></div>}
     </section>}
     {subjectTab === "overview" && <>
       <section className="gz-section">
@@ -786,7 +783,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
     <section className="gz-subject-hero">
       <h1 className="gz-subject-title">{comicDetail.item.title}</h1>
       <div className="gz-subject-body">
-        <span className="gz-subject-cover" data-explore-cover-id={comicDetail.item.pathWord}>{comicCover(comicDetail.item) ? <img src={comicCover(comicDetail.item)} alt="" /> : <BookOpen size={28} />}</span>
+        <span className="gz-subject-cover" data-explore-cover-id={comicDetail.item.pathWord}><ComicCover item={comicDetail.item} detail /></span>
         <div className="gz-subject-stats">
           <div className="gz-book-pills">{comicDetail.item.authors.map(author => <span className="gz-book-pill" key={author}><Users size={12} />{author}</span>)}{comicDetail.item.status && <span className="gz-book-pill">{comicDetail.item.status}</span>}{comicDetail.item.tags.map(tag => <span className="gz-book-pill" key={tag}>{tag}</span>)}</div>
           {comicDetail.chapterCount != null && <div className="gz-subject-stat"><span>章节:</span><strong>{comicDetail.chapterCount}</strong></div>}
@@ -917,7 +914,8 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
           <div className="gz-section-head"><h2>已完结</h2><button className="gz-link" onClick={() => openComicSection("completed")}>更多<ChevronRight size={16} /></button></div>
           <div className="gz-comic-grid">{comicSections.completed.items.slice(0, 4).map(entry => comicHomeCard(entry))}</div>
         </section>}
-        <p className="gz-explore-source gz-meta">漫画首页来自 COPY 目录的推荐、排行榜与新上架接口；数字为来源热度。{comicHome.stale ? "当前显示离线缓存。" : ""}</p>
+        <p className="gz-explore-source gz-meta">漫画首页来自 COPY 目录的推荐、排行榜与新上架接口；数字为来源热度。{comicHome.stale ? "当前显示离线缓存。" : ""}{comicHome.warnings?.join(" ")}</p>
+        {!!comicHome.warnings?.length && <button className="gz-btn" onClick={() => void loadComicHome(true)}>重试首页分组</button>}
       </> : null)}
 
       {tab === "novel" && (searchTerm !== null ? <>

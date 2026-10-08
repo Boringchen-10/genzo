@@ -388,6 +388,8 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-comic-rail { margin-top: 4px; }
 .android-app .gz-comic-rail .gz-comic-card { width: clamp(104px, 30vw, 132px); }
 .android-app .gz-comic-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px 9px; }
+.android-app :is(.gz-explore-poster,.gz-comic-poster) > .comic-explore-cover { height: 100%; border: 0; border-radius: inherit; }
+.android-app .gz-subject-cover > .comic-explore-cover { border: 0; border-radius: inherit; }
 .android-app .gz-comic-grid-lg { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px 12px; }
 .android-app .gz-comic-card { display: grid; gap: 5px; flex: none; min-width: 0; text-align: left; }
 .android-app .gz-comic-card:active { transform: scale(.97); }
@@ -462,8 +464,7 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 400ms; 
 .android-app .gz-profile-page > *:nth-child(4) { animation-delay: 120ms; }
 .android-app .gz-profile-page > *:nth-child(5) { animation-delay: 160ms; }
 .android-app .gz-profile-page > *:nth-child(6) { animation-delay: 200ms; }
-/* Perf layer: skip layout/paint for off-screen grid cards, isolate poster paint, promote animated chrome. */
-.android-app .gz-grid > .gz-card { content-visibility: auto; contain-intrinsic-size: auto 210px; }
+/* Lazy images bound decoding; keep visible grid cards paintable during fast flings. */
 .android-app .gz-poster { contain: paint; }
 @media (prefers-reduced-motion: no-preference) {
   .android-app .gz-sheet { will-change: transform; }

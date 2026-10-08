@@ -4,6 +4,10 @@ Genzo v0.5.0 使用以下直接依赖。具体传递依赖及锁定版本以 `pn
 
 ## Android 原生阅读增量
 
+本轮网络 / 缓存适配的 Kira 与 Kazumi 文件和固定提交见 `docs/android/READER_NETWORK_FIXES.md`。Kazumi GPLv3 许可保留于 `licenses/kazumi-GPL-3.0.txt`；仅参考公共域名连接、接口与图像缓存实现，不复制账号 / 镜像签名凭据和品牌素材。
+
+启用 reqwest gzip 使用 async-compression `0.4.50`、compression-codecs `0.4.45`、compression-core `0.4.33`（MIT OR Apache-2.0）；声明保存于 `licenses/async-compression-LICENSE-*.txt`。ECH 直接使用已有锁定依赖 rustls `0.23.44`（Apache-2.0 OR ISC OR MIT）、base64 `0.22.1`（MIT OR Apache-2.0）和 webpki-roots `1.0.9`（CDLA-Permissive-2.0）；完整声明保留于相应 `licenses/` 文件。AWS-LC-RS 为既有密码学依赖（ISC AND (Apache-2.0 OR ISC)），TLS 保留证书验证；CA 数据随分发保留 CDLA 许可文本。
+
 - 小说接入 Readium Kotlin Toolkit `3.1.2` 的 shared / streamer / navigator，BSD-3-Clause，源码核对 `71074ea0c424eabbc39a93b48a4cefe366f7741b`，完整许可见 `licenses/readium-BSD-3-Clause.txt`。使用公开 SDK 管理 Publication、EPUB 排版、导航、偏好与 Locator；Genzo 独立实现来源、原生控件和 SQLite 记录。当前不引入 LCP 二进制或第三方字体 / 品牌素材。
 - 漫画使用 `com.davemorrissey.labs:subsampling-scale-image-view:3.10.0`，Apache-2.0，完整许可见 `licenses/subsampling-scale-image-view-Apache-2.0.txt`。原生采样 / 分块缩放视图与 Genzo 的加载、导航及进度模块组合；不将 Mihon 整套应用作为依赖。
 - `org.jsoup:jsoup:1.18.1` 按 MIT 使用，完整声明见 `licenses/jsoup-MIT.txt`；用于在内存中兼容既有 EPUB 的段落与插图链接，不改写原始书籍或缓存。

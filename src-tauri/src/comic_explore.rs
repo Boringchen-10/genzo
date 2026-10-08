@@ -16,11 +16,15 @@ const PROVIDER: &str = "copymanga";
 pub(super) const CATALOG_HOST: &str = "https://api.copy202601.com";
 pub(super) const DETAIL_HOST: &str = "https://mapi.hotmangasg.com";
 const PAGE_SIZE: u32 = 24;
+static PREFERRED_DETAIL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static REQUEST_LOCKS: std::sync::LazyLock<tokio::sync::Mutex<HashMap<String,std::sync::Arc<tokio::sync::Mutex<()>>>>> = std::sync::LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComicItem {
     pub(super) path_word: String,
+    #[serde(default)]
+    pub(super) source_id: Option<String>,
     pub(super) title: String,
     pub(super) cover_url: Option<String>,
     #[serde(default)]
@@ -120,6 +124,7 @@ pub(super) fn parse_item(value: &Value) -> AppResult<ComicItem> {
     }).map(str::to_string);
     Ok(ComicItem {
         path_word: path_word.into(), title: title.into(), cover_url,
+        source_id: value["uuid"].as_str().filter(|id| valid_id(id)).map(str::to_owned),
         cached_cover_path: None, cached_cover_thumbnail_path: None,
         authors: names(value, "author"), tags: names(value, "theme"),
         summary: value["brief"].as_str().unwrap_or_default().into(),
@@ -202,19 +207,24 @@ async fn request_once(
     comment_site: Option<&str>,
 ) -> Result<Value, (AppError, bool)> {
     let client = config.client(Duration::from_secs(15)).map_err(|e| (e, false))?;
-    let mut request = client.get(format!("{host}{path}")).query(params)
+    let mut request = client.get(format!("{host}{path}")).query(params).header("Accept", "application/json");
+    if comment_site.is_none() { request = request
         .header("Accept", "application/json").header("platform", "3")
         .header("source", "copyApp")
         .header("version", if detail { "2024.04.28" } else { &config.app_version })
         .header("User-Agent", if detail { "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131.0.6778.200 Mobile Safari/537.36".into() } else { format!("COPY/{}", config.app_version) })
-        .header("webp", "1").header("X-Requested-With", "com.manga2020.app")
-        ;
+        .header("webp", "1");
+        if detail { request = request.header("X-Requested-With", "com.manga2020.app"); }
+    }
     if let Some(site) = comment_site {
         // Kira marks comment reads as browser-originated requests. COPY rejects
         // otherwise valid comment calls when these navigation headers are absent.
         request = request
             .header("Origin", "https://copy4000.com")
             .header("Referer", "https://copy4000.com/")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.8")
+            .header("sec-fetch-mode", "cors").header("sec-fetch-dest", "empty")
             .header("sec-fetch-site", site);
     }
     let mut response = request.send().await.map_err(|_| (AppError::Network(format!("阅读来源连接失败（{host}），请在设置 → 阅读网络中测速或检查代理")), true))?;
@@ -236,12 +246,40 @@ async fn request_once(
 pub(super) async fn request_in_pool(pool: &SqlitePool, host: &str, path: &str, params: &[(String, String)]) -> AppResult<Value> {
     let config = crate::reading_network::load(pool).await?;
     let detail = host == DETAIL_HOST;
-    let hosts = if detail { config.detail_hosts() } else if host == CATALOG_HOST { vec![format!("https://{}", config.api_host)] } else { vec![host.into()] };
+    let mut hosts = if detail { config.detail_hosts() } else if host == CATALOG_HOST { vec![format!("https://{}", config.api_host)] } else { vec![host.into()] };
+    if detail && hosts.len() > 1 {
+        if let Some(preferred) = PREFERRED_DETAIL.lock().ok().and_then(|value|value.clone()) {
+            if let Some(index) = hosts.iter().position(|host|host == &preferred) { hosts.swap(0,index); }
+        }
+        return request_detail_hosts(config,hosts,path.to_owned(),params.to_vec()).await;
+    }
     let mut failure = invalid_data();
     for host in hosts {
         match request_once(&config, &host, path, params, detail, None).await {
             Ok(value) => return Ok(value),
             Err((error, retryable)) => { failure = error; if !retryable { break; } }
+        }
+    }
+    Err(failure)
+}
+
+async fn request_detail_hosts(config: crate::reading_network::ReadingNetwork, hosts: Vec<String>, path: String, params: Vec<(String,String)>) -> AppResult<Value> {
+    let mut tasks = tokio::task::JoinSet::new();
+    for (index,host) in hosts.into_iter().enumerate() {
+        let config = config.clone(); let path = path.clone(); let params = params.clone();
+        tasks.spawn(async move {
+            if index > 0 { tokio::time::sleep(Duration::from_millis(index as u64*600)).await; }
+            let result = request_once(&config,&host,&path,&params,true,None).await;
+            (host,result)
+        });
+    }
+    let mut failure = invalid_data();
+    while let Some(result) = tasks.join_next().await {
+        let (host,result) = result.map_err(|error|AppError::System(error.to_string()))?;
+        match result {
+            Ok(value) => { if let Ok(mut preferred) = PREFERRED_DETAIL.lock() { *preferred = Some(host); } return Ok(value); }
+            Err((error,false)) => return Err(error),
+            Err((error,true)) => failure = error,
         }
     }
     Err(failure)
@@ -278,8 +316,11 @@ pub(super) async fn comments_for(pool: &SqlitePool, id: &str, offset: u32, limit
     if !valid_id(id) || offset > 1_000_000 || !(1..=100).contains(&limit) {
         return Err(AppError::Validation("评论分页参数无效".into()));
     }
+    let mut detail = detail_in_pool(pool,id,false).await?;
+    if detail.item.source_id.is_none() { detail = detail_in_pool(pool,id,true).await?; }
+    let uuid = detail.item.source_id.ok_or_else(|| AppError::Network("来源没有提供评论所需的作品 UUID".into()))?;
     let value = request_comments_in_pool(pool, CATALOG_HOST, "/api/v3/comments", &[
-        ("comic_id".into(), id.into()),
+        ("comic_id".into(), uuid),
         ("reply_id".into(), String::new()),
         ("limit".into(), limit.to_string()),
         ("offset".into(), offset.to_string()),
@@ -326,6 +367,12 @@ pub(super) async fn cached_request_for<T: Serialize + DeserializeOwned>(
     let config = crate::reading_network::load(pool).await?;
     let cache_host = if host == CATALOG_HOST { format!("https://{}", config.api_host) } else if host == DETAIL_HOST { config.detail_hosts()[0].clone() } else { host.into() };
     let key = format!("v1:{cache_host}{path}:{}", serde_json::to_string(params)?);
+    let lock = {
+        let mut locks = REQUEST_LOCKS.lock().await;
+        locks.retain(|_,lock|std::sync::Arc::strong_count(lock)>1);
+        locks.entry(format!("{provider}:{key}")).or_default().clone()
+    };
+    let _guard = lock.lock().await;
     let cached: Option<(String, String)> = sqlx::query_as(
         "SELECT response_json, expires_at FROM metadata_cache WHERE provider = ? AND cache_key = ?")
         .bind(provider).bind(&key).fetch_optional(pool).await?;
@@ -459,6 +506,22 @@ pub async fn save_comic_explore_work(path_word: String, favorite: bool, state: S
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn stalled_detail_node_does_not_block_healthy_node() {
+        use tokio::io::{AsyncReadExt,AsyncWriteExt};
+        let slow = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let fast = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let hosts = vec![format!("http://{}",slow.local_addr().unwrap()),format!("http://{}",fast.local_addr().unwrap())];
+        let slow_task = tokio::spawn(async move {let (_stream,_) = slow.accept().await.unwrap();tokio::time::sleep(Duration::from_secs(4)).await;});
+        let fast_task = tokio::spawn(async move {
+            let (mut stream,_) = fast.accept().await.unwrap();let mut request=[0;4096];let _=stream.read(&mut request).await.unwrap();
+            let body=br#"{"code":200,"results":{"node":"healthy"}}"#;
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).as_bytes()).await.unwrap();stream.write_all(body).await.unwrap();
+        });
+        let start=std::time::Instant::now();
+        let result=super::request_detail_hosts(crate::reading_network::ReadingNetwork {proxy_mode:"direct".into(),..Default::default()},hosts,"/detail".into(),vec![]).await.unwrap();
+        assert_eq!(result["node"],"healthy");assert!(start.elapsed()<Duration::from_secs(2));fast_task.await.unwrap();slow_task.abort();
+    }
     use super::*;
     use serde_json::json;
 

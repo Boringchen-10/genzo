@@ -112,7 +112,7 @@ impl Session {
         let resources: Vec<Value> = chapter.sections.iter().enumerate().filter(|(_, section)| section["imageUrl"].is_string())
             .map(|(index, _)| json!({"href":format!("OEBPS/image-{index}"),"type":"image/jpeg"})).collect();
         Ok(json!({"kind":self.kind,"entryId":entry,"title":chapter.title,"offline":chapter.archive.is_some(),
-            "archivePath":chapter.archive.as_ref().filter(|_| self.kind == "novel"),"pages":pages,"contentBase":content_base,
+            "archivePath":chapter.archive,"archiveEntries":if chapter.archive.is_some() {chapter.pages.clone()} else {vec![]},"pages":pages,"contentBase":content_base,
             "location":saved.and_then(|value| serde_json::from_str::<Value>(&value).ok()),
             "publication":{"metadata":{"identifier":format!("genzo:{}:{}:{entry}",self.kind,self.book),"title":chapter.title,"language":["zh"],"@type":"http://schema.org/Book"},
                 "readingOrder":links,"toc":links,"resources":resources}}))

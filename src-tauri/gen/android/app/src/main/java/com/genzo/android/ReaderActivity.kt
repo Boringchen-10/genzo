@@ -27,6 +27,7 @@ interface ReaderSurface {
     fun settingsChanged()
     fun close()
     fun zoomRatio(): Float = 1f
+    fun imageGeometry(): JSONObject? = null
 }
 
 /** React keeps the library; this activity owns reader gestures and lifecycle. */
@@ -69,6 +70,7 @@ class ReaderActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         supportFragmentManager.fragmentFactory = org.readium.r2.navigator.epub.EpubNavigatorFragment.createDummyFactory()
         super.onCreate(savedInstanceState)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window,false)
         current = java.lang.ref.WeakReference(this)
         kind = intent.getStringExtra("kind") ?: "comic"
         entry = savedInstanceState?.getString("entry") ?: intent.getStringExtra("entryId") ?: ""
@@ -102,7 +104,11 @@ class ReaderActivity : AppCompatActivity() {
         if (savedInstanceState != null) supportFragmentManager.fragments.forEach { supportFragmentManager.beginTransaction().remove(it).commitNow() }
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            root.setPadding(bars.left, bars.top, bars.right, bars.bottom); insets
+            // Comic pages occupy the full viewport; only their controls avoid system bars/cutouts.
+            root.setPadding(bars.left, if (kind == "comic") 0 else bars.top, bars.right, if (kind == "comic") 0 else bars.bottom)
+            (top.layoutParams as FrameLayout.LayoutParams).apply { topMargin = if (kind == "comic") bars.top else 0; top.layoutParams = this }
+            (bottom.layoutParams as FrameLayout.LayoutParams).apply { bottomMargin = if (kind == "comic") bars.bottom else 0; bottom.layoutParams = this }
+            WindowInsetsCompat.Builder(insets).setInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),androidx.core.graphics.Insets.NONE).build()
         }
         applyAppearance(); load(entry, savedInstanceState?.getString("location")?.let { runCatching { JSONObject(it) }.getOrNull() })
     }
@@ -290,6 +296,7 @@ class ReaderActivity : AppCompatActivity() {
             .put("keepScreenOn", window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0)
             .put("viewportWidth", content.width).put("viewportHeight", content.height)
             .put("zoomRatio", surface?.zoomRatio() ?: 1f)
+            .put("imageGeometry", surface?.imageGeometry())
             .put("progress", if (::seek.isInitialized) seek.progress else 0)
     }
     /** Debug QA package only: exercises the same surface/settings methods as UI controls. */

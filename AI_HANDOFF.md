@@ -1,5 +1,14 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 阅读网络修复与后续目标进行中
+
+- 当前完整目标仍 active：完成阅读 / 网络问题，具体借鉴 Kira / Kazumi，保留 PC 管理 / 刮削，验证 WebDAV 多设备资料共享与离线数据包，并仅清理能证明完全无用的内容。不能将本轮阅读阶段完成当作完整目标完成。主要新功能流程使用 project-builder，缺陷阶段使用 bug-hunter；不委派子 Agent。
+- 安卓工作树 `H:/二次元阅读器/.tmp/android-first` / `codex/android-first`，基线 `b612d0a`。本轮六项阅读 / 网络改动已在独立一加测试包安装；详细实现、固定上游提交、验证边界见 `docs/android/READER_NETWORK_FIXES.md`。COPY 连接池 / gzip / 资料请求去重 / 节点回退与 UUID 评论；Bangumi P1 与分类按需，借鉴 Kazumi 官方域名 DoH / ECH；CBZ 直读、小说进度 / 跳转、全视口漫画、封面缩略图 / 重试与转场取消均已实施。
+- 已验证：前端类型检查 /94项，Rust310通过 /18忽略；官方 ECH 1项明确运行通过；实体机 reader-regressions、cover-fling、合成 CBZ 损坏 /恢复 /重试均通过。早期模拟器故障测试挂起并中断，已恢复其飞行模式，不报通过；手机故障测试没有切换其网络。真机 JSON /截图在 `D:/DevTools/Android/Build/qa/reader-fixes/3B164M00Z0500000/`；正常样本不能代替所有内容验收。
+- 当前 arm64 QA APK SHA256 `E5B8B68B668F8BE97C41962608CA7B11B76BF1653189410F899B8E29D4E9412B`，已安装手机。原 `com.genzo.android` 未操作，已有 QA 数据未重新播种，真实媒体未修改；桌面投屏启动器可在手机重连后再开。修改只纳入本轮代码 /测试 /许可 /文档，主目录其他 UI 草稿保留。
+- 下一步 WebDAV：主目录已经有**已提交** `crates/genzo-sync`、`personal_sync.rs`、0026 迁移 /PC界面，当前 main HEAD `73de973`，同步整合提交 `0dae95d`；主目录另有设计 /列表等未提交修改，不能复制或提交它们。安卓分支缺少共享同步接入，不得重造不兼容的 V1。现有协议仅影视，不包括书籍 /阅读位置；必须明确新增数据范围与兼容策略。离线包同样不能复制运行中的 DB、设备 ID /授权 /凭据 /本地路径。新增协议或数据库变更使用新迁移，0026 /0027 历史 SQL 保持原样并验证存量升级。
+- 用户澄清冗余是“完全用不到”的部分；保留有效功能及已确认后续方向基础，先检查引用和 APK 实际体积分布再清理。数据共享 /打包范围已用异步问答询问，回复到达时纳入完整目标。
+
 ## 手机桌面投屏（2026-10-07）
 
 - 用户要求把实体机画面显示到 Windows 桌面以便截图。使用官方 scrcpy 5.0 Windows x64 便携包，ZIP SHA256 `44c10d9e82f20ea67227d14d37bf9fbe3603117c5736df3f514544a02ba20a73`；解压在 `D:/DevTools/Android/Tools/scrcpy-5.0/`，复用 SDK ADB，只指定实体机 `3B164M00Z0500000`。

@@ -26,6 +26,13 @@ try {
   const before=(await native("readerState")).location;
   await control("next");
   state=await until(s=>JSON.stringify(s.location)!==JSON.stringify(before),"scroll movement");
+  assert.ok(state.progress > Math.round(before.locations.totalProgression*1000),"online volume progress follows scrolling");
+  for(const fraction of [.9,.15,.7]) {
+    await control("seek",fraction);
+    await until(s=>s.location?.locations?.totalProgression!=null&&Math.abs(s.location.locations.totalProgression-fraction)<.05,"large seek finishes at requested volume position");
+  }
+  await control("seek",.1);await delay(800);
+  state=await native("readerState");
   result.cases.scrollNext=state;screenshot("text");
   const targets=browser.contexts()[0].pages();
   const text=targets.find(p=>p.url().endsWith(state.location.href));

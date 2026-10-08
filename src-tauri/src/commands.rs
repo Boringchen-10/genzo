@@ -1421,9 +1421,10 @@ pub async fn get_anime_work_structure(
 #[tauri::command]
 pub async fn get_bangumi_subject_structure(
     external_id: String,
+    section: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<AnimeWorkStructure> {
-    crate::anime_details::bangumi_subject_structure(&state.pool, &external_id).await
+    crate::anime_details::bangumi_subject_structure(&state.pool, &external_id, section.as_deref()).await
 }
 
 #[tauri::command]

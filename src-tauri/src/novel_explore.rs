@@ -98,8 +98,11 @@ pub async fn get_novel_explore_comments(path_word: String, offset: u32, limit: u
     if !catalog::valid_id(&path_word) || offset > 1_000_000 || !(1..=100).contains(&limit) {
         return Err(AppError::Validation("评论分页参数无效".into()));
     }
+    let mut detail = in_pool(&state.pool,&path_word,false).await?;
+    if detail.item.source_id.is_none() { detail = in_pool(&state.pool,&path_word,true).await?; }
+    let uuid = detail.item.source_id.ok_or_else(|| AppError::Network("来源没有提供评论所需的作品 UUID".into()))?;
     let value = catalog::request_comments_in_pool(&state.pool, catalog::CATALOG_HOST, "/api/v3/bookcomments", &[
-        ("book_id".into(), path_word),
+        ("book_id".into(), uuid),
         ("reply_id".into(), String::new()),
         ("limit".into(), limit.to_string()),
         ("offset".into(), offset.to_string()),

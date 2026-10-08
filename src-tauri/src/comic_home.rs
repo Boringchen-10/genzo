@@ -46,7 +46,7 @@ pub struct ComicHomeSection {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ComicHome { pub sections: Vec<ComicHomeSection>, pub stale: bool }
+pub struct ComicHome { pub sections: Vec<ComicHomeSection>, pub stale: bool, #[serde(default)] pub warnings: Vec<String> }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -106,7 +106,8 @@ fn parse_home(value: Value) -> AppResult<ComicHome> {
             audience: period.map(|_| RankAudience::Male), items, total,
             supports_paging: section != ComicSection::HotUpdates })
     }).collect::<AppResult<Vec<_>>>()?;
-    Ok(ComicHome { sections, stale: false })
+    if sections.iter().all(|section| section.items.is_empty()) { return Err(invalid_data()); }
+    Ok(ComicHome { sections, stale: false, warnings:vec![] })
 }
 
 fn section_params(input: &ComicSectionQuery) -> AppResult<(&'static str, Vec<(String, String)>)> {
@@ -143,10 +144,31 @@ fn parse_page(value: Value, input: &ComicSectionQuery) -> AppResult<ComicSection
 }
 
 async fn home(pool: &sqlx::SqlitePool, refresh: bool) -> AppResult<ComicHome> {
-    let (mut result, stale) = catalog::cached_request_for("copymanga-home", pool, catalog::CATALOG_HOST,
-        "/api/v3/h5/homeIndex2", &[("platform".into(), "3".into())], 1, refresh, parse_home).await?;
-    result.stale = stale;
-    Ok(result)
+    if let Ok((mut result,stale)) = catalog::cached_request_for("copymanga-home",pool,catalog::CATALOG_HOST,
+        "/api/v3/h5/homeIndex2",&[("platform".into(),"3".into())],1,refresh,parse_home).await {
+        if result.sections.iter().any(|section|!section.items.is_empty()) { result.stale = stale; return Ok(result); }
+    }
+    // These are the source's actual group APIs. HotUpdates has no equivalent and is not fabricated.
+    let groups = [(ComicSection::Recommended,None),(ComicSection::Ranking,Some(RankPeriod::Day)),
+        (ComicSection::Ranking,Some(RankPeriod::Week)),(ComicSection::Ranking,Some(RankPeriod::Month)),
+        (ComicSection::NewArrivals,None),(ComicSection::Completed,None)];
+    let mut tasks = tokio::task::JoinSet::new();
+    for (index,(group,period)) in groups.into_iter().enumerate() {
+        let pool = pool.clone();
+        tasks.spawn(async move {
+            let input = ComicSectionQuery {section:group,period,audience:period.map(|_|RankAudience::Male),offset:0,limit:12};
+            (index,section(&pool,&input,refresh).await.map(|page|ComicHomeSection {
+                section:group,period,audience:input.audience,items:page.items,total:Some(page.total),supports_paging:true,
+            }))
+        });
+    }
+    let mut sections = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        if let Ok((index,Ok(section))) = result { sections.push((index,section)); }
+    }
+    sections.sort_by_key(|(index,_)|*index);
+    if sections.iter().all(|(_,section)|section.items.is_empty()) { return Err(invalid_data()); }
+    Ok(ComicHome {sections:sections.into_iter().map(|(_,section)|section).collect(),stale:false,warnings:vec!["部分首页分组暂不可用，可重试。".into()]})
 }
 
 async fn section(pool: &sqlx::SqlitePool, input: &ComicSectionQuery, refresh: bool) -> AppResult<ComicSectionPage> {
@@ -225,6 +247,14 @@ mod tests {
         let result = parse_home(value).unwrap();
         assert_eq!(result.sections[0].items.iter().map(|entry| entry.item.path_word.as_str()).collect::<Vec<_>>(),["z","a"]);
         assert!(result.sections[0].items[0].rank_popularity.is_none());
+    }
+
+    #[test]
+    fn empty_success_envelope_is_not_a_usable_homepage() {
+        let mut value = fixture();
+        for key in ["recComics","rankDayComics","rankWeekComics","rankMonthComics","finishComics"] { value[key]["list"] = serde_json::json!([]); }
+        for key in ["hotComics","newComics"] { value[key] = serde_json::json!([]); }
+        assert!(parse_home(value).is_err());
     }
 
     #[test]

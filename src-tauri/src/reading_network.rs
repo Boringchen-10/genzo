@@ -11,6 +11,7 @@ pub const ROUTES: [[&str; 3]; 2] = [
     ["mapi.elfgjfghkk.club", "mapi.fgjfghkkcenter.club", "mapi.fgjfghkk.club"],
 ];
 static SETTINGS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static CLIENTS: std::sync::Mutex<Vec<(String, Duration, reqwest::Client)>> = std::sync::Mutex::new(Vec::new());
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -66,12 +67,20 @@ impl ReadingNetwork {
     }
     pub fn client(&self, timeout: Duration) -> AppResult<reqwest::Client> {
         self.validate()?;
-        let mut builder = reqwest::Client::builder().timeout(timeout).connect_timeout(Duration::from_secs(10))
+        let key = format!("{}\n{}\n{}",self.app_version,self.proxy_mode,self.proxy_url);
+        let mut clients = CLIENTS.lock().map_err(|_| invalid("阅读连接池不可用"))?;
+        if let Some((_,_,client)) = clients.iter().find(|(stored,duration,_)| stored == &key && *duration == timeout) { return Ok(client.clone()); }
+        let mut builder = reqwest::Client::builder().timeout(timeout).connect_timeout(Duration::from_secs(6))
+            .http1_only()
+            .pool_idle_timeout(Duration::from_secs(120)).pool_max_idle_per_host(8).tcp_keepalive(Duration::from_secs(30))
             .user_agent(format!("COPY/{}", self.app_version))
             .redirect(reqwest::redirect::Policy::none());
         if self.proxy_mode == "direct" { builder = builder.no_proxy(); }
         if self.proxy_mode == "manual" { builder = builder.no_proxy().proxy(reqwest::Proxy::all(&self.proxy_url).map_err(|_| invalid("代理地址无效"))?); }
-        builder.build().map_err(|_| invalid("无法创建阅读来源连接"))
+        let client = builder.build().map_err(|_| invalid("无法创建阅读来源连接"))?;
+        if clients.len() >= 4 { clients.remove(0); }
+        clients.push((key,timeout,client.clone()));
+        Ok(client)
     }
     pub fn detail_hosts(&self) -> Vec<String> {
         if self.node.is_empty() { ROUTES[self.route].iter().map(|v| format!("https://{v}")).collect() }
@@ -148,6 +157,24 @@ pub async fn test_reading_network(config: ReadingNetwork) -> AppResult<Vec<NodeP
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn repeated_clients_reuse_one_http_connection() {
+        use tokio::io::{AsyncReadExt,AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream,_) = listener.accept().await.unwrap();
+            for _ in 0..2 {
+                let mut header = Vec::new();
+                while !header.ends_with(b"\r\n\r\n") { header.push(tokio::time::timeout(Duration::from_secs(2),stream.read_u8()).await.unwrap().unwrap()); }
+                assert!(String::from_utf8(header).unwrap().to_lowercase().contains("accept-encoding: gzip"));
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok").await.unwrap();
+            }
+        });
+        let config = ReadingNetwork {proxy_mode:"direct".into(),..Default::default()};
+        for _ in 0..2 { assert_eq!(config.client(Duration::from_secs(3)).unwrap().get(format!("http://{address}/pool")).send().await.unwrap().text().await.unwrap(),"ok"); }
+        server.await.unwrap();
+    }
     #[test]
     fn rejects_untrusted_hosts_credentials_and_invalid_limits() {
         let mut c = ReadingNetwork::default(); assert!(c.validate().is_ok());

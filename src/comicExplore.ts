@@ -25,7 +25,7 @@ export interface ComicHomeSection {
   section: ComicSection; period: RankPeriod | null; audience: RankAudience | null;
   items: ComicFeedEntry[]; total: number | null; supportsPaging: boolean;
 }
-export interface ComicHome { sections: ComicHomeSection[]; stale: boolean }
+export interface ComicHome { sections: ComicHomeSection[]; stale: boolean; warnings?: string[] }
 export type ComicSectionQuery = { offset: number; limit: number } & (
   | { section: "ranking"; period: RankPeriod; audience?: RankAudience }
   | { section: "recommended" | "newArrivals" | "completed"; period?: never; audience?: never }

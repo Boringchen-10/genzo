@@ -27,6 +27,10 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
     private val ready = mutableSetOf<Int>()
     override val rendered: Boolean get() = page in ready
     private val urls = data.getJSONArray("pages").let { array -> (0 until array.length()).map { array.getString(it) } }
+    private val archive = data.optString("archivePath").takeIf { it.isNotEmpty() && it != "null" }?.let { File(it).canonicalFile }.also { path ->
+        if (path != null) require(path.path.startsWith(File(host.applicationInfo.dataDir,"reading-cache").canonicalPath + "/"))
+    }
+    private val archiveEntries = data.optJSONArray("archiveEntries")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val downloads = Semaphore(2)
     private val files = File(host.cacheDir, "reader-images/${host.intent.getStringExtra("sessionId")}/${host.entry}")
@@ -48,11 +52,18 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         val recycler = list ?: pager?.getChildAt(0) as? RecyclerView
         return (recycler?.findViewHolderForAdapterPosition(page) as? PageHolder)?.zoomRatio() ?: 1f
     }
+    override fun imageGeometry(): JSONObject? {
+        val recycler = list ?: pager?.getChildAt(0) as? RecyclerView
+        return (recycler?.findViewHolderForAdapterPosition(page) as? PageHolder)?.geometry()
+    }
     private fun currentLayoutKey() = "${host.settings.optString("mode","scroll-vertical")}:${host.settings.optBoolean("rtl",false)}:${host.settings.optDouble("gap",0.0)}:${host.resources.configuration.orientation}"
 
     init { require(urls.isNotEmpty()); build() }
     private fun file(index: Int): Deferred<File> = requests.getOrPut(index) {
-        scope.async { downloads.withPermit { host.client.image(urls[index], files) } }
+        scope.async { downloads.withPermit {
+            if (archive != null) host.client.cachedImage(archive,requireNotNull(archiveEntries).getString(index),files)
+            else host.client.image(urls[index], files)
+        } }
     }
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun active(index: Int) {
@@ -134,6 +145,12 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         private var holdScale: Float? = null
         private var holdCenter: android.graphics.PointF? = null
         fun zoomRatio(): Float = image?.let { if (it.isReady && it.minScale > 0) it.scale / it.minScale else 1f } ?: 1f
+        fun geometry(): JSONObject? {
+            val picture = image?.takeIf { it.isReady } ?: return null
+            val first = picture.sourceToViewCoord(0f,0f) ?: return null
+            val last = picture.sourceToViewCoord(picture.sWidth.toFloat(),picture.sHeight.toFloat()) ?: return null
+            return JSONObject().put("left",first.x).put("top",first.y).put("right",last.x).put("bottom",last.y).put("width",picture.width).put("height",picture.height).put("source",if (archive != null) "local-cbz" else "online")
+        }
         fun release() { task?.cancel(); ready.remove(bound); image?.recycle(); image = null; frame.removeAllViews(); holdScale = null; holdCenter = null }
         fun bind(index: Int) {
             release(); bound = index
@@ -156,6 +173,9 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                     picture.setMinimumScaleType(SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE)
                     picture.setMaxScale(8f)
                     picture.setDoubleTapZoomScale(2.5f)
+                    picture.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                        if (picture.isReady && (right-left != oldRight-oldLeft || bottom-top != oldBottom-oldTop) && holdScale == null) picture.resetScaleAndCenter()
+                    }
                     picture.setOnStateChangedListener(object : SubsamplingScaleImageView.OnStateChangedListener {
                         override fun onScaleChanged(scale: Float, origin: Int) {
                             if (index == page) host.report("ready")

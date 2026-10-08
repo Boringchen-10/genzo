@@ -13,6 +13,28 @@ import java.security.MessageDigest
 
 /** Addresses come exclusively from the Rust session, never from book text. */
 class ReaderClient(val base: String) {
+    suspend fun cachedImage(archive: File, name: String, directory: File): File = withContext(Dispatchers.IO) {
+        require(!name.contains('/') && !name.contains('\\'))
+        directory.mkdirs()
+        val file = File(directory,name)
+        if (file.isFile && file.length() > 0) return@withContext file
+        val pending = File(directory,"$name-${java.util.UUID.randomUUID()}.part")
+        try {
+            java.util.zip.ZipFile(archive).use { zip ->
+                val entry = requireNotNull(zip.getEntry(name))
+                require(entry.size in 1..20L*1024*1024) { "缓存图片超过大小限制" }
+                zip.getInputStream(entry).use { input -> pending.outputStream().use { output ->
+                    val buffer = ByteArray(32768); var total = 0
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val count = input.read(buffer); if (count < 0) break
+                        total += count; check(total <= 20*1024*1024); output.write(buffer,0,count)
+                    }
+                } }
+            }
+            currentCoroutineContext().ensureActive(); check(pending.renameTo(file)); file
+        } finally { pending.delete() }
+    }
     private fun connection(path: String, body: JSONObject? = null): HttpURLConnection {
         val url = URL(if (path.startsWith(base)) path else base + path)
         require(url.protocol == "http" && url.host == "127.0.0.1" && url.toString().startsWith(base))

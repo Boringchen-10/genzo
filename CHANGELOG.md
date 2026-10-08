@@ -4,6 +4,10 @@ Genzo 的重要变更记录在此文件中。格式参考 Keep a Changelog，版
 
 ## [Unreleased]
 
+### Fixed
+
+- 安卓阅读与来源连接：修正在线小说进度 / 远距离跳转、漫画全视口居中 / 本地 CBZ 读取、列表封面缓存与转场；COPY 评论使用作品 UUID，来源连接复用与异常首页回退；Bangumi P1 吐槽及各分类按需读取，借鉴 Kazumi 官方域名 DoH / ECH 连接。独立实体机验证记录见 `docs/android/READER_NETWORK_FIXES.md`。
+
 ### Added
 
 - 安卓 C 方案基础阅读：Kotlin 漫画四模式 / RTL / 缩放 / 目录 / 连续阅读，Readium 小说分页 / 滚动 / 排版 / 插图；已有来源与 Genzo 缓存接入、SQLite 位置 / 书签 / 最近阅读及续读入口。独立模拟器测试包通过生命周期、离线与失败重试验证；范围和真机 / 服务兼容边界见 `docs/android/READER_C_V1.md`，未作为正式版本发布。

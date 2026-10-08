@@ -444,8 +444,22 @@ pub async fn work_structure(pool: &SqlitePool, work_id: &str) -> AppResult<Anime
     })
 }
 
-pub async fn bangumi_subject_structure(pool: &SqlitePool, external_id: &str) -> AppResult<AnimeWorkStructure> {
+pub async fn bangumi_subject_structure(pool: &SqlitePool, external_id: &str, section: Option<&str>) -> AppResult<AnimeWorkStructure> {
     let provider = BangumiProvider::new()?;
+    if let Some(section) = section {
+        let mut result = AnimeWorkStructure { work_id:String::new(),bangumi_id:external_id.into(),seasons:vec![],episodes:vec![],unmatched_files:vec![],staff:vec![],characters:vec![],warnings:vec![] };
+        match section {
+            "episodes" => result.episodes = provider.episodes(external_id).await?.into_iter().map(|episode| AnimeEpisodeEntry {image_url:None,local_files:vec![],episode}).collect(),
+            "related" => {
+                result.seasons = provider.related_subjects(external_id).await?;
+                for item in &mut result.seasons { item.local_work_id = sqlx::query_scalar("SELECT work_id FROM work_external_ids WHERE provider='bangumi' AND external_id=?").bind(&item.external_id).fetch_optional(pool).await?; }
+            }
+            "staff" => result.staff = provider.staff(external_id).await?,
+            "characters" => result.characters = provider.characters(external_id).await?,
+            _ => return Err(AppError::Validation("Bangumi 详情分类无效".into())),
+        }
+        return Ok(result);
+    }
     let metadata = provider.get_details(external_id).await?;
     let bangumi_id = metadata.external_id.clone();
     let mut warnings = Vec::new();

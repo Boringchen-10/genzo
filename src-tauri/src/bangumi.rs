@@ -11,12 +11,14 @@ use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::Duration;
 static RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
+static BACKGROUND_RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
 static WEBSITE_RATE_LIMITER: OnceLock<ProviderRateLimiter> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct BangumiProvider {
     client: Client,
     api_root: String,
+    background: bool,
 }
 
 impl BangumiProvider {
@@ -26,12 +28,13 @@ impl BangumiProvider {
     }
 
     pub fn with_transport(config: &crate::bangumi_network::BangumiNetwork, client: Client) -> Self {
-        Self { client, api_root: format!("{}/v0", config.base_url()) }
+        Self { client, api_root: format!("{}/v0", config.base_url()), background:false }
     }
 
     pub fn configured(config: &crate::bangumi_network::BangumiNetwork) -> AppResult<Self> {
-        Ok(Self { client: config.client()?, api_root: format!("{}/v0", config.base_url()) })
+        Ok(Self { client: config.client()?, api_root: format!("{}/v0", config.base_url()), background:false })
     }
+    pub fn background() -> AppResult<Self> { let mut provider = Self::new()?; provider.background = true; Ok(provider) }
 
     pub async fn search(&self, query: &str) -> AppResult<Vec<WorkMetadata>> {
         self.wait().await;
@@ -302,33 +305,14 @@ impl BangumiProvider {
     pub async fn comments(&self, external_id: &str, offset: u32, limit: u32) -> AppResult<BangumiCommentPage> {
         let subject_id = external_id.trim().parse::<i64>().map_err(|_| AppError::Validation("Bangumi 条目 ID 无效".into()))?;
         if offset > 1_000_000 || !(1..=100).contains(&limit) { return Err(AppError::Validation("Bangumi 评论分页参数无效".into())); }
-        self.wait().await;
-        let response = self.client.get(format!("{}/subjects/{subject_id}/comments", self.api_root))
+        WEBSITE_RATE_LIMITER.get_or_init(|| ProviderRateLimiter::new(Duration::from_secs(2))).wait().await;
+        let website = if self.api_root == "https://api.bgm.tv/v0" { "https://next.bgm.tv" } else { self.api_root.trim_end_matches("/v0") };
+        let response = self.client.get(format!("{website}/p1/subjects/{subject_id}/comments"))
             .query(&[("limit", limit.to_string()), ("offset", offset.to_string())])
             .send().await.map_err(network_error)?;
         if !response.status().is_success() { return Err(AppError::Network(format!("Bangumi 吐槽读取失败（HTTP {}）", response.status().as_u16()))); }
         let body: Value = response.json().await.map_err(|error| AppError::Network(format!("Bangumi 返回了无法解析的吐槽数据：{error}")))?;
-        let (rows, declared_total) = if let Some(rows) = body.as_array() {
-            (rows.clone(), None)
-        } else {
-            (body.get("data").and_then(Value::as_array).cloned().unwrap_or_default(), body.get("total").and_then(Value::as_u64))
-        };
-        let items = rows.into_iter().filter_map(|row| {
-            let id = row.get("id").and_then(|v| v.as_i64()).or_else(|| row.get("id").and_then(|v| v.as_str()).and_then(|v| v.parse().ok()))?.to_string();
-            let user = row.get("user").unwrap_or(&row);
-            let comment = row.get("comment").or_else(|| row.get("content")).and_then(Value::as_str).unwrap_or_default().trim().to_string();
-            if comment.is_empty() { return None; }
-            Some(BangumiComment {
-                id,
-                user_name: user.get("nickname").or_else(|| user.get("username")).and_then(Value::as_str).unwrap_or("匿名用户").to_string(),
-                user_avatar: user.get("avatar").and_then(|v| v.get("large").or_else(|| v.get("medium")).or_else(|| v.get("small"))).and_then(Value::as_str).map(normalize_bangumi_image_url),
-                comment,
-                created_at: row.get("created_at").or_else(|| row.get("createdAt")).and_then(Value::as_str).unwrap_or_default().to_string(),
-                rate: row.get("rate").and_then(Value::as_f64),
-            })
-        }).collect::<Vec<_>>();
-        let total = declared_total.unwrap_or_else(|| offset as u64 + items.len() as u64);
-        Ok(BangumiCommentPage { items, total, offset, limit })
+        parse_comments(body,subject_id,offset,limit)
     }
 
     async fn get_subject_collection(
@@ -356,11 +340,37 @@ impl BangumiProvider {
     }
 
     async fn wait(&self) {
-        RATE_LIMITER
+        (if self.background { &BACKGROUND_RATE_LIMITER } else { &RATE_LIMITER })
             .get_or_init(|| ProviderRateLimiter::new(Duration::from_secs(2)))
             .wait()
             .await;
     }
+}
+
+fn parse_comments(body: Value, subject_id: i64, offset: u32, limit: u32) -> AppResult<BangumiCommentPage> {
+        let (rows, declared_total) = if let Some(rows) = body.as_array() {
+            (rows.clone(), None)
+        } else {
+            (body.get("data").or_else(|| body.get("list")).and_then(Value::as_array).cloned().ok_or_else(|| AppError::Network("Bangumi 吐槽列表格式无效".into()))?, body.get("total").and_then(Value::as_u64))
+        };
+        let items = rows.into_iter().filter_map(|row| {
+            let user = row.get("user").unwrap_or(&row);
+            let id = row.get("id").and_then(|v| v.as_i64()).map(|id|id.to_string())
+                .or_else(|| user["id"].as_i64().map(|id|format!("{subject_id}:{id}")))?;
+            let comment = row.get("comment").or_else(|| row.get("content")).and_then(Value::as_str).unwrap_or_default().trim().to_string();
+            if comment.is_empty() { return None; }
+            Some(BangumiComment {
+                id,
+                user_name: user.get("nickname").or_else(|| user.get("username")).and_then(Value::as_str).unwrap_or("匿名用户").to_string(),
+                user_avatar: user.get("avatar").and_then(|v| v.get("large").or_else(|| v.get("medium")).or_else(|| v.get("small"))).and_then(Value::as_str).map(normalize_bangumi_image_url),
+                comment,
+                created_at: row.get("updatedAt").or_else(|| row.get("created_at")).or_else(|| row.get("createdAt"))
+                    .map(|value|value.as_str().map(str::to_owned).or_else(||value.as_i64().and_then(|time|chrono::DateTime::from_timestamp(time,0)).map(|time|time.to_rfc3339())).unwrap_or_default()).unwrap_or_default(),
+                rate: row.get("rate").and_then(Value::as_f64),
+            })
+        }).collect::<Vec<_>>();
+        let total = declared_total.unwrap_or_else(|| offset as u64 + items.len() as u64);
+        Ok(BangumiCommentPage { items, total, offset, limit })
 }
 
 fn calendar_by_weekday(body: &Value) -> AppResult<Vec<(u32, WorkMetadata)>> {
@@ -631,6 +641,16 @@ fn extract_season(value: &Value) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parses_p1_comments_without_a_comment_id_and_keeps_pagination() {
+        let page = super::parse_comments(serde_json::json!({"data":[{"user":{"id":42,"nickname":"读者"},"comment":"测试吐槽","rate":8,"updatedAt":1700000000}],"total":123}),400602,0,20).unwrap();
+        assert_eq!(page.items.len(),1);
+        assert_eq!(page.items[0].id,"400602:42");
+        assert_eq!(page.items[0].rate,Some(8.0));
+        assert!(!page.items[0].created_at.is_empty());
+        assert_eq!(page.total,123);
+        assert!(super::parse_comments(serde_json::json!({"error":"failed"}),400602,0,20).is_err());
+    }
     use super::*;
 
     #[test]

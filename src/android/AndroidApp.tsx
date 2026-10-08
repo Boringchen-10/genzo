@@ -1,5 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { startAndroidTransition as startViewTransition } from "./viewTransition";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { AlignJustify, ArrowLeft, ArrowUp, BarChart3, Bookmark, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Cloud, Compass, Database, Download, ExternalLink, Eye, EyeOff, FileText, Film, Filter, Flame, Folder, Footprints, HardDrive, Heart, HeartCrack, History, Home, Inbox, Info, Layers, Library, LoaderCircle, MessageCircle, MessageSquare, MoreHorizontal, Network, Palette, Pencil, PieChart, Play, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { api, bookApi } from "../api";
@@ -56,13 +57,6 @@ const WorkStatusIcon = ({ id, size = 16 }: { id: WorkStatus; size?: number }) =>
 const asset = (path: string | null | undefined) => path ? (/^(https?:|asset:|data:|blob:)/.test(path) ? path : convertFileSrc(path)) : undefined;
 const routeFromHash = () => location.hash.slice(2) || "home";
 const readWork = (id: string, refresh = false) => androidSession.load(`work:${id}`, () => api.getWork(id), refresh);
-type ViewTransitionHandle = { finished: Promise<void> };
-const startViewTransition = (callback: () => void | Promise<void>): ViewTransitionHandle | null => {
-  const doc = document as Document & { startViewTransition?: (callback: () => void | Promise<void>) => ViewTransitionHandle };
-  if (typeof doc.startViewTransition !== "function") return null;
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
-  return doc.startViewTransition(callback);
-};
 const coverTransitionName = (id: string) => `gz-cover-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 const coverSelector = (id: string) => `[data-cover-id="${id.replace(/["\\]/g, "\\$&")}"]`;
 const playFallbackTransition = (node: HTMLElement | null, kind: "forward" | "back") => {
@@ -505,7 +499,8 @@ export default function AndroidApp() {
     root.dataset.trans = "morph"; root.dataset.nav = kind;
     const transition = startViewTransition(async () => { await commit(); setCoverName(id, true); });
     if (!transition) { void commit(); if (transitionSeq.current === seq) { setCoverName(id, false); delete root.dataset.trans; delete root.dataset.nav; } return; }
-    void transition.finished.finally(() => { if (transitionSeq.current === seq) { setCoverName(id, false); delete root.dataset.trans; delete root.dataset.nav; } });
+    const cleanup = () => { if (transition.isCurrent() && transitionSeq.current === seq) { setCoverName(id, false); delete root.dataset.trans; delete root.dataset.nav; } };
+    void transition.finished.then(cleanup,cleanup);
   }
   function withPageTransition(kind: "forward" | "back", commit: () => void) {
     const root = document.documentElement;
@@ -516,7 +511,8 @@ export default function AndroidApp() {
     root.dataset.trans = "page"; root.dataset.nav = kind;
     const transition = startViewTransition(() => flushSync(commit));
     if (!transition) { commit(); playFallbackTransition(page, kind); if (transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } return; }
-    void transition.finished.finally(() => { if (transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } });
+    const cleanup = () => { if (transition.isCurrent() && transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } };
+    void transition.finished.then(cleanup,cleanup);
   }
   function navigate(next: string) {
     if (next === route) return;

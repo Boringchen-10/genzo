@@ -364,7 +364,7 @@ pub async fn anime_ranking(
 }
 
 pub async fn subject(pool: &SqlitePool, external_id: &str) -> AppResult<ExploreSubject> {
-    let metadata = load_subject_metadata(pool, external_id).await?;
+    let metadata = load_subject_metadata(pool, external_id, false).await?;
     let aggregated = crate::metadata_aggregator::aggregate(pool, metadata.value).await?;
     let local_states = load_local_states(pool).await?;
     Ok(to_explore_subject(
@@ -771,7 +771,7 @@ fn schedule_detail_cache_refresh(pool: &SqlitePool, external_id: &str) {
             return;
         }
         drop(running);
-        let _ = load_subject_metadata(&pool, &external_id).await;
+        let _ = load_subject_metadata(&pool, &external_id, true).await;
         in_flight.lock().await.remove(&external_id);
     });
 }
@@ -850,7 +850,7 @@ pub async fn save_subject(
     if !WORK_STATUSES.contains(&input.status.as_str()) {
         return Err(AppError::Validation("无效的本地追番状态".to_string()));
     }
-    let primary = load_subject_metadata(&state.pool, &input.external_id)
+    let primary = load_subject_metadata(&state.pool, &input.external_id, false)
         .await?
         .value;
     let aggregated = crate::metadata_aggregator::aggregate(&state.pool, primary).await?;
@@ -1163,6 +1163,7 @@ async fn fetch_calendar_and_cache(pool: &SqlitePool) -> AppResult<Cached<Vec<Wor
 async fn load_subject_metadata(
     pool: &SqlitePool,
     external_id: &str,
+    background: bool,
 ) -> AppResult<Cached<WorkMetadata>> {
     let external_id = validated_external_id(external_id)?;
     let base_key = format!("detail:{external_id}");
@@ -1178,7 +1179,7 @@ async fn load_subject_metadata(
     if cached.as_ref().is_some_and(|value| !value.stale) {
         return Ok(cached.expect("fresh cache checked"));
     }
-    let provider = BangumiProvider::new()?;
+    let provider = if background { BangumiProvider::background()? } else { BangumiProvider::new()? };
     match retry_network(|| provider.get_details(&external_id)).await {
         Ok(metadata) => {
             save_cache(

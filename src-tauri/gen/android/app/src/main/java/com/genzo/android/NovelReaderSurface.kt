@@ -1,4 +1,4 @@
-@file:OptIn(org.readium.r2.shared.ExperimentalReadiumApi::class, org.readium.r2.shared.InternalReadiumApi::class)
+@file:OptIn(org.readium.r2.shared.ExperimentalReadiumApi::class, org.readium.r2.shared.InternalReadiumApi::class, kotlinx.coroutines.FlowPreview::class)
 
 package com.genzo.android
 
@@ -9,6 +9,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.collectLatest
 import org.json.JSONObject
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
@@ -25,6 +27,7 @@ import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.services.PerResourcePositionsService
 import org.readium.r2.shared.publication.services.locateProgression
 import org.readium.r2.shared.publication.services.positionsServiceFactory
+import org.readium.r2.shared.publication.services.positionsByReadingOrder
 import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.getOrElse
 import org.readium.r2.shared.util.http.DefaultHttpClient
@@ -42,6 +45,7 @@ class NovelReaderSurface(private val host: ReaderActivity, private val container
     private var navigator: EpubNavigatorFragment? = null
     private var observer: Job? = null
     private var opening: Job? = null
+    private var seeking: Job? = null
     private var closed = false
     private var anchor: Locator? = null
     private var pageIndex = 0
@@ -68,11 +72,14 @@ class NovelReaderSurface(private val host: ReaderActivity, private val container
                 }
                 if (closed) { book.close(); return@launch }
                 publication = book
+                val positions = book.positionsByReadingOrder()
+                val starts = book.readingOrder.indices.map { index -> positions.getOrNull(index)?.firstOrNull()?.locations?.totalProgression ?: index.toDouble()/book.readingOrder.size }
                 val previous = host.supportFragmentManager.findFragmentById(container.id)
                 if (previous != null) host.supportFragmentManager.beginTransaction().remove(previous).commitNow()
                 val factory = EpubNavigatorFactory(book).createFragmentFactory(
                     initialLocator = if (initial?.optBoolean("end") == true) book.locatorFromLink(book.readingOrder.last())?.copyWithLocations(progression = 1.0)
                         else initial?.let { Locator.fromJSON(it) }, initialPreferences = preferences(),
+                    configuration = EpubNavigatorFragment.Configuration { shouldApplyInsetsPadding = false; disablePageTurnsWhileScrolling = true },
                     paginationListener = object : EpubNavigatorFragment.PaginationListener {
                         override fun onPageLoaded() { rendered = true; host.report("ready") }
                         override fun onPageChanged(pageIndex: Int, totalPages: Int, locator: Locator) {
@@ -97,13 +104,16 @@ class NovelReaderSurface(private val host: ReaderActivity, private val container
                     }
                 })
                 observer = host.lifecycleScope.launch {
-                    fragment.currentLocator.collect { current ->
-                        val locator = (fragment.firstVisibleElementLocator() ?: current).copyWithLocations(
-                            progression = current.locations.progression, totalProgression = current.locations.totalProgression,
+                    fragment.currentLocator.debounce(120).collectLatest { current ->
+                        val index = book.readingOrder.indexOfFirst { it.url() == current.href }.coerceAtLeast(0)
+                        val start = starts[index]; val end = starts.getOrElse(index+1) {1.0}
+                        val progression = (start + (current.locations.progression ?: 0.0)*(end-start)).coerceIn(0.0,1.0)
+                        val visible = fragment.firstVisibleElementLocator() ?: current
+                        if (visible.href != current.href || closed) return@collectLatest
+                        val locator = visible.copyWithLocations(
+                            progression = current.locations.progression, totalProgression = progression,
                             position = current.locations.position)
                         anchor = locator
-                        val index = book.readingOrder.indexOfFirst { it.url() == locator.href }.coerceAtLeast(0)
-                        val progression = locator.locations.totalProgression ?: (index + (locator.locations.progression ?: 0.0)) / book.readingOrder.size
                         host.locationChanged(index, book.readingOrder.size, progression)
                     }
                 }
@@ -141,7 +151,8 @@ class NovelReaderSurface(private val host: ReaderActivity, private val container
         if (!(if (forward) fragment.goForward(true) else fragment.goBackward(true))) host.adjacent(forward, automatic = true)
     }
     override fun seek(fraction: Double) {
-        host.lifecycleScope.launch { publication?.locateProgression(fraction)?.let { navigator?.go(it, true) } }
+        seeking?.cancel()
+        seeking = host.lifecycleScope.launch { publication?.locateProgression(fraction)?.let { navigator?.go(it, false) } }
     }
     override fun settingsChanged() { navigator?.submitPreferences(preferences()) }
     fun chapter(forward: Boolean) {
@@ -176,7 +187,7 @@ class NovelReaderSurface(private val host: ReaderActivity, private val container
         }
     }
     override fun close() {
-        closed = true; observer?.cancel(); opening?.cancel()
+        closed = true; observer?.cancel(); opening?.cancel(); seeking?.cancel()
         navigator?.let { if (!host.supportFragmentManager.isStateSaved) host.supportFragmentManager.beginTransaction().remove(it).commitNow() }
         navigator = null; publication?.close(); publication = null
     }

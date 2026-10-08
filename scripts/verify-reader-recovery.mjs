@@ -4,20 +4,21 @@ import {createHash} from "node:crypto";
 import {mkdirSync,writeFileSync,readFileSync} from "node:fs";
 import {chromium} from "playwright-core";
 
-const adb="D:/DevTools/Android/Sdk/platform-tools/adb.exe",serial="emulator-5554",app="com.genzo.android.readerqa";
-const output="D:/DevTools/Android/Build/qa/reader-c/recovery";mkdirSync(output,{recursive:true});
+const adb="D:/DevTools/Android/Sdk/platform-tools/adb.exe",serial=process.env.GENZO_READER_DEVICE||"emulator-5554",app="com.genzo.android.readerqa";
+assert.ok(["emulator-5554","3B164M00Z0500000"].includes(serial));
+const output=`D:/DevTools/Android/Build/qa/reader-fixes/${serial}/recovery`;mkdirSync(output,{recursive:true});
 const command=(...args)=>execFileSync(adb,["-s",serial,...args],{encoding:"utf8"});
 const binary=(...args)=>execFileSync(adb,["-s",serial,...args]);
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const hash=bytes=>createHash("sha256").update(bytes).digest("hex");
 command("shell","am","force-stop",app);command("shell","am","start","-n",`${app}/com.genzo.android.MainActivity`);await delay(1000);
 const pid=command("shell","pidof",app).trim();assert.match(pid,/^\d+$/);
-command("forward","tcp:9233",`localabstract:webview_devtools_remote_${pid}`);
+command("forward","tcp:9337",`localabstract:webview_devtools_remote_${pid}`);
 for(let i=0;i<60;i++){
- const connected=await fetch("http://127.0.0.1:9233/json/version").then(r=>r.ok).catch(()=>false);
+ const connected=await fetch("http://127.0.0.1:9337/json/version").then(r=>r.ok).catch(()=>false);
  if(connected)break;await delay(250);
 }
-const browser=await chromium.connectOverCDP("http://127.0.0.1:9233",{noDefaults:true});
+const browser=await chromium.connectOverCDP("http://127.0.0.1:9337",{noDefaults:true});
 const page=browser.contexts()[0].pages().find(p=>p.url().includes("tauri.localhost"));
 const invoke=(command,args={})=>page.evaluate(({command,args})=>window.__TAURI_INTERNALS__.invoke(command,args),{command,args});
 assert.equal((await invoke("get_app_info")).dataDirectory,`/data/user/0/${app}`);
@@ -36,8 +37,8 @@ function replaceArchive(source){
  command("shell","run-as",app,"cp","/data/local/tmp/genzo-reader-fault.bin",archive);
 }
 try{
- command("shell","cmd","connectivity","airplane-mode","enable");
- assert.equal(command("shell","settings","get","global","airplane_mode_on").trim(),"1");
+ if(serial==="emulator-5554")command("shell","cmd","connectivity","airplane-mode","enable");
+ if(serial==="emulator-5554")assert.equal(command("shell","settings","get","global","airplane_mode_on").trim(),"1");
  for(const kind of ["comic","novel"]){
   await invoke("open_internal_reader",{kind,pathWord:`reader-fixture-${kind}`,entryId:"two",group:kind==="comic"?"default":""});
   const ready=await until(s=>s.rendered&&s.status==="ready",`offline ${kind}`);assert.equal(ready.offline,true);
@@ -56,6 +57,8 @@ try{
  assert.ok(archive);backup=`${output}/original-fixture.cbz`;writeFileSync(backup,binary("exec-out","run-as",app,"cat",archive));
  await invoke("open_internal_reader",{kind:"comic",pathWord:"reader-fixture-comic",entryId:"one",group:"default"});
  await until(s=>s.rendered,"comic render");await control("settings",0,{mode:"page-horizontal",autoScroll:false});await control("seek",0);await delay(500);
+ await control("close");await until(s=>s.status==="closed","close before uncached page test");await delay(400);
+ await invoke("open_internal_reader",{kind:"comic",pathWord:"reader-fixture-comic",entryId:"one",group:"default"});await until(s=>s.rendered&&s.location.pageIndex===0,"cold page one");
  writeFileSync(`${output}/fault.bin`,Buffer.from("Intentional damage of an owned reader QA archive"));mutated=true;replaceArchive(`${output}/fault.bin`);
  await control("seek",1);await delay(700);
  assert.ok(ui().includes("第 6 页读取失败"),"native per-page failure is visible");capture("page-failure");result.cases.pageFailure=true;
@@ -68,6 +71,6 @@ try{
 }catch(error){result.error=String(error);result.state=await native("readerState").catch(()=>null);writeFileSync(`${output}/result.json`,JSON.stringify(result,null,2));throw error;}
 finally{
  if(mutated)replaceArchive(backup);
- command("shell","cmd","connectivity","airplane-mode",airplane==="1"?"enable":"disable");
+ if(serial==="emulator-5554")command("shell","cmd","connectivity","airplane-mode",airplane==="1"?"enable":"disable");
  command("shell","rm","-f","/data/local/tmp/genzo-reader-fault.bin");await browser.close();
 }

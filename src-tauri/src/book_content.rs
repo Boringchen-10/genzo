@@ -184,7 +184,13 @@ fn content_url(value: &str) -> AppResult<reqwest::Url> {
 async fn bytes(client: &reqwest::Client, url: reqwest::Url, limit: usize) -> AppResult<Vec<u8>> {
     let host = url.host_str().unwrap_or_default().to_string();
     for attempt in 0..3 {
-        let response = client.get(url.clone()).header("Accept", "*/*").send().await;
+        let mut request = client.get(url.clone()).header("Accept", "*/*");
+        if limit == MAX_IMAGE {
+            request = request.header("User-Agent","Mozilla/5.0 (Linux; Android 12; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.154 Mobile Safari/537.36")
+                .header("X-Requested-With","com.manga2020.app").header("Accept","image/webp,image/png,image/*,*/*;q=0.8")
+                .header("sec-fetch-site","cross-site").header("sec-fetch-mode","no-cors").header("sec-fetch-dest","image");
+        }
+        let response = request.send().await;
         match response {
             Ok(mut response) => {
                 let status = response.status();

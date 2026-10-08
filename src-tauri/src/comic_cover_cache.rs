@@ -115,8 +115,13 @@ where F: FnOnce(String, PathBuf) -> Fut, Fut: Future<Output = AppResult<()>> {
 
 #[tauri::command]
 pub async fn cache_comic_explore_cover(path_word: String, cover_url: String, refresh: bool, state: State<'_, db::AppState>, app: tauri::AppHandle) -> AppResult<CachedCover> {
+    let pool = state.pool.clone();
     let cached = cached_with(&state.cover_cache_path, &path_word, &cover_url, refresh,
-        |url, destination| async move { artwork::cache_cover(&url, &destination).await }).await?;
+        |url, destination| async move {
+            let bytes = crate::book_content::online_image(&pool,&url).await?;
+            tauri::async_runtime::spawn_blocking(move || artwork::decode_and_save_image(&bytes,&destination,true)).await
+                .map_err(|error| AppError::System(error.to_string()))?
+        }).await?;
     db::allow_cover_file(&app, Path::new(&cached.cover_path))?;
     Ok(cached)
 }

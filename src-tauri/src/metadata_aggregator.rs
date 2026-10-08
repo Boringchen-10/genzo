@@ -334,7 +334,7 @@ async fn cache_image(url: &str, destination: &Path, create_thumbnail: bool) -> A
     Ok(())
 }
 
-fn decode_and_save_image(
+pub(crate) fn decode_and_save_image(
     bytes: &[u8],
     destination: &Path,
     create_thumbnail: bool,

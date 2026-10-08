@@ -1,0 +1,31 @@
+# 安卓阅读与网络回归
+
+本轮处理用户在实体机报告的六项问题，继续使用 Kotlin 漫画 / Readium 小说。修复在 `codex/android-first` 的独立包 `com.genzo.android.readerqa` 验证，普通应用及真实媒体未修改。
+
+## 修改与证据
+
+| 用户报告 | 修复及验证 |
+| --- | --- |
+| 来源加载慢 | COPY 复用连接池、gzip、Dart 客户端对应的 HTTP/1.1、资料请求去重；详情慢节点延迟 600ms 后尝试同线路其他节点并记住成功节点。模拟服务验证第二条健康节点不等待第一条 4 秒停顿、两次客户端调用实际共用一个连接。 |
+| 小说进度不跟随 / 大幅滑动卡住 | 用章节起止位置及章节内 progression 计算卷内进度；取消过时定位、限制位置通知；大幅跳转不逐页动画，滚动模式避免误切资源。真机五次实际快速滑动从 9.9% 到 32.8%；三个远距离跳转约 0.39–0.52 秒完成。 |
+| 漫画留白 / 不居中 | 阅读图占满视口，安全区只约束原生控件；布局变更重新计算默认图片中心。1272×2772 真机分页图边界顶部 432、底部 2340，上下居中；滚动图顶部约 0。分页保留原图比例，滚动图从页顶贴合。 |
+| 已下载仍等待网络 | 校验缓存后直接把本地 CBZ 的受限条目交给 Kotlin 读取，不再经过逐页 HTTP 中转；有限提取与图片解码仍会有本地工作耗时。真实状态确认 `source=local-cbz`。 |
+| 评论及 Bangumi 其他分类不可用 | COPY 评论解析作品 UUID，不以 pathWord 替代；分别使用浏览器评论请求头。Bangumi 改用 P1 吐槽接口、按 user ID 和 updatedAt 解析；详情按当前分类请求，后台预取不阻塞交互队列。手机官方直连原样本每项 12 秒超时；引入 Kazumi 参考的安全 DoH / ECH 后，吐槽、分集、角色、关联、人员都返回真实数据，约 1.1–2.3 秒。COPY 评论约 1.0–1.3 秒。 |
+| 快速滑动封面黑屏 | 新安卓列表 / 详情原先绕过缓存组件，现接回已有磁盘缓存、600×900 范围缩略图、按需加载与失败占位 / 重试；取消屏外跳过绘制，统一转场取消和清理。手机漫画 / 轻小说往返快速滑动通过，本地缩略图及实际屏幕已检查，失效或等待图片有明确占位。 |
+
+部分手机请求的 COPY 首页返回 HTTP 200，但所有分组都是空列表；不能把它缓存成正常首页。现拒绝全空响应，必要时读取同源已有的推荐 / 日周月榜 / 新上架 / 已完结独立接口；首页未知的热门更新没有代用品，缺失分组显示提示和重试，不制造内容或把另一列表冒充它。
+
+## 参考来源与边界
+
+- Kira MIT 快照 `ac0a4db1d01f95d816d61a2960c48d5296a70c1b`：`api/api_transport.dart`、`api/manga/manga_api.dart`、`api/novel/novel_api.dart`、`api/api_client.dart`、`pages/reader/reader_image_cache.dart`、`reader_image_pipeline.dart`。借鉴长期连接、分离请求配置、UUID、缓存 / 占位 / 按需图像的具体实现；Rust / Kotlin / React 适配现有架构。
+- Kazumi GPLv3 快照 `11671bc0ec61727e99e34810f142a1b5e4121a8e`：`request/config/api_endpoints.dart`、`request/core/bangumi_transport.dart`、`services/network/bangumi_ech_resolver.dart`、`bean/card/network_img_layer.dart`。Bangumi 官方域名使用受限公共 IP 集合及 AliDNS 通过 HTTPS 查询的 Cloudflare ECH 配置；证书和域名校验保留。镜像配置保持用户设置；没有复制上游账号、签名凭据、品牌或第三方素材。
+- ECH 配置在 Android 启动后异步准备，不阻塞书库初始化；准备失败保留原连接方式。本轮没有引入 Kazumi 规则播放引擎。
+
+## 当前验证范围
+
+- 类型检查、22 个前端测试文件 / 94 项通过；共享 Rust 310 通过 / 18 忽略，另一个明确执行的官方 ECH 实际请求测试通过。
+- arm64 与 x86_64 曾编译 / 打包并安装验证。本轮最终包为 arm64 SHA256 `E5B8B68B668F8BE97C41962608CA7B11B76BF1653189410F899B8E29D4E9412B`，安装到一加 PLK110 / Android 16。不是正式发布包，不提升 Windows 发布版本。
+- `verify-reader-regressions.mjs`、`verify-reader-cover-fling.mjs` 真机通过；新读取路径的合成 CBZ 损坏 / 恢复 / 点重试也通过，恢复后的原始字节哈希已核对。手机故障测试不切换手机网络；模拟器测试才临时切换飞行模式。早期模拟器的故障测试挂起 / 被中断未报为通过。
+- 证据在 `D:/DevTools/Android/Build/qa/reader-fixes/3B164M00Z0500000/`，公开来源样本不代表所有作品 / 所有服务均已兼容。现有作品状态、收藏与笔记在设备检查前后相同。迭代只改变应用自己的缓存，不修改用户原始书籍。
+
+使用 `GENZO_READER_DEVICE` 指定已经获授权的设备后运行检查，默认模拟器；只接受本轮两设备及独立测试包。重新播种数据库不属于日常回归。
