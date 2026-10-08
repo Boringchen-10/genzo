@@ -1,4 +1,4 @@
-param([switch]$Install, [ValidateSet('x86_64','aarch64')][string]$Target = 'x86_64')
+param([switch]$Install, [switch]$Optimize, [ValidateSet('x86_64','aarch64')][string]$Target = 'x86_64')
 if ($Install -and $Target -ne 'x86_64') { throw 'Only the x86_64 QA package can be installed on emulator-5554' }
 $ErrorActionPreference = 'Stop'
 $taskSource = Split-Path -Parent $PSScriptRoot
@@ -33,6 +33,12 @@ $env:GRADLE_USER_HOME = Join-Path $taskTools 'Gradle'
 $env:CARGO_TARGET_DIR = Join-Path $taskTools 'Build\genzo'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 $env:CARGO_PROFILE_DEV_STRIP = 'symbols'
+$taskCargoProfile = if ($Optimize) { 'release' } else { 'debug' }
+$env:CARGO_PROFILE_RELEASE_OPT_LEVEL = 's'
+$env:CARGO_PROFILE_RELEASE_LTO = 'thin'
+$env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = '1'
+$env:CARGO_PROFILE_RELEASE_STRIP = 'symbols'
+$env:CARGO_PROFILE_RELEASE_PANIC = 'abort'
 $taskNdkBin = Join-Path $env:NDK_HOME 'toolchains\llvm\prebuilt\windows-x86_64\bin'
 $env:CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER = Join-Path $taskNdkBin 'x86_64-linux-android26-clang.cmd'
 $env:CC_x86_64_linux_android = $env:CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER
@@ -53,23 +59,28 @@ $env:WRY_ANDROID_KOTLIN_FILES_OUT_DIR = Join-Path $taskCopy $taskGenerated
 # Tauri's JNI symbols follow the Kotlin namespace; Gradle applicationId isolates data.
 $env:TAURI_CONFIG = '{"identifier":"com.genzo.android","build":{"devUrl":null}}'
 $env:GENZO_READER_QA = '1'
-$env:GENZO_ANDROID_BUILD_DIR = Join-Path $taskTools 'Build\reader-gradle'
+$env:GENZO_ANDROID_OPTIMIZE = if ($Optimize) { '1' } else { '0' }
+$env:GENZO_ANDROID_BUILD_DIR = Join-Path $taskTools $(if ($Optimize) { 'Build\reader-optimized-gradle' } else { 'Build\reader-gradle' })
 $env:TEMP = Join-Path $taskTools 'Temp'
 $env:TMP = $env:TEMP
 $env:JAVA_TOOL_OPTIONS = '-Djava.net.preferIPv4Stack=true'
 $env:PATH = "$taskNdkBin;$env:JAVA_HOME\bin;$env:CARGO_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:PATH"
 Push-Location $taskSource
 try {
-    & pnpm exec vite build --outDir (Join-Path $taskCopy 'dist')
+    $taskDist = [IO.Path]::GetFullPath((Join-Path $taskCopy 'dist'))
+    if ($taskDist -ne 'D:\DevTools\Android\Build\reader-source\dist') { throw 'Unexpected generated frontend directory' }
+    & pnpm exec vite build --outDir $taskDist --emptyOutDir
     if ($LASTEXITCODE -ne 0) { throw 'Reader frontend build failed' }
 } finally { Pop-Location }
 Push-Location $taskCopy
 try {
-    & cargo build --manifest-path src-tauri/Cargo.toml --lib --target $taskRustTarget --features custom-protocol --locked
+    $taskCargoArgs = @('build', '--manifest-path', 'src-tauri/Cargo.toml', '--lib', '--target', $taskRustTarget, '--features', 'custom-protocol', '--locked')
+    if ($Optimize) { $taskCargoArgs += '--release' }
+    & cargo @taskCargoArgs
     if ($LASTEXITCODE -ne 0) { throw 'Reader Android Rust build failed' }
     $taskJni = Join-Path $taskCopy "src-tauri/gen/android/app/src/main/jniLibs/$taskAbi"
     New-Item -ItemType Directory -Force -Path $taskJni | Out-Null
-    Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR "$taskRustTarget/debug/libgenzo_lib.so") -Destination (Join-Path $taskJni 'libgenzo_lib.so') -Force
+    Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR "$taskRustTarget/$taskCargoProfile/libgenzo_lib.so") -Destination (Join-Path $taskJni 'libgenzo_lib.so') -Force
     Push-Location 'src-tauri/gen/android'
     try {
         $taskApkOutput = [IO.Path]::GetFullPath((Join-Path $env:GENZO_ANDROID_BUILD_DIR "app/outputs/apk/$taskFlavor/debug/app-$taskFlavor-debug.apk"))

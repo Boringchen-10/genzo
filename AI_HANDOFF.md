@@ -1,13 +1,23 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
-## 阅读网络修复与后续目标进行中
+## 实体机网络、资料共享与轻量化交付（2026-10-08）
 
-- 当前完整目标仍 active：完成阅读 / 网络问题，具体借鉴 Kira / Kazumi，保留 PC 管理 / 刮削，验证 WebDAV 多设备资料共享与离线数据包，并仅清理能证明完全无用的内容。不能将本轮阅读阶段完成当作完整目标完成。主要新功能流程使用 project-builder，缺陷阶段使用 bug-hunter；不委派子 Agent。
-- 安卓工作树 `H:/二次元阅读器/.tmp/android-first` / `codex/android-first`，基线 `b612d0a`。本轮六项阅读 / 网络改动已在独立一加测试包安装；详细实现、固定上游提交、验证边界见 `docs/android/READER_NETWORK_FIXES.md`。COPY 连接池 / gzip / 资料请求去重 / 节点回退与 UUID 评论；Bangumi P1 与分类按需，借鉴 Kazumi 官方域名 DoH / ECH；CBZ 直读、小说进度 / 跳转、全视口漫画、封面缩略图 / 重试与转场取消均已实施。
-- 已验证：前端类型检查 /94项，Rust310通过 /18忽略；官方 ECH 1项明确运行通过；实体机 reader-regressions、cover-fling、合成 CBZ 损坏 /恢复 /重试均通过。早期模拟器故障测试挂起并中断，已恢复其飞行模式，不报通过；手机故障测试没有切换其网络。真机 JSON /截图在 `D:/DevTools/Android/Build/qa/reader-fixes/3B164M00Z0500000/`；正常样本不能代替所有内容验收。
-- 当前 arm64 QA APK SHA256 `E5B8B68B668F8BE97C41962608CA7B11B76BF1653189410F899B8E29D4E9412B`，已安装手机。原 `com.genzo.android` 未操作，已有 QA 数据未重新播种，真实媒体未修改；桌面投屏启动器可在手机重连后再开。修改只纳入本轮代码 /测试 /许可 /文档，主目录其他 UI 草稿保留。
-- 下一步 WebDAV：主目录已经有**已提交** `crates/genzo-sync`、`personal_sync.rs`、0026 迁移 /PC界面，当前 main HEAD `73de973`，同步整合提交 `0dae95d`；主目录另有设计 /列表等未提交修改，不能复制或提交它们。安卓分支缺少共享同步接入，不得重造不兼容的 V1。现有协议仅影视，不包括书籍 /阅读位置；必须明确新增数据范围与兼容策略。离线包同样不能复制运行中的 DB、设备 ID /授权 /凭据 /本地路径。新增协议或数据库变更使用新迁移，0026 /0027 历史 SQL 保持原样并验证存量升级。
-- 用户澄清冗余是“完全用不到”的部分；保留有效功能及已确认后续方向基础，先检查引用和 APK 实际体积分布再清理。数据共享 /打包范围已用异步问答询问，回复到达时纳入完整目标。
+- 工作树 `H:/二次元阅读器/.tmp/android-first`，分支 `codex/android-first`。阅读 / 网络六项修复已提交 `a8a0073`；资料共享已提交 `9c48982`，Bangumi持久缓存 / 瞬断恢复已提交 `55c5b9a`；构建优化提交以 Git 日志为准。主目录的 UI / 设计草稿及普通 Android 包不操作。
+- 具体借鉴 Kira 的连接池 / gzip / UUID / 缓存 / 按需图片，以及 Kazumi 的 Bangumi DoH / ECH。固定上游、许可、实现与六项样本证据见 `docs/android/READER_NETWORK_FIXES.md`。Kazumi 规则播放与 Bangumi 账号同步仍是后续方向，未声称已实现。
+- 从 PC 已提交 `0dae95d` 复用共享 V1 核心，原样加入0026，注册宿主 / 安全凭据 / 后台服务 / 真实面板，接入 PC 与 Android 观看会话。SAF 完整哈希在原生授权文档流上执行，版本 / 属性变化拒绝绑定，WebDAV 正文不自动下载。
+- 影视自动同步继续使用 `state.json` V1；各品类资料、来源阅读位置 / 书签通过独立 `personal-data-v1.json` 快照共享，并可系统文件导出 / 预览导入。当前书籍共享需要预览导入，不是后台自动同步；资料包不含媒体正文、设备身份、凭据、本机路径或 Readium 正文摘录。格式 / 操作见 `docs/PORTABLE_PERSONAL_DATA.md`。
+- 增量0028 / 0029保存可移植身份和别名；均已在 QA 手机执行，不得编辑。0026 / 0027 原样保留；存量0027补入26的测试保留个人记录和旧校验和。预览内显式文件绑定、既有记录保留、事务重检 / 回滚和规范化书签去重通过。不能重新播种手机 genzo.db。
+- 验证：前端22文件 /94项与类型检查通过；宿主319通过 /18忽略，同步核心3单测 /13集成通过；6项资料包测试覆盖阅读时间 / 最近章卷顺序与书签去重。Windows独立 sharingqa 的1024 /1280 /1366 /1440 /1920宽度无横向溢出，真实书架自动刷新且未保存点评草稿保留，PC 管理 / 刮削共享回归通过。
+- 最终 arm64 QA APK `D:/DevTools/Android/Build/artifacts/Genzo-sharing-light-arm64-readerqa-364831F6.apk`，SHA256 `364831F65F60B9374CA3C0C0A6531B7D09BD286B172BA520626B4AC6B298554C`，78,952,265字节，已安装一加PLK110 / Android16的 `com.genzo.android.readerqa`。签名与16KiB ZIP对齐通过；这是测试包，没有正式发布 / 升版本 / 标签 / 推送。
+- 轻量化：过期前端构建资源约12.7→2.6MiB，修正构建目录重新生成；无引用旧阅读CSS、假WebDAV表单及旧表单样式清理。Rust size / thin LTO / strip，R8 / 资源收缩；初次发现 Wry、Tauri 和 LibVLC JNI 被收缩，补齐保留规则后真机回归。最终APK约112.6→75.3MiB，减约33.1%，保留有效内核 / PC功能 / 原始媒体。详见 `docs/android/LIGHTWEIGHT_AUDIT.md`。
+- 真机压缩包 reader-regressions / cover-fling 通过：CBZ打开207ms（测量在故意等待前）、分页上下居中432 /2340，滚动顶部约0；五次实际小说滑动9.9→48.9%，大跳转约0.41–0.42秒。Bangumi各分类 / 评论和COPY评论真实样本返回非空。release Rust 拒绝调试在线夹具入口，压缩回归使用已有自制 EPUB缓存，不弱化生产入口检查。
+- `verify-optimized-player.mjs`：专用已授权自制目录 `GenzoSharingQA-1791431130`，h264.mp4 / h265.mkv完整SHA256与D盘样本相同、两编码版本不同，播放 / 拖动 / SQLite位置保存通过。只扫描此测试目录；没有扫描或修改真实媒体。
+- `verify-webdav-native.mjs` 最终包通过PC→手机、手机→PC、再次更新、离线保留、恢复与进程重启后Keystore / 空间 / 设备ID保留；待传为0时63.4秒自动接收电脑更新。证据 `D:/DevTools/Android/Build/qa/webdav-native-1791425850165/result.json`；同测试空间仍暂停，端点 `http://127.0.0.1:51799/library/`，libraryId `f361de4e-7bca-480a-84f0-7f309cdeb73a`。用GENZO_SYNC_QA_RESUME / PORT=51799 / APK指向最终包复测，不清库或覆盖其他连接。
+- `verify-portable-sharing.mjs` 的 Windows真IPC / Android真IPC漫画、小说、位置 / 书签双向快照和默认保留 / 明确更新通过，证据 `D:/DevTools/Android/Build/qa/portable-sharing-1791444580975/`。最终包 `verify-package-picker.mjs` 的真实系统保存 / 打开 / 预览 / 重复导入保留七部作品通过，证据 `D:/DevTools/Android/Build/qa/package-picker-1791444840440/`。测试文件名带 Genzo-qa 前缀，不覆盖已有文件。
+- WebDAV验收使用本机鉴权 / 强ETag服务和ADB reverse，测试后服务停止、反向端口移除、同步暂停。没有用户外部WebDAV服务凭据，不能声称所有真实服务已覆盖。正式包、其他机型 / 页大小设备、任意复杂书籍格式和完整后台阅读同步各自需要后续范围与样本。
+
+- 最终网络回归出现过一次分集12秒超时，补上在线分类的一小时磁盘缓存 / 强制更新 / 失败带提示保留旧值，以及分集公开GET两次各4秒的瞬断重试。最终强制联网回归无缓存兜底：分集1.48秒 /36，角色4.21秒 /91，关联0.38秒 /21，人员2.81秒 /862；评论正常。受控真机缓存命中3–4ms、重启后不发请求、失败刷新保留值 / 警告均通过，证据 `D:/DevTools/Android/Build/qa/bangumi-cache-1791447024922/`。
+- 当前完整验收对应表见 `docs/android/DELIVERY_VERIFICATION.md`。桌面投屏已打开。停止本轮隐藏Windows sharingqa进程不影响主Genzo进程或数据库。
 
 ## 手机桌面投屏（2026-10-07）
 

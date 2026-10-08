@@ -29,10 +29,19 @@ android {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = false
-            isMinifyEnabled = false
+            isMinifyEnabled = System.getenv("GENZO_ANDROID_OPTIMIZE") == "1"
+            isShrinkResources = isMinifyEnabled
+            if (isMinifyEnabled) {
+                proguardFiles(
+                    *fileTree(".") { include("**/*.pro") }
+                        .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
+                        .toList().toTypedArray()
+                )
+            }
         }
         getByName("release") {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))

@@ -297,14 +297,6 @@ html[data-platform="android"], html[data-platform="android"] body, html[data-pla
 .android-app .gz-reader-head { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .android-app .gz-reader-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .android-app .gz-reader-kind { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--muted); font-size: 12px; }
-.android-app .gz-reader-pages, .android-app .gz-reader-sections { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; padding: 14px; }
-.android-app .gz-reader-pages { display: grid; gap: 10px; justify-items: center; background: #101214; }
-.android-app .gz-reader-pages img, .android-app .gz-reader-section img { display: block; max-width: 100%; height: auto; border-radius: 2px; }
-.android-app .gz-reader-image-loading { display: grid; place-items: center; width: 100%; min-height: 120px; border: 1px solid var(--line); color: var(--muted); }
-.android-app .gz-reader-sections { display: grid; gap: 20px; }
-.android-app .gz-reader-section { padding-bottom: 18px; border-bottom: 1px solid var(--line); }
-.android-app .gz-reader-section h2 { margin: 0 0 10px; font-size: 16px; }
-.android-app .gz-reader-section p { margin: 0; white-space: pre-wrap; line-height: 1.85; overflow-wrap: anywhere; }
 .android-app .gz-reader-empty { display: grid; place-items: center; gap: 12px; padding: 32px 18px; text-align: center; }
 .android-app .gz-reader-error { margin: 8px 0; color: var(--warn); font-size: 12px; }
 .android-app .gz-tag { display: inline-flex; align-items: center; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-raised); color: var(--muted); cursor: pointer; }
@@ -696,11 +688,8 @@ html[data-trans="morph"]::view-transition-group(*) { animation-duration: 400ms; 
 .android-app .gz-sync-pref { margin-top: 14px; }
 .android-app .gz-sync-pref-head { margin-top: 0; }
 .android-app .gz-sync-pref-body { display: grid; gap: 8px; margin-top: 10px; }
-.android-app .gz-sync-cloud { margin-bottom: 12px; }
-.android-app .gz-sync-server-form { display: grid; gap: 10px; margin: 14px 0; }
-.android-app .gz-sync-save { width: 100%; margin-top: 4px; }
 @media (hover: none) {
-  .android-app :is(.gz-sync-action, .gz-sync-secondary, .gz-sync-cloud):active { transform: scale(.97); }
+  .android-app :is(.gz-sync-action, .gz-sync-secondary):active { transform: scale(.97); }
 }
 .android-app .gz-confirm-actions .gz-btn { flex: 1; }
 

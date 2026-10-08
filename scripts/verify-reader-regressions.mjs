@@ -29,7 +29,9 @@ try{
  result.cases.cachedComic={milliseconds:comicOpenMilliseconds,geometry:g};screenshot("comic-centered");
  await control("settings",0,{mode:"scroll-vertical"});await control("seek",0);await pause(600);state=await until(s=>s.rendered&&s.imageGeometry,"scroll image");assert.ok(Math.abs(state.imageGeometry.top)<3,"no extra top padding inside comic page");result.cases.comicScrollGeometry=state.imageGeometry;screenshot("comic-scroll");
  await control("settings",0,{...comicSettings,mode:comicSettings.mode||"scroll-vertical",dimming:comicSettings.dimming||0,autoScroll:comicSettings.autoScroll||false});await control("close");await until(s=>s.status==="closed","close");await pause(300);
- await invoke("open_reader_online_fixture");await until(s=>s.rendered,"novel");const novelSettings=(await native("readerState")).settings;
+ if(process.env.GENZO_READER_OPTIMIZED==="1") await invoke("open_internal_reader",{kind:"novel",pathWord:"reader-fixture-novel",entryId:"one",group:""});
+ else await invoke("open_reader_online_fixture");
+ await until(s=>s.rendered,"novel");const novelSettings=(await native("readerState")).settings;
  await control("settings",0,{scroll:true,fontSize:20});await control("seek",.1);await pause(600);const initial=await native("readerState");
  for(let i=0;i<5;i++)shell("shell","input","swipe","600","1900","600","400","100");
  state=await until(s=>s.progress>initial.progress,"progress follows real fast swipes");assert.ok(state.location.locations.cssSelector);result.cases.novelFling={before:initial.progress,after:state.progress};screenshot("novel-fling");
@@ -37,10 +39,10 @@ try{
  await control("settings",0,{...novelSettings,scroll:novelSettings.scroll||false,fontSize:novelSettings.fontSize||20});await control("close");await until(s=>s.status==="closed","close");await pause(300);
  for(const [command,args,key] of [
   ["get_bangumi_subject_comments",{externalId:"400602",offset:0,limit:2},"bangumiComments"],
-  ...["episodes","characters","related","staff"].map(section=>["get_bangumi_subject_structure",{externalId:"400602",section},section]),
+  ...["episodes","characters","related","staff"].map(section=>["get_bangumi_subject_structure",{externalId:"400602",section,force:true},section]),
   ["get_comic_explore_comments",{pathWord:"modujingbingdenuli",offset:0,limit:2},"copyComments"]
  ]){
-  started=Date.now();try{const value=await invoke(command,args);const items=value[key==="related"?"seasons":key.includes("Comments")?"items":key];assert.ok(items?.length>0,`${key} is populated`);result.cases[key]={milliseconds:Date.now()-started,count:items.length};}catch(error){result.failures.push({key,milliseconds:Date.now()-started,error:String(error)});}
+  started=Date.now();try{const value=await invoke(command,args);const items=value[key==="related"?"seasons":key.includes("Comments")?"items":key];assert.ok(items?.length>0,`${key} is populated`);assert.equal(value.warnings?.length||0,0,"fresh source request, not cached fallback");result.cases[key]={milliseconds:Date.now()-started,count:items.length};}catch(error){result.failures.push({key,milliseconds:Date.now()-started,error:String(error)});}
  }
  const after=await invoke("list_works");assert.deepEqual(after.map(w=>({id:w.id,status:w.status,favorite:w.favorite,notes:w.notes})),works.map(w=>({id:w.id,status:w.status,favorite:w.favorite,notes:w.notes})));
  writeFileSync(`${output}/result.json`,JSON.stringify(result,null,2));assert.equal(result.failures.length,0,JSON.stringify(result.failures));console.log(JSON.stringify({output,passed:true,cases:result.cases}));
