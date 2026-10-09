@@ -1,5 +1,15 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## 漫画全屏与黑色接缝修复验收（2026-10-09）
+
+- 起点 `b65574b`，工作区干净。用户报告下滑到新图时底部黑色加载 /闪屏、隐藏菜单仍有顶部遮挡；补充底部工具栏能盖住闪烁。按新意图覆盖此前漫画一直避开切口的策略，不改变小说安全区。
+- Comic阅读内容固定edge-to-edge，允许绘到cutout；系统栏 /工具栏只作为覆盖层显隐，顶部状态背景只在菜单打开时出现。root不再按系统insets重新缩小漫画视口，因此菜单不触发尺寸变化或全段缩放复位。
+- 原实现只有磁盘预取，图控件进入屏幕后SSIV还会等待首次绘制 /高清瓦片；改为阅读方向额外布局一屏、预取时仅读真实图片宽高、取消天然短图80dp最小高度，本页小尺寸预览先显示再补高清。预览上限768×1024、控件回收，旧缓存控件1个，不整话解码；Deferred LAZY入表后启动确保缓存命中同步完成也不重复工作。
+- 24张2000px宽 /不等高图片、9次真实下滑与菜单显隐尺寸固定通过。初次录像仍出现2–4帧底部黑块，补预览后432帧暗色底块0 /maxDarkRatio0。证据 `D:/DevTools/Android/Build/qa/comic-smooth-1791512141069/`，脚本 `verify-comic-smooth.mjs` /`audit-comic-video.py`，PyAV19.0.1只在外部D盘工具目录。录像通过scrcpy捕获；Android screenrecord输出受权限限制 /app_process视频审计被杀，未把这些失败当成功。
+- 旧四项与CBZ四模式（`comic-four-1791512249409/`）、真实61页全章 /回滑（`comic-real-chapter-1791512338795/`）通过。真实样本已缓存，最长1.04秒；无网络普遍零等待承诺。
+- 版本字段0.5.2用于同签名本机验收；公开v0.5.1及其标签 /资产不改。本轮不上传新Release，等用户确认效果再正式发补丁。签名沿既有CEE90E5F证书；不清库、不改迁移、真实媒体、主Windows工作区或用户记录。
+- TypeScript /96前端用例、arm64Release /R8 /lintVital、签名 /16KiB ZIP检查通过。验收包 `D:/DevTools/Android/Build/releases/v0.5.2/Genzo_0.5.2_android_arm64-v8a.apk`，74,869,842字节，SHA256 `4bf6dc99d4c03d49c67dbba47adf80ae9cd7aeebcecbf1a6b6de443794dde4df`。已以install -r覆盖实体机普通包，versionName0.5.2 /5002，COLD启动成功；未清除数据或卸载，未将QA图片 /录像 /数据库打入包。
+
 ## Android v0.5.1正式分发（2026-10-08）
 
 - 已公开发布：https://github.com/Boringchen-10/genzo/releases/tag/v0.5.1 。发布提交 `c197e9f40e230d41ef3e71547a1414afdb7b8d94`，注释标签v0.5.1与分支已推送；附件只有正式APK /SHA256SUMS.txt，GitHub资产digest与本地APK SHA256一致。后续交接文档提交不移动发布标签。

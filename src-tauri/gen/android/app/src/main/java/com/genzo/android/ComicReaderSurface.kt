@@ -1,6 +1,7 @@
 package com.genzo.android
 
 import android.os.SystemClock
+import android.graphics.BitmapFactory
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -69,7 +70,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         val result=JSONArray();val recycler=list?:pager?.getChildAt(0) as? RecyclerView?:return result
         for(index in 0 until recycler.childCount){val child=recycler.getChildAt(index);val holder=recycler.getChildViewHolder(child) as? PageHolder?:continue
             if(child.right<=0||child.left>=recycler.width||child.bottom<=0||child.top>=recycler.height)continue
-            result.put(JSONObject().put("index",holder.bindingAdapterPosition).put("rendered",holder.geometry()!=null).put("loading",holder.loading()).put("width",child.width).put("visualWidth",child.width*if(list!=null)view.ratio else holder.zoomRatio()).put("localZoom",holder.zoomRatio()))
+            result.put(JSONObject().put("index",holder.bindingAdapterPosition).put("rendered",holder.fullyDrawn()).put("loading",holder.loading()).put("width",child.width).put("visualWidth",child.width*if(list!=null)view.ratio else holder.zoomRatio()).put("localZoom",holder.zoomRatio()))
         };return result
     }
     fun zoomDiagnostics()=view.diagnostics()
@@ -96,10 +97,9 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
 
     init { require(urls.isNotEmpty()); build() }
     private fun file(index: Int): Deferred<File> = requests.getOrPut(index) {
-        scope.async { try {
+        scope.async(start=CoroutineStart.LAZY) { try {
             val prepared=host.preparedComicImage(cacheKeys?.optString(index))
-            if(prepared!=null)return@async prepared.await()
-            downloads.withPermit {
+            val source=prepared?.await()?:downloads.withPermit {
             fetching.add(index)
             try {
             if (archive != null) host.client.cachedImage(archive,requireNotNull(archiveEntries).getString(index),files)
@@ -111,8 +111,18 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                 result
             }
             } finally { fetching.remove(index) }
-        } } finally { if(prefetching.remove(index))host.imagePrefetchSlots.release();pumpPreload() } }
-    }
+            }
+            if(index !in naturalSizes) {
+                val dimensions=withContext(Dispatchers.IO) {
+                    val bounds=BitmapFactory.Options().apply {inJustDecodeBounds=true}
+                    BitmapFactory.decodeFile(source.path,bounds)
+                    if(bounds.outWidth>0&&bounds.outHeight>0)bounds.outWidth to bounds.outHeight else null
+                }
+                dimensions?.let {naturalSizes[index]=it;while(naturalSizes.size>120)naturalSizes.remove(naturalSizes.keys.first())}
+            }
+            source
+        } finally { if(prefetching.remove(index))host.imagePrefetchSlots.release();pumpPreload() } }
+    }.also {it.start()}
     private fun attachedPages():Set<Int> {
         val recycler=list?:pager?.getChildAt(0) as? RecyclerView?:return emptySet()
         return (0 until recycler.childCount).map { recycler.getChildAdapterPosition(recycler.getChildAt(it)) }.toSet()
@@ -187,11 +197,17 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
             }
             view.addView(pager, FrameLayout.LayoutParams(-1,-1)); pager!!.setCurrentItem(page,false)
         } else {
-            manager = LinearLayoutManager(host, if (vertical) RecyclerView.VERTICAL else RecyclerView.HORIZONTAL, false)
+            manager = object:LinearLayoutManager(host, if (vertical) RecyclerView.VERTICAL else RecyclerView.HORIZONTAL, false) {
+                override fun calculateExtraLayoutSpace(state:RecyclerView.State,extraLayoutSpace:IntArray) {
+                    val extent=if(vertical)view.height else view.width
+                    extraLayoutSpace[0]=if(readingDirection<0)extent else 0
+                    extraLayoutSpace[1]=if(readingDirection>0)extent else 0
+                }
+            }
             list = RecyclerView(host).apply {
                 layoutManager = manager; itemAnimator = null; this.adapter = adapter
                 layoutDirection = if (!vertical && host.settings.optBoolean("rtl",false)) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
-                setItemViewCacheSize(2)
+                setItemViewCacheSize(1)
                 addOnScrollListener(object : RecyclerView.OnScrollListener() {
                     override fun onScrolled(recycler: RecyclerView, dx: Int, dy: Int) {
                         if (restoring) return
@@ -226,6 +242,18 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         var sourceFile:File?=null;private set
         private var retries=0
         private var version=0
+        private var previewReady=false
+        fun fullyDrawn():Boolean=image?.let {it.isImageLoaded||previewReady&&it.isReady}==true
+        private fun sizeFor(dimensions:Pair<Int,Int>,gap:Int) {
+            val params=frame.layoutParams
+            if(mode=="scroll-vertical") {
+                val height=(maxOf(frame.width,view.width).toDouble()*dimensions.second/dimensions.first).toInt().coerceAtLeast(1)+gap
+                if(params.height!=height){params.height=height;frame.layoutParams=params}
+            }else if(mode=="scroll-horizontal") {
+                val width=(view.height.toDouble()*dimensions.first/dimensions.second).toInt().coerceAtLeast(1)+gap
+                if(params.width!=width){params.width=width;frame.layoutParams=params}
+            }
+        }
         fun loading():Boolean=task?.isActive==true
         fun resumeLoading() { if(bound in urls.indices&&image==null&&task?.isCancelled==true)bind(bound) }
         fun zoomRatio(): Float = image?.let { if (it.isReady && it.minScale > 0) it.scale / it.minScale else 1f } ?: 1f
@@ -240,7 +268,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
             holdScale=picture.scale;holdCenter=picture.center?.let {android.graphics.PointF(it.x,it.y)};picture.setScaleAndCenter(picture.minScale*2.5f,point);frame.parent?.requestDisallowInterceptTouchEvent(true)
         }
         fun releaseHold(){holdScale?.let {scale->holdCenter?.let {image?.setScaleAndCenter(scale,it)}};holdScale=null;holdCenter=null}
-        fun release() {version++;task?.cancel();ready.remove(bound);image?.recycle();image=null;sourceFile=null;frame.removeAllViews();holdScale=null;holdCenter=null;bound=-1}
+        fun release() {version++;task?.cancel();ready.remove(bound);image?.recycle();image=null;previewReady=false;sourceFile=null;frame.removeAllViews();holdScale=null;holdCenter=null;bound=-1}
         fun bind(index: Int) {
             if(bound!=index)retries=0
             release(); bound = index
@@ -261,8 +289,16 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
             task = scope.launch {
                 try {
                     val source = file(index).await()
-                    if (bound != index) return@launch
+                    val dimensions=naturalSizes[index]
+                    val preview=if(mode.startsWith("scroll")&&dimensions!=null)withContext(Dispatchers.IO) {
+                        val options=BitmapFactory.Options().apply {inSampleSize=1}
+                        while(dimensions.first/options.inSampleSize>768||dimensions.second/options.inSampleSize>1024)options.inSampleSize*=2
+                        val bitmap=BitmapFactory.decodeFile(source.path,options)
+                        try {currentCoroutineContext().ensureActive();bitmap} catch(error:CancellationException){bitmap?.recycle();throw error}
+                    } else null
+                    if (bound != index) {preview?.recycle();return@launch}
                     sourceFile=source
+                    naturalSizes[index]?.let {sizeFor(it,gap)}
                     frame.removeAllViews()
                     val picture = SubsamplingScaleImageView(host)
                     image = picture
@@ -285,12 +321,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                             if (bound != index || image !== picture) return
                             naturalSizes[index]=picture.sWidth to picture.sHeight
                             while(naturalSizes.size>120)naturalSizes.remove(naturalSizes.keys.first())
-                            if (mode == "scroll-vertical") frame.layoutParams = frame.layoutParams.apply {
-                                height = (maxOf(frame.width,view.width).toDouble() * picture.sHeight / picture.sWidth).toInt().coerceAtLeast(host.dp(80)) + gap
-                            }
-                            if (mode == "scroll-horizontal") frame.layoutParams = frame.layoutParams.apply {
-                                width = (view.height.toDouble() * picture.sWidth / picture.sHeight).toInt().coerceAtLeast(host.dp(80)) + gap
-                            }
+                            sizeFor(picture.sWidth to picture.sHeight,gap)
                             if (index == page && offset > 0 && list != null) frame.post {
                                 val size = if (mode == "scroll-vertical") frame.height else frame.width
                                 restoring = true; manager?.scrollToPositionWithOffset(page,-(offset * size).toInt()); list?.post { restoring = false }
@@ -303,7 +334,11 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
                         if(event.actionMasked==MotionEvent.ACTION_UP||event.actionMasked==MotionEvent.ACTION_CANCEL)frame.parent?.requestDisallowInterceptTouchEvent(false)
                         false
                     }
-                    frame.addView(picture,FrameLayout.LayoutParams(-1,-1)); picture.setImage(ImageSource.uri(source.absolutePath))
+                    frame.addView(picture,FrameLayout.LayoutParams(-1,-1))
+                    if(preview!=null&&dimensions!=null) {
+                        previewReady=true
+                        picture.setImage(ImageSource.uri(source.absolutePath).dimensions(dimensions.first,dimensions.second),ImageSource.bitmap(preview))
+                    }else picture.setImage(ImageSource.uri(source.absolutePath))
                 } catch (error: CancellationException) {
                     // A cached holder may be attached again without onBindViewHolder.
                     if(isActive&&bound==index&&frame.isAttachedToWindow) {
@@ -317,7 +352,7 @@ class ComicReaderSurface(private val host: ReaderActivity, data: JSONObject, ini
         }
         private fun showFailure(index: Int) {
             if (bound != index) return
-            image?.recycle(); image = null; frame.removeAllViews()
+            image?.recycle(); image = null;previewReady=false; frame.removeAllViews()
             val panel = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
             panel.addView(TextView(host).apply { text = "第 ${index + 1} 页读取失败"; setTextColor(host.readerForeground) })
             panel.addView(host.button("重试") { retries=0;requests.remove(index)?.cancel();bind(index) })

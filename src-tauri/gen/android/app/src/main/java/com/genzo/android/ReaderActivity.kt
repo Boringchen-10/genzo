@@ -3,6 +3,7 @@ package com.genzo.android
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Build
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -53,6 +54,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var position: TextView
     private lateinit var seek: SeekBar
     private lateinit var dimmer: View
+    private lateinit var statusBackground: View
     private var surface: ReaderSurface? = null
     private var manifest: JSONObject? = null
     private var entries = JSONArray()
@@ -88,6 +90,9 @@ class ReaderActivity : AppCompatActivity() {
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window,false)
         current = java.lang.ref.WeakReference(this)
         kind = intent.getStringExtra("kind") ?: "comic"
+        if(kind=="comic"&&Build.VERSION.SDK_INT>=28)window.attributes=window.attributes.apply {
+            layoutInDisplayCutoutMode=if(Build.VERSION.SDK_INT>=30)WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         entry = savedInstanceState?.getString("entry") ?: intent.getStringExtra("entryId") ?: ""
         client = ReaderClient(requireNotNull(intent.getStringExtra("baseUrl")))
         settings = runCatching { JSONObject(getSharedPreferences("genzo-reader-settings", 0).getString(kind, "{}")!!) }.getOrDefault(JSONObject())
@@ -96,6 +101,8 @@ class ReaderActivity : AppCompatActivity() {
         root.addView(content, FrameLayout.LayoutParams(-1, -1))
         dimmer = View(this).apply { setBackgroundColor(Color.BLACK); isClickable = false }
         root.addView(dimmer, FrameLayout.LayoutParams(-1, -1))
+        statusBackground=View(this).apply {isClickable=false;visibility=View.GONE}
+        root.addView(statusBackground,FrameLayout.LayoutParams(-1,0,Gravity.TOP))
         top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, dp(8), 0) }
         top.addView(button("返回") { finish() })
         title = TextView(this).apply { textSize = 16f; maxLines = 1; gravity = Gravity.CENTER_VERTICAL; ellipsize = android.text.TextUtils.TruncateAt.END }
@@ -120,8 +127,13 @@ class ReaderActivity : AppCompatActivity() {
         if (savedInstanceState != null) supportFragmentManager.fragments.forEach { supportFragmentManager.beginTransaction().remove(it).commitNow() }
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            // Chrome owns the status/cutout background; artwork starts below it.
-            root.setPadding(bars.left,bars.top,bars.right,bars.bottom)
+            if(kind=="comic") {
+                // Insets position the overlays, never resize the comic viewport.
+                root.setPadding(0,0,0,0)
+                statusBackground.layoutParams=statusBackground.layoutParams.apply {height=bars.top}
+                top.layoutParams=(top.layoutParams as FrameLayout.LayoutParams).apply {topMargin=bars.top;leftMargin=bars.left;rightMargin=bars.right}
+                bottom.layoutParams=(bottom.layoutParams as FrameLayout.LayoutParams).apply {bottomMargin=bars.bottom;leftMargin=bars.left;rightMargin=bars.right}
+            } else root.setPadding(bars.left,bars.top,bars.right,bars.bottom)
             WindowInsetsCompat.Builder(insets).setInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),androidx.core.graphics.Insets.NONE).build()
         }
         applyAppearance(); load(entry, savedInstanceState?.getString("location")?.let { runCatching { JSONObject(it) }.getOrNull() })
@@ -134,10 +146,12 @@ class ReaderActivity : AppCompatActivity() {
     }
     fun toggleMenu() { menuTouched = true;menu = !menu; applyMenu(); report(snapshot.optString("status","ready")) }
     private fun applyMenu() { top.visibility = if (menu) View.VISIBLE else View.GONE; bottom.visibility = top.visibility
+        statusBackground.visibility=if(kind=="comic"&&menu)View.VISIBLE else View.GONE
         WindowInsetsControllerCompat(window, root).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             if (menu) show(WindowInsetsCompat.Type.systemBars()) else hide(WindowInsetsCompat.Type.systemBars())
         }
+        ViewCompat.requestApplyInsets(root)
     }
     fun notify(message: String) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
     fun locationChanged(page: Int, count: Int, fraction: Double) {
@@ -371,6 +385,7 @@ class ReaderActivity : AppCompatActivity() {
             .put("zoomDiagnostics",(surface as? ComicReaderSurface)?.zoomDiagnostics())
             .put("imageStats",ReaderClient.imageStats())
             .put("contentTop",content.top).put("chromeColor",readerBackground)
+            .put("statusBackgroundVisible",statusBackground.visibility==View.VISIBLE).put("statusBackgroundHeight",statusBackground.height)
             .put("progress", if (::seek.isInitialized) seek.progress else 0)
     }
     /** Debug QA package only: exercises the same surface/settings methods as UI controls. */
@@ -392,6 +407,7 @@ class ReaderActivity : AppCompatActivity() {
     }
     private fun applyAppearance() {
         root.setBackgroundColor(readerBackground); top.setBackgroundColor(readerBackground); bottom.setBackgroundColor(readerBackground)
+        statusBackground.setBackgroundColor(readerBackground)
         title.setTextColor(readerForeground); position.setTextColor(readerForeground)
         fun paintControls(view: View) {
             if (view is Button) { view.setTextColor(readerForeground); view.backgroundTintList = android.content.res.ColorStateList.valueOf(if (settings.optString("theme","dark") == "dark") Color.rgb(33,43,42) else Color.rgb(230,231,222)) }
