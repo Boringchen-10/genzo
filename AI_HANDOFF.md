@@ -9,7 +9,7 @@
 - `aapt dump xmltree` 确认崩溃修复已入包：`application` 主题为 AppCompat 基主题（`@0x7f1002c7`），`MainActivity` 单独用启动主题（`@0x7f1002c8`），`ReaderActivity` / `PlayerActivity` 不带主题、继承基主题。
 - 实体机 PLK110（`3B164M00Z0500000`）以 `adb install --no-streaming -r` 覆盖安装成功（同签名，保留普通包数据，`firstInstallTime` 仍为 2026-10-08），`lastUpdateTime` 更新；冷启动进入首页（继续观看 / 动画 / 书籍 / 电影分区、底部五标签）正常，`logcat` 无 `FATAL` / `AndroidRuntime`。截图 `D:/DevTools/Android/Build/qa/release-v0.5.2/home.png`。
 - 已写发布记录 `docs/RELEASE_V0.5.2.md` 与用户版 `D:/DevTools/Android/Build/releases/v0.5.2/RELEASE_NOTES.md`。
-- 尚未上传 GitHub Release / 打标签 / 推送；本轮未提交工作树（HEAD 仍 `74ee68d`），未清库、未动真实媒体与主 Windows 工作区。如需公开分发或提交，须用户明确授权。
+- 已公开发布：https://github.com/Boringchen-10/genzo/releases/tag/v0.5.2 。用户授权「需要发布，提交就是当前版本就可以」，故将当前工作树以单个提交 `c7adb9cc7b9923f005891e3a5b95cbb090216de8` 固定（含崩溃修复与全部验收轮次），推送分支 `codex/android-first`（`b65574b..c7adb9c`）并推送注释标签 `v0.5.2`（tag 对象 `334448cef1c7685115a1788b8fd3e4bc8ef881d2`）；GitHub Release 非 draft / 非 prerelease，附件仅正式 APK（74,936,537 字节）+ `SHA256SUMS.txt`，远端资产 digest 与本地 SHA-256 `0ec14563…c4af05` 一致。仓库无 `gh`，改用缓存的 GitHub 凭据走 REST API 创建。顺带删除已失效的 `scripts/verify-discover-favorite.mjs`（针对已移除的发现页收藏心形）。未清库、未动真实媒体与主 Windows 工作区。
 
 ## v0.5.2 漫画评论底部面板（2026-10-09，前端待验证）
 
