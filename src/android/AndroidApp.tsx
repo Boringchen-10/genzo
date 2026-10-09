@@ -12,11 +12,12 @@ import { bookContentApi, type ReadingKind, type SourceEntry } from "../bookConte
 import type { AnimeWorkStructure, MatchCandidate, MediaFile, ThemeMode, UnassignedMediaGroup, WorkDetail, WorkInput, WorkListItem, WorkStatus } from "../types";
 import { activeScan, type ScanTask } from "../scanTasks";
 import { playbackPercent, playbackTime, type PlaybackProgress } from "../playback";
-import { usePreferences, type ThemeStyle } from "../store";
+import { usePreferences, type StartScreen, type ThemeStyle } from "../store";
 import { androidApi, isDirectoryEntry, listenAndroidChanges, type DocumentEntry, type VideoSource } from "./api";
 import AndroidPrototype from "./AndroidPrototype";
 import BookReader from "./BookReader";
 import BookDescription from "./BookDescription";
+import ComicComments from "./ComicComments";
 import OnlineChapters from "./OnlineChapters";
 import { comicExploreApi, novelExploreApi, type ComicDetail } from "../comicExplore";
 import ExplorePanel from "./ExplorePanel";
@@ -29,6 +30,11 @@ import MetadataSettings from "./MetadataSettings";
 import "./mobile.css";
 
 const tabs = [{ route: "home", title: "首页", icon: Home }, { route: "library", title: "媒体库", icon: Library }, { route: "bookshelf", title: "书架", icon: BookOpen }, { route: "explore", title: "发现", icon: Compass }, { route: "profile", title: "我的", icon: User }];
+const startScreens = tabs.map(tab => ({ id: tab.route as StartScreen, label: tab.title, icon: tab.icon }));
+const resolveStartScreen = (): StartScreen => {
+  const stored = usePreferences.getState().startScreen;
+  return startScreens.some(item => item.id === stored) ? stored : "home";
+};
 const categories = [{ id: "all", title: "全部" }, { id: "anime", title: "动漫" }, { id: "movie", title: "电影" }, { id: "tv", title: "电视剧" }, { id: "video", title: "未分类影视" }];
 const statuses: Record<WorkStatus, string> = { planned: "计划看", in_progress: "在看", completed: "看过", paused: "搁置", dropped: "放弃" };
 const taskStages: Record<string, string> = { queued: "等待扫描", scanning: "查询目录", indexing: "建立索引", committing: "保存索引", completed: "扫描完成", failed: "扫描失败", cancelled: "已取消", interrupted: "已中断" };
@@ -69,6 +75,14 @@ const playFallbackTransition = (node: HTMLElement | null, kind: "forward" | "bac
   void node.offsetWidth;
   node.classList.add(className);
   window.setTimeout(() => node.classList.remove(className), 380);
+};
+const playShelfFallback = (node: HTMLElement | null, kind: "forward" | "back") => {
+  if (!node || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const className = kind === "forward" ? "gz-shelf-fallback-forward" : "gz-shelf-fallback-back";
+  node.classList.remove("gz-shelf-fallback-forward", "gz-shelf-fallback-back");
+  void node.offsetWidth;
+  node.classList.add(className);
+  window.setTimeout(() => node.classList.remove(className), 340);
 };
 const bytes = (size: number) => size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(1)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
 const inputFor = (work: WorkDetail): WorkInput => ({ title: work.title, originalTitle: work.originalTitle, type: work.type, description: work.description, coverPath: work.coverPath, status: work.status, favorite: work.favorite, rating: work.rating, notes: work.notes, tags: work.tags });
@@ -189,7 +203,7 @@ const Poster = memo(function Poster({ work }: { work: WorkListItem | WorkDetail 
   const [failed, setFailed] = useState(false);
   const url = asset(work.coverPath);
   useEffect(() => setFailed(false), [url]);
-  return <div className={`gz-poster ${!url || failed ? "missing" : ""}`} data-cover-id={work.id}>
+  return <div className={`gz-poster${work.type === "novel" ? " is-novel" : ""}${!url || failed ? " missing" : ""}`} data-cover-id={work.id}>
     {url && !failed ? <img src={url} alt={work.title} loading="lazy" decoding="async" draggable={false} onError={() => setFailed(true)} /> : <><Film aria-hidden="true" /><span>暂无封面</span></>}
   </div>;
 });
@@ -326,7 +340,7 @@ function useSheetDrag(sheetRef: React.RefObject<HTMLElement | null>, onDismiss: 
 }
 
 export default function AndroidApp() {
-  const [route, setRoute] = useState(routeFromHash);
+  const [route, setRoute] = useState(() => location.hash ? routeFromHash() : resolveStartScreen());
   const [visitedPanels, setVisitedPanels] = useState<string[]>([]);
   const [allWorks, setAllWorks] = useState<WorkListItem[]>([]);
   const [works, setWorks] = useState<WorkListItem[]>([]);
@@ -349,6 +363,8 @@ export default function AndroidApp() {
   const accentHue = usePreferences(state => state.accentHue);
   const accentSat = usePreferences(state => state.accentSat);
   const accentLight = usePreferences(state => state.accentLight);
+  const startScreen = usePreferences(state => state.startScreen);
+  const setStartScreen = usePreferences(state => state.setStartScreen);
   const themeStyle = usePreferences(state => state.themeStyle);
   const coverBrightness = usePreferences(state => state.coverBrightness);
   const amoled = usePreferences(state => state.amoled);
@@ -380,6 +396,7 @@ export default function AndroidApp() {
   const [bookEntries, setBookEntries] = useState<BookEntry[]>([]);
   const [bookEntryState, setBookEntryState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [readingSource, setReadingSource] = useState<{ kind: ReadingKind; pathWord: string } | null>(null);
+  const [comicCommentsOpen, setComicCommentsOpen] = useState(false);
   const [readingDetail, setReadingDetail] = useState<ComicDetail | null>(null);
   const [sourceTotal, setSourceTotal] = useState<number | null>(null);
   const [bookSelecting, setBookSelecting] = useState(false);
@@ -422,6 +439,7 @@ export default function AndroidApp() {
   const pendingNav = useRef<{ cover: string; kind: "forward" | "back" } | null>(null);
   const transitionSeq = useRef(0);
   const namedCover = useRef<HTMLElement | null>(null);
+  const namedShelf = useRef<HTMLElement | null>(null);
   const detailRequest = useRef(0);
   const detailSnapshot = useRef(0);
   const refreshPending = useRef<Promise<void> | null>(null);
@@ -452,6 +470,7 @@ export default function AndroidApp() {
   }, [accentHue, accentSatValue, accentLightValue, neutralSatValue, neutralLiftValue, glassBlur, cornerRadius, coverBrightness, shadowScale, fontScale]);
   const top = tabs.find(tab => tab.route === route);
   const workId = route.startsWith("detail/") ? decodeURIComponent(route.slice(7)) : null;
+  useEffect(() => { setComicCommentsOpen(false); }, [workId]);
   const title = top?.title || ({ sources: "资料库", inbox: "待整理", browse: "浏览目录", diagnostics: import.meta.env.DEV ? "开发验证" : "关于", bookshelf: "书架", explore: "发现", network: "网络", appearance: "外观", history: "浏览记录", "reading-stats": "阅读统计", "reading-stats-settings": "阅读统计设置", sync: "同步备份", "sync/bangumi": "追番同步", "sync/webdav": "多设备同步" }[route]) || "作品详情";
 
   async function refresh(renew = false): Promise<void> {
@@ -487,6 +506,8 @@ export default function AndroidApp() {
     main.current?.style.removeProperty("view-transition-name");
     namedCover.current?.style.removeProperty("view-transition-name");
     namedCover.current = null;
+    namedShelf.current?.style.removeProperty("view-transition-name");
+    namedShelf.current = null;
   }
   function setCoverName(id: string, active: boolean) {
     const node = active ? document.querySelector<HTMLElement>(coverSelector(id)) : namedCover.current;
@@ -517,6 +538,19 @@ export default function AndroidApp() {
     const cleanup = () => { if (transition.isCurrent() && transitionSeq.current === seq) { page?.style.removeProperty("view-transition-name"); delete root.dataset.trans; delete root.dataset.nav; } };
     void transition.finished.then(cleanup,cleanup);
   }
+  function withShelfTransition(kind: "forward" | "back", commit: () => void) {
+    const root = document.documentElement;
+    const body = main.current?.querySelector<HTMLElement>("[data-shelf-body]") ?? null;
+    const seq = ++transitionSeq.current;
+    resetTransitionNames();
+    if (body) { body.style.setProperty("view-transition-name", "gz-shelf"); namedShelf.current = body; }
+    root.dataset.trans = "shelf"; root.dataset.nav = kind;
+    const clear = () => { if (namedShelf.current) { namedShelf.current.style.removeProperty("view-transition-name"); namedShelf.current = null; } delete root.dataset.trans; delete root.dataset.nav; };
+    const transition = startViewTransition(() => flushSync(commit));
+    if (!transition) { commit(); playShelfFallback(body, kind); if (transitionSeq.current === seq) clear(); return; }
+    const cleanup = () => { if (transition.isCurrent() && transitionSeq.current === seq) clear(); };
+    void transition.finished.then(cleanup,cleanup);
+  }
   function navigate(next: string) {
     if (next === route) return;
     scrollPositions.current[route] = main.current?.scrollTop ?? 0;
@@ -544,6 +578,7 @@ export default function AndroidApp() {
     if (route !== "library") navigate("library");
   }
   function back() {
+    if (comicCommentsOpen) { setComicCommentsOpen(false); return true; }
     if (modal) { closeModal(); return true; }
     if (readerEntry) { setReaderEntry(null); return true; }
     if (bookSelecting) { setBookSelecting(false); return true; }
@@ -572,7 +607,7 @@ export default function AndroidApp() {
     return true;
   }
   useEffect(() => {
-    if (!location.hash) history.replaceState({ genzoDepth: 0 }, "", "#/home");
+    if (!location.hash) history.replaceState({ genzoDepth: 0 }, "", `#/${resolveStartScreen()}`);
     lastHashRef.current = location.hash;
     const changed = () => {
       if (location.hash === lastHashRef.current) return;
@@ -1006,7 +1041,7 @@ export default function AndroidApp() {
           <QuickCard label="下载中心" subtitle="管理离线内容" icon={Download} onClick={() => navigate("future/下载中心")} />
         </div>
         <MenuSection label="内容与偏好">
-          <MenuRow label="通用" icon={SlidersHorizontal} onClick={() => navigate("future/通用")} />
+          <MenuRow label="通用" icon={SlidersHorizontal} subtitle="启动界面与基础选项" onClick={() => navigate("general")} />
           <MenuRow label="外观" icon={Palette} onClick={() => navigate("appearance")} />
           <MenuRow label="播放设置" icon={Play} subtitle="后续更新" onClick={() => navigate("future/播放设置")} />
           <MenuRow label="弹幕设置" icon={MessageSquare} subtitle="后续更新" onClick={() => navigate("future/弹幕设置")} />
@@ -1069,6 +1104,16 @@ export default function AndroidApp() {
           {import.meta.env.DEV && <button className="gz-row-card" onClick={() => navigate("diagnostics")}><CircleHelp /><span className="gz-row-main"><strong>开发验证</strong><span className="gz-meta">数据库、目录和播放器诊断</span></span><ChevronRight size={18} /></button>}
         </div>
       </>}
+      {route === "general" && <>
+        <SettingBlock title="启动与进入">
+          <SettingRow title="进入程序首界面" hint="打开应用时默认进入的页面，设置后即时保存，下次启动生效。">
+            <div className="gz-style-chips" role="radiogroup" aria-label="进入程序首界面">
+              {startScreens.map(item => { const Icon = item.icon; return <button key={item.id} type="button" role="radio" aria-checked={startScreen === item.id} className={`gz-style-chip ${startScreen === item.id ? "active" : ""}`} onClick={() => setStartScreen(item.id)}><Icon size={16} aria-hidden="true" />{item.label}</button>; })}
+            </div>
+          </SettingRow>
+        </SettingBlock>
+        <p className="gz-footer">当前选择：{startScreens.find(item => item.id === startScreen)?.label}</p>
+      </>}
       {route === "sources" && <>
         {sourceManager}
         <button className="gz-row-card" onClick={() => navigate("inbox")}><span className="gz-row-icon"><Inbox /></span><span className="gz-row-main"><strong>待整理队列</strong><span className="gz-meta">{groups.length} 个分组待确认</span></span><ChevronRight size={18} /></button>
@@ -1106,7 +1151,7 @@ export default function AndroidApp() {
         <BookDescription text={detail.description} />
         <div className="gz-book-actions">
           <button className="gz-book-action" disabled={busy || !readingSource} onClick={() => setBookSelecting(value => !value)}>{bookSelecting ? <X size={18} /> : <Download size={18} />}{bookSelecting ? "取消" : "下载"}</button>
-          <button className="gz-book-action" disabled={busy} onClick={() => { setDetailTab("comments"); setToast("评论请在作品资料中查看"); }}><MessageSquare size={18} />评论</button>
+          <button className="gz-book-action" disabled={busy} onClick={() => { if (detail.type === "comic" || detail.type === "novel") setComicCommentsOpen(true); else { setDetailTab("comments"); setToast("评论请在作品资料中查看"); } }}><MessageSquare size={18} />评论</button>
           <button className={`gz-book-action ${detail.favorite ? "active" : ""}`} disabled={busy} onClick={() => void run(() => favorite(detail))}><Heart size={18} fill={detail.favorite ? "currentColor" : "none"} />收藏</button>
         </div>
         {remoteBookSection}
@@ -1158,7 +1203,7 @@ export default function AndroidApp() {
       </>) : detailError ? <Empty title="无法读取作品详情"><p>{detailError}</p><button className="gz-btn" onClick={back}>返回</button></Empty> : <DetailSkeleton />)}
       {route === "bookshelf" && <>
         <div className="gz-shelf-tabs" role="tablist" aria-label="书架分类">
-          {([["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={shelfType === id} className={shelfType === id ? "active" : ""} onClick={() => { setShelfType(id); setLimit(48); }}>{label}</button>)}
+          {([["comic", "漫画"], ["novel", "轻小说"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={shelfType === id} className={shelfType === id ? "active" : ""} onClick={() => { if (id === shelfType) return; withShelfTransition(id === "novel" ? "forward" : "back", () => { setShelfType(id); setLimit(48); }); }}>{label}</button>)}
         </div>
         <div className="gz-shelf-bar">
           {shelfHasItems && <div className="gz-seg gz-scope" role="radiogroup" aria-label="来源范围">{scopeOptions.map(option => <button key={option.id} role="radio" aria-checked={collectionScope === option.id} onClick={() => setCollectionScope(option.id)}>{option.label}</button>)}</div>}
@@ -1174,13 +1219,17 @@ export default function AndroidApp() {
           <p className="gz-meta">共 {shelfWorks.length} 部 · {shelfSortOptions.find(option => option.id === shelfSort)?.label}</p>
         </div>}
         {shelfWorks.length ? <>
-          <div className="gz-grid">{shelfWorks.slice(0, limit).map(card)}</div>
-          {shelfWorks.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}
-        </> : <div className="gz-shelf-empty">
+          <div className="gz-shelf-body" data-shelf-body>
+            <div className="gz-grid">{shelfWorks.slice(0, limit).map(card)}</div>
+            {shelfWorks.length > limit && <button className="gz-btn" onClick={() => setLimit(limit + 48)}>加载更多</button>}
+          </div>
+        </> : <div className="gz-shelf-body" data-shelf-body>
+          <div className="gz-shelf-empty">
           <span className="gz-shelf-badge"><Bookmark size={26} /></span>
           <h2>{bookQuery || shelfQuery || collectionScope !== "all" ? "没有匹配的作品" : "书架空空如也"}</h2>
           <p>{bookQuery ? `没有带「${bookQuery}」标签的${shelfType === "comic" ? "漫画" : "轻小说"}。` : shelfQuery ? `没有找到与「${shelfQuery}」相关的${shelfType === "comic" ? "漫画" : "轻小说"}。` : shelfHasItems ? "调整筛选条件，或回到全部。" : `去找点好看的${shelfType === "comic" ? "漫画" : "轻小说"}吧`}</p>
           {bookQuery ? <button className="gz-btn" onClick={() => setBookQuery("")}>清除标签筛选</button> : shelfQuery ? <button className="gz-btn" onClick={() => { setShelfQuery(""); setCollectionScope("all"); }}>清除搜索</button> : shelfHasItems ? <button className="gz-btn" onClick={() => setCollectionScope("all")}>查看全部</button> : <button className="gz-btn" disabled={busy} onClick={() => void run(refresh)}>刷新</button>}
+          </div>
         </div>}
       </>}
       {route.startsWith("future/") && <Empty title={`${decodeURIComponent(route.slice(7))} · Future`}><p>该能力尚未接入，保留扩展位置。</p><button className="gz-btn" onClick={back}>返回</button></Empty>}
@@ -1195,6 +1244,7 @@ export default function AndroidApp() {
       {(route === "explore" || visitedPanels.includes("explore")) && <div className="gz-kept-page" hidden={route !== "explore"}><ExplorePanel active={route === "explore"} onToast={setToast} onLibraryChanged={() => void refresh(true).catch(reason => setError(String(reason)))} registerBack={registerSubviewBack} /></div>}
       {(route === "network" || visitedPanels.includes("network")) && <div className="gz-kept-page" hidden={route !== "network"}><NetworkPanel onToast={setToast} /></div>}
     </main>
+    {comicCommentsOpen && <ComicComments pathWord={readingSource?.pathWord ?? null} kind={readingSource?.kind ?? "comic"} onClose={() => setComicCommentsOpen(false)} />}
     {readerEntry && readingSource && <BookReader kind={readingSource.kind} pathWord={readingSource.pathWord} entryId={readerEntry.id} group={sourceGroup} onClose={() => setReaderEntry(null)} />}
     <nav className="gz-tabbar" aria-label="主导航">{tabs.map(tab => <button aria-current={primary === tab.route ? "page" : undefined} aria-label={tab.title} className={primary === tab.route ? "active" : ""} key={tab.route} onClick={() => navigate(tab.route)}><tab.icon size={22} /><span className="gz-tab-label">{tab.title}</span></button>)}</nav>
     {toast && <div className="gz-toast" role="status">{toast}</div>}

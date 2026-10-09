@@ -1,5 +1,32 @@
 # Codex 与 DeepSeek Harness 项目交接记录
 
+## v0.5.2 正式打包供用户使用（2026-10-09）
+
+- 用户要求「将目前的程序打包成 v0.5.2 版本供用户使用」。此前 `D:/DevTools/Android/Build/releases/v0.5.2/` 已有的 APK 是 10:52 的旧构建，早于崩溃修复与后续轮次；本轮用当前工作树（含崩溃修复与全部未提交验收轮次）重新走 `scripts/build-android-release.ps1` 打包。
+- 版本字段本就为 0.5.2：`package.json` / `tauri.conf.json` / `Cargo.toml` / 生成的 `tauri.properties`（versionName 0.5.2 / versionCode 5002）。签名沿用既有固定证书 SHA-256 `cee90e5f49edc18217ec2d1f7cdf360f50b61af1e99e4eefdb0837b549c13cdb`（`D:/DevTools/Android/Signing/genzo-release.p12` + `store-password.txt`，仓库外）。
+- 产物 `D:/DevTools/Android/Build/releases/v0.5.2/Genzo_0.5.2_android_arm64-v8a.apk`，74,936,537 字节，SHA-256 `0ec1456354f755d827e5acb27e28c6bb703d950623d22827e9574f6f19c4af05`；发布附件 `SHA256SUMS.txt`（同哈希）。包名 `com.genzo.android`、versionName 0.5.2 / 5002、minSdk 26 / targetSdk 36 / arm64-v8a、Release 非 debuggable、R8 + 资源收缩。
+- 构建：`build-android-release.ps1` 先 `build-reader-qa.ps1 -Target aarch64 -Optimize`（Rust release LTO thin + 生成共享优化内核）再 `:app:assembleArm64Release`（`GENZO_READER_QA=0`，普通包名）；zipalign + apksigner 用固定 p12 签名并校验。shell 需 `ProgramData=C:\ProgramData` 与 `ANDROID_USER_HOME=D:\DevTools\Android\AndroidUserHome`。
+- `aapt dump xmltree` 确认崩溃修复已入包：`application` 主题为 AppCompat 基主题（`@0x7f1002c7`），`MainActivity` 单独用启动主题（`@0x7f1002c8`），`ReaderActivity` / `PlayerActivity` 不带主题、继承基主题。
+- 实体机 PLK110（`3B164M00Z0500000`）以 `adb install --no-streaming -r` 覆盖安装成功（同签名，保留普通包数据，`firstInstallTime` 仍为 2026-10-08），`lastUpdateTime` 更新；冷启动进入首页（继续观看 / 动画 / 书籍 / 电影分区、底部五标签）正常，`logcat` 无 `FATAL` / `AndroidRuntime`。截图 `D:/DevTools/Android/Build/qa/release-v0.5.2/home.png`。
+- 已写发布记录 `docs/RELEASE_V0.5.2.md` 与用户版 `D:/DevTools/Android/Build/releases/v0.5.2/RELEASE_NOTES.md`。
+- 尚未上传 GitHub Release / 打标签 / 推送；本轮未提交工作树（HEAD 仍 `74ee68d`），未清库、未动真实媒体与主 Windows 工作区。如需公开分发或提交，须用户明确授权。
+
+## v0.5.2 漫画评论底部面板（2026-10-09，前端待验证）
+
+- 新增 `src/android/ComicComments.tsx`，书架与发现漫画详情的「评论」按钮打开同一原生 HTML dialog 底部面板。复用 Genzo 主题，提供标题、已加载 / 总数、头像 / 用户 / 时间、正文展开、分页、错误重试、回顶部与关闭；dialog 提供模态焦点约束，退出恢复触发按钮焦点，系统返回优先关闭。小说 / 动漫吐槽不变。
+- 沿用 `comicExploreApi.comments(pathWord, offset, limit)` 与会话首页缓存，按服务返回 offset 和条目数推进分页、按 ID 去重。漫画不再于打开详情时预取评论；发现漫画的旧内联评论移除。无来源关联的本地漫画如实显示不可读取，不伪造来源。
+- 排序仅对已加载评论执行，界面明确注明，不声称全站最新 / 最热排序。服务给出的时间直接显示，不猜测时区。头像失败回退用户名首字。
+- 2026-10-09 局部布局调整：删除底部「只读评论」栏与按钮独立占用行。返回顶部改为右下角 56px 主题色悬浮按钮，评论滚动区域延伸至面板底部；仅在滚动内容末尾留出按钮高度与系统安全区，供末条内容滚出遮挡。接口与交互逻辑不变，未测试、构建或部署。
+- Codex 待完善：确认评论服务端排序、回复分页 / 父评论关系、账号鉴权与发布命令。当前只有 replyCount / parent 字段，回复数显示为「回复内容待接入」，不提供假展开或发布成功。
+- 本轮仅写源码，未运行测试 / 构建 / 预览 / 截图 / 安装，未提交或发布，不宣称手机已经更新。起点已有 OnlineChapters / mobile.css / AI_HANDOFF 与预览脚本修改均保留；本轮没有修改预览脚本、Rust、Kotlin、数据库或真实数据。Open Design 项目内说明见 `android/COMIC_COMMENTS_V052_HANDOFF.md`，其中文档路径与 H 盘实际源码位置明确分开。
+
+## v0.5.2 漫画详情续读入口（2026-10-09，前端待验证）
+
+- 起点 HEAD `d97f60f`，安卓工作树干净。按用户图二将漫画详情标题旁的续读按钮改为右下角主题色胶囊和播放图标，位置避开现有 56px 主导航；增加滚动底部留白。书架与发现复用 `OnlineChapters`，小说原入口保留。
+- 仅真实 `get_reading_resume` 返回记录且非多选下载模式时显示，沿用阅读事件 / focus 刷新与原生 `onRead` 调用，不写入或重置阅读记录。章节名只在当前目录页的 group / entryId 同时匹配时展示，否则显示「继续阅读」，不为按钮额外请求目录或正文。
+- Codex 待协调：当前 `ReadingResume` 仅含 entryId / group / updatedAt。若要完整显示参考图「第01话 · 4/61」，需在现有 resume 查询与 reading-progress-updated 事件中提供可靠章节名、当前页及总页数，明确页码索引约定；本轮未修改 Rust / Kotlin / 数据库或前后端 DTO，未虚构页码。
+- 本轮仅写入前端和交接记录，未执行测试、构建、截图、预览或设备安装；不宣称已验收，不把历史 v0.5.2 APK 当作包含本轮改动的包。未提交或发布，统一交接前继续逐轮记录依赖。
+
 ## 漫画全屏与黑色接缝修复验收（2026-10-09）
 
 - 起点 `b65574b`，工作区干净。用户报告下滑到新图时底部黑色加载 /闪屏、隐藏菜单仍有顶部遮挡；补充底部工具栏能盖住闪烁。按新意图覆盖此前漫画一直避开切口的策略，不改变小说安全区。

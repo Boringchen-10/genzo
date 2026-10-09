@@ -168,7 +168,8 @@ class NovelReaderSurface(private val host: ReaderActivity, private val container
         val links = mutableListOf<Link>()
         fun append(items: List<Link>) { for (link in items) { links.add(link); append(link.children) } }
         append(book.tableOfContents.ifEmpty { book.readingOrder })
-        host.choice("小说目录", links.map { it.title ?: "正文" }) { index -> navigator?.go(links[index], true) }
+        val current = navigator?.currentLocator?.value?.href?.let { href -> links.indexOfFirst { it.url() == href } } ?: -1
+        host.catalogueSheet("小说目录", links.map { it.title ?: "正文" }, current) { index -> navigator?.go(links[index], true) }
     }
     private fun illustration(href: String) {
         val book = publication ?: return

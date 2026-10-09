@@ -1,7 +1,9 @@
 package com.genzo.android
 
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Build
 import android.view.Gravity
@@ -59,6 +61,8 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var statusBackground: View
     private var surface: ReaderSurface? = null
     private var manifest: JSONObject? = null
+    private var chapterTitle = ""
+    private var chapterOffline = false
     private var entries = JSONArray()
     private var loading = false
     private var generation = 0
@@ -78,14 +82,26 @@ class ReaderActivity : AppCompatActivity() {
     private var nextManifest:Deferred<JSONObject?>?=null
     private var nextImages:Job?=null
     private val preparedImages=mutableMapOf<String,PreparedImage>()
-    val readerBackground: Int get() = when (settings.optString("theme", "dark")) {
+    private fun themeColor(key: String): Int = when (key) {
         "white" -> Color.rgb(250,250,250); "green" -> Color.rgb(218,232,211)
         "paper" -> Color.rgb(247,244,235); else -> Color.rgb(15,19,21)
     }
+    val readerBackground: Int get() = themeColor(settings.optString("theme", "dark"))
     val readerForeground: Int get() = if (settings.optString("theme", "dark") == "dark") Color.rgb(226, 232, 231) else Color.rgb(35, 40, 39)
     val accent = Color.rgb(23, 180, 145)
     val dividerColor: Int get() = if (settings.optString("theme", "dark") == "dark") Color.rgb(48, 58, 56) else Color.rgb(208, 210, 202)
+    /** Surface color for grouped settings cards; sits just above the reader background. */
+    val cardColor: Int get() = if (settings.optString("theme", "dark") == "dark") Color.rgb(24, 30, 29) else Color.rgb(255, 255, 255)
+    /** De-emphasized text (section labels, current values, stat lines). */
+    val mutedForeground: Int get() = if (settings.optString("theme", "dark") == "dark") Color.rgb(126, 137, 134) else Color.rgb(132, 138, 135)
+    /** Hairline separators inside cards. */
+    val hairlineColor: Int get() = if (settings.optString("theme", "dark") == "dark") Color.rgb(38, 46, 44) else Color.rgb(232, 233, 227)
     fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    /** True while the reader chrome (top/bottom bars) is shown. */
+    val menuVisible: Boolean get() = menu
+    /** Bottom system-bar inset in px; the comic end-of-chapter bar pads itself by this. */
+    var navBottom = 0
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         supportFragmentManager.fragmentFactory = org.readium.r2.navigator.epub.EpubNavigatorFragment.createDummyFactory()
@@ -123,10 +139,12 @@ class ReaderActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(bar: SeekBar?) { surface?.seek(seek.progress / 1000.0) }
         }) }
         val progressRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
-        progressRow.addView(position, LinearLayout.LayoutParams(dp(40), -2))
+        // Comic labels "page / count"; the novel shows a percentage, so it needs wider edge labels.
+        val edge = if (kind == "comic") dp(40) else dp(56)
+        progressRow.addView(position, LinearLayout.LayoutParams(edge, -2))
         progressRow.addView(seek, LinearLayout.LayoutParams(0, dp(40), 1f))
-        progressRow.addView(totalLabel, LinearLayout.LayoutParams(dp(40), -2))
-        if (kind == "comic") bottom.addView(progressRow)
+        progressRow.addView(totalLabel, LinearLayout.LayoutParams(edge, -2))
+        bottom.addView(progressRow)
         val actions = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(2)) }
         val controls = if (kind == "comic")
             listOf<Triple<Int, String, () -> Unit>>(
@@ -156,12 +174,14 @@ class ReaderActivity : AppCompatActivity() {
             if(kind=="comic") {
                 // Insets position the overlays, never resize the comic viewport.
                 root.setPadding(0,0,0,0)
+                navBottom = bars.bottom
                 statusBackground.layoutParams=statusBackground.layoutParams.apply {height=bars.top}
                 top.layoutParams=(top.layoutParams as FrameLayout.LayoutParams).apply {topMargin=bars.top;leftMargin=bars.left;rightMargin=bars.right}
                 // Extend the bottom bar's own background down to the screen edge so the
                 // comic never shows through the navigation area; the inset becomes padding.
                 bottom.layoutParams=(bottom.layoutParams as FrameLayout.LayoutParams).apply {bottomMargin=0;leftMargin=bars.left;rightMargin=bars.right}
                 bottom.setPadding(dp(12),0,dp(12),dp(8)+bars.bottom)
+                (surface as? ComicReaderSurface)?.insetsChanged()
             } else root.setPadding(bars.left,bars.top,bars.right,bars.bottom)
             WindowInsetsCompat.Builder(insets).setInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),androidx.core.graphics.Insets.NONE).build()
         }
@@ -182,13 +202,37 @@ class ReaderActivity : AppCompatActivity() {
         setOnClickListener { action() }
     }
     fun toggleMenu() { menuTouched = true;menu = !menu; applyMenu(); report(snapshot.optString("status","ready")) }
-    private fun applyMenu() { top.visibility = if (menu) View.VISIBLE else View.GONE; bottom.visibility = top.visibility
-        statusBackground.visibility=if(kind=="comic"&&menu)View.VISIBLE else View.GONE
+    private fun applyMenu() {
         WindowInsetsControllerCompat(window, root).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             if (menu) show(WindowInsetsCompat.Type.systemBars()) else hide(WindowInsetsCompat.Type.systemBars())
         }
         ViewCompat.requestApplyInsets(root)
+        (surface as? ComicReaderSurface)?.onMenuChanged()
+        animateChrome(menu)
+    }
+    private fun animateChrome(show: Boolean) {
+        val duration = 220L
+        val ease = android.view.animation.DecelerateInterpolator()
+        val comicChrome = kind == "comic"
+        listOf(top, bottom, statusBackground).forEach { it.animate().cancel() }
+        if (show) {
+            top.visibility = View.VISIBLE; bottom.visibility = View.VISIBLE
+            if (comicChrome) statusBackground.visibility = View.VISIBLE
+            top.translationY = -top.height.toFloat(); top.alpha = 0f
+            bottom.translationY = bottom.height.toFloat(); bottom.alpha = 0f
+            statusBackground.alpha = 0f
+            top.animate().translationY(0f).alpha(1f).setDuration(duration).setInterpolator(ease).start()
+            bottom.animate().translationY(0f).alpha(1f).setDuration(duration).setInterpolator(ease).start()
+            if (comicChrome) statusBackground.animate().alpha(1f).setDuration(duration).setInterpolator(ease).start()
+        } else {
+            top.animate().translationY(-top.height.toFloat()).alpha(0f).setDuration(duration).setInterpolator(ease)
+                .withEndAction { if (!menu) { top.visibility = View.GONE; top.translationY = 0f } }.start()
+            bottom.animate().translationY(bottom.height.toFloat()).alpha(0f).setDuration(duration).setInterpolator(ease)
+                .withEndAction { if (!menu) { bottom.visibility = View.GONE; bottom.translationY = 0f } }.start()
+            statusBackground.animate().alpha(0f).setDuration(duration).setInterpolator(ease)
+                .withEndAction { if (!menu) { statusBackground.visibility = View.GONE; statusBackground.alpha = 1f } }.start()
+        }
     }
     fun notify(message: String) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
     fun locationChanged(page: Int, count: Int, fraction: Double) {
@@ -277,7 +321,8 @@ class ReaderActivity : AppCompatActivity() {
                 if (request != generation) return@launch
                 stopNextPreparation(keepStarted=prepared!=null)
                 surface?.close(); surface = null; content.removeAllViews(); entry = id; manifest = data
-                title.text = data.getString("title") + if (data.optBoolean("offline")) " · 离线" else ""
+                chapterTitle = data.getString("title"); chapterOffline = data.optBoolean("offline")
+                title.text = chapterTitle + if (chapterOffline) " · 离线" else ""
                 val location = desired ?: data.optJSONObject("location")
                 surface = if (kind == "comic") ComicReaderSurface(this@ReaderActivity, data, location) else NovelReaderSurface(this@ReaderActivity, content, data, location)
                 if (kind == "comic") content.addView(surface!!.view, FrameLayout.LayoutParams(-1, -1))
@@ -321,18 +366,73 @@ class ReaderActivity : AppCompatActivity() {
     /** Reload the current chapter while keeping the reader's own position. */
     fun refresh() { if (!loading && !isFinishing) load(entry, surface?.location()) }
     /** Chapter-scoped comments: awaits the per-chapter endpoint from the backend. */
-    private fun chapterComments() { notify("本话评论待接入") }
+    fun chapterComments() { notify("本话评论待接入") }
+    /**
+     * Continuous comic scroll: the surface owns several chapters and reports which one is on
+     * screen so progress saving, the toolbar title and the comments button target the right chapter.
+     */
+    fun activeChapter(id: String, name: String, offline: Boolean) {
+        if (id == entry && name == chapterTitle && offline == chapterOffline) return
+        chapterTitle = name; chapterOffline = offline; entry = id
+        title.text = name + if (offline) " · 离线" else ""
+        report("ready")
+    }
+    suspend fun comicChapter(id: String): JSONObject = client.json("chapter/$id")
+    /** Id of the chapter that follows [after] in the catalogue, or null at the end of the series. */
+    suspend fun nextChapterId(after: String): String? {
+        catalogueEntries()
+        val index = (0 until entries.length()).firstOrNull { entries.getJSONObject(it).getString("id") == after } ?: return null
+        if (index + 1 >= entries.length()) return null
+        return entries.getJSONObject(index + 1).getString("id")
+    }
     fun catalogue() {
         if (kind == "novel" && surface is NovelReaderSurface) {
-            choice("阅读目录", listOf("本卷章节", "全部卷册")) { option -> if (option == 0) (surface as? NovelReaderSurface)?.contents() else seriesCatalogue() }
+            optionSheet("阅读目录", listOf("本卷章节", "全部卷册"), -1, null) { option -> if (option == 0) (surface as? NovelReaderSurface)?.contents() else seriesCatalogue() }
         } else seriesCatalogue()
     }
     private fun seriesCatalogue() {
         lifecycleScope.launch {
             try {
-                catalogueEntries(); choice("章节目录", (0 until entries.length()).map { entries.getJSONObject(it).getString("title") }) { load(entries.getJSONObject(it).getString("id")) }
+                catalogueEntries()
+                val items = (0 until entries.length()).map { entries.getJSONObject(it).getString("title") }
+                val current = (0 until entries.length()).firstOrNull { entries.getJSONObject(it).getString("id") == entry } ?: -1
+                catalogueSheet("章节目录", items, current) { index -> load(entries.getJSONObject(index).getString("id")) }
             } catch (error: Exception) { notify(error.message ?: "目录读取失败") }
         }
+    }
+    /** Themed chapter list; the current chapter is highlighted and scrolled into view. */
+    fun catalogueSheet(title: String, items: List<String>, current: Int, onSelect: (Int) -> Unit) {
+        val dialog = BottomSheetDialog(this)
+        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(10), dp(18), dp(28)); setBackgroundColor(readerBackground) }
+        column.addView(View(this).apply { background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(dividerColor) } }, LinearLayout.LayoutParams(dp(40), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(18) })
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(TextView(this).apply { text = title; textSize = 20f; setTextColor(readerForeground); setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(0, -2, 1f))
+        if (current in items.indices) header.addView(TextView(this).apply { text = "${current + 1} / ${items.size}"; textSize = 13f; setTextColor(mutedForeground) })
+        column.addView(header, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+        val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(cardColor) } }
+        val rows = ArrayList<View>()
+        items.forEachIndexed { index, item ->
+            if (index > 0) card.addView(View(this).apply { setBackgroundColor(hairlineColor) }, LinearLayout.LayoutParams(-1, dp(1)))
+            val active = index == current
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isClickable = true; minimumHeight = dp(50); setPadding(dp(14), dp(2), dp(14), dp(2)) }
+            row.addView(TextView(this).apply {
+                text = item; textSize = 15f
+                setTextColor(if (active) accent else readerForeground)
+                if (active) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            if (active) row.addView(ImageView(this).apply { setImageResource(R.drawable.ic_genzo_check); imageTintList = ColorStateList.valueOf(accent); contentDescription = "当前章节" }, LinearLayout.LayoutParams(dp(18), dp(18)))
+            row.setOnClickListener { onSelect(index); dialog.dismiss() }
+            card.addView(row); rows.add(row)
+        }
+        column.addView(card)
+        val scroll = androidx.core.widget.NestedScrollView(this).apply { addView(column) }
+        val sheetHeight = (resources.displayMetrics.heightPixels * 0.72f).roundToInt()
+        dialog.setContentView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, sheetHeight))
+        dialog.setOnShowListener {
+            dialog.behavior.apply { state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED; skipCollapsed = true }
+            if (current in rows.indices) scroll.post { scroll.scrollTo(0, card.top + rows[current].top - dp(60)) }
+        }
+        dialog.show()
     }
     fun choice(title: String, items: List<String>, selected: (Int) -> Unit) {
         androidx.appcompat.app.AlertDialog.Builder(this).setTitle(title).setItems(items.toTypedArray()) { _, index -> selected(index) }.setNegativeButton("关闭", null).show()
@@ -368,42 +468,223 @@ class ReaderActivity : AppCompatActivity() {
             } catch (error: Exception) { notify(error.message ?: "书签操作失败") }
         } }
     }
+    private fun readingModeSelection(): Pair<Int, Int> {
+        val value = settings.optString("mode", "scroll-vertical")
+        val style = if (value.startsWith("scroll")) 0 else 1
+        val direction = when {
+            value.endsWith("vertical") -> 2
+            settings.optBoolean("rtl", false) -> 1
+            else -> 0
+        }
+        return style to direction
+    }
+    private fun applyReadingMode(style: Int, direction: Int) {
+        settings.put("mode", when {
+            direction == 2 && style == 0 -> "scroll-vertical"
+            direction == 2 -> "page-vertical"
+            style == 0 -> "scroll-horizontal"
+            else -> "page-horizontal"
+        })
+        settings.put("rtl", direction == 1)
+        persistSettings()
+    }
+    private fun segmented(options: List<Pair<Int, String>>, selected: Int, onSelect: (Int) -> Unit): LinearLayout {
+        val dark = settings.optString("theme", "dark") == "dark"
+        val trackColor = if (dark) Color.rgb(24, 30, 32) else Color.rgb(230, 232, 226)
+        val activeColor = if (dark) Color.rgb(42, 53, 55) else Color.rgb(255, 255, 255)
+        val activeText = if (dark) readerForeground else Color.rgb(20, 24, 23)
+        val idleText = if (dark) Color.rgb(150, 160, 158) else Color.rgb(112, 118, 115)
+        val track = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(trackColor) }
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+        }
+        val rows = ArrayList<LinearLayout>(); val icons = ArrayList<ImageView>(); val labels = ArrayList<TextView>()
+        fun paint(current: Int) {
+            rows.forEachIndexed { index, row ->
+                val active = index == current
+                row.background = if (active) GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(activeColor) } else null
+                icons[index].setImageResource(if (active) R.drawable.ic_genzo_check else options[index].first)
+                icons[index].imageTintList = ColorStateList.valueOf(if (active) accent else idleText)
+                labels[index].setTextColor(if (active) activeText else idleText)
+            }
+        }
+        options.forEachIndexed { index, option ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+                isClickable = true; setPadding(dp(6), dp(10), dp(6), dp(10))
+            }
+            val icon = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_INSIDE }
+            row.addView(icon, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(6) })
+            val label = TextView(this).apply { text = option.second; textSize = 13f }
+            row.addView(label)
+            row.setOnClickListener { paint(index); onSelect(index) }
+            track.addView(row, LinearLayout.LayoutParams(0, dp(44), 1f).apply { if (index > 0) marginStart = dp(2) })
+            rows.add(row); icons.add(icon); labels.add(label)
+        }
+        paint(selected)
+        return track
+    }
+    /** Styled single-choice sheet with colour swatches (配色) or plain rows (字体). */
+    private fun optionSheet(title: String, items: List<String>, current: Int, swatches: List<Int>?, onSelect: (Int) -> Unit) {
+        val dialog = BottomSheetDialog(this)
+        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(10), dp(18), dp(28)); setBackgroundColor(readerBackground) }
+        column.addView(View(this).apply { background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(dividerColor) } }, LinearLayout.LayoutParams(dp(40), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(18) })
+        column.addView(TextView(this).apply { text = title; textSize = 20f; setTextColor(readerForeground); setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
+        val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(cardColor) }; setPadding(dp(14), dp(6), dp(14), dp(6)) }
+        items.forEachIndexed { index, item ->
+            if (index > 0) card.addView(View(this).apply { setBackgroundColor(hairlineColor) }, LinearLayout.LayoutParams(-1, dp(1)))
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isClickable = true; minimumHeight = dp(54); setPadding(0, dp(2), 0, dp(2)) }
+            swatches?.getOrNull(index)?.let { color ->
+                row.addView(View(this).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setStroke(dp(1), dividerColor) }; isClickable = false }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(12) })
+            }
+            row.addView(TextView(this).apply { text = item; textSize = 15f; setTextColor(readerForeground) }, LinearLayout.LayoutParams(0, -2, 1f))
+            if (index == current) row.addView(ImageView(this).apply { setImageResource(R.drawable.ic_genzo_check); imageTintList = ColorStateList.valueOf(accent); contentDescription = "已选" }, LinearLayout.LayoutParams(dp(18), dp(18)))
+            row.setOnClickListener { onSelect(index); dialog.dismiss() }
+            card.addView(row)
+        }
+        column.addView(card)
+        dialog.setContentView(androidx.core.widget.NestedScrollView(this).apply { addView(column) })
+        dialog.setOnShowListener { dialog.behavior.apply { state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED; skipCollapsed = true } }
+        dialog.show()
+    }
     private fun settingsSheet() {
-        val dialog = BottomSheetDialog(this); val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(12), dp(20), dp(24)); setBackgroundColor(readerBackground) }
-        fun toggle(label: String, key: String, default: Boolean) {
-            column.addView(Switch(this).apply { text = label; setTextColor(readerForeground); minHeight = dp(48); isChecked = settings.optBoolean(key, default)
-                setOnCheckedChangeListener { _, value -> settings.put(key, value); persistSettings() } })
+        val dialog = BottomSheetDialog(this)
+        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(10), dp(18), dp(28)); setBackgroundColor(readerBackground) }
+        column.addView(View(this).apply { background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(dividerColor) } }, LinearLayout.LayoutParams(dp(40), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(18) })
+        column.addView(TextView(this).apply { text = "阅读设置"; textSize = 20f; setTextColor(readerForeground); setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(-1, -2))
+        fun sectionLabel(text: String) = TextView(this).apply {
+            this.text = text; textSize = 12f; setTextColor(mutedForeground); letterSpacing = 0.08f
+            setPadding(dp(4), dp(20), dp(4), dp(8))
         }
-        fun slider(label: String, key: String, low: Double, high: Double, default: Double, integer:Boolean=false) {
-            val text = TextView(this).apply { setTextColor(readerForeground) }; column.addView(text)
-            val bar = SeekBar(this).apply { max = 100; progress = ((settings.optDouble(key, default) - low) / (high - low) * 100).toInt().coerceIn(0, 100) }
-            fun update() { val value = low + bar.progress / 100.0 * (high - low); text.text = "$label：${if(integer)value.roundToInt().toString()else "%.1f".format(value)}" }
+        fun card() = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(cardColor) }
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+        }
+        fun addRow(card: LinearLayout, content: View) {
+            if (card.childCount > 0) card.addView(View(this).apply { setBackgroundColor(hairlineColor) }, LinearLayout.LayoutParams(-1, dp(1)))
+            card.addView(content)
+        }
+        fun makeToggle(label: String, key: String, default: Boolean, onChange: ((Boolean) -> Unit)? = null): View {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isClickable = true; minimumHeight = dp(52); setPadding(0, dp(2), 0, dp(2)) }
+            row.addView(TextView(this).apply { text = label; textSize = 15f; setTextColor(readerForeground) }, LinearLayout.LayoutParams(0, -2, 1f))
+            val switch = Switch(this).apply {
+                isChecked = settings.optBoolean(key, default); contentDescription = label
+                setOnCheckedChangeListener { _, value -> settings.put(key, value); persistSettings(); onChange?.invoke(value) }
+            }
+            row.addView(switch)
+            row.setOnClickListener { switch.isChecked = !switch.isChecked }
+            return row
+        }
+        fun makeSlider(label: String, key: String, low: Double, high: Double, default: Double, integer: Boolean = false): View {
+            val block = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
+            val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            header.addView(TextView(this).apply { text = label; textSize = 15f; setTextColor(readerForeground) }, LinearLayout.LayoutParams(0, -2, 1f))
+            val value = TextView(this).apply { textSize = 14f; setTextColor(mutedForeground) }
+            header.addView(value); block.addView(header)
+            val bar = SeekBar(this).apply {
+                max = 100; splitTrack = false
+                progress = ((settings.optDouble(key, default) - low) / (high - low) * 100).toInt().coerceIn(0, 100)
+                progressDrawable = androidx.core.content.ContextCompat.getDrawable(this@ReaderActivity, R.drawable.genzo_slider_track)
+                thumb = androidx.core.content.ContextCompat.getDrawable(this@ReaderActivity, R.drawable.genzo_slider_thumb)
+                progressTintList = ColorStateList.valueOf(accent)
+                thumbTintList = ColorStateList.valueOf(accent)
+                progressBackgroundTintList = ColorStateList.valueOf(hairlineColor)
+            }
+            fun update() { val v = low + bar.progress / 100.0 * (high - low); value.text = if (integer) v.roundToInt().toString() else "%.1f".format(v) }
             bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(bar: SeekBar?, value: Int, user: Boolean) { update() }
-                override fun onStartTrackingTouch(bar: SeekBar?) {}
-                override fun onStopTrackingTouch(bar: SeekBar?) { val value=low+(bar?.progress?:0)/100.0*(high-low);settings.put(key,if(integer)value.roundToInt().toDouble()else value);persistSettings() }
-            }); update(); column.addView(bar, LinearLayout.LayoutParams(-1, dp(44)))
+                override fun onProgressChanged(b: SeekBar?, p: Int, u: Boolean) { update() }
+                override fun onStartTrackingTouch(b: SeekBar?) {}
+                override fun onStopTrackingTouch(b: SeekBar?) { val v = low + (b?.progress ?: 0) / 100.0 * (high - low); settings.put(key, if (integer) v.roundToInt().toDouble() else v); persistSettings() }
+            })
+            update(); block.addView(bar, LinearLayout.LayoutParams(-1, dp(34)))
+            return block
         }
-        column.addView(button("阅读配色") { choice("配色", listOf("深色", "纸张", "白色", "护眼绿")) { settings.put("theme", listOf("dark", "paper", "white", "green")[it]); persistSettings() } })
+        fun valueRow(label: String, initial: String, open: ((String) -> Unit) -> Unit): View {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isClickable = true; minimumHeight = dp(52); setPadding(0, dp(2), 0, dp(2)) }
+            row.addView(TextView(this).apply { text = label; textSize = 15f; setTextColor(readerForeground) }, LinearLayout.LayoutParams(0, -2, 1f))
+            val value = TextView(this).apply { text = initial; textSize = 14f; setTextColor(mutedForeground) }
+            row.addView(value)
+            row.addView(ImageView(this).apply { setImageResource(R.drawable.ic_genzo_arrow_right); imageTintList = ColorStateList.valueOf(mutedForeground) }, LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginStart = dp(8) })
+            row.setOnClickListener { open { newValue -> value.text = newValue } }
+            return row
+        }
+
+        val themeNames = listOf("深色", "纸张", "白色", "护眼绿")
+        val themeKeys = listOf("dark", "paper", "white", "green")
+        val fontNames = listOf("系统无衬线", "系统衬线", "等宽")
+        val fontKeys = listOf("sans-serif", "serif", "monospace")
+
+        column.addView(sectionLabel("阅读"))
+        val readingCard = card()
+        addRow(readingCard, valueRow("阅读配色", themeNames[themeKeys.indexOf(settings.optString("theme", "dark")).coerceAtLeast(0)]) { update ->
+            optionSheet("配色", themeNames, themeKeys.indexOf(settings.optString("theme", "dark")).coerceAtLeast(0), themeKeys.map { themeColor(it) }) { index ->
+                settings.put("theme", themeKeys[index]); persistSettings(); update(themeNames[index])
+            }
+        })
+        column.addView(readingCard)
+
         if (kind == "comic") {
-            column.addView(button("阅读模式") { choice("阅读模式", listOf("纵向滚动", "横向滚动", "左右翻页", "上下翻页")) { settings.put("mode", listOf("scroll-vertical", "scroll-horizontal", "page-horizontal", "page-vertical")[it]); persistSettings() } })
-            toggle("从右向左阅读", "rtl", false); toggle("自动进入下一章", "continuous", true)
-            toggle("长按放大", "longPressZoom", true); slider("页面间距", "gap", 0.0, 24.0, 0.0)
-            toggle("自动滚动", "autoScroll", false); slider("自动滚动速度", "autoSpeed", 10.0, 100.0, 35.0)
-            slider("夜间遮罩", "dimming", 0.0, 0.8, 0.0)
-            slider("图片超时（秒）", "imageTimeout", 5.0, 60.0, 15.0,true)
-            slider("图片重试次数", "imageRetries", 0.0, 5.0, 1.0,true)
-            val stats=ReaderClient.imageStats()
-            column.addView(TextView(this).apply {setTextColor(readerForeground);text="最近10分钟内加载 ${stats.optInt("count")} 张，平均 ${"%.2f".format(stats.optLong("averageMs")/1000.0)} 秒"})
+            val (initialStyle, initialDirection) = readingModeSelection()
+            var style = initialStyle; var direction = initialDirection
+            column.addView(sectionLabel("翻页方式"))
+            column.addView(segmented(listOf(R.drawable.ic_genzo_scroll to "滚动", R.drawable.ic_genzo_book to "翻页"), style) { style = it; applyReadingMode(style, direction) }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+            column.addView(segmented(listOf(R.drawable.ic_genzo_arrow_right to "左到右", R.drawable.ic_genzo_arrow_left to "右到左", R.drawable.ic_genzo_arrow_down to "上到下"), direction) { direction = it; applyReadingMode(style, direction) })
+
+            column.addView(sectionLabel("排版"))
+            val layoutCard = card()
+            addRow(layoutCard, makeToggle("自动进入下一章", "continuous", true))
+            addRow(layoutCard, makeToggle("长按放大", "longPressZoom", true))
+            val autoDetails = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = if (settings.optBoolean("autoScroll", false)) View.VISIBLE else View.GONE }
+            autoDetails.addView(makeSlider("自动滚动速度", "autoSpeed", 10.0, 100.0, 35.0))
+            addRow(layoutCard, makeToggle("自动滚动", "autoScroll", false) { enabled -> autoDetails.visibility = if (enabled) View.VISIBLE else View.GONE })
+            layoutCard.addView(autoDetails)
+            addRow(layoutCard, makeSlider("页面间距", "gap", 0.0, 24.0, 0.0))
+            column.addView(layoutCard)
+
+            column.addView(sectionLabel("显示"))
+            val displayCard = card()
+            addRow(displayCard, makeSlider("夜间遮罩", "dimming", 0.0, 0.8, 0.0))
+            addRow(displayCard, makeSlider("图片超时（秒）", "imageTimeout", 5.0, 60.0, 15.0, true))
+            addRow(displayCard, makeSlider("图片重试次数", "imageRetries", 0.0, 5.0, 1.0, true))
+            val stats = ReaderClient.imageStats()
+            displayCard.addView(TextView(this).apply { setTextColor(mutedForeground); textSize = 12f; text = "最近10分钟内加载 ${stats.optInt("count")} 张，平均 ${"%.2f".format(stats.optLong("averageMs") / 1000.0)} 秒"; setPadding(dp(4), dp(14), dp(4), dp(12)) })
+            column.addView(displayCard)
         } else {
-            toggle("滚动阅读", "scroll", false)
-            column.addView(button("字体") { choice("字体", listOf("系统无衬线", "系统衬线", "等宽")) { settings.put("font", listOf("sans-serif", "serif", "monospace")[it]); persistSettings() } })
-            slider("字号", "fontSize", 14.0, 32.0, 20.0); slider("行距", "lineHeight", 1.2, 2.4, 1.8)
-            slider("页边距", "margins", 0.4, 2.0, 1.0); slider("段落间距", "paragraphSpacing", 0.0, 2.0, 0.6)
+            column.addView(sectionLabel("排版"))
+            val layoutCard = card()
+            addRow(layoutCard, makeToggle("滚动阅读", "scroll", false))
+            addRow(layoutCard, valueRow("字体", fontNames[fontKeys.indexOf(settings.optString("font", "sans-serif")).coerceAtLeast(0)]) { update ->
+                optionSheet("字体", fontNames, fontKeys.indexOf(settings.optString("font", "sans-serif")).coerceAtLeast(0), null) { index ->
+                    settings.put("font", fontKeys[index]); persistSettings(); update(fontNames[index])
+                }
+            })
+            addRow(layoutCard, makeSlider("字号", "fontSize", 14.0, 32.0, 20.0))
+            addRow(layoutCard, makeSlider("行距", "lineHeight", 1.2, 2.4, 1.8))
+            addRow(layoutCard, makeSlider("页边距", "margins", 0.4, 2.0, 1.0))
+            addRow(layoutCard, makeSlider("段落间距", "paragraphSpacing", 0.0, 2.0, 0.6))
+            column.addView(layoutCard)
         }
-        toggle("保持屏幕常亮", "keepScreenOn", true); toggle("音量键翻页", "volumeKeys", true)
-        toggle("跟随系统亮度", "systemBrightness", true); slider("阅读亮度", "brightness", 0.05, 1.0, 0.5)
-        dialog.setContentView(ScrollView(this).apply { addView(column) }); dialog.show()
+
+        column.addView(sectionLabel("系统"))
+        val systemCard = card()
+        addRow(systemCard, makeToggle("保持屏幕常亮", "keepScreenOn", true))
+        addRow(systemCard, makeToggle("音量键翻页", "volumeKeys", true))
+        addRow(systemCard, makeToggle("跟随系统亮度", "systemBrightness", true))
+        addRow(systemCard, makeSlider("阅读亮度", "brightness", 0.05, 1.0, 0.5))
+        column.addView(systemCard)
+
+        val scroll = androidx.core.widget.NestedScrollView(this).apply { addView(column) }
+        val sheetHeight = (resources.displayMetrics.heightPixels * 0.66f).roundToInt()
+        dialog.setContentView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, sheetHeight))
+        dialog.setOnShowListener {
+            dialog.behavior.apply {
+                state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+                skipCollapsed = true
+            }
+        }
+        dialog.show()
     }
     private fun persistSettings() {
         getSharedPreferences("genzo-reader-settings", 0).edit().putString(kind, settings.toString()).apply()
@@ -414,7 +695,7 @@ class ReaderActivity : AppCompatActivity() {
         if (firstContent && surface?.rendered == true) { firstContent = false;if(!menuTouched){menu = false;applyMenu()} }
         snapshot = JSONObject().put("status", status).put("kind", kind).put("entryId", entry)
             .put("sessionId", intent.getStringExtra("sessionId")).put("engine", if (kind == "comic") "Kotlin/SSIV" else "Readium 3.1.2")
-            .put("title", manifest?.optString("title")).put("offline", manifest?.optBoolean("offline") ?: false)
+            .put("title", chapterTitle.ifEmpty { manifest?.optString("title") }).put("offline", chapterOffline)
             .put("location", surface?.location()).put("settings", JSONObject(settings.toString()))
             .put("rendered", surface?.rendered ?: false)
             .put("menuVisible", menu)

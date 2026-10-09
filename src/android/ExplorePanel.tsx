@@ -6,10 +6,11 @@ import { ArrowLeft, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, Cl
 import { api } from "../api";
 import { androidApi } from "./api";
 import type { AnimeWorkStructure, BangumiComment, ExploreSubject, WeeklyCalendar, WeeklyCalendarDay, WorkStatus } from "../types";
-import { appendComicPage, comicExploreApi, novelExploreApi, type ComicDetail, type ComicFeedEntry, type ComicHome, type ComicItem, type ComicSection, type ComicSectionPage, type ComicSectionQuery, type ComicTheme, type CopyComment, type RankPeriod } from "../comicExplore";
+import { appendComicPage, comicExploreApi, novelExploreApi, type ComicDetail, type ComicFeedEntry, type ComicHome, type ComicItem, type ComicSection, type ComicSectionPage, type ComicSectionQuery, type ComicTheme, type RankPeriod } from "../comicExplore";
 import { type SourceEntry } from "../bookContent";
 import BookReader from "./BookReader";
 import BookDescription from "./BookDescription";
+import ComicComments from "./ComicComments";
 import { ComicCover } from "../components/ComicCover";
 import AnimeCover from "./AnimeCover";
 import OnlineChapters from "./OnlineChapters";
@@ -166,10 +167,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   const [bookDetailState, setBookDetailState] = useState<LoadState>("ready");
   const [bookSelecting, setBookSelecting] = useState(false);
   const [readerGroup, setReaderGroup] = useState("");
-  const [bookComments, setBookComments] = useState<CopyComment[]>([]);
-  const [bookCommentsState, setBookCommentsState] = useState<LoadState>("ready");
-  const [bookCommentsTotal, setBookCommentsTotal] = useState(0);
-  const [bookCommentsLoadingMore, setBookCommentsLoadingMore] = useState(false);
+  const [comicCommentsOpen, setComicCommentsOpen] = useState(false);
   const [readerEntry, setReaderEntry] = useState<SourceEntry | null>(null);
   const [structure, setStructure] = useState<AnimeWorkStructure | null>(null);
   const [structureState, setStructureState] = useState<LoadState>("ready");
@@ -221,6 +219,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
     void transition.finished.then(cleanup, cleanup);
   }, []);
   backHandler.current = () => {
+    if (comicCommentsOpen) { setComicCommentsOpen(false); return true; }
     if (statusSheet) { setStatusSheet(false); return true; }
     if (subject) { subjectRequest.current++; const id = exploreDetailId.current ?? subject.externalId; runExploreMorph(id, "back", () => setSubject(null)); return true; }
     if (readerEntry) { setReaderEntry(null); return true; }
@@ -497,13 +496,10 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   const openBook = async (item: ComicItem, kind: "comic" | "novel") => {
     const request = ++bookDetailRequest.current;
     const detailKey = `reading:detail:${kind}:${item.pathWord}`;
-    const commentsKey = `reading:comments:${kind}:${item.pathWord}`;
     const cachedDetail = androidSession.peek<ComicDetail>(detailKey);
-    const cachedComments = androidSession.peek<Awaited<ReturnType<typeof comicExploreApi.comments>>>(commentsKey);
     const initialize = () => {
       setComicDetailKind(kind); setComicDetail(cachedDetail ?? { item, aliases: [], chapterCount: null, stale: false });
-      setBookDetailState(cachedDetail ? "ready" : "loading"); setBookSelecting(false); setReaderEntry(null);
-      setBookComments(cachedComments?.items ?? []); setBookCommentsState(cachedComments ? "ready" : "loading"); setBookCommentsTotal(cachedComments?.total ?? 0); setBookCommentsLoadingMore(false);
+      setBookDetailState(cachedDetail ? "ready" : "loading"); setBookSelecting(false); setReaderEntry(null); setComicCommentsOpen(false);
     };
     if (comicDetail?.item.pathWord === item.pathWord) initialize();
     else await new Promise<void>(resolve => runExploreMorph(item.pathWord, "forward", () => { initialize(); resolve(); }));
@@ -517,27 +513,6 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
       setBookDetailState("error");
       onToast(String(reason));
     }
-    try {
-      const comments = await androidSession.load(commentsKey, () => kind === "comic" ? comicExploreApi.comments(item.pathWord) : novelExploreApi.comments(item.pathWord));
-      if (request !== bookDetailRequest.current) return;
-      setBookComments(comments.items); setBookCommentsTotal(comments.total); setBookCommentsState("ready");
-    } catch {
-      if (request !== bookDetailRequest.current) return;
-      setBookCommentsState("error");
-    }
-  };
-
-  const loadMoreBookComments = async () => {
-    if (!comicDetail || bookCommentsLoadingMore || bookComments.length >= bookCommentsTotal) return;
-    setBookCommentsLoadingMore(true);
-    try {
-      const next = comicDetailKind === "comic"
-        ? await comicExploreApi.comments(comicDetail.item.pathWord, bookComments.length)
-        : await novelExploreApi.comments(comicDetail.item.pathWord, bookComments.length);
-      setBookComments(previous => [...new Map([...previous, ...next.items].map(comment => [comment.id, comment])).values()]);
-      setBookCommentsTotal(next.total);
-    } catch (reason) { onToast(String(reason)); }
-    finally { setBookCommentsLoadingMore(false); }
   };
 
   const loadMoreSubjectComments = async () => {
@@ -595,8 +570,10 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   const saveBook = async (item: ComicItem, kind: "comic" | "novel") => {
     setSaving(true);
     try {
-      if (kind === "comic") await comicExploreApi.save(item.pathWord, true);
-      else await novelExploreApi.save(item.pathWord, true);
+      const workId = kind === "comic" ? await comicExploreApi.save(item.pathWord, true) : await novelExploreApi.save(item.pathWord, true);
+      setComicDetail(previous => previous && previous.item.pathWord === item.pathWord
+        ? { ...previous, item: { ...previous.item, localWorkId: workId, favorite: true } }
+        : previous);
       onLibraryChanged?.();
       onToast("已加入书架");
     } catch (reason) { onToast(String(reason)); }
@@ -614,12 +591,16 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   const selectDay = (next: number) => { setSlideDir(next >= scheduleDay ? "right" : "left"); setScheduleDay(next); };
 
   const animeCard = (item: ExploreSubject) => <button className="gz-cover" key={item.externalId} onClick={() => void openSubject(item)}>
-    <span className="gz-explore-poster" data-explore-cover-id={item.externalId}><AnimeCover id={item.externalId} url={cover(item)} /></span>
+    <span className="gz-explore-poster" data-explore-cover-id={item.externalId}>
+      <AnimeCover id={item.externalId} url={cover(item)} />
+    </span>
     <span className="gz-cover-label">{item.title}</span>
   </button>;
 
   const comicCard = (item: ComicItem, kind: "comic" | "novel" = "comic") => <button className="gz-cover" key={item.pathWord} onClick={() => void openBook(item, kind)}>
-    <span className="gz-explore-poster" data-explore-cover-id={item.pathWord}><ComicCover item={item} /></span>
+    <span className={`gz-explore-poster${kind === "novel" ? " is-novel" : ""}`} data-explore-cover-id={item.pathWord}>
+      <ComicCover item={item} />
+    </span>
     <span className="gz-cover-label">{item.title}</span>
   </button>;
 
@@ -795,7 +776,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
         <div className="gz-subject-stats">
           <div className="gz-book-pills">{comicDetail.item.authors.map(author => <span className="gz-book-pill" key={author}><Users size={12} />{author}</span>)}{comicDetail.item.status && <span className="gz-book-pill">{comicDetail.item.status}</span>}{comicDetail.item.tags.map(tag => <span className="gz-book-pill" key={tag}>{tag}</span>)}</div>
           {comicDetail.chapterCount != null && <div className="gz-subject-stat"><span>章节:</span><strong>{comicDetail.chapterCount}</strong></div>}
-          <button type="button" className="gz-status-pill" disabled={saving} onClick={() => void saveBook(comicDetail.item, comicDetailKind)}><BookOpen size={16} /><span>加入书架</span></button>
+          <button type="button" className={`gz-status-pill${comicDetail.item.localWorkId ? " is-saved" : ""}`} disabled={saving || !!comicDetail.item.localWorkId} onClick={() => void saveBook(comicDetail.item, comicDetailKind)}>{comicDetail.item.localWorkId ? <Check size={16} /> : <BookOpen size={16} />}<span>{comicDetail.item.localWorkId ? "已在书架" : "加入书架"}</span></button>
         </div>
       </div>
     </section>
@@ -805,16 +786,8 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
       <div className="gz-section-head"><h2>简介</h2></div>
       <BookDescription text={comicDetail.item.summary} />
     </section>
-    <div className="gz-book-actions"><button className="gz-book-action" onClick={() => setBookSelecting(value => !value)}>{bookSelecting ? <X size={18} /> : <Download size={18} />}{bookSelecting ? "取消" : "下载"}</button><button className="gz-book-action" onClick={() => document.getElementById("gz-book-comments")?.scrollIntoView({ behavior: "smooth" })}><MessageCircle size={18} />评论</button><button className="gz-book-action" disabled={saving} onClick={() => void saveBook(comicDetail.item, comicDetailKind)}><Heart size={18} />收藏</button></div>
+    <div className="gz-book-actions"><button className="gz-book-action" onClick={() => setBookSelecting(value => !value)}>{bookSelecting ? <X size={18} /> : <Download size={18} />}{bookSelecting ? "取消" : "下载"}</button><button className="gz-book-action" onClick={() => setComicCommentsOpen(true)}><MessageCircle size={18} />评论</button><button className="gz-book-action" disabled={saving} onClick={() => void saveBook(comicDetail.item, comicDetailKind)}><Heart size={18} />收藏</button></div>
     <OnlineChapters key={`${comicDetailKind}:${comicDetail.item.pathWord}`} kind={comicDetailKind} pathWord={comicDetail.item.pathWord} selecting={bookSelecting} onSelecting={setBookSelecting} onRead={(entry, group) => { setReaderEntry(entry); setReaderGroup(group); }} onToast={onToast} />
-    <section className="gz-section" id="gz-book-comments">
-      <div className="gz-section-head"><h2>评论</h2><span className="gz-meta">COPY</span></div>
-      {bookCommentsState === "loading" ? <LoadingIndicator label="正在读取评论…" compact />
-        : bookCommentsState === "error" ? <p className="gz-meta">评论暂时无法读取，请检查阅读网络设置。</p>
-          : bookComments.length ? <div className="gz-credit-list">{bookComments.map(comment => <article className="gz-credit" key={comment.id}><span className="gz-credit-avatar">{comment.userName.slice(0, 1) || "匿"}</span><span className="gz-credit-main"><strong>{comment.userName || "匿名用户"}</strong><span>{comment.comment}</span></span></article>)}</div>
-            : <p className="gz-meta">暂无评论。</p>}
-      {bookComments.length > 0 && bookComments.length < bookCommentsTotal && <button className="gz-btn" type="button" disabled={bookCommentsLoadingMore} onClick={() => void loadMoreBookComments()}>{bookCommentsLoadingMore ? "加载中…" : "加载更多评论"}</button>}
-    </section>
   </div>;
 
   const comicSectionView = comicSection && <div className="gz-explore-section">
@@ -836,7 +809,7 @@ export default function ExplorePanel({ onToast, onLibraryChanged, registerBack, 
   </div>;
 
   if (subject) return <div className="gz-explore">{subjectView}</div>;
-  if (comicDetail) return <div className="gz-explore">{comicDetailView}{readerEntry && <BookReader kind={comicDetailKind} pathWord={comicDetail.item.pathWord} entryId={readerEntry.id} group={readerGroup} onClose={() => setReaderEntry(null)} />}</div>;
+  if (comicDetail) return <div className="gz-explore">{comicDetailView}{comicCommentsOpen && <ComicComments pathWord={comicDetail.item.pathWord} kind={comicDetailKind} onClose={() => setComicCommentsOpen(false)} />}{readerEntry && <BookReader kind={comicDetailKind} pathWord={comicDetail.item.pathWord} entryId={readerEntry.id} group={readerGroup} onClose={() => setReaderEntry(null)} />}</div>;
 
   return <div className="gz-explore" onClickCapture={event => { clickedCoverRef.current = (event.target as HTMLElement).closest("button")?.querySelector<HTMLElement>("[data-explore-cover-id]") ?? null; }}>
     {view === "section" && comicSection ? comicSectionView : view === "schedule" ? scheduleView : <>

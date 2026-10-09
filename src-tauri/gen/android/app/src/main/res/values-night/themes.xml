@@ -1,6 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.genzo" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- Match the in-app background so the window behind the web view never flashes white. -->
+        <item name="android:windowBackground">@color/genzo_splash_background</item>
+    </style>
+
+    <!-- Launch theme: branded splash that hands off to Theme.genzo. -->
+    <style name="Theme.genzo.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/genzo_splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimationDuration">300</item>
+        <item name="postSplashScreenTheme">@style/Theme.genzo</item>
     </style>
 </resources>

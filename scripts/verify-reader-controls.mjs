@@ -41,7 +41,7 @@ try{
  await control("chapter-previous");await until(s=>s.entryId==="one"&&s.rendered,"previous chapter");assert.equal((await ready()).location.pageIndex,5,"previous chapter opens at its end");
  await control("chapter-next");await until(s=>s.entryId==="two"&&s.rendered,"next chapter");assert.equal((await ready()).location.pageIndex,0,"next chapter starts at beginning");result.cases.chapterNavigation=true;
  await delay(900);const resume=await invoke("get_reading_resume",{kind:"comic",pathWord:"reader-fixture-comic"});assert.equal(resume.entryId,"two");result.cases.resume=resume;
- await control("settings-sheet");await delay(300);const settings=xml();assert.ok(settings.includes("阅读模式")&&settings.includes("长按放大"));screenshot("settings");command("shell","input","keyevent","4");
+ await control("settings-sheet");await delay(300);const settings=xml();assert.ok(settings.includes("阅读设置")&&settings.includes("滚动")&&settings.includes("翻页")&&settings.includes("长按放大"));screenshot("settings");command("shell","input","keyevent","4");
  await control("close");await until(s=>s.status==="closed","close");await delay(400);
  await invoke("open_internal_reader",{kind:"novel",pathWord:"reader-fixture-novel",entryId:"one",group:""});await ready();
  await control("settings",0,{scroll:false,fontSize:20});await control("seek",.1);await delay(700);const before=(await ready()).location;

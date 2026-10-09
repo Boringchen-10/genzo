@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ArrowDown, ArrowUp, Download, RefreshCw, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, Play, RefreshCw, X } from "lucide-react";
 import { bookContentApi, type ReadingKind, type SourceEntry, type SourcePage, type ReadingResume } from "../bookContent";
 import LoadingIndicator from "./LoadingIndicator";
 import { androidSession, READING_NETWORK_CHANGED } from "./sessionCache";
@@ -126,8 +126,10 @@ export default function OnlineChapters({ kind, pathWord, selecting, onSelecting,
   const allSelected = !!source?.entries.length && source.entries.every(entry => selected.has(entry.id));
   const groupPriority = (group: { id: string; title: string }) => group.id === "default" ? 0 : /单行本|單行本/.test(group.title) ? 1 : 2;
   const groups = [...(source?.groups ?? [])].sort((a, b) => groupPriority(a) - groupPriority(b));
+  const resumeEntry = resume && source?.group === resume.group ? source.entries.find(entry => entry.id === resume.entryId) : undefined;
   return <section className="gz-online-chapters" aria-label="在线章节">
-    <div className="gz-section-head"><h2>在线章节</h2>{resume && !selecting && <button className="gz-btn" type="button" disabled={busy} onClick={() => onRead({ id: resume.entryId, title: "继续上次阅读", order: 0, count: 0 }, resume.group)}>继续上次阅读</button>}</div>
+    <div className="gz-section-head"><h2>在线章节</h2></div>
+    {resume && !selecting && <button className="gz-btn gz-reading-resume" type="button" disabled={busy} aria-label={resumeEntry ? `继续阅读：${resumeEntry.title}` : "继续上次阅读"} onClick={() => onRead(resumeEntry ?? { id: resume.entryId, title: "继续上次阅读", order: 0, count: 0 }, resume.group)}><Play size={18} fill="currentColor" aria-hidden="true" /><span>{resumeEntry?.title || "继续阅读"}</span></button>}
     {source && source.groups.length > 0 && <div className="gz-book-tabs" role="tablist" aria-label="章节分组">
       {groups.map(group => <button key={group.id} role="tab" className={source.group === group.id ? "active" : ""} aria-selected={source.group === group.id} disabled={busy || loading} onClick={() => { setSelected(new Map()); void load(group.id, 1, descending); }}>{group.id === "default" ? "默认" : group.title}{groupTotals[group.id] != null && <span>({groupTotals[group.id]})</span>}</button>)}
     </div>}

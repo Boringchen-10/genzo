@@ -3,10 +3,12 @@ import { persist } from "zustand/middleware";
 import type { LibraryView, ThemeMode } from "./types";
 
 export type ThemeStyle = "soft" | "vivid" | "expressive" | "accurate" | "content" | "neutral" | "mono" | "rainbow";
+export type StartScreen = "home" | "library" | "bookshelf" | "explore" | "profile";
 
 interface PreferencesState {
   theme: ThemeMode;
   libraryView: LibraryView;
+  startScreen: StartScreen;
   accentHue: number;
   accentSat: number;
   accentLight: number;
@@ -22,6 +24,7 @@ interface PreferencesState {
   shelfColumns: number;
   setTheme: (theme: ThemeMode) => void;
   setLibraryView: (view: LibraryView) => void;
+  setStartScreen: (startScreen: StartScreen) => void;
   setAccentHue: (accentHue: number) => void;
   setAccentSat: (accentSat: number) => void;
   setAccentLight: (accentLight: number) => void;
@@ -43,6 +46,7 @@ export const usePreferences = create<PreferencesState>()(
     (set) => ({
       theme: "system",
       libraryView: "grid",
+      startScreen: "home",
       accentHue: 158,
       accentSat: 55,
       accentLight: 55,
@@ -58,6 +62,7 @@ export const usePreferences = create<PreferencesState>()(
       shelfColumns: 7,
       setTheme: (theme) => set({ theme }),
       setLibraryView: (libraryView) => set({ libraryView }),
+      setStartScreen: (startScreen) => set({ startScreen }),
       setAccentHue: (accentHue) => set({ accentHue }),
       setAccentSat: (accentSat) => set({ accentSat }),
       setAccentLight: (accentLight) => set({ accentLight }),
