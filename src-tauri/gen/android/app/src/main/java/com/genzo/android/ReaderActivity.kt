@@ -52,6 +52,8 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var bottom: LinearLayout
     private lateinit var title: TextView
     private lateinit var position: TextView
+    private lateinit var totalLabel: TextView
+    private lateinit var bottomDivider: View
     private lateinit var seek: SeekBar
     private lateinit var dimmer: View
     private lateinit var statusBackground: View
@@ -82,6 +84,7 @@ class ReaderActivity : AppCompatActivity() {
     }
     val readerForeground: Int get() = if (settings.optString("theme", "dark") == "dark") Color.rgb(226, 232, 231) else Color.rgb(35, 40, 39)
     val accent = Color.rgb(23, 180, 145)
+    val dividerColor: Int get() = if (settings.optString("theme", "dark") == "dark") Color.rgb(48, 58, 56) else Color.rgb(208, 210, 202)
     fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -103,23 +106,46 @@ class ReaderActivity : AppCompatActivity() {
         root.addView(dimmer, FrameLayout.LayoutParams(-1, -1))
         statusBackground=View(this).apply {isClickable=false;visibility=View.GONE}
         root.addView(statusBackground,FrameLayout.LayoutParams(-1,0,Gravity.TOP))
-        top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, dp(8), 0) }
-        top.addView(button("返回") { finish() })
-        title = TextView(this).apply { textSize = 16f; maxLines = 1; gravity = Gravity.CENTER_VERTICAL; ellipsize = android.text.TextUtils.TruncateAt.END }
+        top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), 0, dp(4), 0) }
+        top.addView(iconButton(R.drawable.ic_genzo_arrow_back, "返回") { finish() })
+        title = TextView(this).apply { textSize = 16f; maxLines = 1; gravity = Gravity.CENTER_VERTICAL; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(4), 0, dp(4), 0) }
         top.addView(title, LinearLayout.LayoutParams(0, dp(56), 1f))
+        if (kind == "comic") { top.addView(iconButton(R.drawable.ic_genzo_refresh, "刷新") { refresh() }); top.addView(iconButton(R.drawable.ic_genzo_bookmark, "书签") { bookmarks() }) }
         root.addView(top, FrameLayout.LayoutParams(-1, dp(56), Gravity.TOP))
-        bottom = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(8)) }
-        position = TextView(this).apply { textSize = 12f; gravity = Gravity.CENTER }
-        bottom.addView(position)
+        bottom = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, dp(12), dp(8)) }
+        bottomDivider = View(this).apply { setBackgroundColor(dividerColor) }
+        bottom.addView(bottomDivider, LinearLayout.LayoutParams(-1, dp(1)))
+        position = TextView(this).apply { textSize = 13f; gravity = Gravity.CENTER }
+        totalLabel = TextView(this).apply { textSize = 13f; gravity = Gravity.CENTER }
         seek = SeekBar(this).apply { max = 1000; setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, user: Boolean) {}
             override fun onStartTrackingTouch(bar: SeekBar?) {}
             override fun onStopTrackingTouch(bar: SeekBar?) { surface?.seek(seek.progress / 1000.0) }
         }) }
-        bottom.addView(seek, LinearLayout.LayoutParams(-1, dp(44)))
-        val actions = LinearLayout(this)
-        for ((label, action) in listOf<Pair<String, () -> Unit>>((if (kind == "comic") "上一话" else "上一章") to { chapter(false) }, "目录" to { catalogue() }, "书签" to { bookmarks() }, "设置" to { settingsSheet() }, (if (kind == "comic") "下一话" else "下一章") to { chapter(true) })) {
-            actions.addView(button(label, action), LinearLayout.LayoutParams(0, dp(48), 1f))
+        val progressRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
+        progressRow.addView(position, LinearLayout.LayoutParams(dp(40), -2))
+        progressRow.addView(seek, LinearLayout.LayoutParams(0, dp(40), 1f))
+        progressRow.addView(totalLabel, LinearLayout.LayoutParams(dp(40), -2))
+        if (kind == "comic") bottom.addView(progressRow)
+        val actions = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(2)) }
+        val controls = if (kind == "comic")
+            listOf<Triple<Int, String, () -> Unit>>(
+                Triple(R.drawable.ic_genzo_skip_previous, "上一话") { chapter(false) },
+                Triple(R.drawable.ic_genzo_list, "目录") { catalogue() },
+                Triple(R.drawable.ic_genzo_comment, "本话评论") { chapterComments() },
+                Triple(R.drawable.ic_genzo_settings, "设置") { settingsSheet() },
+                Triple(R.drawable.ic_genzo_skip_next, "下一话") { chapter(true) },
+            )
+        else
+            listOf<Triple<Int, String, () -> Unit>>(
+                Triple(R.drawable.ic_genzo_skip_previous, "上一章") { chapter(false) },
+                Triple(R.drawable.ic_genzo_list, "目录") { catalogue() },
+                Triple(R.drawable.ic_genzo_bookmark, "书签") { bookmarks() },
+                Triple(R.drawable.ic_genzo_settings, "设置") { settingsSheet() },
+                Triple(R.drawable.ic_genzo_skip_next, "下一章") { chapter(true) },
+            )
+        for ((icon, description, action) in controls) {
+            actions.addView(iconButton(icon, description, action), LinearLayout.LayoutParams(0, dp(44), 1f))
         }
         bottom.addView(actions)
         root.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
@@ -132,7 +158,10 @@ class ReaderActivity : AppCompatActivity() {
                 root.setPadding(0,0,0,0)
                 statusBackground.layoutParams=statusBackground.layoutParams.apply {height=bars.top}
                 top.layoutParams=(top.layoutParams as FrameLayout.LayoutParams).apply {topMargin=bars.top;leftMargin=bars.left;rightMargin=bars.right}
-                bottom.layoutParams=(bottom.layoutParams as FrameLayout.LayoutParams).apply {bottomMargin=bars.bottom;leftMargin=bars.left;rightMargin=bars.right}
+                // Extend the bottom bar's own background down to the screen edge so the
+                // comic never shows through the navigation area; the inset becomes padding.
+                bottom.layoutParams=(bottom.layoutParams as FrameLayout.LayoutParams).apply {bottomMargin=0;leftMargin=bars.left;rightMargin=bars.right}
+                bottom.setPadding(dp(12),0,dp(12),dp(8)+bars.bottom)
             } else root.setPadding(bars.left,bars.top,bars.right,bars.bottom)
             WindowInsetsCompat.Builder(insets).setInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),androidx.core.graphics.Insets.NONE).build()
         }
@@ -143,6 +172,14 @@ class ReaderActivity : AppCompatActivity() {
         setPadding(dp(4), 0, dp(4), 0); setOnClickListener { action() }
         contentDescription = label; setTextColor(readerForeground)
         backgroundTintList = android.content.res.ColorStateList.valueOf(if (settings.optString("theme","dark") == "dark") Color.rgb(33,43,42) else Color.rgb(230,231,222))
+    }
+    fun iconButton(icon: Int, description: String, action: () -> Unit) = ImageView(this).apply {
+        setImageResource(icon); contentDescription = description; isClickable = true
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        setPadding(dp(10), dp(10), dp(10), dp(10))
+        imageTintList = android.content.res.ColorStateList.valueOf(readerForeground)
+        background = androidx.core.content.ContextCompat.getDrawable(this@ReaderActivity, R.drawable.genzo_icon_button_bg)
+        setOnClickListener { action() }
     }
     fun toggleMenu() { menuTouched = true;menu = !menu; applyMenu(); report(snapshot.optString("status","ready")) }
     private fun applyMenu() { top.visibility = if (menu) View.VISIBLE else View.GONE; bottom.visibility = top.visibility
@@ -155,7 +192,8 @@ class ReaderActivity : AppCompatActivity() {
     }
     fun notify(message: String) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
     fun locationChanged(page: Int, count: Int, fraction: Double) {
-        position.text = if (kind == "comic") "${page + 1} / $count 页" else "${"%.1f".format(fraction.coerceIn(0.0,1.0) * 100)}%"
+        if (kind == "comic") { position.text = "${page + 1}"; totalLabel.text = "$count" }
+        else { position.text = "${"%.1f".format(fraction.coerceIn(0.0,1.0) * 100)}%"; totalLabel.text = "" }
         seek.progress = (fraction.coerceIn(0.0, 1.0) * 1000).toInt()
         report("ready")
         pendingSave?.cancel(); pendingSave = lifecycleScope.launch { delay(600); save() }
@@ -280,6 +318,10 @@ class ReaderActivity : AppCompatActivity() {
         val novel = surface as? NovelReaderSurface
         if (novel != null) novel.chapter(forward) else adjacent(forward)
     }
+    /** Reload the current chapter while keeping the reader's own position. */
+    fun refresh() { if (!loading && !isFinishing) load(entry, surface?.location()) }
+    /** Chapter-scoped comments: awaits the per-chapter endpoint from the backend. */
+    private fun chapterComments() { notify("本话评论待接入") }
     fun catalogue() {
         if (kind == "novel" && surface is NovelReaderSurface) {
             choice("阅读目录", listOf("本卷章节", "全部卷册")) { option -> if (option == 0) (surface as? NovelReaderSurface)?.contents() else seriesCatalogue() }
@@ -408,9 +450,11 @@ class ReaderActivity : AppCompatActivity() {
     private fun applyAppearance() {
         root.setBackgroundColor(readerBackground); top.setBackgroundColor(readerBackground); bottom.setBackgroundColor(readerBackground)
         statusBackground.setBackgroundColor(readerBackground)
-        title.setTextColor(readerForeground); position.setTextColor(readerForeground)
+        title.setTextColor(readerForeground); position.setTextColor(readerForeground); totalLabel.setTextColor(readerForeground)
+        bottomDivider.setBackgroundColor(dividerColor)
         fun paintControls(view: View) {
             if (view is Button) { view.setTextColor(readerForeground); view.backgroundTintList = android.content.res.ColorStateList.valueOf(if (settings.optString("theme","dark") == "dark") Color.rgb(33,43,42) else Color.rgb(230,231,222)) }
+            if (view is ImageView) view.imageTintList = android.content.res.ColorStateList.valueOf(readerForeground)
             if (view is android.view.ViewGroup) for (index in 0 until view.childCount) paintControls(view.getChildAt(index))
         }
         paintControls(top); paintControls(bottom)
